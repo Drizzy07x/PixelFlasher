@@ -191,19 +191,16 @@ jobs:
   #   needs: check_artifacts
   #   if: ${{ needs.check_artifacts.outputs.build_windows_arm64 == 'true' }}
   #   uses: ./.github/workflows/windows-arm64.yml
-  #   secrets: inherit
 
   # build_ubuntu_22_04:
   #   needs: check_artifacts
   #   if: ${{ needs.check_artifacts.outputs.build_ubuntu_22_04 == 'true' }}
   #   uses: ./.github/workflows/ubuntu_22_04.yml
-  #   secrets: inherit
 
   # build_ubuntu_24_04:
   #   needs: check_artifacts
   #   if: ${{ needs.check_artifacts.outputs.build_ubuntu_24_04 == 'true' }}
   #   uses: ./.github/workflows/ubuntu_24_04.yml
-  #   secrets: inherit
 
   build_mac:
     needs: check_artifacts
@@ -215,19 +212,14 @@ jobs:
   #   needs: check_artifacts
   #   if: ${{ needs.check_artifacts.outputs.build_appimage == 'true' }}
   #   uses: ./.github/workflows/appimage-x86_64.yml
-  #   secrets: inherit
 
   deploy:
-    # Make deploy conditional on the check_artifacts job and all build jobs
-    # needs: [check_artifacts, build_windows, build_ubuntu_22_04, build_ubuntu_24_04, build_mac, build_appimage]
     needs: [check_artifacts, build_windows, build_mac]
-    # Run only on tag push or manual workflow run, and even if some builds are skipped
     if: always() && (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
 
     runs-on: ubuntu-latest
 
     steps:
-      # Get version
       - name: Get version from tag
         id: get_version
         run: |
@@ -238,13 +230,20 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      # Checkout code to access workflow scripts
+      - name: Determine release type
+        id: release_type
+        run: |
+          if [[ "${{ steps.get_version.outputs.version }}" == *"-beta"* || "${{ steps.get_version.outputs.version }}" == *"-alpha"* || "${{ steps.get_version.outputs.version }}" == *"-rc"* ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # Set up for downloading artifacts from current or previous runs
       - name: Create release directory
         run: mkdir -p release
 
@@ -253,48 +252,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMIT_SHA: ${{ needs.check_artifacts.outputs.commit_sha }}
         run: |
-          # Use the commit SHA from the check_artifacts job
           echo "Using commit SHA: ${COMMIT_SHA}"
 
-          # List of required artifacts - must match those in check_artifacts job
-          # ARTIFACTS=(
-          #   "PixelFlasher.exe Artifacts"
-          #   "PixelFlasher_Ubuntu_22_04 Artifacts"
-          #   "PixelFlasher_Ubuntu_24_04 Artifacts"
-          #   "PixelFlasher_MacOS.dmg Artifacts"
-          #   "PixelFlasher-x86_64.AppImage Artifacts"
-          # )
           ARTIFACTS=(
             "PixelFlasher.exe Artifacts"
             "PixelFlasher_MacOS.dmg Artifacts"
           )
 
-          # Get all workflow runs for this commit
           WORKFLOW_RUNS=$(gh api \
             -H "Accept: application/vnd.github.v3+json" \
             "/repos/${{ github.repository }}/actions/runs?head_sha=${COMMIT_SHA}")
 
-          # Get run IDs from workflow runs
           RUN_IDS=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs[].id')
 
-          # First try to download from current run
           echo "Trying to download artifacts from current run..."
           for ARTIFACT in "${ARTIFACTS[@]}"; do
             echo "Downloading $ARTIFACT..."
             gh run download --name "$ARTIFACT" --dir release || echo "Could not download $ARTIFACT from current run, will try from previous runs"
           done
 
-          # For artifacts that failed to download, try using the information from check_artifacts
           ARTIFACT_RUNS='${{ needs.check_artifacts.outputs.artifact_runs }}'
           echo "Artifact runs from previous job: $ARTIFACT_RUNS"
 
           for ARTIFACT in "${ARTIFACTS[@]}"; do
-            # Check if the artifact was already downloaded
             ARTIFACT_FILES=$(find release -type f | grep -i "$(echo $ARTIFACT | cut -d' ' -f1)" || true)
             if [[ -z "$ARTIFACT_FILES" ]]; then
               echo "Need to find $ARTIFACT in previous runs..."
 
-              # First check if we have information from check_artifacts about this artifact
               if [[ -n "$ARTIFACT_RUNS" && "$ARTIFACT_RUNS" != "null" ]]; then
                 RUN_ID=$(echo "$ARTIFACT_RUNS" | jq -r --arg name "$ARTIFACT" '.[$name] // empty')
 
@@ -312,12 +296,9 @@ jobs:
                 fi
               fi
 
-              # If we couldn't download using check_artifacts info, try all runs
               for RUN_ID in $RUN_IDS; do
-                if [[ "$RUN_ID" != "${{ github.run_id }}" ]]; then  # Skip current run
+                if [[ "$RUN_ID" != "${{ github.run_id }}" ]]; then
                   echo "Checking run $RUN_ID for $ARTIFACT"
-
-                  # Try to download the artifact from this run
                   TEMP_DIR=$(mktemp -d)
                   if gh run download $RUN_ID --name "$ARTIFACT" --dir "$TEMP_DIR" 2>/dev/null; then
                     echo "Found and downloaded $ARTIFACT from run $RUN_ID"
@@ -334,11 +315,9 @@ jobs:
             fi
           done
 
-          # Show what we have
           echo "Downloaded artifacts:"
           ls -la release/
 
-          # If we're missing any required artifacts, fail the deploy
           MISSING_ARTIFACTS=false
           for ARTIFACT in "${ARTIFACTS[@]}"; do
             ARTIFACT_FILES=$(find release -type f | grep -i "$(echo $ARTIFACT | cut -d' ' -f1)" || true)
@@ -353,11 +332,9 @@ jobs:
             exit 1
           fi
 
-      # List the artifacts downloaded
       - name: List contents of dist directory
         run: ls ${{ github.workspace }}/release*
 
-      # Create release
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v3
@@ -365,13 +342,25 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ steps.get_version.outputs.version }}
           name: Release v${{ steps.get_version.outputs.version }}
-          # body_path: RELEASE.md
           body: |
+            ## PixelFlasher v${{ steps.get_version.outputs.version }}
 
-            ## Which file to download?
-            A description of the various artifacts is in the [README](https://github.com/badabing2005/PixelFlasher#release-files)
+            Modern UI beta preview includes:
+            - Compact Dashboard behind `--modern-dashboard`
+            - Standalone Dashboard preview via `--modern-dashboard-preview`
+            - Flash Wizard preview via `--flash-wizard-preview`
+            - Flash Wizard demo via `--flash-wizard-demo`
+            - Wizard model, adapter, detail formatter, and tests
+
+            Safety status:
+            - The Flash Wizard is read-only / preview-only.
+            - The Wizard does not execute ADB, Fastboot, patch, or flash operations.
+            - Use the legacy PixelFlasher controls for real device operations.
+
+            Testing guide:
+            - See `docs/MODERN_UI_BETA_TESTING.md`.
           draft: true
-          prerelease: false
+          prerelease: ${{ steps.release_type.outputs.prerelease }}
           files: |
             release/*
         continue-on-error: true
