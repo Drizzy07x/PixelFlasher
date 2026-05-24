@@ -31,65 +31,54 @@ class CompactModernDashboardPanel(wx.Panel):
         self.SetBackgroundColour(wx.Colour(palette.background))
         root = wx.BoxSizer(wx.HORIZONTAL)
 
-        root.Add(self._build_device_section(), 2, wx.EXPAND | wx.RIGHT, 8)
-        root.Add(self._build_firmware_section(), 2, wx.EXPAND | wx.RIGHT, 8)
+        root.Add(self._build_device_section(), 2, wx.EXPAND | wx.RIGHT, 6)
+        root.Add(self._build_firmware_section(), 2, wx.EXPAND | wx.RIGHT, 6)
         root.Add(self._build_next_step_section(), 1, wx.EXPAND)
 
         self.SetSizer(root)
-        self.SetMinSize((-1, 92))
+        self.SetMinSize((-1, 64))
+        self.SetMaxSize((-1, 78))
 
     def _build_device_section(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
         title_row = wx.BoxSizer(wx.HORIZONTAL)
-        title_row.Add(self._text(card, "Device", 10, True), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        self._labels["connection_badge"] = self._pill(card, "ADB Unknown", StatusLevel.INFO)
+        title_row.Add(self._text(card, "Device", 9, True), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self._labels["connection_badge"] = self._pill(card, "ADB ?", StatusLevel.INFO)
         title_row.Add(self._labels["connection_badge"], 0, wx.ALIGN_CENTER_VERTICAL)
-        sizer.Add(title_row, 0, wx.BOTTOM, 4)
+        sizer.Add(title_row, 0, wx.BOTTOM, 1)
 
-        self._labels["device_name"] = self._text(card, "No device", 12, True)
-        self._labels["device_subtitle"] = self._muted(card, "Connect a device and scan")
-        sizer.Add(self._labels["device_name"], 0, wx.BOTTOM, 2)
-        sizer.Add(self._labels["device_subtitle"], 0, wx.BOTTOM, 6)
-
-        chips = wx.BoxSizer(wx.HORIZONTAL)
-        self._labels["slot_status"] = self._pill(card, "Slot Unknown", StatusLevel.INFO)
-        self._labels["root_status"] = self._pill(card, "Root Unknown", StatusLevel.INFO)
-        self._labels["bootloader_status"] = self._pill(card, "Bootloader Unknown", StatusLevel.INFO)
-        chips.Add(self._labels["slot_status"], 0, wx.RIGHT, 8)
-        chips.Add(self._labels["root_status"], 0, wx.RIGHT, 8)
-        chips.Add(self._labels["bootloader_status"], 0)
-        sizer.Add(chips, 0, wx.EXPAND)
-
+        self._labels["device_name"] = self._text(card, "No device", 11, True)
+        self._labels["device_subtitle"] = self._muted(card, "No connected device")
+        sizer.Add(self._labels["device_name"], 0)
+        sizer.Add(self._labels["device_subtitle"], 0)
         card.SetSizer(self._wrap(sizer))
         return card
 
     def _build_firmware_section(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Firmware / ROM", 10, True), 0, wx.BOTTOM, 4)
-        self._labels["firmware_filename"] = self._text(card, "No firmware selected", 12, True)
-        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below")
-        sizer.Add(self._labels["firmware_filename"], 0, wx.BOTTOM, 2)
-        sizer.Add(self._labels["firmware_details"], 0, wx.BOTTOM, 8)
-
-        self._labels["firmware_state"] = self._pill(card, "Waiting for file", StatusLevel.INFO)
-        sizer.Add(self._labels["firmware_state"], 0)
+        sizer.Add(self._text(card, "Firmware / ROM", 9, True), 0, wx.BOTTOM, 1)
+        self._labels["firmware_filename"] = self._text(card, "No firmware", 11, True)
+        self._labels["firmware_details"] = self._muted(card, "Select below")
+        sizer.Add(self._labels["firmware_filename"], 0)
+        sizer.Add(self._labels["firmware_details"], 0)
         card.SetSizer(self._wrap(sizer))
         return card
 
     def _build_next_step_section(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Next", 10, True), 0, wx.BOTTOM, 4)
-        self._labels["next_step_title"] = self._text(card, "Select firmware", 12, True)
-        self._labels["next_step_body"] = self._muted(card, "Then review legacy options")
-        sizer.Add(self._labels["next_step_title"], 0, wx.BOTTOM, 2)
-        sizer.Add(self._labels["next_step_body"], 0, wx.BOTTOM, 8)
+        top = wx.BoxSizer(wx.HORIZONTAL)
+        top.Add(self._text(card, "Next", 9, True), 1, wx.ALIGN_CENTER_VERTICAL)
+        self._labels["firmware_state"] = self._pill(card, "Waiting", StatusLevel.INFO)
+        top.Add(self._labels["firmware_state"], 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 1)
 
-        focus_button = wx.Button(card, label="Focus selector")
-        focus_button.Bind(wx.EVT_BUTTON, self._focus_firmware_picker)
-        sizer.Add(focus_button, 0, wx.EXPAND)
+        self._labels["next_step_title"] = self._text(card, "Select firmware", 11, True)
+        self._labels["next_step_body"] = self._muted(card, "Review options")
+        sizer.Add(self._labels["next_step_title"], 0)
+        sizer.Add(self._labels["next_step_body"], 0)
         card.SetSizer(self._wrap(sizer))
         return card
 
@@ -97,26 +86,23 @@ class CompactModernDashboardPanel(wx.Panel):
         device = self._device_status()
         firmware = self._firmware_info()
 
-        self._labels["device_name"].SetLabel(device.display_name)
-        self._labels["device_subtitle"].SetLabel(device.codename or device.redacted_serial() or "No connected device selected")
-        self._set_pill(self._labels["connection_badge"], "ADB Ready" if device.adb_ready else "ADB Unknown", StatusLevel.READY if device.adb_ready else StatusLevel.INFO)
-        self._set_pill(self._labels["slot_status"], f"Slot {device.active_slot or 'Unknown'}", StatusLevel.INFO)
-        self._set_pill(self._labels["root_status"], f"Root {device.root_status}", StatusLevel.READY if "root" in device.root_status.lower() else StatusLevel.INFO)
-        bootloader_level = StatusLevel.READY if device.bootloader_state.lower() in {"unlocked", "locked"} else StatusLevel.INFO
-        self._set_pill(self._labels["bootloader_status"], f"Bootloader {device.bootloader_state}", bootloader_level)
+        self._labels["device_name"].SetLabel(_shorten(device.display_name, 28))
+        self._labels["device_subtitle"].SetLabel(_shorten(device.codename or device.redacted_serial() or "No connected device", 34))
+        self._set_pill(self._labels["connection_badge"], "ADB OK" if device.adb_ready else "ADB ?", StatusLevel.READY if device.adb_ready else StatusLevel.INFO)
 
         if firmware.filename:
-            self._labels["firmware_filename"].SetLabel(firmware.filename)
-            self._labels["firmware_details"].SetLabel(f"{firmware.package_type} • {firmware.device or 'unknown device'} • {firmware.size_label}")
-            self._set_pill(self._labels["firmware_state"], "Firmware selected", StatusLevel.READY)
+            self._labels["firmware_filename"].SetLabel(_shorten(firmware.filename, 34))
+            details = f"{firmware.package_type} • {firmware.device or 'unknown'}"
+            self._labels["firmware_details"].SetLabel(_shorten(details, 38))
+            self._set_pill(self._labels["firmware_state"], "Ready", StatusLevel.READY)
             self._labels["next_step_title"].SetLabel("Review options")
-            self._labels["next_step_body"].SetLabel("Use legacy controls below")
+            self._labels["next_step_body"].SetLabel("Use legacy controls")
         else:
-            self._labels["firmware_filename"].SetLabel("No firmware selected")
-            self._labels["firmware_details"].SetLabel("Use the existing selector below")
-            self._set_pill(self._labels["firmware_state"], "Waiting for file", StatusLevel.INFO)
+            self._labels["firmware_filename"].SetLabel("No firmware")
+            self._labels["firmware_details"].SetLabel("Select below")
+            self._set_pill(self._labels["firmware_state"], "Waiting", StatusLevel.INFO)
             self._labels["next_step_title"].SetLabel("Select firmware")
-            self._labels["next_step_body"].SetLabel("Then review legacy options")
+            self._labels["next_step_body"].SetLabel("Review options")
         self.Layout()
 
     def _focus_firmware_picker(self, event: wx.CommandEvent) -> None:
@@ -156,7 +142,7 @@ class CompactModernDashboardPanel(wx.Panel):
         size = 0
         with contextlib.suppress(Exception):
             size = Path(path).stat().st_size
-        package_type = "OTA package" if getattr(getattr(self.frame, "config", object()), "firmware_is_ota", False) else "Firmware package"
+        package_type = "OTA" if getattr(getattr(self.frame, "config", object()), "firmware_is_ota", False) else "Firmware"
         device = ""
         with contextlib.suppress(Exception):
             device = getattr(getattr(self.frame, "config", object()), "device", "") or ""
@@ -170,7 +156,7 @@ class CompactModernDashboardPanel(wx.Panel):
 
     def _wrap(self, content: wx.Sizer) -> wx.BoxSizer:
         wrapper = wx.BoxSizer(wx.VERTICAL)
-        wrapper.Add(content, 1, wx.EXPAND | wx.ALL, 8)
+        wrapper.Add(content, 1, wx.EXPAND | wx.ALL, 5)
         return wrapper
 
     def _text(self, parent: wx.Window, label: str, size: int = 10, bold: bool = False) -> wx.StaticText:
@@ -189,7 +175,7 @@ class CompactModernDashboardPanel(wx.Panel):
         return text
 
     def _pill(self, parent: wx.Window, label: str, level: StatusLevel) -> wx.StaticText:
-        text = self._text(parent, label, 9, True)
+        text = self._text(parent, label, 8, True)
         self._set_pill(text, label, level)
         return text
 
@@ -210,3 +196,10 @@ def _is_dark_mode() -> bool:
         import darkdetect
         return bool(darkdetect.isDark())
     return False
+
+
+def _shorten(value: str, limit: int) -> str:
+    value = str(value or "")
+    if len(value) <= limit:
+        return value
+    return value[: max(1, limit - 1)] + "…"
