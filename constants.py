@@ -35,7 +35,7 @@
 
 APPNAME = 'PixelFlasher'
 CONFIG_FILE_NAME = 'PixelFlasher.json'
-VERSION = '9.1.1.1'
+VERSION = '9.2.0-beta'
 SDKVERSION = '33.0.3'
 MAIN_WIDTH = 1400
 MAIN_HEIGHT = 1040
@@ -122,26 +122,10 @@ LANGUAGE_NAMES = {
     'nl': 'Nederlands (Dutch)',
     'pl': 'Polski (Polish)',
     'pt': 'Português (Portuguese)',
-    'ro': 'Română (Romanian)',
     'ru': 'Русский (Russian)',
-    'sv': 'Svenska (Swedish)',
+    'tr': 'Türkçe (Turkish)',
     'uk': 'Українська (Ukrainian)',
     'vi': 'Tiếng Việt (Vietnamese)',
     'zh_CN': '简体中文 (Simplified Chinese)',
-    'zh_TW': '繁體中文 (Traditional Chinese)'
+    'zh_TW': '繁體中文 (Traditional Chinese)',
 }
-
-# Minimum safe bootloader version to avoid ARB issues.
-MIN_SAFE_BOOTLOADER_VERSIONS = {
-    "bluejay": "15.3-13239612",
-    "oriole": "15.3-13239612",
-    "raven": "15.3-13239612",
-    "akita": "15.3-13266201",
-    "shiba": "15.3-13272266",
-    "husky": "15.3-13272266",
-    "frankel": "17.1-15016913",
-    "blazer": "17.1-15016913",
-    "mustang": "17.1-15016913",
-    "rango": "17.1-15016913"
-}
-
