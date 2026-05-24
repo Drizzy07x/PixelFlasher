@@ -15,28 +15,28 @@ from ui.theme import get_theme
 
 _STEP_NOTES: dict[str, tuple[str, ...]] = {
     "device": (
-        "Use the legacy Scan Devices control until wizard device scanning is wired.",
-        "This step is complete only when a device is selected and ADB/Fastboot is ready.",
+        "Legacy scan remains the source of truth.",
+        "Complete when a device is selected and ADB/Fastboot is ready.",
     ),
     "firmware": (
-        "Firmware must be verified before the final review can pass.",
-        "Invalid or mismatched packages should block the final flash step.",
+        "Firmware must be verified before review passes.",
+        "Mismatched packages should block the final flash step.",
     ),
     "patch": (
-        "Patching remains disabled in this preview.",
-        "Patch choices will be wired only after firmware and target device checks are reliable.",
+        "Patching is disabled in this preview.",
+        "Patch choices will be wired after firmware checks are reliable.",
     ),
     "options": (
         "Dangerous options require explicit confirmation later.",
         "Safe default remains keep data and avoid force options.",
     ),
     "review": (
-        "Review uses WizardSession.review_lines() and WizardSession.warnings().",
+        "Review uses WizardSession summary and warnings.",
         "Final action remains blocked while can_flash is false.",
     ),
     "flash": (
         "Flash execution is disabled in this preview.",
-        "When implemented, this step should delegate to the existing guarded legacy flash flow.",
+        "Future builds should delegate to the guarded legacy flash flow.",
     ),
 }
 
@@ -70,21 +70,21 @@ class FlashWizardPanel(wx.Panel):
 
         header = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, "Flash Wizard", 20, True), 0, wx.BOTTOM, 3)
-        title_stack.Add(self._muted(self, "Guided preview. Reads WizardSession only; no commands are executed."), 0)
+        title_stack.Add(self._text(self, "Flash Wizard", 18, True), 0, wx.BOTTOM, 2)
+        title_stack.Add(self._muted(self, "Preview only. No commands are executed."), 0)
         header.Add(title_stack, 1, wx.EXPAND)
         self._status_badge = self._badge(self, "Preview", "info")
         header.Add(self._status_badge, 0, wx.ALIGN_CENTER_VERTICAL)
-        root.Add(header, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(header, 0, wx.EXPAND | wx.ALL, 14)
 
-        root.Add(self._build_steps(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+        root.Add(self._build_steps(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         content_row = wx.BoxSizer(wx.HORIZONTAL)
-        content_row.Add(self._build_step_card(), 2, wx.EXPAND | wx.RIGHT, 10)
-        content_row.Add(self._build_summary_card(), 1, wx.EXPAND | wx.LEFT, 10)
-        root.Add(content_row, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+        content_row.Add(self._build_step_card(), 5, wx.EXPAND | wx.RIGHT, 8)
+        content_row.Add(self._build_summary_card(), 2, wx.EXPAND | wx.LEFT, 8)
+        root.Add(content_row, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
-        root.Add(self._build_footer(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.Add(self._build_footer(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
         self.SetSizer(root)
 
     def _build_steps(self) -> wx.Panel:
@@ -94,59 +94,55 @@ class FlashWizardPanel(wx.Panel):
         self._step_badges.clear()
         for index, step in enumerate(STEPS):
             cell = wx.BoxSizer(wx.VERTICAL)
-            label = self._text(panel, f"{index + 1}. {step.title}", 10, True)
+            label = self._text(panel, f"{index + 1}. {step.title}", 9, True)
             badge = self._badge(panel, "Todo", "muted")
             self._step_labels.append(label)
             self._step_badges.append(badge)
-            cell.Add(label, 0, wx.BOTTOM, 4)
+            cell.Add(label, 0, wx.BOTTOM, 2)
             cell.Add(badge, 0)
-            sizer.Add(cell, 1, wx.EXPAND | wx.RIGHT, 8)
-        panel.SetSizer(self._wrap(sizer, 10))
+            sizer.Add(cell, 1, wx.EXPAND | wx.RIGHT, 6)
+        panel.SetSizer(self._wrap(sizer, 8))
         return panel
 
     def _build_step_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        heading = wx.BoxSizer(wx.HORIZONTAL)
-        title_stack = wx.BoxSizer(wx.VERTICAL)
-        self._title = self._text(card, "", 18, True)
+        self._title = self._text(card, "", 17, True)
         self._body = self._muted(card, "")
-        title_stack.Add(self._title, 0, wx.BOTTOM, 4)
-        title_stack.Add(self._body, 0)
-        heading.Add(title_stack, 1, wx.EXPAND)
-        sizer.Add(heading, 0, wx.EXPAND | wx.BOTTOM, 14)
+        sizer.Add(self._title, 0, wx.BOTTOM, 4)
+        sizer.Add(self._body, 0, wx.BOTTOM, 12)
 
         self._content_panel = wx.Panel(card)
         self._content_panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
         self._content_sizer = wx.BoxSizer(wx.VERTICAL)
-        self._content_panel.SetSizer(self._wrap(self._content_sizer, 14))
+        self._content_panel.SetSizer(self._wrap(self._content_sizer, 12))
         sizer.Add(self._content_panel, 1, wx.EXPAND)
-        card.SetSizer(self._wrap(sizer, 16))
+        card.SetSizer(self._wrap(sizer, 14))
         return card
 
     def _build_summary_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
         top = wx.BoxSizer(wx.HORIZONTAL)
-        top.Add(self._text(card, "Session summary", 13, True), 1, wx.ALIGN_CENTER_VERTICAL)
+        top.Add(self._text(card, "Summary", 12, True), 1, wx.ALIGN_CENTER_VERTICAL)
         top.Add(self._badge(card, "Read-only", "info"), 0, wx.ALIGN_CENTER_VERTICAL)
-        sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 8)
 
         self._summary = self._muted(card, "")
-        sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 12)
+        sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 8)
 
-        sizer.Add(self._text(card, "Blocking state", 11, True), 0, wx.BOTTOM, 6)
-        self._warning = self._text(card, "", 10, True)
+        sizer.Add(self._text(card, "Blocked", 10, True), 0, wx.BOTTOM, 4)
+        self._warning = self._text(card, "", 9, True)
         self._warning.SetForegroundColour(wx.Colour(self.theme.palette.warning))
         sizer.Add(self._warning, 0, wx.EXPAND)
-        card.SetSizer(self._wrap(sizer, 14))
+        card.SetSizer(self._wrap(sizer, 12))
         return card
 
     def _build_footer(self) -> wx.Panel:
         panel = wx.Panel(self)
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._muted(panel, "Preview mode: navigation only. Flash remains disabled unless a future guarded flow enables it."), 1, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self._muted(panel, "Preview mode: navigation only. Real flashing remains disabled."), 1, wx.ALIGN_CENTER_VERTICAL)
         self._back = wx.Button(panel, label="Back")
         self._next = wx.Button(panel, label="Next")
         self._back.Bind(wx.EVT_BUTTON, self._on_back)
@@ -167,10 +163,7 @@ class FlashWizardPanel(wx.Panel):
         if self._warning:
             self._warning.SetLabel(self._warning_text())
         if self._status_badge:
-            if self.session.can_flash:
-                self._set_badge(self._status_badge, "Ready", "ready")
-            else:
-                self._set_badge(self._status_badge, "Blocked", "warning")
+            self._set_badge(self._status_badge, "Ready" if self.session.can_flash else "Blocked", "ready" if self.session.can_flash else "warning")
         self._render_step_content(step.key.value)
 
         for index, label in enumerate(self._step_labels):
@@ -202,25 +195,24 @@ class FlashWizardPanel(wx.Panel):
             return
         self._content_sizer.Clear(delete_windows=True)
 
-        current = self._section(self._content_panel, "Current state")
-        self._content_sizer.Add(current, 0, wx.EXPAND | wx.BOTTOM, 8)
+        self._content_sizer.Add(self._section(self._content_panel, "Current state"), 0, wx.EXPAND | wx.BOTTOM, 7)
         for line in step_detail_lines(self.session, step_key):
-            self._content_sizer.Add(self._line(self._content_panel, line), 0, wx.EXPAND | wx.BOTTOM, 4)
+            self._content_sizer.Add(self._line(self._content_panel, _shorten(line, 76)), 0, wx.EXPAND | wx.BOTTOM, 3)
 
-        self._content_sizer.AddSpacer(8)
-        self._content_sizer.Add(self._section(self._content_panel, "Notes"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        self._content_sizer.AddSpacer(7)
+        self._content_sizer.Add(self._section(self._content_panel, "Notes"), 0, wx.EXPAND | wx.BOTTOM, 7)
         for item in _STEP_NOTES.get(step_key, ()):
-            self._content_sizer.Add(self._line(self._content_panel, item, bullet=True), 0, wx.EXPAND | wx.BOTTOM, 6)
+            self._content_sizer.Add(self._line(self._content_panel, item, bullet=True), 0, wx.EXPAND | wx.BOTTOM, 5)
 
         if step_key in {"review", "flash"}:
-            self._content_sizer.AddSpacer(8)
-            self._content_sizer.Add(self._section(self._content_panel, "Warnings"), 0, wx.EXPAND | wx.BOTTOM, 8)
+            self._content_sizer.AddSpacer(7)
+            self._content_sizer.Add(self._section(self._content_panel, "Warnings"), 0, wx.EXPAND | wx.BOTTOM, 7)
             for line in warning_lines(self.session):
-                self._content_sizer.Add(self._line(self._content_panel, line, warning=line.startswith("Warning:")), 0, wx.EXPAND | wx.BOTTOM, 4)
+                self._content_sizer.Add(self._line(self._content_panel, _shorten(line, 76), warning=line.startswith("Warning:")), 0, wx.EXPAND | wx.BOTTOM, 3)
 
         if step_key == "flash":
-            self._content_sizer.AddSpacer(10)
-            final = wx.Button(self._content_panel, label="Flash Device disabled" if not self.session.can_flash else "Flash Device")
+            self._content_sizer.AddSpacer(8)
+            final = wx.Button(self._content_panel, label="Flash disabled" if not self.session.can_flash else "Flash Device")
             final.Enable(self.session.can_flash)
             final.SetToolTip("Preview only. Real flashing is not wired here.")
             self._content_sizer.Add(final, 0, wx.EXPAND)
@@ -228,23 +220,19 @@ class FlashWizardPanel(wx.Panel):
 
     def _summary_text(self) -> str:
         lines = [
-            f"Current step: {STEPS[self.current_index].title}",
+            f"Step: {STEPS[self.current_index].title}",
             f"Can flash: {'yes' if self.session.can_flash else 'no'}",
             f"Warnings: {len(self.session.warnings())}",
             "",
         ]
-        lines.extend(self.session.review_lines()[:7])
+        for line in self.session.review_lines()[:6]:
+            lines.append(_shorten(line, 36))
         return "\n".join(lines)
 
     def _warning_text(self) -> str:
-        warnings = self.session.warnings()
-        if not warnings:
-            return "No blocking warnings."
-        first = warnings[0]
-        extra = len(warnings) - 1
-        if extra > 0:
-            return f"Blocked: {first} (+{extra} more)"
-        return f"Blocked: {first}"
+        if not self.session.warnings():
+            return "None"
+        return "Flash execution is disabled."
 
     def _on_back(self, event: wx.CommandEvent) -> None:
         if self.current_index > 0:
@@ -270,7 +258,7 @@ class FlashWizardPanel(wx.Panel):
         return wrapper
 
     def _section(self, parent: wx.Window, label: str) -> wx.StaticText:
-        text = self._text(parent, label, 11, True)
+        text = self._text(parent, label, 10, True)
         text.SetForegroundColour(wx.Colour(self.theme.palette.accent))
         return text
 
@@ -282,7 +270,7 @@ class FlashWizardPanel(wx.Panel):
         return text
 
     def _badge(self, parent: wx.Window, label: str, kind: str) -> wx.StaticText:
-        text = self._text(parent, label, 9, True)
+        text = self._text(parent, label, 8, True)
         self._set_badge(text, label, kind)
         return text
 
@@ -307,6 +295,13 @@ class FlashWizardPanel(wx.Panel):
         return text
 
     def _muted(self, parent: wx.Window, label: str) -> wx.StaticText:
-        text = self._text(parent, label, 10)
+        text = self._text(parent, label, 9)
         text.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
         return text
+
+
+def _shorten(value: str, limit: int) -> str:
+    value = str(value or "")
+    if len(value) <= limit:
+        return value
+    return value[: max(1, limit - 1)] + "…"
