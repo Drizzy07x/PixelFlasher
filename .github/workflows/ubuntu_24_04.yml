@@ -15,20 +15,6 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Also add information on how to contact you by electronic and paper mail.
-#
-# If your software can interact with users remotely through a computer network,
-# you should also make sure that it provides a way for users to get its source.
-# For example, if your program is a web application, its interface could
-# display a "Source" link that leads users to an archive of the code. There are
-# many ways you could offer source, and different solutions will be better for
-# different programs; see section 13 for the specific requirements.
-#
-# You should also get your employer (if you work as a programmer) or school, if
-# any, to sign a "copyright disclaimer" for the program, if necessary. For more
-# information on this, and how to apply and follow the GNU AGPL, see
-# <https://www.gnu.org/licenses/>.
 
 name: Build for Ubuntu 24.04
 
@@ -47,48 +33,45 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Python
-        run: |
-          sudo apt update
-          sudo apt install software-properties-common -y
-          sudo add-apt-repository ppa:deadsnakes/ppa -y
-          sudo apt update
-          sudo apt install -y python3.13
-          sudo apt install -y python3.13-venv
-          sudo apt install -y python3-pip
-          python3.13 --version
-
-      - name: Install wxPython prerequisites
+      - name: Install system Python, wxPython, and build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3.13-dev
-          sudo apt-get install -y libgtk-3-dev
-          sudo apt-get install -y libunwind-dev
-          sudo apt-get install -y libgstreamer1.0-dev
-          sudo apt-get install -y gstreamer1.0-plugins-base
-          sudo apt-get install -y freeglut3-dev
-          sudo apt-get install -y libjpeg-dev
-          sudo apt-get install -y libpng-dev
-          sudo apt-get install -y libtiff-dev
-          sudo apt-get install -y libsdl2-dev
-          sudo apt-get install -y libnotify-dev
-          sudo apt-get install -y libsm-dev
-          sudo add-apt-repository universe
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev
+          sudo apt-get install -y --no-install-recommends \
+            python3 \
+            python3-dev \
+            python3-pip \
+            python3-venv \
+            python3-wxgtk4.0 \
+            build-essential \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libnotify-dev \
+            libsm-dev \
+            libjpeg-dev \
+            libpng-dev \
+            libtiff-dev \
+            libsdl2-dev \
+            libunwind-dev \
+            libgstreamer1.0-dev \
+            gstreamer1.0-plugins-base
+          python3 --version
+          python3 - <<'PY'
+          import wx
+          print(wx.version())
+          PY
 
       - name: Create virtual environment, install dependencies, and build
         run: |
-          python3.13 -m venv myenv
+          python3 -m venv --system-site-packages myenv
           . myenv/bin/activate
           python --version
-          pip install -U pip
-          pip install -U six wheel setuptools
-          # Try wxPython 4.2.2 wheel, then 4.2.1 wheel, finally fallback to source if both fail
-          pip install --only-binary wxPython -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-24.04 wxPython==4.2.2 || \
-          pip install --only-binary wxPython -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-24.04 wxPython==4.2.1 || \
-          pip install -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-24.04 wxPython
-          pip install -r requirements.txt
+          pip install -U pip wheel setuptools
+          grep -v -E '^\s*wxPython([<>= ].*)?$' requirements.txt > requirements_no_wx.txt
+          pip install -r requirements_no_wx.txt
+          python - <<'PY'
+          import wx
+          print(wx.version())
+          PY
           python --version && pip freeze
           ./build.sh
           mv dist/PixelFlasher dist/PixelFlasher_Ubuntu_24_04
@@ -97,7 +80,6 @@ jobs:
           ls dist
         shell: bash
 
-      # Upload artifacts Ubuntu 24.04 to Actions
       - name: Upload Ubuntu 24.04 Artifact
         uses: actions/upload-artifact@v7
         id: upload_artifacts_ubuntu_24_04
