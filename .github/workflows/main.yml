@@ -84,19 +84,7 @@ jobs:
           fi
 
           COMMIT_SHA=$(git rev-parse ${{ github.ref_name }}^{commit})
-          echo "Checking for artifacts and in-progress builds for commit: ${COMMIT_SHA}"
-
-          IN_PROGRESS_RUNS=$(curl -s \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?status=in_progress&head_sha=${COMMIT_SHA}")
-
-          IN_PROGRESS_COUNT=$(echo "$IN_PROGRESS_RUNS" | jq '.total_count')
-
-          if [[ "$IN_PROGRESS_COUNT" -gt 1 ]]; then
-            echo "There are in-progress builds for this commit. Waiting for them to complete."
-            sleep 600
-          fi
+          echo "Checking for reusable artifacts for commit: ${COMMIT_SHA}"
 
           WORKFLOW_RUNS=$(curl -s \
             -H "Accept: application/vnd.github.v3+json" \
