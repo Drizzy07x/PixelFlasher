@@ -128,6 +128,12 @@ class Config():
         self.pif_chunk_overlap = 200        # 200 bytes default
         self.canary_miner_channel = 'stable'  # can be 'stable' or 'main', default to 'stable'
 
+        # Modern UI rollout flags. Keep disabled by default until beta testers
+        # validate each screen. This makes the wxPython refresh reversible.
+        self.modern_ui_enabled = False
+        self.modern_dashboard_enabled = False
+        self.flash_wizard_enabled = False
+
         self.toolbar = {
             'tb_position': 'top',
             'tb_show_text': True,

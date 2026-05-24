@@ -539,3 +539,22 @@ IF YOU LOSE YOUR DATA OR BRICK YOUR DEVICE. THE TOOL I SHARE HAVE WORKED FOR ME,
 BUT THAT DOESN'T MEAN THAT YOU MAY NOT RUN INTO PROBLEMS. **BACKUP YOUR DATA.**
 ********************************************************************************
 ```
+
+## Beta diagnostics and smoke checks
+
+Maintainers and beta testers can run low-risk checks without launching the full GUI:
+
+```bash
+python PixelFlasher.py --self-test
+python PixelFlasher.py --diagnostics --output PixelFlasher-diagnostics.zip
+```
+
+`--self-test` verifies startup-critical files, JSON metadata, platform helpers,
+UI theme/icon foundations, and optional adb/fastboot discovery. `--diagnostics`
+creates a redacted ZIP for beta bug reports.
+
+See:
+
+- `docs/BETA_TESTING.md`
+- `docs/BETA_RELEASE_PLAYBOOK.md`
+- `docs/UI_MODERNIZATION_PLAN.md`

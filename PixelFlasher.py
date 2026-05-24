@@ -36,5 +36,46 @@
 import os
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
+import sys
+
+
+def _run_cli_command(argv):
+    """Handle low-risk CLI utilities without importing the wx UI.
+
+    This keeps CI, beta diagnostics, and support collection working on systems
+    that do not have wxPython or a display server installed.
+    """
+    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--help", "-h"}
+    if len(argv) <= 1 or not any(arg in cli_flags for arg in argv[1:]):
+        return
+
+    if "--help" in argv or "-h" in argv:
+        print("PixelFlasher")
+        print("Usage:")
+        print("  python PixelFlasher.py                 Launch GUI")
+        print("  python PixelFlasher.py --self-test     Run startup checks")
+        print("  python PixelFlasher.py --doctor        Alias for --self-test")
+        print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
+        print("  python PixelFlasher.py --version       Print version")
+        raise SystemExit(0)
+
+    if "--version" in argv or "-V" in argv:
+        from constants import APPNAME, VERSION
+        print(f"{APPNAME} {VERSION}")
+        raise SystemExit(0)
+
+    if "--self-test" in argv or "--doctor" in argv:
+        from self_test import main as self_test_main
+        filtered = [arg for arg in argv[1:] if arg not in {"--self-test", "--doctor"}]
+        raise SystemExit(self_test_main(filtered))
+
+    if "--diagnostics" in argv:
+        from diagnostics import main as diagnostics_main
+        filtered = [arg for arg in argv[1:] if arg != "--diagnostics"]
+        raise SystemExit(diagnostics_main(filtered))
+
+
+_run_cli_command(sys.argv)
+
 import Main
 Main.main()
