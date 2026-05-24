@@ -7,36 +7,10 @@ PixelFlasher flows until each wizard step is individually validated.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
-
 import wx
 
+from ui.pages.flash_wizard_model import STEPS, WizardSession
 from ui.theme import get_theme
-
-
-class WizardStepState(str, Enum):
-    TODO = "todo"
-    ACTIVE = "active"
-    COMPLETE = "complete"
-    WARNING = "warning"
-
-
-@dataclass(frozen=True)
-class WizardStep:
-    key: str
-    title: str
-    description: str
-
-
-STEPS: tuple[WizardStep, ...] = (
-    WizardStep("device", "Device", "Confirm the target device before selecting firmware."),
-    WizardStep("firmware", "Firmware", "Choose an OTA, factory image, or custom ROM package."),
-    WizardStep("patch", "Patch Boot", "Decide whether boot/init_boot patching is needed."),
-    WizardStep("options", "Options", "Choose data, slot, and safety behavior."),
-    WizardStep("review", "Review", "Verify the complete plan before any dangerous action."),
-    WizardStep("flash", "Flash", "Final execution step, intentionally disabled here."),
-)
 
 _STEP_CONTENT: dict[str, tuple[str, ...]] = {
     "device": (
@@ -60,9 +34,9 @@ _STEP_CONTENT: dict[str, tuple[str, ...]] = {
         "Advanced options remain locked in preview mode.",
     ),
     "review": (
-        "Review must show device, firmware, patch choice, data behavior, slot behavior, and warnings.",
-        "No final action should be enabled while required checks are unknown.",
-        "A diagnostics/support bundle should be easy to create if pre-flight fails.",
+        "Review uses WizardSession.review_lines() from the testable model.",
+        "Warnings use WizardSession.warnings() from the model.",
+        "The final action remains blocked while can_flash is false.",
     ),
     "flash": (
         "Flash execution is disabled in this preview.",
@@ -71,23 +45,14 @@ _STEP_CONTENT: dict[str, tuple[str, ...]] = {
     ),
 }
 
-_REVIEW_LINES: tuple[str, ...] = (
-    "Device: not selected",
-    "Firmware: not selected",
-    "Patch boot/init_boot: skipped",
-    "Data behavior: keep data",
-    "Slot behavior: inactive slot preferred",
-    "Dangerous options: disabled",
-    "Flash execution: disabled in preview",
-)
-
 
 class FlashWizardPanel(wx.Panel):
     """UI-only wizard panel for the future guided flash flow."""
 
-    def __init__(self, parent: wx.Window):
+    def __init__(self, parent: wx.Window, session: WizardSession | None = None):
         super().__init__(parent)
         self.theme = get_theme("light")
+        self.session = session or WizardSession()
         self.current_index = 0
         self._step_labels: list[wx.StaticText] = []
         self._title: wx.StaticText | None = None
@@ -108,7 +73,7 @@ class FlashWizardPanel(wx.Panel):
 
         header = wx.BoxSizer(wx.VERTICAL)
         header.Add(self._text(self, "Flash Wizard", 20, True), 0, wx.BOTTOM, 3)
-        header.Add(self._muted(self, "Guided flow preview. No flashing operations are connected yet."), 0)
+        header.Add(self._muted(self, "Guided flow preview. State is driven by WizardSession."), 0)
         root.Add(header, 0, wx.EXPAND | wx.ALL, 16)
 
         root.Add(self._build_steps(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
@@ -153,7 +118,7 @@ class FlashWizardPanel(wx.Panel):
         sizer.Add(self._text(card, "Session summary", 13, True), 0, wx.BOTTOM, 8)
         self._summary = self._muted(card, "")
         sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 12)
-        self._warning = self._text(card, "Flash is disabled in this preview.", 10, True)
+        self._warning = self._text(card, "", 10, True)
         self._warning.SetForegroundColour(wx.Colour(self.theme.palette.warning))
         sizer.Add(self._warning, 0)
         card.SetSizer(self._wrap(sizer, 14))
@@ -181,54 +146,67 @@ class FlashWizardPanel(wx.Panel):
             self._body.SetLabel(step.description)
         if self._summary:
             self._summary.SetLabel(self._summary_text())
-        self._render_step_content(step.key)
+        if self._warning:
+            self._warning.SetLabel(self._warning_text())
+        self._render_step_content(step.key.value)
 
         for index, label in enumerate(self._step_labels):
-            if index < self.current_index:
-                label.SetForegroundColour(wx.Colour(self.theme.palette.success))
-            elif index == self.current_index:
+            step_complete = self.session.step_complete(STEPS[index].key)
+            if index == self.current_index:
                 label.SetForegroundColour(wx.Colour(self.theme.palette.accent))
+            elif step_complete:
+                label.SetForegroundColour(wx.Colour(self.theme.palette.success))
             else:
                 label.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
 
         if self._back:
             self._back.Enable(self.current_index > 0)
         if self._next:
-            self._next.SetLabel("Finish preview" if self.current_index == len(STEPS) - 1 else "Next")
+            if self.current_index == len(STEPS) - 1:
+                self._next.SetLabel("Flash disabled" if not self.session.can_flash else "Flash")
+                self._next.Enable(self.session.can_flash)
+            else:
+                self._next.SetLabel("Next")
+                self._next.Enable(True)
         self.Layout()
 
     def _render_step_content(self, step_key: str) -> None:
         if self._content_panel is None or self._content_sizer is None:
             return
         self._content_sizer.Clear(delete_windows=True)
-        for item in _STEP_CONTENT.get(step_key, ()): 
+        for item in _STEP_CONTENT.get(step_key, ()):
             self._content_sizer.Add(self._muted(self._content_panel, f"• {item}"), 0, wx.EXPAND | wx.BOTTOM, 8)
         if step_key == "review":
             self._content_sizer.AddSpacer(6)
-            self._content_sizer.Add(self._text(self._content_panel, "Preview review", 11, True), 0, wx.BOTTOM, 6)
-            for line in _REVIEW_LINES:
+            self._content_sizer.Add(self._text(self._content_panel, "Model review", 11, True), 0, wx.BOTTOM, 6)
+            for line in self.session.review_lines():
                 self._content_sizer.Add(self._muted(self._content_panel, line), 0, wx.EXPAND | wx.BOTTOM, 4)
         if step_key == "flash":
             self._content_sizer.AddSpacer(8)
-            disabled = wx.Button(self._content_panel, label="Flash Device disabled")
-            disabled.Enable(False)
+            disabled = wx.Button(self._content_panel, label="Flash Device disabled" if not self.session.can_flash else "Flash Device")
+            disabled.Enable(self.session.can_flash)
             self._content_sizer.Add(disabled, 0, wx.EXPAND)
         self._content_panel.Layout()
 
     def _summary_text(self) -> str:
-        completed = [step.title for step in STEPS[: self.current_index]]
-        active = STEPS[self.current_index].title
         lines = [
-            f"Current step: {active}",
+            f"Current step: {STEPS[self.current_index].title}",
             "Mode: preview only",
-            "Required checks: unknown",
-            "Flash execution: disabled",
+            f"Can flash: {'yes' if self.session.can_flash else 'no'}",
+            "",
         ]
-        lines.append("Completed: " + (", ".join(completed) if completed else "none"))
-        if self.current_index >= 4:
-            lines.append("")
-            lines.extend(_REVIEW_LINES[:4])
+        lines.extend(self.session.review_lines()[:6])
         return "\n".join(lines)
+
+    def _warning_text(self) -> str:
+        warnings = self.session.warnings()
+        if not warnings:
+            return "No model warnings."
+        first = warnings[0]
+        extra = len(warnings) - 1
+        if extra > 0:
+            return f"Warning: {first} (+{extra} more)"
+        return f"Warning: {first}"
 
     def _on_back(self, event: wx.CommandEvent) -> None:
         if self.current_index > 0:
@@ -239,8 +217,8 @@ class FlashWizardPanel(wx.Panel):
         if self.current_index < len(STEPS) - 1:
             self.current_index += 1
             self._render()
-        else:
-            wx.MessageBox("Wizard preview complete. Real flashing remains disabled.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
+        elif self.session.can_flash:
+            wx.MessageBox("Flash would run here in a future guarded build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _card(self, parent: wx.Window) -> wx.Panel:
         panel = wx.Panel(parent)
