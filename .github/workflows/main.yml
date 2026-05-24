@@ -79,6 +79,7 @@ jobs:
               echo "${OUTPUT_VAR}=true" >> "${GITHUB_OUTPUT}"
               echo "Regular build or PR: Will build $JOB"
             done
+            echo 'artifact_runs={}' >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -120,7 +121,7 @@ jobs:
               if [[ -n "$ARTIFACT_EXISTS" ]]; then
                 echo "Found existing artifact: $ARTIFACT_NAME, no need to rebuild"
                 ARTIFACT_FOUND=true
-                ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq --arg name "$ARTIFACT_NAME" --arg id "$RUN_ID" '. + {($name): $id}')
+                ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq -c --arg name "$ARTIFACT_NAME" --arg id "$RUN_ID" '. + {($name): $id}')
                 break
               fi
             done
@@ -133,6 +134,7 @@ jobs:
             fi
           done
 
+          ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq -c .)
           echo "artifact_runs=${ARTIFACT_RUNS}" >> "${GITHUB_OUTPUT}"
 
   build_windows:
