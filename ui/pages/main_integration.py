@@ -55,7 +55,7 @@ def _attach_dashboard(frame: wx.Frame) -> None:
     if getattr(frame, "modern_dashboard_panel", None):
         return
     try:
-        from ui.pages.dashboard import ModernDashboardPanel
+        from ui.pages.dashboard_compact import CompactModernDashboardPanel
 
         legacy_panel = _find_legacy_panel(frame)
         if legacy_panel is None:
@@ -67,7 +67,7 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         wrapper = wx.Panel(legacy_panel)
         wrapper_sizer = wx.BoxSizer(wx.VERTICAL)
         toolbar = _build_dashboard_toolbar(wrapper, frame)
-        dashboard = ModernDashboardPanel(wrapper, frame)
+        dashboard = CompactModernDashboardPanel(wrapper, frame)
 
         frame.modern_dashboard_wrapper = wrapper
         frame.modern_dashboard_panel = dashboard
@@ -82,7 +82,7 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         legacy_panel.Layout()
         frame.Layout()
         with contextlib.suppress(Exception):
-            frame.statusBar.SetStatusText("Modern dashboard enabled for this session", 1)
+            frame.statusBar.SetStatusText("Modern compact dashboard enabled for this session", 1)
     except Exception as exc:
         print(f"WARNING: Modern dashboard integration failed: {exc}")
         with contextlib.suppress(Exception):
@@ -97,7 +97,7 @@ def _build_dashboard_toolbar(parent: wx.Window, frame: wx.Frame) -> wx.Panel:
     font = label.GetFont()
     font.SetWeight(wx.FONTWEIGHT_BOLD)
     label.SetFont(font)
-    hint = wx.StaticText(toolbar, label="  beta overlay, legacy UI remains below")
+    hint = wx.StaticText(toolbar, label="  compact beta overlay, legacy UI remains below")
     refresh = wx.Button(toolbar, label="Refresh")
     toggle = wx.Button(toolbar, label="Hide")
 
