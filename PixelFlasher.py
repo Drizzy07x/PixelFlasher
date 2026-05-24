@@ -45,7 +45,7 @@ def _run_cli_command(argv):
     This keeps CI, beta diagnostics, and support collection working on systems
     that do not have wxPython or a display server installed.
     """
-    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard", "--modern-dashboard-preview", "--flash-wizard-preview", "--help", "-h"}
+    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard", "--modern-dashboard-preview", "--flash-wizard-preview", "--flash-wizard-demo", "--help", "-h"}
     if len(argv) <= 1 or not any(arg in cli_flags for arg in argv[1:]):
         return
 
@@ -63,6 +63,8 @@ def _run_cli_command(argv):
         print("                                      Launch safe standalone modern dashboard preview")
         print("  python PixelFlasher.py --flash-wizard-preview")
         print("                                      Launch safe standalone flash wizard preview")
+        print("  python PixelFlasher.py --flash-wizard-demo")
+        print("                                      Launch safe standalone flash wizard demo")
         raise SystemExit(0)
 
     if "--version" in argv or "-V" in argv:
@@ -87,6 +89,10 @@ def _run_cli_command(argv):
     if "--flash-wizard-preview" in argv:
         from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
         raise SystemExit(flash_wizard_preview_main())
+
+    if "--flash-wizard-demo" in argv:
+        from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
+        raise SystemExit(flash_wizard_preview_main(demo=True))
 
     if "--modern-dashboard" in argv:
         os.environ["PIXELFLASHER_MODERN_DASHBOARD"] = "1"
