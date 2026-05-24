@@ -8,6 +8,7 @@ a = Analysis(['PixelFlasher.py'],
             datas=[
                 ("images/icon-64.png", "images"),
                 ("images/icon-dark-64.png", "images"),
+                ('assets/icons/symbolic', 'assets/icons/symbolic'),
                 ('bin/busybox_arm64-v8a', 'bin'),
                 ('bin/busybox_armeabi-v7a', 'bin'),
                 ('bin/busybox_x86', 'bin'),
