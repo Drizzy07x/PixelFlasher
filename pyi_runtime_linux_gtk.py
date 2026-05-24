@@ -1,14 +1,8 @@
 """PyInstaller Linux GTK runtime isolation.
 
-Ubuntu 26.04 and newer systems can try to load host GVFS/GIO modules into the
-PyInstaller process. When the packaged app carries GTK/GIO-related libraries
-from an older build host, loading host modules can print symbol errors such as:
-
-    libgvfscommon.so: undefined symbol: g_variant_builder_init_static
-    Failed to load module: libgvfsdbus.so
-
-PixelFlasher only needs local file dialogs for the beta package, so force local
-GIO VFS and point GIO modules at an empty directory before wx/GTK is imported.
+Keeps Linux beta packages from loading incompatible host GVFS/GIO modules and
+filters known harmless GTK stderr noise that appears on some Ubuntu/GNOME
+setups. This hook runs before wx/GTK is imported.
 """
 
 from __future__ import annotations
@@ -16,10 +10,60 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
 from pathlib import Path
+
+_KNOWN_GTK_NOISE = (
+    "gtk_image_menu_item_set_image",
+    "GTK_IS_IMAGE_MENU_ITEM",
+    "gtk_box_gadget_distribute",
+    "GtkScrollbar",
+    "libgvfscommon.so: undefined symbol",
+    "Failed to load module: /usr/lib",
+    "libgvfsdbus.so",
+)
+
+
+def _filter_known_stderr_noise() -> None:
+    if os.environ.get("PIXELFLASHER_FILTER_GTK_WARNINGS", "1") in {"0", "false", "False"}:
+        return
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        original_fd = os.dup(2)
+        read_fd, write_fd = os.pipe()
+        os.dup2(write_fd, 2)
+        os.close(write_fd)
+    except Exception:
+        return
+
+    def pump() -> None:
+        with os.fdopen(read_fd, "rb", closefd=True) as reader:
+            pending = b""
+            while True:
+                chunk = reader.readline()
+                if not chunk:
+                    if pending:
+                        _write_if_not_noise(original_fd, pending)
+                    break
+                _write_if_not_noise(original_fd, chunk)
+
+    def _write_if_not_noise(fd: int, data: bytes) -> None:
+        text = data.decode("utf-8", "replace")
+        if any(pattern in text for pattern in _KNOWN_GTK_NOISE):
+            return
+        try:
+            os.write(fd, data)
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=pump, name="pf-stderr-filter", daemon=True)
+    thread.start()
+
 
 if sys.platform.startswith("linux"):
     os.environ.setdefault("GIO_USE_VFS", "local")
+    os.environ.setdefault("NO_AT_BRIDGE", "1")
 
     base = Path(getattr(sys, "_MEIPASS", tempfile.gettempdir()))
     gio_modules = base / "empty-gio-modules"
@@ -27,5 +71,6 @@ if sys.platform.startswith("linux"):
         gio_modules.mkdir(parents=True, exist_ok=True)
         os.environ.setdefault("GIO_MODULE_DIR", str(gio_modules))
     except Exception:
-        # Best-effort only. Never block startup because of log suppression.
         pass
+
+    _filter_known_stderr_noise()
