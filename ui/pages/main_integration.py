@@ -98,19 +98,45 @@ def _build_dashboard_toolbar(parent: wx.Window, frame: wx.Frame) -> wx.Panel:
     font.SetWeight(wx.FONTWEIGHT_BOLD)
     label.SetFont(font)
     hint = wx.StaticText(toolbar, label="  compact beta overlay, legacy UI remains below")
+    wizard = wx.Button(toolbar, label="Wizard")
     refresh = wx.Button(toolbar, label="Refresh")
     toggle = wx.Button(toolbar, label="Hide")
 
     frame.modern_dashboard_toggle_button = toggle
+    wizard.Bind(wx.EVT_BUTTON, lambda event: _open_flash_wizard_preview(frame))
     refresh.Bind(wx.EVT_BUTTON, lambda event: _refresh_dashboard(frame))
     toggle.Bind(wx.EVT_BUTTON, lambda event: _toggle_dashboard(frame))
 
     toolbar_sizer.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
     toolbar_sizer.Add(hint, 1, wx.ALIGN_CENTER_VERTICAL)
+    toolbar_sizer.Add(wizard, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
     toolbar_sizer.Add(refresh, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
     toolbar_sizer.Add(toggle, 0, wx.ALIGN_CENTER_VERTICAL)
     toolbar.SetSizer(toolbar_sizer)
     return toolbar
+
+
+def _open_flash_wizard_preview(frame: wx.Frame) -> None:
+    try:
+        from ui.pages.flash_wizard import FlashWizardPanel
+        from ui.pages.flash_wizard_state_adapter import build_wizard_session
+
+        session = build_wizard_session(frame)
+        wizard_frame = wx.Frame(frame, title="PixelFlasher - Flash Wizard Preview", size=(980, 640))
+        panel = FlashWizardPanel(wizard_frame, session=session)
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(panel, 1, wx.EXPAND)
+        wizard_frame.SetSizer(root)
+        wizard_frame.CentreOnParent()
+        wizard_frame.Show(True)
+        frame.modern_flash_wizard_preview = wizard_frame
+        with contextlib.suppress(Exception):
+            frame.statusBar.SetStatusText("Flash Wizard preview opened with current read-only state", 1)
+    except Exception as exc:
+        wx.MessageBox(f"Unable to open Flash Wizard preview: {exc}", "PixelFlasher", wx.OK | wx.ICON_WARNING)
+        with contextlib.suppress(Exception):
+            import traceback
+            traceback.print_exc()
 
 
 def _toggle_dashboard(frame: wx.Frame) -> None:
