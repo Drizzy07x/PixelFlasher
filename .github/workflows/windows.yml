@@ -44,6 +44,7 @@ jobs:
     runs-on: windows-latest
     env:
       VENV: myenv
+      PYTHON_EXE: ${{ github.workspace }}\myenv\Scripts\python.exe
       SIGN_WINDOWS: ${{ github.event_name != 'pull_request' && secrets.CERTIFICATE != '' && secrets.CERT_PASSWORD != '' && secrets.CERTHASH != '' && secrets.CERTNAME != '' }}
 
     steps:
@@ -60,33 +61,42 @@ jobs:
         shell: pwsh
         run: python -m venv $env:VENV
 
+      - name: Verify virtual environment
+        shell: pwsh
+        run: |
+          if (!(Test-Path $env:PYTHON_EXE)) {
+            Write-Error "Virtual environment Python was not found at: $env:PYTHON_EXE"
+            exit 1
+          }
+          & $env:PYTHON_EXE --version
+
       - name: Upgrade build tooling
         shell: pwsh
         run: |
-          .\$env:VENV\Scripts\python.exe -m pip install --upgrade pip wheel setuptools
+          & $env:PYTHON_EXE -m pip install --upgrade pip wheel setuptools
 
       - name: Install wxPython wheel
         shell: pwsh
         run: |
-          .\$env:VENV\Scripts\python.exe --version
-          .\$env:VENV\Scripts\python.exe -m pip install --only-binary=:all: wxPython==4.2.2
+          & $env:PYTHON_EXE --version
+          & $env:PYTHON_EXE -m pip install --only-binary=:all: wxPython==4.2.2
 
       - name: Install requirements without reinstalling wxPython
         shell: pwsh
         run: |
           (Get-Content requirements.txt) | Where-Object { $_ -notmatch '^\s*wxPython' } | Set-Content requirements_no_wx.txt
-          .\$env:VENV\Scripts\python.exe -m pip install -r requirements_no_wx.txt
+          & $env:PYTHON_EXE -m pip install -r requirements_no_wx.txt
 
       - name: List modules and their versions
         shell: pwsh
-        run: .\$env:VENV\Scripts\python.exe -m pip freeze
+        run: & $env:PYTHON_EXE -m pip freeze
 
       - name: Run beta-safe checks before packaging
         shell: pwsh
         run: |
-          .\$env:VENV\Scripts\python.exe -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui/theme.py ui/icons.py ui/components/models.py tools/create_beta_bundle.py
-          .\$env:VENV\Scripts\python.exe PixelFlasher.py --self-test
-          .\$env:VENV\Scripts\python.exe -m unittest discover -s tests -v
+          & $env:PYTHON_EXE -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui/theme.py ui/icons.py ui/components/models.py tools/create_beta_bundle.py
+          & $env:PYTHON_EXE PixelFlasher.py --self-test
+          & $env:PYTHON_EXE -m unittest discover -s tests -v
 
       - name: Build application
         shell: pwsh
