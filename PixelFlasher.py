@@ -91,4 +91,9 @@ def _run_cli_command(argv):
 _run_cli_command(sys.argv)
 
 import Main
+
+if os.environ.get("PIXELFLASHER_MODERN_DASHBOARD") == "1":
+    from ui.pages.main_integration import install as install_modern_dashboard
+    install_modern_dashboard(Main)
+
 Main.main()
