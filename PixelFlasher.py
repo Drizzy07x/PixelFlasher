@@ -45,7 +45,7 @@ def _run_cli_command(argv):
     This keeps CI, beta diagnostics, and support collection working on systems
     that do not have wxPython or a display server installed.
     """
-    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard-preview", "--help", "-h"}
+    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard", "--modern-dashboard-preview", "--help", "-h"}
     if len(argv) <= 1 or not any(arg in cli_flags for arg in argv[1:]):
         return
 
@@ -57,8 +57,10 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --doctor        Alias for --self-test")
         print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
         print("  python PixelFlasher.py --version       Print version")
+        print("  python PixelFlasher.py --modern-dashboard")
+        print("                                      Launch full app with modern dashboard enabled")
         print("  python PixelFlasher.py --modern-dashboard-preview")
-        print("                                      Launch safe modern dashboard preview")
+        print("                                      Launch safe standalone modern dashboard preview")
         raise SystemExit(0)
 
     if "--version" in argv or "-V" in argv:
@@ -79,6 +81,11 @@ def _run_cli_command(argv):
     if "--modern-dashboard-preview" in argv:
         from ui.pages.dashboard_app import main as dashboard_preview_main
         raise SystemExit(dashboard_preview_main())
+
+    if "--modern-dashboard" in argv:
+        os.environ["PIXELFLASHER_MODERN_DASHBOARD"] = "1"
+        argv.remove("--modern-dashboard")
+        return
 
 
 _run_cli_command(sys.argv)
