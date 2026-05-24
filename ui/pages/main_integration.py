@@ -73,16 +73,16 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         frame.modern_dashboard_panel = dashboard
         frame.modern_dashboard_visible = True
 
-        wrapper_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 4)
+        wrapper_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 2)
         wrapper_sizer.Add(dashboard, 0, wx.EXPAND)
         wrapper.SetSizer(wrapper_sizer)
 
-        sizer.Insert(0, wrapper, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 10)
+        sizer.Insert(0, wrapper, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 8)
         sizer.Layout()
         legacy_panel.Layout()
         frame.Layout()
         with contextlib.suppress(Exception):
-            frame.statusBar.SetStatusText("Modern compact dashboard enabled for this session", 1)
+            frame.statusBar.SetStatusText("Modern dashboard enabled", 1)
     except Exception as exc:
         print(f"WARNING: Modern dashboard integration failed: {exc}")
         with contextlib.suppress(Exception):
@@ -97,7 +97,7 @@ def _build_dashboard_toolbar(parent: wx.Window, frame: wx.Frame) -> wx.Panel:
     font = label.GetFont()
     font.SetWeight(wx.FONTWEIGHT_BOLD)
     label.SetFont(font)
-    hint = wx.StaticText(toolbar, label="  compact beta overlay, legacy UI remains below")
+    hint = wx.StaticText(toolbar, label="  beta overlay")
     wizard = wx.Button(toolbar, label="Wizard")
     refresh = wx.Button(toolbar, label="Refresh")
     toggle = wx.Button(toolbar, label="Hide")
@@ -122,7 +122,7 @@ def _open_flash_wizard_preview(frame: wx.Frame) -> None:
         from ui.pages.flash_wizard_state_adapter import build_wizard_session
 
         session = build_wizard_session(frame)
-        wizard_frame = wx.Frame(frame, title="PixelFlasher - Flash Wizard Preview", size=(980, 640))
+        wizard_frame = wx.Frame(frame, title="PixelFlasher - Flash Wizard Preview", size=(1040, 660))
         panel = FlashWizardPanel(wizard_frame, session=session)
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(panel, 1, wx.EXPAND)
@@ -131,7 +131,7 @@ def _open_flash_wizard_preview(frame: wx.Frame) -> None:
         wizard_frame.Show(True)
         frame.modern_flash_wizard_preview = wizard_frame
         with contextlib.suppress(Exception):
-            frame.statusBar.SetStatusText("Flash Wizard preview opened with current read-only state", 1)
+            frame.statusBar.SetStatusText("Flash Wizard preview opened", 1)
     except Exception as exc:
         wx.MessageBox(f"Unable to open Flash Wizard preview: {exc}", "PixelFlasher", wx.OK | wx.ICON_WARNING)
         with contextlib.suppress(Exception):
