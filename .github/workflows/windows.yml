@@ -42,6 +42,9 @@ on:
 jobs:
   build_windows:
     runs-on: windows-latest
+    env:
+      VENV: myenv
+      SIGN_WINDOWS: ${{ github.event_name != 'pull_request' && secrets.CERTIFICATE != '' && secrets.CERT_PASSWORD != '' && secrets.CERTHASH != '' && secrets.CERTNAME != '' }}
 
     steps:
       - name: Checkout code
@@ -51,37 +54,58 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+          architecture: 'x64'
 
       - name: Create virtual environment
-        run: python -m venv myenv
-        shell: powershell
+        shell: pwsh
+        run: python -m venv $env:VENV
 
-      - name: Activate virtual environment
-        run: .\myenv\Scripts\Activate.ps1
-        shell: powershell
-
-      - name: Install wxPython and build
+      - name: Upgrade build tooling
+        shell: pwsh
         run: |
-          python --version
-          pip install -U six wheel setuptools
-          pip install -U wxPython==4.2.2
-        shell: powershell
+          .\$env:VENV\Scripts\python.exe -m pip install --upgrade pip wheel setuptools
 
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - name: Install wxPython wheel
+        shell: pwsh
+        run: |
+          .\$env:VENV\Scripts\python.exe --version
+          .\$env:VENV\Scripts\python.exe -m pip install --only-binary=:all: wxPython==4.2.2
+
+      - name: Install requirements without reinstalling wxPython
+        shell: pwsh
+        run: |
+          (Get-Content requirements.txt) | Where-Object { $_ -notmatch '^\s*wxPython' } | Set-Content requirements_no_wx.txt
+          .\$env:VENV\Scripts\python.exe -m pip install -r requirements_no_wx.txt
 
       - name: List modules and their versions
-        run: pip freeze
+        shell: pwsh
+        run: .\$env:VENV\Scripts\python.exe -m pip freeze
+
+      - name: Run beta-safe checks before packaging
+        shell: pwsh
+        run: |
+          .\$env:VENV\Scripts\python.exe -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui/theme.py ui/icons.py ui/components/models.py tools/create_beta_bundle.py
+          .\$env:VENV\Scripts\python.exe PixelFlasher.py --self-test
+          .\$env:VENV\Scripts\python.exe -m unittest discover -s tests -v
 
       - name: Build application
-        run: .\build.bat
+        shell: pwsh
+        run: |
+          $env:VIRTUAL_ENV = "${{ github.workspace }}\$env:VENV"
+          $env:PATH = "$env:VIRTUAL_ENV\Scripts;$env:PATH"
+          .\build.bat
 
-      - name: List contents of dist directory
-        run: ls dist
+      - name: Verify output exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/PixelFlasher.exe")) {
+            Write-Error "dist/PixelFlasher.exe was not created"
+            exit 1
+          }
+          Get-ChildItem dist
 
       - name: Sign Windows Executable
-        # Skip signing for pull requests as secrets aren't available
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ env.SIGN_WINDOWS == 'true' }}
         uses: skymatic/code-sign-action@v3
         with:
           certificate: '${{ secrets.CERTIFICATE }}'
@@ -93,15 +117,17 @@ jobs:
           folder: 'dist'
           recursive: false
 
+      - name: Explain unsigned build
+        if: ${{ env.SIGN_WINDOWS != 'true' }}
+        shell: pwsh
+        run: Write-Host "Windows signing skipped because signing secrets are not configured for this run."
+
       - name: Get sha256
+        shell: pwsh
         run: |
-          certutil -hashfile dist/PixelFlasher.exe SHA256 > dist/PixelFlasher.exe.sha256
-          cat dist/PixelFlasher.exe.sha256
+          Get-FileHash "dist/PixelFlasher.exe" -Algorithm SHA256 | Select-Object -ExpandProperty Hash > dist/PixelFlasher.exe.sha256
+          Get-Content dist/PixelFlasher.exe.sha256
 
-      - name: List contents of dist directory again
-        run: ls dist
-
-      # Upload artifacts Windows
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v7
         id: upload_artifacts_windows
