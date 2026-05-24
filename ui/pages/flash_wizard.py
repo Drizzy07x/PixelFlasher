@@ -9,39 +9,34 @@ from __future__ import annotations
 
 import wx
 
+from ui.pages.flash_wizard_details import step_detail_lines, warning_lines
 from ui.pages.flash_wizard_model import STEPS, WizardSession
 from ui.theme import get_theme
 
-_STEP_CONTENT: dict[str, tuple[str, ...]] = {
+_STEP_NOTES: dict[str, tuple[str, ...]] = {
     "device": (
-        "Status: no device connected in preview mode.",
-        "Expected future checks: ADB mode, fastboot mode, active slot, bootloader lock state.",
-        "User guidance: use Scan Devices in the legacy UI until the wizard is wired.",
+        "Use the legacy Scan Devices control until wizard device scanning is wired.",
+        "This step is complete only when a device is selected and ADB/Fastboot is ready.",
     ),
     "firmware": (
-        "Status: no firmware selected in preview mode.",
-        "Expected future checks: package type, target device, build id, boot/init_boot presence, SHA-256.",
+        "Firmware must be verified before the final review can pass.",
         "Invalid or mismatched packages should block the final flash step.",
     ),
     "patch": (
-        "Default preview choice: skip patching.",
-        "Future choices: skip, patch boot/init_boot, use existing patched image.",
-        "Patching should stay blocked until firmware and target device are known.",
+        "Patching remains disabled in this preview.",
+        "Patch choices will be wired only after firmware and target device checks are reliable.",
     ),
     "options": (
-        "Safe default: keep data, flash inactive slot when available, no force options.",
-        "Dangerous options such as wipe data, force, disable verity, and disable verification require explicit confirmation.",
-        "Advanced options remain locked in preview mode.",
+        "Dangerous options require explicit confirmation later.",
+        "Safe default remains keep data and avoid force options.",
     ),
     "review": (
-        "Review uses WizardSession.review_lines() from the testable model.",
-        "Warnings use WizardSession.warnings() from the model.",
-        "The final action remains blocked while can_flash is false.",
+        "Review uses WizardSession.review_lines() and WizardSession.warnings().",
+        "Final action remains blocked while can_flash is false.",
     ),
     "flash": (
         "Flash execution is disabled in this preview.",
         "When implemented, this step should delegate to the existing guarded legacy flash flow.",
-        "The final button should require a second confirmation and show the exact command plan.",
     ),
 }
 
@@ -174,13 +169,20 @@ class FlashWizardPanel(wx.Panel):
         if self._content_panel is None or self._content_sizer is None:
             return
         self._content_sizer.Clear(delete_windows=True)
-        for item in _STEP_CONTENT.get(step_key, ()):
-            self._content_sizer.Add(self._muted(self._content_panel, f"• {item}"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        self._content_sizer.Add(self._text(self._content_panel, "Current state", 11, True), 0, wx.BOTTOM, 6)
+        for line in step_detail_lines(self.session, step_key):
+            self._content_sizer.Add(self._muted(self._content_panel, line), 0, wx.EXPAND | wx.BOTTOM, 4)
+        self._content_sizer.AddSpacer(8)
+        self._content_sizer.Add(self._text(self._content_panel, "Notes", 11, True), 0, wx.BOTTOM, 6)
+        for item in _STEP_NOTES.get(step_key, ()):
+            self._content_sizer.Add(self._muted(self._content_panel, f"• {item}"), 0, wx.EXPAND | wx.BOTTOM, 6)
         if step_key == "review":
-            self._content_sizer.AddSpacer(6)
-            self._content_sizer.Add(self._text(self._content_panel, "Model review", 11, True), 0, wx.BOTTOM, 6)
-            for line in self.session.review_lines():
-                self._content_sizer.Add(self._muted(self._content_panel, line), 0, wx.EXPAND | wx.BOTTOM, 4)
+            self._content_sizer.AddSpacer(8)
+            self._content_sizer.Add(self._text(self._content_panel, "Warnings", 11, True), 0, wx.BOTTOM, 6)
+            for line in warning_lines(self.session):
+                text = self._muted(self._content_panel, line)
+                text.SetForegroundColour(wx.Colour(self.theme.palette.warning if line.startswith("Warning:") else self.theme.palette.text_muted))
+                self._content_sizer.Add(text, 0, wx.EXPAND | wx.BOTTOM, 4)
         if step_key == "flash":
             self._content_sizer.AddSpacer(8)
             disabled = wx.Button(self._content_panel, label="Flash Device disabled" if not self.session.can_flash else "Flash Device")
