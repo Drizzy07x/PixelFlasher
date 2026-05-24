@@ -89,7 +89,8 @@ jobs:
 
       - name: List modules and their versions
         shell: pwsh
-        run: & $env:PYTHON_EXE -m pip freeze
+        run: |
+          & $env:PYTHON_EXE -m pip freeze
 
       - name: Run beta-safe checks before packaging
         shell: pwsh
