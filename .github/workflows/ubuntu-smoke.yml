@@ -39,6 +39,8 @@ jobs:
             ui/components/models.py \
             ui/pages/dashboard.py \
             ui/pages/dashboard_app.py \
+            ui/pages/dashboard_compact.py \
+            ui/pages/main_integration.py \
             tools/create_beta_bundle.py
 
       - name: Run self-test
@@ -46,3 +48,43 @@ jobs:
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+
+  ubuntu_xvfb_dashboard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install system wxPython and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3 \
+            python3-wxgtk4.0 \
+            xvfb \
+            xauth
+
+      - name: Show system Python and wx versions
+        run: |
+          python3 --version
+          python3 - <<'PY'
+          import wx
+          print(wx.version())
+          PY
+
+      - name: Launch modern dashboard preview under xvfb
+        run: |
+          set +e
+          xvfb-run -a timeout 12s python3 PixelFlasher.py --modern-dashboard-preview
+          status=$?
+          if [ "$status" -eq 124 ]; then
+            echo "Dashboard preview launched and stayed alive under xvfb."
+            exit 0
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "Dashboard preview launched and exited cleanly."
+            exit 0
+          fi
+          echo "Dashboard preview failed with exit code $status."
+          exit "$status"
