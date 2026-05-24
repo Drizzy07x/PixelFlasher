@@ -271,6 +271,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ steps.get_version.outputs.version }}
+          target_commitish: ${{ needs.check_artifacts.outputs.commit_sha }}
           name: Release v${{ steps.get_version.outputs.version }}
           body: |
             ## PixelFlasher v${{ steps.get_version.outputs.version }}
@@ -294,7 +295,7 @@ jobs:
 
             Testing guide:
             - See `docs/MODERN_UI_BETA_TESTING.md`.
-          draft: true
+          draft: false
           prerelease: ${{ steps.release_type.outputs.prerelease }}
           files: |
             release/*
