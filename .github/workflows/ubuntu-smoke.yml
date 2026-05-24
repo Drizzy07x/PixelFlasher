@@ -42,6 +42,7 @@ jobs:
             ui/pages/dashboard_compact.py \
             ui/pages/flash_wizard.py \
             ui/pages/flash_wizard_app.py \
+            ui/pages/flash_wizard_demo.py \
             ui/pages/flash_wizard_details.py \
             ui/pages/flash_wizard_model.py \
             ui/pages/flash_wizard_state_adapter.py \
@@ -108,4 +109,20 @@ jobs:
             exit 0
           fi
           echo "Flash wizard preview failed with exit code $status."
+          exit "$status"
+
+      - name: Launch flash wizard demo under xvfb
+        run: |
+          set +e
+          xvfb-run -a timeout 12s python3 PixelFlasher.py --flash-wizard-demo
+          status=$?
+          if [ "$status" -eq 124 ]; then
+            echo "Flash wizard demo launched and stayed alive under xvfb."
+            exit 0
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "Flash wizard demo launched and exited cleanly."
+            exit 0
+          fi
+          echo "Flash wizard demo failed with exit code $status."
           exit "$status"
