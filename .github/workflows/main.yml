@@ -15,20 +15,6 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Also add information on how to contact you by electronic and paper mail.
-#
-# If your software can interact with users remotely through a computer network,
-# you should also make sure that it provides a way for users to get its source.
-# For example, if your program is a web application, its interface could
-# display a "Source" link that leads users to an archive of the code. There are
-# many ways you could offer source, and different solutions will be better for
-# different programs; see section 13 for the specific requirements.
-#
-# You should also get your employer (if you work as a programmer) or school, if
-# any, to sign a "copyright disclaimer" for the program, if necessary. For more
-# information on this, and how to apply and follow the GNU AGPL, see
-# <https://www.gnu.org/licenses/>.
 
 name: Build for All platforms
 
@@ -40,39 +26,27 @@ permissions:
   contents: write
   actions: read
 
-# Controls when the workflow will run
 on:
-  # Build on pushes to any branch
   push:
-    # Build on branch pushes
     branches:
       - '**'
-    # And on tag pushes for releases
     tags:
-      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
-
-  # Run on pull requests to main branch
+      - 'v*'
   pull_request:
     branches: [ main ]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
     inputs:
       tags:
         description: 'Build tags'
 
 jobs:
-  # Check each build job individually to see which artifacts already exist
   check_artifacts:
     runs-on: ubuntu-latest
     outputs:
       commit_sha: ${{ steps.get_sha.outputs.commit_sha }}
       build_windows: ${{ steps.check_artifacts.outputs.build_windows }}
-      # build_windows_arm64: ${{ steps.check_artifacts.outputs.build_windows_arm64 }}
-      # build_ubuntu_22_04: ${{ steps.check_artifacts.outputs.build_ubuntu_22_04 }}
-      # build_ubuntu_24_04: ${{ steps.check_artifacts.outputs.build_ubuntu_24_04 }}
+      build_ubuntu_24_04: ${{ steps.check_artifacts.outputs.build_ubuntu_24_04 }}
       build_mac: ${{ steps.check_artifacts.outputs.build_mac }}
-      # build_appimage: ${{ steps.check_artifacts.outputs.build_appimage }}
       artifact_runs: ${{ steps.check_artifacts.outputs.artifact_runs }}
     steps:
       - name: Checkout code
@@ -84,10 +58,8 @@ jobs:
         id: get_sha
         run: |
           if [[ "${{ github.event_name }}" == "push" && "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
-            # For tag pushes, get the commit SHA that the tag points to
             COMMIT_SHA=$(git rev-parse ${{ github.ref_name }}^{commit})
           else
-            # For regular pushes, use the current commit SHA
             COMMIT_SHA=${{ github.sha }}
           fi
           echo "commit_sha=${COMMIT_SHA}" >> "${GITHUB_OUTPUT}"
@@ -95,18 +67,13 @@ jobs:
       - name: Check for existing artifacts
         id: check_artifacts
         run: |
-          # Define artifact names and their corresponding output variables
           declare -A ARTIFACTS=(
             ["PixelFlasher.exe Artifacts"]="build_windows"
-            ["PixelFlasher_Ubuntu_22_04 Artifacts"]="build_ubuntu_22_04"
             ["PixelFlasher_Ubuntu_24_04 Artifacts"]="build_ubuntu_24_04"
             ["PixelFlasher_MacOS.dmg Artifacts"]="build_mac"
-            ["PixelFlasher-x86_64.AppImage Artifacts"]="build_appimage"
           )
 
-          # For normal builds, set all jobs to run
           if [[ "${{ github.event_name }}" != "push" || "${{ startsWith(github.ref, 'refs/tags/') }}" != "true" ]]; then
-            # For regular builds, run all jobs
             for JOB in "${!ARTIFACTS[@]}"; do
               OUTPUT_VAR="${ARTIFACTS[$JOB]}"
               echo "${OUTPUT_VAR}=true" >> "${GITHUB_OUTPUT}"
@@ -115,11 +82,9 @@ jobs:
             exit 0
           fi
 
-          # For tag pushes, check for existing artifacts and in-progress builds
           COMMIT_SHA=$(git rev-parse ${{ github.ref_name }}^{commit})
           echo "Checking for artifacts and in-progress builds for commit: ${COMMIT_SHA}"
 
-          # First check if there are any in-progress builds for this commit
           IN_PROGRESS_RUNS=$(curl -s \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer ${{ github.token }}" \
@@ -127,84 +92,60 @@ jobs:
 
           IN_PROGRESS_COUNT=$(echo "$IN_PROGRESS_RUNS" | jq '.total_count')
 
-          # If there are in-progress builds (excluding this one), wait for them to complete
           if [[ "$IN_PROGRESS_COUNT" -gt 1 ]]; then
-            echo "There are in-progress builds for this commit. Will wait for them to complete before proceeding."
-            echo "This build will pause for 10 minutes to allow other builds to complete."
-
-            # Sleep for 10 minutes to allow in-progress builds to complete
+            echo "There are in-progress builds for this commit. Waiting for them to complete."
             sleep 600
           fi
 
-          # Get all workflow runs for this commit (including completed ones)
           WORKFLOW_RUNS=$(curl -s \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=${COMMIT_SHA}")
 
-          # Get run IDs from workflow runs
           RUN_IDS=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs[].id')
+          ARTIFACT_RUNS="{}"
 
-          # Check each artifact
           for ARTIFACT_NAME in "${!ARTIFACTS[@]}"; do
             OUTPUT_VAR="${ARTIFACTS[$ARTIFACT_NAME]}"
             ARTIFACT_FOUND=false
 
             for RUN_ID in $RUN_IDS; do
-              # Get artifacts for this run
               RUN_ARTIFACTS=$(curl -s \
                 -H "Accept: application/vnd.github.v3+json" \
                 -H "Authorization: Bearer ${{ github.token }}" \
                 "https://api.github.com/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts")
 
-              # Check if current artifact exists in this run
               ARTIFACT_EXISTS=$(echo "$RUN_ARTIFACTS" | jq --arg name "$ARTIFACT_NAME" '.artifacts[] | select(.name==$name) | .id')
 
               if [[ -n "$ARTIFACT_EXISTS" ]]; then
                 echo "Found existing artifact: $ARTIFACT_NAME, no need to rebuild"
                 ARTIFACT_FOUND=true
+                ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq --arg name "$ARTIFACT_NAME" --arg id "$RUN_ID" '. + {($name): $id}')
                 break
               fi
             done
 
             if [[ "$ARTIFACT_FOUND" == "true" ]]; then
-              # Skip building this job
               echo "${OUTPUT_VAR}=false" >> "${GITHUB_OUTPUT}"
-
-              # Remember where we found this artifact (in run_artifacts)
-              if [[ -z "$ARTIFACT_RUNS" ]]; then
-                ARTIFACT_RUNS="{\"$ARTIFACT_NAME\": $RUN_ID}"
-              else
-                ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq --arg name "$ARTIFACT_NAME" --arg id "$RUN_ID" '. + {($name): $id}')
-              fi
             else
-              # Need to build this job
               echo "${OUTPUT_VAR}=true" >> "${GITHUB_OUTPUT}"
               echo "Did not find artifact: $ARTIFACT_NAME, will rebuild"
             fi
           done
 
+          echo "artifact_runs=${ARTIFACT_RUNS}" >> "${GITHUB_OUTPUT}"
+
   build_windows:
     needs: check_artifacts
-    # Only build if this specific artifact doesn't exist for this commit
     if: ${{ needs.check_artifacts.outputs.build_windows == 'true' }}
     uses: ./.github/workflows/windows.yml
     secrets: inherit
 
-  # build_windows_arm64:
-  #   needs: check_artifacts
-  #   if: ${{ needs.check_artifacts.outputs.build_windows_arm64 == 'true' }}
-  #   uses: ./.github/workflows/windows-arm64.yml
-
-  # build_ubuntu_22_04:
-  #   needs: check_artifacts
-  #   if: ${{ needs.check_artifacts.outputs.build_ubuntu_22_04 == 'true' }}
-  #   uses: ./.github/workflows/ubuntu_22_04.yml
-
-  # build_ubuntu_24_04:
-  #   needs: check_artifacts
-  #   if: ${{ needs.check_artifacts.outputs.build_ubuntu_24_04 == 'true' }}
-  #   uses: ./.github/workflows/ubuntu_24_04.yml
+  build_ubuntu_24_04:
+    needs: check_artifacts
+    if: ${{ needs.check_artifacts.outputs.build_ubuntu_24_04 == 'true' }}
+    uses: ./.github/workflows/ubuntu_24_04.yml
+    secrets: inherit
 
   build_mac:
     needs: check_artifacts
@@ -212,15 +153,9 @@ jobs:
     uses: ./.github/workflows/mac.yml
     secrets: inherit
 
-  # build_appimage:
-  #   needs: check_artifacts
-  #   if: ${{ needs.check_artifacts.outputs.build_appimage == 'true' }}
-  #   uses: ./.github/workflows/appimage-x86_64.yml
-
   deploy:
-    needs: [check_artifacts, build_windows, build_mac]
+    needs: [check_artifacts, build_windows, build_ubuntu_24_04, build_mac]
     if: always() && (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
-
     runs-on: ubuntu-latest
 
     steps:
@@ -228,9 +163,9 @@ jobs:
         id: get_version
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              version=${GITHUB_REF#refs/tags/v}
+            version=${GITHUB_REF#refs/tags/v}
           else
-              version=0.0.0.${GITHUB_REF#refs/heads/}
+            version=0.0.0.${GITHUB_REF#refs/heads/}
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -260,6 +195,7 @@ jobs:
 
           ARTIFACTS=(
             "PixelFlasher.exe Artifacts"
+            "PixelFlasher_Ubuntu_24_04 Artifacts"
             "PixelFlasher_MacOS.dmg Artifacts"
           )
 
@@ -336,8 +272,8 @@ jobs:
             exit 1
           fi
 
-      - name: List contents of dist directory
-        run: ls ${{ github.workspace }}/release*
+      - name: List release contents
+        run: ls -la ${{ github.workspace }}/release*
 
       - name: Create release
         id: create_release
@@ -355,6 +291,11 @@ jobs:
             - Flash Wizard preview via `--flash-wizard-preview`
             - Flash Wizard demo via `--flash-wizard-demo`
             - Wizard model, adapter, detail formatter, and tests
+
+            Included release assets:
+            - Windows: `PixelFlasher.exe`
+            - Linux: `PixelFlasher_Ubuntu_24_04`
+            - macOS: `PixelFlasher_MacOS.dmg`
 
             Safety status:
             - The Flash Wizard is read-only / preview-only.
