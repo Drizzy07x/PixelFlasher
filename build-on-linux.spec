@@ -34,7 +34,7 @@ a = Analysis(['PixelFlasher.py'],
              ],
              hiddenimports=hidden_imports,
              hookspath=[],
-             runtime_hooks=[],
+             runtime_hooks=['pyi_runtime_linux_gtk.py'],
              excludes=[
                 'bin/busybox_arm64-v8a',
                 'bin/busybox_armeabi-v7a',
