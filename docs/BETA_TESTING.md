@@ -2,6 +2,11 @@
 
 This document defines the minimum testing gate before a beta build is shared with users.
 
+## Related beta guides
+
+- [Modern UI beta testing](MODERN_UI_BETA_TESTING.md) — Dashboard overlay, Flash Wizard preview, demo mode, tester commands, and current read-only safety limits.
+- [Beta release playbook](BETA_RELEASE_PLAYBOOK.md) — Release checklist and packaging guidance.
+
 ## Beta channels
 
 | Channel | Audience | Purpose |
@@ -80,6 +85,19 @@ Warnings are acceptable for optional tools such as `adb` or `fastboot` when CI d
 - [ ] Hashes are calculated correctly
 - [ ] Large ZIP does not freeze the UI indefinitely
 
+### Modern UI beta checks
+
+See [Modern UI beta testing](MODERN_UI_BETA_TESTING.md) before testing the modern Dashboard or Flash Wizard preview.
+
+- [ ] Legacy app still opens normally with `python PixelFlasher.py`
+- [ ] Dashboard overlay opens with `python PixelFlasher.py --modern-dashboard`
+- [ ] Dashboard `Refresh` works without crashing
+- [ ] Dashboard `Hide` / `Show` works
+- [ ] Dashboard `Wizard` opens a separate read-only wizard window
+- [ ] Standalone Wizard preview opens with `python PixelFlasher.py --flash-wizard-preview`
+- [ ] Wizard demo opens with `python PixelFlasher.py --flash-wizard-demo`
+- [ ] Wizard final flash action remains disabled
+
 ### High-risk checks
 
 Only advanced testers should run these, and never on a daily-driver phone.
@@ -91,6 +109,8 @@ Only advanced testers should run these, and never on a daily-driver phone.
 - [ ] Real flash works on a secondary test device
 - [ ] Final log can be exported
 
+Do not run high-risk checks from the modern Flash Wizard preview. It is intentionally read-only and not connected to real flashing.
+
 ## Stable promotion rules
 
 Promote beta to stable only when:
@@ -101,6 +121,14 @@ Promote beta to stable only when:
 - Windows and Linux smoke tests pass
 - at least one successful patch boot test exists
 - at least one successful real flash test exists on a secondary device
+
+Modern UI promotion also requires:
+
+- Dashboard and Wizard xvfb launch checks pass in CI
+- Wizard model tests pass
+- Wizard adapter tests pass
+- Wizard final action remains blocked until explicit release criteria are met
+- testers confirm the legacy UI is unaffected
 
 ## Bug report requirements
 
@@ -115,6 +143,12 @@ Every useful beta report should include:
 - actual result
 - diagnostics ZIP generated with `--diagnostics`
 
+For modern UI reports, also include:
+
+- command used, such as `--modern-dashboard`, `--flash-wizard-preview`, or `--flash-wizard-demo`
+- whether the same issue happens in normal legacy mode
+- screenshot for layout/visual issues
+
 ## Added beta-safe commands
 
 These commands do not import the full wxPython UI and can run in CI/headless environments:
@@ -124,6 +158,15 @@ python PixelFlasher.py --version
 python PixelFlasher.py --self-test
 python PixelFlasher.py --doctor
 python PixelFlasher.py --diagnostics --output PixelFlasher-diagnostics.zip
+```
+
+Modern UI safe preview commands:
+
+```bash
+python PixelFlasher.py --modern-dashboard
+python PixelFlasher.py --modern-dashboard-preview
+python PixelFlasher.py --flash-wizard-preview
+python PixelFlasher.py --flash-wizard-demo
 ```
 
 ## Automated checks now covered
@@ -138,6 +181,9 @@ python PixelFlasher.py --diagnostics --output PixelFlasher-diagnostics.zip
 - optional adb/fastboot discovery
 - optional packaged binary discovery
 - redacted diagnostics bundle generation
+- Ubuntu xvfb launch check for modern Dashboard preview
+- Ubuntu xvfb launch check for Flash Wizard preview
+- Ubuntu xvfb launch check for Flash Wizard demo
 
 ## New source bundle helper
 
