@@ -1,6 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
+
+hidden_imports = ['_cffi_backend']
+hidden_imports += collect_submodules('pkg_resources')
+hidden_imports += collect_submodules('jaraco')
+hidden_imports += collect_submodules('more_itertools')
 
 a = Analysis(['PixelFlasher.py'],
              pathex=['.'],
@@ -25,7 +32,7 @@ a = Analysis(['PixelFlasher.py'],
                 ('testkey_rsa4096.pem', '.'),
                 ('locale', 'locale')
              ],
-             hiddenimports=['_cffi_backend'],
+             hiddenimports=hidden_imports,
              hookspath=[],
              runtime_hooks=[],
              excludes=[
