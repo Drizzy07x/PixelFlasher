@@ -109,12 +109,6 @@ def _check_required_dir(path: Path) -> CheckResult:
 
 
 def _check_source_layout(root: Path) -> list[CheckResult]:
-    """Check source-only files when running from a checkout.
-
-    PyInstaller one-file builds intentionally do not unpack Python source files
-    such as ``PixelFlasher.py`` or ``requirements.txt`` as loose files. Treating
-    those as required inside a packaged binary creates false beta failures.
-    """
     if _is_frozen():
         return [CheckResult("source_layout", True, "skipped for packaged binary")]
     return [
@@ -144,21 +138,27 @@ def _check_platform_tools() -> list[CheckResult]:
     ]
 
 
+def _packaged_bin_ok(path: Path) -> bool:
+    if sys.platform.startswith("win") or path.name.endswith(".dll"):
+        return path.is_file()
+    return path.is_file() and (bool(path.stat().st_mode & stat.S_IXUSR) or _is_executable(path))
+
+
 def _check_packaged_bins() -> list[CheckResult]:
     root = _repo_root()
     bin_dir = root / "bin"
-    names = ["7zz", "7zzs"] if not sys.platform.startswith("win") else ["7z.exe", "7z.dll"]
+    if sys.platform.startswith("win"):
+        checks = [("7z.exe", True), ("7z.dll", True)]
+    else:
+        # Linux/macOS packages may include either 7zz or the smaller 7zzs build.
+        candidates = [bin_dir / "7zz", bin_dir / "7zzs"]
+        found = [path.name for path in candidates if _packaged_bin_ok(path)]
+        return [CheckResult("packaged_bin:7zip", bool(found), "/".join(found) if found else "missing", required=False)]
+
     results: list[CheckResult] = []
-    for name in names:
+    for name, required in checks:
         path = bin_dir / name
-        if not path.exists():
-            results.append(CheckResult(f"packaged_bin:{name}", False, "missing", required=False))
-            continue
-        if sys.platform.startswith("win") or name.endswith(".dll"):
-            results.append(CheckResult(f"packaged_bin:{name}", True, "present", required=False))
-        else:
-            executable = bool(path.stat().st_mode & stat.S_IXUSR) or _is_executable(path)
-            results.append(CheckResult(f"packaged_bin:{name}", executable, "present/executable" if executable else "present but not executable", required=False))
+        results.append(CheckResult(f"packaged_bin:{name}", _packaged_bin_ok(path), "present" if path.exists() else "missing", required=required))
     return results
 
 
