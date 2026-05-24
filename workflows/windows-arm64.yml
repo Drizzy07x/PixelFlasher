@@ -1,0 +1,149 @@
+#
+# Copyright (C) 2025 Badabing2005
+# SPDX-FileCopyrightText: 2025 Badabing2005
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License
+# for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+#
+# Also add information on how to contact you by electronic and paper mail.
+#
+# If your software can interact with users remotely through a computer network,
+# you should also make sure that it provides a way for users to get its source.
+# For example, if your program is a web application, its interface could
+# display a "Source" link that leads users to an archive of the code. There are
+# many ways you could offer source, and different solutions will be better for
+# different programs; see section 13 for the specific requirements.
+#
+# You should also get your employer (if you work as a programmer) or school, if
+# any, to sign a "copyright disclaimer" for the program, if necessary. For more
+# information on this, and how to apply and follow the GNU AGPL, see
+# <https://www.gnu.org/licenses/>.
+
+name: Build for Windows ARM64
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Build tags'
+
+jobs:
+  build_windows_arm64:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download ARM64 Python
+        shell: pwsh
+        run: |
+          curl https://www.python.org/ftp/python/3.13.0/python-3.13.0-arm64.exe --output python-arm64.exe
+          ./python-arm64.exe /quiet InstallAllUsers=1 PrependPath=1
+
+      - name: Install Windows SDK
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2.4
+        with:
+          sdk-version: 26100
+
+      - name: Create virtual environment and install wxPython
+        shell: pwsh
+        run: |
+          python -m venv myenv
+          $venvPython = ".\myenv\Scripts\python.exe"
+          $venvPip = ".\myenv\Scripts\pip.exe"
+
+          # Upgrade pip in venv
+          & $venvPython -m pip install --upgrade pip
+          & $venvPip install --upgrade setuptools wheel build delvewheel requests
+
+          # Download and manually extract ARM64 wheel to bypass pip platform checks
+          # Use explicit site-packages path in venv
+          $sitePackages = ".\myenv\Lib\site-packages"
+          Write-Host "Site-packages: $sitePackages"
+          curl -L -o wxpython.whl "https://wxpython.org/Phoenix/snapshot-builds/wxpython-4.2.45988+6573a469-cp313-cp313-win_arm64.whl"
+          # Extract wheel directly to site-packages
+          Expand-Archive -Path wxpython.whl -DestinationPath $sitePackages -Force
+          & $venvPip install pillow numpy six
+
+          # Verify extraction and show wx contents
+          Write-Host "wx contents in site-packages:"
+          Get-ChildItem $sitePackages | Where-Object { $_.Name -like '*wx*' }
+          if (Test-Path "$sitePackages\wx") {
+            Write-Host "SUCCESS: wx directory found at $sitePackages\wx"
+            Get-ChildItem "$sitePackages\wx" | Select-Object -First 10
+          } else {
+            Write-Error "FAIL: wx directory not found in $sitePackages"
+            exit 1
+          }
+
+      - name: Install requirements
+        shell: pwsh
+        run: |
+          $venvPip = ".\myenv\Scripts\pip.exe"
+          & $venvPip install --upgrade pyinstaller
+          # Remove wxPython from requirements.txt to prevent overwriting the custom build
+          (Get-Content requirements.txt) | Where-Object { $_ -notmatch "wxPython" } | Set-Content requirements_no_wx.txt
+          & $venvPip install -r requirements_no_wx.txt
+
+      - name: List modules and their versions
+        shell: pwsh
+        run: |
+          .\myenv\Scripts\pip.exe freeze
+
+      - name: Build ARM64 application
+        shell: pwsh
+        run: |
+          # Set PYTHONPATH so PyInstaller can find wx in the venv
+          $env:PYTHONPATH = ".\myenv\Lib\site-packages;$env:PYTHONPATH"
+          $venvPyInstaller = ".\myenv\Scripts\pyinstaller.exe"
+          & $venvPyInstaller --log-level=DEBUG --clean --noconfirm build-on-win-arm64.spec
+
+      - name: Verify Output Exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/PixelFlasher-arm64.exe")) {
+            Write-Error "ARM64 executable not found"
+            exit 1
+          }
+
+      - name: Sign Windows ARM64 Executable
+        # Skip signing for pull requests as secrets aren't available
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: skymatic/code-sign-action@v3
+        with:
+          certificate: '${{ secrets.CERTIFICATE }}'
+          password: '${{ secrets.CERT_PASSWORD }}'
+          certificatesha1: '${{ secrets.CERTHASH }}'
+          certificatename: '${{ secrets.CERTNAME }}'
+          description: 'PixelFlasher ARM64'
+          timestampUrl: 'http://timestamp.digicert.com'
+          folder: 'dist'
+          recursive: false
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          Get-FileHash "dist/PixelFlasher-arm64.exe" -Algorithm SHA256 | Select-Object -ExpandProperty Hash > dist/PixelFlasher-arm64.exe.sha256
+          Get-Content dist/PixelFlasher-arm64.exe.sha256
+
+      - name: Upload ARM64 Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: PixelFlasher-ARM64.exe Artifacts
+          path: |
+            dist/PixelFlasher-arm64.exe
+            dist/PixelFlasher-arm64.exe.sha256
+

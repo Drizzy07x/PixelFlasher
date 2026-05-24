@@ -1,0 +1,214 @@
+#
+# Copyright (C) 2025 Badabing2005
+# SPDX-FileCopyrightText: 2025 Badabing2005
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License
+# for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+#
+# Also add information on how to contact you by electronic and paper mail.
+#
+# If your software can interact with users remotely through a computer network,
+# you should also make sure that it provides a way for users to get its source.
+# For example, if your program is a web application, its interface could
+# display a "Source" link that leads users to an archive of the code. There are
+# many ways you could offer source, and different solutions will be better for
+# different programs; see section 13 for the specific requirements.
+#
+# You should also get your employer (if you work as a programmer) or school, if
+# any, to sign a "copyright disclaimer" for the program, if necessary. For more
+# information on this, and how to apply and follow the GNU AGPL, see
+# <https://www.gnu.org/licenses/>.
+
+name: Build for macOS 11+
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Build tags'
+
+jobs:
+  build_mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: List Cellar directory
+        run: ls /opt/homebrew/Cellar
+
+      - name: Updating Homebrew Packages
+        run : |
+          brew upgrade
+          brew remove openssl@1.1 2>&1 | grep -v "configuration files have not been removed" || true
+          # Clean up openssl@1.1 configuration files
+          rm -rf /opt/homebrew/etc/openssl@1.1
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install wxPython
+        run: pip install wxPython
+
+      - name: Install node
+        run: brew install node
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install ImageMagick
+        run: brew install imagemagick
+
+      - name: Install create-dmg
+        run: |
+          npm cache clean --force
+          npm install --global create-dmg
+          # Check if 'util.isDate' is patched
+          if grep -q "util.isDate" "$(npm root -g)/create-dmg/node_modules/macos-alias/lib/encode.js"; then
+            echo "Patching util.isDate..."
+            sed -i.bak "s/util.isDate/((val) => Object.prototype.toString.call(val) === '[object Date]')/g" \
+              "$(npm root -g)/create-dmg/node_modules/macos-alias/lib/encode.js"
+          fi
+
+      - name: Add Python 3.13 to PATH
+        run: export PATH=/opt/homebrew/Cellar/python@3.13/bin:$PATH
+
+      - name: Create virtual environment
+        run: python3.13 -m venv myenv
+        shell: bash
+
+      - name: Activate virtual environment
+        run: source myenv/bin/activate
+        shell: bash
+
+      - name: Install requirements
+        run: PYLZ4_USE_SYSTEM_LZ4="False" ARCHFLAGS="-arch x86_64 -arch arm64" python3.13 -m pip install --no-binary 'bsdiff4,psutil,PyYAML,MarkupSafe,cffi,lz4' -r requirements.txt
+
+      - name: List modules and their versions
+        run: python3.13 -m pip freeze
+
+      - name: Verify universal2 extension modules
+        shell: bash
+        run: |
+          python3.13 - <<'PY'
+          import importlib.machinery
+          import pathlib
+          import fnmatch
+          import site
+          import subprocess
+          import sys
+
+          ext_suffixes = tuple(importlib.machinery.EXTENSION_SUFFIXES)
+          if not ext_suffixes:
+            print("Could not determine extension suffixes.", file=sys.stderr)
+            sys.exit(1)
+
+          allowlist_patterns = [
+            # Add glob patterns for extension-module paths to exempt from universal2 checks.
+            # Example: "*/site-packages/somepkg/someext*.so"
+          ]
+
+          def iter_site_package_roots() -> list[pathlib.Path]:
+            roots = set()
+            for path in site.getsitepackages():
+              roots.add(pathlib.Path(path).resolve())
+            user_site = site.getusersitepackages()
+            if user_site:
+              roots.add(pathlib.Path(user_site).resolve())
+            return sorted(roots)
+
+          def is_extension_module(path: pathlib.Path) -> bool:
+            return any(path.name.endswith(suffix) for suffix in ext_suffixes)
+
+          def is_allowlisted(path: pathlib.Path) -> bool:
+            normalized = path.as_posix()
+            return any(fnmatch.fnmatch(normalized, pattern) for pattern in allowlist_patterns)
+
+          def check_arches(path: pathlib.Path) -> tuple[bool, str]:
+            result = subprocess.run(
+              ["lipo", "-archs", str(path)],
+              check=False,
+              capture_output=True,
+              text=True,
+            )
+            if result.returncode != 0:
+              return False, f"lipo failed: {result.stderr.strip()}"
+            archs = set(result.stdout.strip().split())
+            ok = {"arm64", "x86_64"}.issubset(archs)
+            return ok, " ".join(sorted(archs))
+
+          failures = []
+          checked = 0
+
+          for root in iter_site_package_roots():
+            if not root.exists():
+              continue
+            for path in root.rglob("*"):
+              if not path.is_file() or not is_extension_module(path):
+                continue
+              if is_allowlisted(path):
+                continue
+              checked += 1
+              ok, details = check_arches(path)
+              if not ok:
+                failures.append((path, details))
+
+          print(f"Checked {checked} compiled extension modules for universal2 slices.")
+
+          if failures:
+            print("Universal2 guard failed. Non-universal extension modules found:", file=sys.stderr)
+            for path, details in failures[:50]:
+              print(f" - {path}: {details}", file=sys.stderr)
+            if len(failures) > 50:
+              print(f" ... and {len(failures) - 50} more", file=sys.stderr)
+            sys.exit(1)
+
+          print("Universal2 guard passed: all extension modules include arm64 and x86_64.")
+          PY
+
+      - name: Build application
+        id: build_app
+        run: ./build.sh
+
+      - name: Upload PixelFlasher.app as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: PixelFlasher.app for macOS 11+
+          path: dist/PixelFlasher.app
+
+      - name: Rename the file names
+        run: mv dist/PixelFlasher.dmg "dist/PixelFlasher_MacOS.dmg"
+
+      - name: Get sha256
+        run: |
+          shasum -a 256 "dist/PixelFlasher_MacOS.dmg" > "dist/PixelFlasher_MacOS.dmg.sha256"
+          cat "dist/PixelFlasher_MacOS.dmg.sha256"
+
+      - name: List contents of dist directory
+        run: ls ./ dist/
+
+      - name: Upload macOS 11+ Artifact
+        uses: actions/upload-artifact@v7
+        id: upload_artifact_macos
+        with:
+          name: PixelFlasher_MacOS.dmg Artifacts
+          path: |
+            dist/PixelFlasher_MacOS.dmg
+            dist/PixelFlasher_MacOS.dmg.sha256
