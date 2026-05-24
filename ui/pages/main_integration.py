@@ -63,9 +63,21 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         sizer = legacy_panel.GetSizer()
         if sizer is None:
             return
-        dashboard = ModernDashboardPanel(legacy_panel, frame)
+
+        wrapper = wx.Panel(legacy_panel)
+        wrapper_sizer = wx.BoxSizer(wx.VERTICAL)
+        toolbar = _build_dashboard_toolbar(wrapper, frame)
+        dashboard = ModernDashboardPanel(wrapper, frame)
+
+        frame.modern_dashboard_wrapper = wrapper
         frame.modern_dashboard_panel = dashboard
-        sizer.Insert(0, dashboard, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 10)
+        frame.modern_dashboard_visible = True
+
+        wrapper_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 4)
+        wrapper_sizer.Add(dashboard, 0, wx.EXPAND)
+        wrapper.SetSizer(wrapper_sizer)
+
+        sizer.Insert(0, wrapper, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 10)
         sizer.Layout()
         legacy_panel.Layout()
         frame.Layout()
@@ -76,6 +88,48 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         with contextlib.suppress(Exception):
             import traceback
             traceback.print_exc()
+
+
+def _build_dashboard_toolbar(parent: wx.Window, frame: wx.Frame) -> wx.Panel:
+    toolbar = wx.Panel(parent)
+    toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
+    label = wx.StaticText(toolbar, label="Modern Dashboard")
+    font = label.GetFont()
+    font.SetWeight(wx.FONTWEIGHT_BOLD)
+    label.SetFont(font)
+    hint = wx.StaticText(toolbar, label="  beta overlay, legacy UI remains below")
+    refresh = wx.Button(toolbar, label="Refresh")
+    toggle = wx.Button(toolbar, label="Hide")
+
+    frame.modern_dashboard_toggle_button = toggle
+    refresh.Bind(wx.EVT_BUTTON, lambda event: _refresh_dashboard(frame))
+    toggle.Bind(wx.EVT_BUTTON, lambda event: _toggle_dashboard(frame))
+
+    toolbar_sizer.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+    toolbar_sizer.Add(hint, 1, wx.ALIGN_CENTER_VERTICAL)
+    toolbar_sizer.Add(refresh, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+    toolbar_sizer.Add(toggle, 0, wx.ALIGN_CENTER_VERTICAL)
+    toolbar.SetSizer(toolbar_sizer)
+    return toolbar
+
+
+def _toggle_dashboard(frame: wx.Frame) -> None:
+    dashboard = getattr(frame, "modern_dashboard_panel", None)
+    button = getattr(frame, "modern_dashboard_toggle_button", None)
+    if dashboard is None:
+        return
+    visible = not bool(getattr(frame, "modern_dashboard_visible", True))
+    frame.modern_dashboard_visible = visible
+    dashboard.Show(visible)
+    if button is not None:
+        with contextlib.suppress(Exception):
+            button.SetLabel("Hide" if visible else "Show")
+    parent = dashboard.GetParent()
+    if parent is not None:
+        parent.Layout()
+    top = dashboard.GetTopLevelParent()
+    if top is not None:
+        top.Layout()
 
 
 def _find_legacy_panel(frame: wx.Frame) -> wx.Panel | None:
