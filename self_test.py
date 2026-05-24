@@ -48,6 +48,10 @@ def _repo_root() -> Path:
     return repo_root()
 
 
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
 def _is_executable(path: Path) -> bool:
     if sys.platform.startswith("win"):
         return path.is_file()
@@ -104,6 +108,22 @@ def _check_required_dir(path: Path) -> CheckResult:
     )
 
 
+def _check_source_layout(root: Path) -> list[CheckResult]:
+    """Check source-only files when running from a checkout.
+
+    PyInstaller one-file builds intentionally do not unpack Python source files
+    such as ``PixelFlasher.py`` or ``requirements.txt`` as loose files. Treating
+    those as required inside a packaged binary creates false beta failures.
+    """
+    if _is_frozen():
+        return [CheckResult("source_layout", True, "skipped for packaged binary")]
+    return [
+        _check_required_file(root / "PixelFlasher.py"),
+        _check_required_file(root / "Main.py"),
+        _check_required_file(root / "requirements.txt"),
+    ]
+
+
 def _check_config_writable() -> CheckResult:
     try:
         with tempfile.TemporaryDirectory(prefix="pf-self-test-") as tmp:
@@ -142,7 +162,6 @@ def _check_packaged_bins() -> list[CheckResult]:
     return results
 
 
-
 def _check_platform_layer() -> CheckResult:
     try:
         info = current_platform()
@@ -169,14 +188,15 @@ def _check_ui_foundation() -> list[CheckResult]:
         results.append(CheckResult("ui_icon_registry", False, str(exc)))
     return results
 
+
 def run_checks() -> list[CheckResult]:
     root = _repo_root()
     checks: list[CheckResult] = [
         CheckResult("app", True, f"{APPNAME} {VERSION}"),
         _check_python_version(),
-        _check_required_file(root / "PixelFlasher.py"),
-        _check_required_file(root / "Main.py"),
-        _check_required_file(root / "requirements.txt"),
+    ]
+    checks.extend(_check_source_layout(root))
+    checks.extend([
         _check_platform_layer(),
         _check_required_dir(root / "images"),
         _check_required_dir(root / "bin"),
@@ -186,7 +206,7 @@ def run_checks() -> list[CheckResult]:
         _check_module("wx", required=False),
         _check_module("requests", required=False),
         _check_module("psutil", required=False),
-    ]
+    ])
     checks.extend(_check_platform_tools())
     checks.extend(_check_ui_foundation())
     checks.extend(_check_packaged_bins())
