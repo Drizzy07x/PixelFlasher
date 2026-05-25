@@ -196,6 +196,16 @@ def _check_modern_entrypoints() -> list[CheckResult]:
         "ui.pages.modern_shell_app",
         "ui.pages.main_integration",
     )
+    if importlib.util.find_spec("wx") is None:
+        return [
+            CheckResult(
+                f"entrypoint:{module.rsplit('.', 1)[-1]}",
+                True,
+                "skipped; wx not importable in this environment",
+            )
+            for module in modules
+        ]
+
     results: list[CheckResult] = []
     for module in modules:
         try:
