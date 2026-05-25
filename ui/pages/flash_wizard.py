@@ -183,9 +183,9 @@ class FlashWizardPanel(wx.Panel):
             self._back.Enable(self.current_index > 0)
         if self._next:
             if self.current_index == len(STEPS) - 1:
-                self._next.SetLabel("Flash disabled" if not self.session.can_flash else "Flash")
-                self._next.Enable(self.session.can_flash)
+                self._next.Hide()
             else:
+                self._next.Show()
                 self._next.SetLabel("Next")
                 self._next.Enable(True)
         self.Layout()
