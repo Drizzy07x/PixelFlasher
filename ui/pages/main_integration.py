@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import contextlib
 import os
+import platform
+import shutil
+import sys
 from typing import Any
 
 import wx
@@ -103,17 +106,20 @@ def _build_dashboard_toolbar(parent: wx.Window, frame: wx.Frame) -> wx.Panel:
     hint = wx.StaticText(toolbar, label="  beta overlay")
     wizard = wx.Button(toolbar, label="Wizard")
     refresh = wx.Button(toolbar, label="Refresh")
+    copy = wx.Button(toolbar, label="Copy Diag")
     toggle = wx.Button(toolbar, label="Hide")
 
     frame.modern_dashboard_toggle_button = toggle
     wizard.Bind(wx.EVT_BUTTON, lambda event: _open_flash_wizard_preview(frame))
     refresh.Bind(wx.EVT_BUTTON, lambda event: _refresh_dashboard(frame))
+    copy.Bind(wx.EVT_BUTTON, lambda event: _copy_diagnostics(frame))
     toggle.Bind(wx.EVT_BUTTON, lambda event: _toggle_dashboard(frame))
 
     toolbar_sizer.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
     toolbar_sizer.Add(hint, 1, wx.ALIGN_CENTER_VERTICAL)
     toolbar_sizer.Add(wizard, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
     toolbar_sizer.Add(refresh, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+    toolbar_sizer.Add(copy, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
     toolbar_sizer.Add(toggle, 0, wx.ALIGN_CENTER_VERTICAL)
     toolbar.SetSizer(toolbar_sizer)
     return toolbar
@@ -140,6 +146,75 @@ def _open_flash_wizard_preview(frame: wx.Frame) -> None:
         with contextlib.suppress(Exception):
             import traceback
             traceback.print_exc()
+
+
+def _copy_diagnostics(frame: wx.Frame) -> None:
+    diagnostics = _build_diagnostics(frame)
+    if wx.TheClipboard.Open():
+        try:
+            wx.TheClipboard.SetData(wx.TextDataObject(diagnostics))
+            wx.TheClipboard.Flush()
+            with contextlib.suppress(Exception):
+                frame.statusBar.SetStatusText("Modern diagnostics copied", 1)
+        finally:
+            wx.TheClipboard.Close()
+    else:
+        wx.MessageBox("Unable to open clipboard.", "PixelFlasher", wx.OK | wx.ICON_WARNING)
+
+
+def _build_diagnostics(frame: wx.Frame) -> str:
+    try:
+        from constants import APPNAME, VERSION
+    except Exception:
+        APPNAME, VERSION = "PixelFlasher", "unknown"
+
+    def safe_value(label: str, default: str = "") -> str:
+        with contextlib.suppress(Exception):
+            value = getattr(frame, label)
+            if hasattr(value, "GetStringSelection"):
+                return value.GetStringSelection() or default
+            if hasattr(value, "GetPath"):
+                return value.GetPath() or default
+        return default
+
+    selected_device = safe_value("device_choice", "not selected")
+    firmware_path = safe_value("firmware_picker", "not selected")
+
+    lines = [
+        f"{APPNAME} Modern UI diagnostics",
+        f"Version: {VERSION}",
+        f"Platform: {platform.platform()}",
+        f"Python: {platform.python_version()} ({sys.executable})",
+        f"Frozen package: {bool(getattr(sys, 'frozen', False))}",
+        f"Modern dashboard: {bool(getattr(frame, 'modern_dashboard_panel', None))}",
+        f"Modern dashboard visible: {bool(getattr(frame, 'modern_dashboard_visible', False))}",
+        f"Selected device: {_redact_device_id(selected_device)}",
+        f"Firmware selected: {bool(firmware_path and firmware_path != 'not selected')}",
+        f"Firmware path: {_redact_home_path(firmware_path)}",
+        f"ADB path: {shutil.which('adb') or 'not found'}",
+        f"Fastboot path: {shutil.which('fastboot') or 'not found'}",
+        "Flash Wizard: preview-only / execution disabled",
+    ]
+    return "\n".join(lines)
+
+
+def _redact_device_id(value: str) -> str:
+    value = str(value or "")
+    if not value or value == "not selected":
+        return value or "not selected"
+    if len(value) <= 6:
+        return "selected"
+    return f"{value[:3]}…{value[-3:]}"
+
+
+def _redact_home_path(value: str) -> str:
+    value = str(value or "")
+    if not value or value == "not selected":
+        return value or "not selected"
+    home = os.path.expanduser("~")
+    if value.startswith(home):
+        return value.replace(home, "~", 1)
+    return value
 
 
 def _toggle_dashboard(frame: wx.Frame) -> None:
