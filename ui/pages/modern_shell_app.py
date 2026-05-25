@@ -128,6 +128,7 @@ class ModernShellFrame(wx.Frame):
             "flash": self._render_flash,
             "patch": self._render_patch,
             "devices": self._render_devices,
+            "tools": self._render_tools,
             "logs": self._render_logs,
             "settings": self._render_settings,
         }.get(page)
@@ -166,22 +167,49 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Patch Boot Preview", 16, True), 0, wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "This page will mirror the future Patch Boot flow. No patching is wired here."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._disabled_pill(card, "Preview only · patch execution disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
         for title, value in (
             ("Patch method", "Auto recommended · disabled in preview"),
             ("Magisk", "Stable latest · placeholder"),
             ("Output", "No patched image is created in this preview"),
         ):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Safety note: Patch Boot remains read-only until legacy guarded wiring is approved."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
     def _render_devices(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "No device selected", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._text(card, "Devices Preview", 16, True), 0, wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "Device scanning remains in the legacy app until the modern adapter is validated."), 0, wx.BOTTOM, 14)
-        for title, value in (("ADB", "not connected"), ("Fastboot", "not connected"), ("Bootloader", "unknown")):
+        sizer.Add(self._disabled_pill(card, "Preview only · scan/refresh disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        for title, value in (
+            ("Selected device", "none"),
+            ("ADB", "not connected"),
+            ("Fastboot", "not connected"),
+            ("Bootloader", "unknown"),
+            ("Current slot", "unknown"),
+        ):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Safety note: No connect, reboot, slot switch, or wipe actions are available in preview."), 0, wx.TOP, 6)
+        card.SetSizer(self._pad(sizer, 18))
+        self.content_sizer.Add(card, 0, wx.EXPAND)
+
+    def _render_tools(self) -> None:
+        card = self._card(self.content_panel)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Tools Preview", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Utility tools are listed for layout validation only. No commands run here."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._disabled_pill(card, "Preview only · tool execution disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        for title, value in (
+            ("Platform Tools", "detected in legacy context"),
+            ("ADB shell", "disabled"),
+            ("Fastboot commands", "disabled"),
+            ("File open/extract", "disabled"),
+        ):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Safety note: Modern Shell Tools will delegate to guarded legacy logic in a future phase."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
@@ -189,13 +217,15 @@ class ModernShellFrame(wx.Frame):
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Preview Log", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._disabled_pill(card, "Preview only · live log capture disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
         log = wx.TextCtrl(
             card,
             value="INFO  Modern shell preview opened\nINFO  Flash execution disabled\nINFO  Use legacy PixelFlasher for real operations\n",
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE,
         )
         log.SetMinSize((-1, 300))
-        sizer.Add(log, 1, wx.EXPAND)
+        sizer.Add(log, 1, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._muted(card, "Safety note: Logs shown here are static preview entries and do not stream device output."), 0)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 1, wx.EXPAND)
 

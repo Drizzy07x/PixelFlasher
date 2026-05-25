@@ -183,9 +183,9 @@ class FlashWizardPanel(wx.Panel):
             self._back.Enable(self.current_index > 0)
         if self._next:
             if self.current_index == len(STEPS) - 1:
-                self._next.SetLabel("Flash disabled" if not self.session.can_flash else "Flash")
-                self._next.Enable(self.session.can_flash)
+                self._next.Hide()
             else:
+                self._next.Show()
                 self._next.SetLabel("Next")
                 self._next.Enable(True)
         self.Layout()
@@ -212,10 +212,9 @@ class FlashWizardPanel(wx.Panel):
 
         if step_key == "flash":
             self._content_sizer.AddSpacer(8)
-            final = wx.Button(self._content_panel, label="Flash disabled" if not self.session.can_flash else "Flash Device")
-            final.Enable(self.session.can_flash)
-            final.SetToolTip("Preview only. Real flashing is not wired here.")
-            self._content_sizer.Add(final, 0, wx.EXPAND)
+            notice = self._badge(self._content_panel, "Preview only · flash execution disabled", "muted")
+            notice.SetToolTip("Final flash action is intentionally unavailable in preview mode.")
+            self._content_sizer.Add(notice, 0, wx.EXPAND)
         self._content_panel.Layout()
 
     def _summary_text(self) -> str:
