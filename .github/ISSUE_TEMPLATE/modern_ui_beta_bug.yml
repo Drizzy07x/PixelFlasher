@@ -1,0 +1,116 @@
+name: Modern UI beta bug report
+description: Report a bug from the PixelFlasher Modern UI beta
+title: "[Modern UI Beta]: "
+labels:
+  - bug
+  - modern-ui
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing the PixelFlasher Modern UI beta.
+
+        The Flash Wizard is currently preview-only. It should not execute flash, patch, ADB, or Fastboot commands.
+
+  - type: input
+    id: version
+    attributes:
+      label: Beta version
+      description: Example: v9.2.0-beta.13
+      placeholder: v9.2.0-beta.13
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+    validations:
+      required: true
+
+  - type: input
+    id: os_version
+    attributes:
+      label: OS version
+      description: Example: Ubuntu 26.04 LTS, Windows 11 24H2, macOS 15
+      placeholder: Ubuntu 26.04 LTS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Startup / packaging
+        - Modern Dashboard
+        - Flash Wizard preview
+        - Legacy UI interaction
+        - Release asset / install
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem clearly.
+      placeholder: The Modern Dashboard opens, but...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run ./PixelFlasher_Ubuntu_24_04 --modern-dashboard
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: I expected...
+    validations:
+      required: true
+
+  - type: textarea
+    id: self_test
+    attributes:
+      label: Self-test output
+      description: Paste output from --self-test if available.
+      render: shell
+      placeholder: |
+        PixelFlasher self-test
+        Required failures: 0
+        Warnings: 0
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output / logs
+      description: Paste relevant terminal output. Do not include private serials or personal data.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag and drop screenshots here if the issue is visual.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I understand the Flash Wizard is preview-only and should not execute real flash commands in this beta.
+          required: true
