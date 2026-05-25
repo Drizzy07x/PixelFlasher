@@ -10,7 +10,7 @@ from __future__ import annotations
 import wx
 
 from constants import APPNAME, VERSION
-from ui.theme import Theme, get_theme
+from ui.theme import get_theme
 
 
 class ModernShellFrame(wx.Frame):
@@ -30,16 +30,11 @@ class ModernShellFrame(wx.Frame):
         self.Centre()
 
     def _build(self) -> None:
-        palette = self.theme.palette
         root_panel = wx.Panel(self)
-        root_panel.SetBackgroundColour(wx.Colour(palette.background))
+        root_panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
         root = wx.BoxSizer(wx.HORIZONTAL)
-
-        sidebar = self._build_sidebar(root_panel)
-        main = self._build_main(root_panel)
-
-        root.Add(sidebar, 0, wx.EXPAND)
-        root.Add(main, 1, wx.EXPAND)
+        root.Add(self._build_sidebar(root_panel), 0, wx.EXPAND)
+        root.Add(self._build_main(root_panel), 1, wx.EXPAND)
         root_panel.SetSizer(root)
 
     def _build_sidebar(self, parent: wx.Window) -> wx.Panel:
@@ -55,19 +50,12 @@ class ModernShellFrame(wx.Frame):
         brand.Add(self._text(panel, "PixelFlasher", 15, True), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(brand, 0, wx.EXPAND | wx.ALL, 18)
 
-        for key, label in (
-            ("dashboard", "Dashboard"),
-            ("flash", "Flash"),
-            ("patch", "Patch Boot"),
-            ("devices", "Devices"),
-            ("tools", "Tools"),
-            ("logs", "Logs"),
-            ("settings", "Settings"),
-        ):
-            button = wx.Button(panel, label=label)
+        for key in ("dashboard", "flash", "patch", "devices", "tools", "logs", "settings"):
+            button = wx.Button(panel, label=_title_for_page(key))
+            button.SetMinSize((-1, 32))
             button.Bind(wx.EVT_BUTTON, lambda event, page=key: self._show_page(page))
             self.nav_buttons[key] = button
-            sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+            sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         sizer.AddStretchSpacer(1)
         info = self._card(panel)
@@ -131,23 +119,20 @@ class ModernShellFrame(wx.Frame):
             self.page_title.SetLabel(title)
         if self.page_subtitle:
             self.page_subtitle.SetLabel(subtitle)
-
         if self.content_sizer is None or self.content_panel is None:
             return
-        self.content_sizer.Clear(delete_windows=True)
 
-        if page == "dashboard":
-            self._render_dashboard()
-        elif page == "flash":
-            self._render_flash()
-        elif page == "patch":
-            self._render_patch()
-        elif page == "devices":
-            self._render_devices()
-        elif page == "logs":
-            self._render_logs()
-        elif page == "settings":
-            self._render_settings()
+        self.content_sizer.Clear(delete_windows=True)
+        renderer = {
+            "dashboard": self._render_dashboard,
+            "flash": self._render_flash,
+            "patch": self._render_patch,
+            "devices": self._render_devices,
+            "logs": self._render_logs,
+            "settings": self._render_settings,
+        }.get(page)
+        if renderer:
+            renderer()
         else:
             self._render_placeholder(title)
 
@@ -169,6 +154,7 @@ class ModernShellFrame(wx.Frame):
         top.Add(self._flash_package_card(self.content_panel), 3, wx.EXPAND | wx.RIGHT, 14)
         top.Add(self._flash_summary_card(self.content_panel), 1, wx.EXPAND)
         self.content_sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 14)
+
         body = wx.BoxSizer(wx.HORIZONTAL)
         body.Add(self._flash_options_card(self.content_panel), 2, wx.EXPAND | wx.RIGHT, 14)
         body.Add(self._flash_action_card(self.content_panel), 1, wx.EXPAND)
@@ -180,9 +166,12 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Patch Boot Preview", 16, True), 0, wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "This page will mirror the future Patch Boot flow. No patching is wired here."), 0, wx.BOTTOM, 14)
-        sizer.Add(self._info_row(card, "Patch method", "Auto recommended · disabled in preview"), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._info_row(card, "Magisk", "Stable latest · placeholder"), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._info_row(card, "Output", "No patched image is created in this preview"), 0, wx.EXPAND)
+        for title, value in (
+            ("Patch method", "Auto recommended · disabled in preview"),
+            ("Magisk", "Stable latest · placeholder"),
+            ("Output", "No patched image is created in this preview"),
+        ):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
@@ -190,10 +179,9 @@ class ModernShellFrame(wx.Frame):
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "No device selected", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Device scanning remains in the legacy app until the modern adapter is fully validated."), 0, wx.BOTTOM, 14)
-        sizer.Add(self._info_row(card, "ADB", "not connected"), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._info_row(card, "Fastboot", "not connected"), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._info_row(card, "Bootloader", "unknown"), 0, wx.EXPAND)
+        sizer.Add(self._muted(card, "Device scanning remains in the legacy app until the modern adapter is validated."), 0, wx.BOTTOM, 14)
+        for title, value in (("ADB", "not connected"), ("Fastboot", "not connected"), ("Bootloader", "unknown")):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
@@ -201,8 +189,12 @@ class ModernShellFrame(wx.Frame):
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Preview Log", 16, True), 0, wx.BOTTOM, 8)
-        log = wx.TextCtrl(card, value="INFO  Modern shell preview opened\nINFO  Flash execution disabled\nINFO  Use legacy PixelFlasher for real operations\n", style=wx.TE_MULTILINE | wx.TE_READONLY)
-        log.SetMinSize((-1, 260))
+        log = wx.TextCtrl(
+            card,
+            value="INFO  Modern shell preview opened\nINFO  Flash execution disabled\nINFO  Use legacy PixelFlasher for real operations\n",
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE,
+        )
+        log.SetMinSize((-1, 300))
         sizer.Add(log, 1, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 1, wx.EXPAND)
@@ -212,9 +204,8 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Modern UI Settings Preview", 16, True), 0, wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "Settings are visual only in this preview."), 0, wx.BOTTOM, 14)
-        sizer.Add(self._info_row(card, "Theme", "Light preview"), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._info_row(card, "Safety mode", "Flash Wizard read-only"), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._info_row(card, "Legacy fallback", "enabled"), 0, wx.EXPAND)
+        for title, value in (("Theme", "Light preview"), ("Safety mode", "Flash Wizard read-only"), ("Legacy fallback", "enabled")):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
@@ -273,10 +264,8 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Recommended Next Step", 13, True), 0, wx.BOTTOM, 12)
         sizer.Add(self._text(card, "Select Firmware", 18, True), 0, wx.BOTTOM, 6)
-        sizer.Add(self._muted(card, "Choose a factory image, OTA package, or custom ROM before planning a flash."), 0, wx.BOTTOM, 18)
-        button = wx.Button(card, label="Browse File (disabled)")
-        button.Enable(False)
-        sizer.Add(button, 0, wx.EXPAND)
+        sizer.Add(self._muted(card, "Choose a firmware package before planning a flash."), 0, wx.BOTTOM, 18)
+        sizer.Add(self._disabled_pill(card, "Browse File disabled"), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
@@ -285,9 +274,8 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Firmware / ROM File", 14, True), 0, wx.BOTTOM, 4)
         sizer.Add(self._muted(card, "No firmware selected. This preview does not open files."), 0, wx.BOTTOM, 12)
-        sizer.Add(self._info_row(card, "Type", "not selected"), 0, wx.EXPAND | wx.BOTTOM, 6)
-        sizer.Add(self._info_row(card, "Build", "unknown"), 0, wx.EXPAND | wx.BOTTOM, 6)
-        sizer.Add(self._info_row(card, "Validation", "waiting"), 0, wx.EXPAND)
+        for title, value in (("Type", "not selected"), ("Build", "unknown"), ("Validation", "waiting")):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 6)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
@@ -295,7 +283,7 @@ class ModernShellFrame(wx.Frame):
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Quick Actions", 14, True), 0, wx.BOTTOM, 12)
-        grid = wx.GridSizer(rows=1, cols=4, vgap=8, hgap=8)
+        grid = wx.GridSizer(rows=2, cols=2, vgap=10, hgap=10)
         for title, body in (
             ("Patch Boot", "Plan patching flow"),
             ("Flash Device", "Disabled in preview"),
@@ -312,9 +300,7 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(panel, title, 12, True), 0, wx.BOTTOM, 4)
         sizer.Add(self._muted(panel, body), 0, wx.BOTTOM, 10)
-        button = wx.Button(panel, label="Preview")
-        button.Enable(False)
-        sizer.Add(button, 0, wx.EXPAND)
+        sizer.Add(self._disabled_pill(panel, "Preview only"), 0, wx.EXPAND)
         panel.SetSizer(self._pad(sizer, 10))
         return panel
 
@@ -331,17 +317,22 @@ class ModernShellFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Flash Package / Boot Image", 15, True), 0, wx.BOTTOM, 10)
         sizer.Add(self._info_row(card, "Selected package", "none"), 0, wx.EXPAND | wx.BOTTOM, 10)
-        table = wx.ListCtrl(card, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
-        for idx, heading in enumerate(("Partition", "Slot", "SHA1", "Patched", "Action")):
-            table.InsertColumn(idx, heading, width=120)
-        for row in (("boot", "A", "waiting", "No", "disabled"), ("init_boot", "A", "waiting", "No", "disabled")):
-            index = table.InsertItem(table.GetItemCount(), row[0])
-            for col, value in enumerate(row[1:], start=1):
-                table.SetItem(index, col, value)
-        table.SetMinSize((-1, 145))
-        sizer.Add(table, 0, wx.EXPAND)
+        sizer.Add(self._simple_table(card), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
+
+    def _simple_table(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        grid = wx.FlexGridSizer(rows=3, cols=5, vgap=6, hgap=16)
+        grid.AddGrowableCol(4, 1)
+        for heading in ("Partition", "Slot", "SHA1", "Patched", "Action"):
+            grid.Add(self._text(panel, heading, 9, True), 0, wx.EXPAND)
+        for row in (("boot", "A", "waiting", "No", "disabled"), ("init_boot", "A", "waiting", "No", "disabled")):
+            for value in row:
+                grid.Add(self._muted(panel, value), 0, wx.EXPAND)
+        panel.SetSizer(self._pad(grid, 10))
+        return panel
 
     def _flash_summary_card(self, parent: wx.Window) -> wx.Panel:
         card = self._card(parent)
@@ -356,12 +347,8 @@ class ModernShellFrame(wx.Frame):
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Flash Options", 15, True), 0, wx.BOTTOM, 10)
-        for label in ("Keep Data", "Flash to inactive slot", "Verbose Output"):
-            check = wx.CheckBox(card, label=label)
-            check.Enable(False)
-            if label == "Keep Data":
-                check.SetValue(True)
-            sizer.Add(check, 0, wx.BOTTOM, 8)
+        for title, value in (("Data", "Keep Data"), ("Slot", "Inactive slot disabled"), ("Output", "Verbose preview only")):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
@@ -369,13 +356,9 @@ class ModernShellFrame(wx.Frame):
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Execution", 15, True), 0, wx.BOTTOM, 10)
-        sizer.Add(self._muted(card, "Real flashing is intentionally disabled in Modern Shell Preview."), 0, wx.BOTTOM, 18)
-        flash = wx.Button(card, label="Flash Now Disabled")
-        flash.Enable(False)
-        sizer.Add(flash, 0, wx.EXPAND | wx.BOTTOM, 10)
-        dry = wx.Button(card, label="Dry Run Preview")
-        dry.Enable(False)
-        sizer.Add(dry, 0, wx.EXPAND)
+        sizer.Add(self._muted(card, "Real flashing is intentionally disabled in this preview."), 0, wx.BOTTOM, 18)
+        sizer.Add(self._disabled_pill(card, "Flash Now disabled"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._disabled_pill(card, "Dry Run preview"), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
@@ -383,8 +366,12 @@ class ModernShellFrame(wx.Frame):
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Console", 15, True), 0, wx.BOTTOM, 10)
-        console = wx.TextCtrl(card, value="INFO  Modern flash page preview loaded\nWARN  Flash execution disabled\nINFO  Legacy PixelFlasher remains source of truth\n", style=wx.TE_MULTILINE | wx.TE_READONLY)
-        console.SetMinSize((-1, 150))
+        console = wx.TextCtrl(
+            card,
+            value="INFO  Modern flash page preview loaded\nWARN  Flash execution disabled\nINFO  Legacy PixelFlasher remains source of truth\n",
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE,
+        )
+        console.SetMinSize((-1, 170))
         sizer.Add(console, 1, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
@@ -405,6 +392,18 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._muted(panel, title), 0, wx.BOTTOM, 3)
         sizer.Add(self._text(panel, value, 11, True), 0)
         panel.SetSizer(self._pad(sizer, 10))
+        return panel
+
+    def _disabled_pill(self, parent: wx.Window, label: str) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour("#F1F5F9"))
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        text = self._text(panel, label, 10, True)
+        text.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
+        sizer.AddStretchSpacer(1)
+        sizer.Add(text, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.AddStretchSpacer(1)
+        panel.SetSizer(self._pad(sizer, 7))
         return panel
 
     def _card(self, parent: wx.Window) -> wx.Panel:
