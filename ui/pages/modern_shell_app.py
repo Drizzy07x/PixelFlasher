@@ -1,0 +1,459 @@
+"""Standalone Modern Shell preview for PixelFlasher.
+
+This preview is intentionally UI-only. It does not run flash, patch, reboot,
+ADB, Fastboot, or file-processing operations. It exists to iterate on the full
+modern application shell without risking the stable legacy UI.
+"""
+
+from __future__ import annotations
+
+import wx
+
+from constants import APPNAME, VERSION
+from ui.theme import Theme, get_theme
+
+
+class ModernShellFrame(wx.Frame):
+    """Full modern UI shell preview with safe placeholder pages."""
+
+    def __init__(self) -> None:
+        super().__init__(None, title=f"{APPNAME} {VERSION} - Modern Shell Preview", size=(1280, 820))
+        self.theme = get_theme("light")
+        self.active_page = "dashboard"
+        self.nav_buttons: dict[str, wx.Button] = {}
+        self.page_title: wx.StaticText | None = None
+        self.page_subtitle: wx.StaticText | None = None
+        self.content_panel: wx.ScrolledWindow | None = None
+        self.content_sizer: wx.BoxSizer | None = None
+        self._build()
+        self._show_page("dashboard")
+        self.Centre()
+
+    def _build(self) -> None:
+        palette = self.theme.palette
+        root_panel = wx.Panel(self)
+        root_panel.SetBackgroundColour(wx.Colour(palette.background))
+        root = wx.BoxSizer(wx.HORIZONTAL)
+
+        sidebar = self._build_sidebar(root_panel)
+        main = self._build_main(root_panel)
+
+        root.Add(sidebar, 0, wx.EXPAND)
+        root.Add(main, 1, wx.EXPAND)
+        root_panel.SetSizer(root)
+
+    def _build_sidebar(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetMinSize((210, -1))
+        panel.SetBackgroundColour(wx.Colour("#F8FAFC"))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        brand = wx.BoxSizer(wx.HORIZONTAL)
+        logo = self._text(panel, "P", 18, True)
+        logo.SetForegroundColour(wx.Colour(self.theme.palette.accent))
+        brand.Add(logo, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        brand.Add(self._text(panel, "PixelFlasher", 15, True), 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(brand, 0, wx.EXPAND | wx.ALL, 18)
+
+        for key, label in (
+            ("dashboard", "Dashboard"),
+            ("flash", "Flash"),
+            ("patch", "Patch Boot"),
+            ("devices", "Devices"),
+            ("tools", "Tools"),
+            ("logs", "Logs"),
+            ("settings", "Settings"),
+        ):
+            button = wx.Button(panel, label=label)
+            button.Bind(wx.EVT_BUTTON, lambda event, page=key: self._show_page(page))
+            self.nav_buttons[key] = button
+            sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        sizer.AddStretchSpacer(1)
+        info = self._card(panel)
+        info_sizer = wx.BoxSizer(wx.VERTICAL)
+        info_sizer.Add(self._text(info, APPNAME, 10, True), 0, wx.BOTTOM, 4)
+        info_sizer.Add(self._muted(info, f"{VERSION}\nPreview-only shell"), 0)
+        info.SetSizer(self._pad(info_sizer, 10))
+        sizer.Add(info, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 14)
+
+        panel.SetSizer(sizer)
+        return panel
+
+    def _build_main(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        topbar = wx.BoxSizer(wx.HORIZONTAL)
+        title_stack = wx.BoxSizer(wx.VERTICAL)
+        self.page_title = self._text(panel, "Dashboard", 22, True)
+        self.page_subtitle = self._muted(panel, "Modern shell preview")
+        title_stack.Add(self.page_title, 0, wx.BOTTOM, 3)
+        title_stack.Add(self.page_subtitle, 0)
+        topbar.Add(title_stack, 1, wx.ALIGN_CENTER_VERTICAL)
+        topbar.Add(self._pill(panel, "Preview Only", self.theme.palette.warning), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        topbar.Add(self._pill(panel, "No Flash Execution", self.theme.palette.danger), 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(topbar, 0, wx.EXPAND | wx.ALL, 24)
+
+        self.content_panel = wx.ScrolledWindow(panel)
+        self.content_panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
+        self.content_panel.SetScrollRate(8, 8)
+        self.content_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.content_panel.SetSizer(self.content_sizer)
+        sizer.Add(self.content_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 24)
+
+        footer = wx.BoxSizer(wx.HORIZONTAL)
+        footer.Add(self._pill(panel, "Ready", self.theme.palette.success), 0, wx.ALIGN_CENTER_VERTICAL)
+        footer.AddStretchSpacer(1)
+        footer.Add(self._muted(panel, "Modern Shell Preview · Real operations remain in legacy PixelFlasher"), 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(footer, 0, wx.EXPAND | wx.ALL, 16)
+
+        panel.SetSizer(sizer)
+        return panel
+
+    def _show_page(self, page: str) -> None:
+        self.active_page = page
+        for key, button in self.nav_buttons.items():
+            button.SetLabel(("● " if key == page else "  ") + _title_for_page(key))
+
+        titles = {
+            "dashboard": ("Dashboard", "Device status, firmware readiness, and safe next steps."),
+            "flash": ("Flash", "Modern flash planning preview. Execution is disabled."),
+            "patch": ("Patch Boot", "Boot/init_boot patch planning preview."),
+            "devices": ("Devices", "Connected device overview preview."),
+            "tools": ("Tools", "Safe utility launcher preview."),
+            "logs": ("Logs", "Readable activity and diagnostics preview."),
+            "settings": ("Settings", "Modern UI preferences preview."),
+        }
+        title, subtitle = titles.get(page, titles["dashboard"])
+        if self.page_title:
+            self.page_title.SetLabel(title)
+        if self.page_subtitle:
+            self.page_subtitle.SetLabel(subtitle)
+
+        if self.content_sizer is None or self.content_panel is None:
+            return
+        self.content_sizer.Clear(delete_windows=True)
+
+        if page == "dashboard":
+            self._render_dashboard()
+        elif page == "flash":
+            self._render_flash()
+        elif page == "patch":
+            self._render_patch()
+        elif page == "devices":
+            self._render_devices()
+        elif page == "logs":
+            self._render_logs()
+        elif page == "settings":
+            self._render_settings()
+        else:
+            self._render_placeholder(title)
+
+        self.content_panel.Layout()
+        self.content_panel.FitInside()
+        self.Layout()
+
+    def _render_dashboard(self) -> None:
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(self._device_overview_card(self.content_panel), 2, wx.EXPAND | wx.RIGHT, 14)
+        row.Add(self._recommended_card(self.content_panel), 1, wx.EXPAND)
+        self.content_sizer.Add(row, 0, wx.EXPAND | wx.BOTTOM, 14)
+        self.content_sizer.Add(self._firmware_card(self.content_panel), 0, wx.EXPAND | wx.BOTTOM, 14)
+        self.content_sizer.Add(self._quick_actions_card(self.content_panel), 0, wx.EXPAND | wx.BOTTOM, 14)
+        self.content_sizer.Add(self._bottom_status_card(self.content_panel), 0, wx.EXPAND)
+
+    def _render_flash(self) -> None:
+        top = wx.BoxSizer(wx.HORIZONTAL)
+        top.Add(self._flash_package_card(self.content_panel), 3, wx.EXPAND | wx.RIGHT, 14)
+        top.Add(self._flash_summary_card(self.content_panel), 1, wx.EXPAND)
+        self.content_sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 14)
+        body = wx.BoxSizer(wx.HORIZONTAL)
+        body.Add(self._flash_options_card(self.content_panel), 2, wx.EXPAND | wx.RIGHT, 14)
+        body.Add(self._flash_action_card(self.content_panel), 1, wx.EXPAND)
+        self.content_sizer.Add(body, 0, wx.EXPAND | wx.BOTTOM, 14)
+        self.content_sizer.Add(self._console_card(self.content_panel), 1, wx.EXPAND)
+
+    def _render_patch(self) -> None:
+        card = self._card(self.content_panel)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Patch Boot Preview", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "This page will mirror the future Patch Boot flow. No patching is wired here."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._info_row(card, "Patch method", "Auto recommended · disabled in preview"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._info_row(card, "Magisk", "Stable latest · placeholder"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._info_row(card, "Output", "No patched image is created in this preview"), 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        self.content_sizer.Add(card, 0, wx.EXPAND)
+
+    def _render_devices(self) -> None:
+        card = self._card(self.content_panel)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "No device selected", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Device scanning remains in the legacy app until the modern adapter is fully validated."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._info_row(card, "ADB", "not connected"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._info_row(card, "Fastboot", "not connected"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._info_row(card, "Bootloader", "unknown"), 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        self.content_sizer.Add(card, 0, wx.EXPAND)
+
+    def _render_logs(self) -> None:
+        card = self._card(self.content_panel)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Preview Log", 16, True), 0, wx.BOTTOM, 8)
+        log = wx.TextCtrl(card, value="INFO  Modern shell preview opened\nINFO  Flash execution disabled\nINFO  Use legacy PixelFlasher for real operations\n", style=wx.TE_MULTILINE | wx.TE_READONLY)
+        log.SetMinSize((-1, 260))
+        sizer.Add(log, 1, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        self.content_sizer.Add(card, 1, wx.EXPAND)
+
+    def _render_settings(self) -> None:
+        card = self._card(self.content_panel)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Modern UI Settings Preview", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Settings are visual only in this preview."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._info_row(card, "Theme", "Light preview"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._info_row(card, "Safety mode", "Flash Wizard read-only"), 0, wx.EXPAND | wx.BOTTOM, 8)
+        sizer.Add(self._info_row(card, "Legacy fallback", "enabled"), 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        self.content_sizer.Add(card, 0, wx.EXPAND)
+
+    def _render_placeholder(self, title: str) -> None:
+        card = self._card(self.content_panel)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, f"{title} Preview", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "This page is reserved for the modern UI migration."), 0)
+        card.SetSizer(self._pad(sizer, 18))
+        self.content_sizer.Add(card, 0, wx.EXPAND)
+
+    def _device_overview_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        phone = wx.Panel(card)
+        phone.SetMinSize((96, 150))
+        phone.SetBackgroundColour(wx.Colour("#E5E7EB"))
+        phone_sizer = wx.BoxSizer(wx.VERTICAL)
+        phone_sizer.AddStretchSpacer(1)
+        phone_sizer.Add(self._muted(phone, "Device"), 0, wx.ALIGN_CENTER)
+        phone_sizer.AddStretchSpacer(1)
+        phone.SetSizer(phone_sizer)
+        sizer.Add(phone, 0, wx.RIGHT, 18)
+
+        details = wx.BoxSizer(wx.VERTICAL)
+        details.Add(self._text(card, "No device connected", 18, True), 0, wx.BOTTOM, 4)
+        details.Add(self._muted(card, "Connect a device and use the legacy scan flow."), 0, wx.BOTTOM, 14)
+        details.Add(self._status_grid(card), 0, wx.EXPAND)
+        sizer.Add(details, 1, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _status_grid(self, parent: wx.Window) -> wx.Sizer:
+        grid = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
+        for title, value, color in (
+            ("ADB", "Unknown", self.theme.palette.info),
+            ("Bootloader", "Unknown", self.theme.palette.info),
+            ("Root", "Unknown", self.theme.palette.info),
+            ("Slot", "Unknown", self.theme.palette.info),
+        ):
+            grid.Add(self._mini_stat(parent, title, value, color), 1, wx.EXPAND)
+        return grid
+
+    def _mini_stat(self, parent: wx.Window, title: str, value: str, color: str) -> wx.Panel:
+        panel = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._muted(panel, title), 0)
+        label = self._text(panel, value, 12, True)
+        label.SetForegroundColour(wx.Colour(color))
+        sizer.Add(label, 0)
+        panel.SetSizer(self._pad(sizer, 8))
+        return panel
+
+    def _recommended_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Recommended Next Step", 13, True), 0, wx.BOTTOM, 12)
+        sizer.Add(self._text(card, "Select Firmware", 18, True), 0, wx.BOTTOM, 6)
+        sizer.Add(self._muted(card, "Choose a factory image, OTA package, or custom ROM before planning a flash."), 0, wx.BOTTOM, 18)
+        button = wx.Button(card, label="Browse File (disabled)")
+        button.Enable(False)
+        sizer.Add(button, 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _firmware_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Firmware / ROM File", 14, True), 0, wx.BOTTOM, 4)
+        sizer.Add(self._muted(card, "No firmware selected. This preview does not open files."), 0, wx.BOTTOM, 12)
+        sizer.Add(self._info_row(card, "Type", "not selected"), 0, wx.EXPAND | wx.BOTTOM, 6)
+        sizer.Add(self._info_row(card, "Build", "unknown"), 0, wx.EXPAND | wx.BOTTOM, 6)
+        sizer.Add(self._info_row(card, "Validation", "waiting"), 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _quick_actions_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Quick Actions", 14, True), 0, wx.BOTTOM, 12)
+        grid = wx.GridSizer(rows=1, cols=4, vgap=8, hgap=8)
+        for title, body in (
+            ("Patch Boot", "Plan patching flow"),
+            ("Flash Device", "Disabled in preview"),
+            ("Reboot", "Legacy action later"),
+            ("Open Folder", "Disabled in preview"),
+        ):
+            grid.Add(self._action_card(card, title, body), 1, wx.EXPAND)
+        sizer.Add(grid, 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _action_card(self, parent: wx.Window, title: str, body: str) -> wx.Panel:
+        panel = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(panel, title, 12, True), 0, wx.BOTTOM, 4)
+        sizer.Add(self._muted(panel, body), 0, wx.BOTTOM, 10)
+        button = wx.Button(panel, label="Preview")
+        button.Enable(False)
+        sizer.Add(button, 0, wx.EXPAND)
+        panel.SetSizer(self._pad(sizer, 10))
+        return panel
+
+    def _bottom_status_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        for title, value in (("Active Slot", "Unknown"), ("Magisk", "Unknown"), ("Backup", "No backup found")):
+            sizer.Add(self._info_column(card, title, value), 1, wx.EXPAND | wx.RIGHT, 12)
+        card.SetSizer(self._pad(sizer, 14))
+        return card
+
+    def _flash_package_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Flash Package / Boot Image", 15, True), 0, wx.BOTTOM, 10)
+        sizer.Add(self._info_row(card, "Selected package", "none"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        table = wx.ListCtrl(card, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        for idx, heading in enumerate(("Partition", "Slot", "SHA1", "Patched", "Action")):
+            table.InsertColumn(idx, heading, width=120)
+        for row in (("boot", "A", "waiting", "No", "disabled"), ("init_boot", "A", "waiting", "No", "disabled")):
+            index = table.InsertItem(table.GetItemCount(), row[0])
+            for col, value in enumerate(row[1:], start=1):
+                table.SetItem(index, col, value)
+        table.SetMinSize((-1, 145))
+        sizer.Add(table, 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _flash_summary_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Safety Summary", 15, True), 0, wx.BOTTOM, 10)
+        for title, value in (("Device", "not selected"), ("Firmware", "not selected"), ("Patch", "not ready"), ("Options", "keep data"), ("Flash", "disabled")):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 7)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _flash_options_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Flash Options", 15, True), 0, wx.BOTTOM, 10)
+        for label in ("Keep Data", "Flash to inactive slot", "Verbose Output"):
+            check = wx.CheckBox(card, label=label)
+            check.Enable(False)
+            if label == "Keep Data":
+                check.SetValue(True)
+            sizer.Add(check, 0, wx.BOTTOM, 8)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _flash_action_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Execution", 15, True), 0, wx.BOTTOM, 10)
+        sizer.Add(self._muted(card, "Real flashing is intentionally disabled in Modern Shell Preview."), 0, wx.BOTTOM, 18)
+        flash = wx.Button(card, label="Flash Now Disabled")
+        flash.Enable(False)
+        sizer.Add(flash, 0, wx.EXPAND | wx.BOTTOM, 10)
+        dry = wx.Button(card, label="Dry Run Preview")
+        dry.Enable(False)
+        sizer.Add(dry, 0, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _console_card(self, parent: wx.Window) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, "Console", 15, True), 0, wx.BOTTOM, 10)
+        console = wx.TextCtrl(card, value="INFO  Modern flash page preview loaded\nWARN  Flash execution disabled\nINFO  Legacy PixelFlasher remains source of truth\n", style=wx.TE_MULTILINE | wx.TE_READONLY)
+        console.SetMinSize((-1, 150))
+        sizer.Add(console, 1, wx.EXPAND)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
+
+    def _info_row(self, parent: wx.Window, title: str, value: str) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(self._muted(panel, title), 1, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self._text(panel, value, 10, True), 1, wx.ALIGN_CENTER_VERTICAL)
+        panel.SetSizer(self._pad(sizer, 8))
+        return panel
+
+    def _info_column(self, parent: wx.Window, title: str, value: str) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._muted(panel, title), 0, wx.BOTTOM, 3)
+        sizer.Add(self._text(panel, value, 11, True), 0)
+        panel.SetSizer(self._pad(sizer, 10))
+        return panel
+
+    def _card(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
+        panel.SetWindowStyleFlag(wx.BORDER_SIMPLE)
+        return panel
+
+    def _pad(self, content: wx.Sizer, pad: int) -> wx.BoxSizer:
+        wrapper = wx.BoxSizer(wx.VERTICAL)
+        wrapper.Add(content, 1, wx.EXPAND | wx.ALL, pad)
+        return wrapper
+
+    def _text(self, parent: wx.Window, label: str, size: int = 10, bold: bool = False) -> wx.StaticText:
+        text = wx.StaticText(parent, label=label)
+        font = text.GetFont()
+        font.SetPointSize(size)
+        if bold:
+            font.SetWeight(wx.FONTWEIGHT_BOLD)
+        text.SetFont(font)
+        text.SetForegroundColour(wx.Colour(self.theme.palette.text))
+        return text
+
+    def _muted(self, parent: wx.Window, label: str) -> wx.StaticText:
+        text = self._text(parent, label, 9)
+        text.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
+        return text
+
+    def _pill(self, parent: wx.Window, label: str, color: str) -> wx.StaticText:
+        text = self._text(parent, f"  {label}  ", 10, True)
+        text.SetForegroundColour(wx.Colour(color))
+        return text
+
+
+def _title_for_page(key: str) -> str:
+    return {
+        "dashboard": "Dashboard",
+        "flash": "Flash",
+        "patch": "Patch Boot",
+        "devices": "Devices",
+        "tools": "Tools",
+        "logs": "Logs",
+        "settings": "Settings",
+    }.get(key, key.title())
+
+
+def main() -> int:
+    app = wx.App(False)
+    frame = ModernShellFrame()
+    frame.Show(True)
+    app.MainLoop()
+    return 0
