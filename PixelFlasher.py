@@ -45,7 +45,7 @@ def _run_cli_command(argv):
     This keeps CI, beta diagnostics, and support collection working on systems
     that do not have wxPython or a display server installed.
     """
-    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard", "--modern-dashboard-preview", "--flash-wizard-preview", "--flash-wizard-demo", "--help", "-h"}
+    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard", "--modern-dashboard-preview", "--modern-shell-preview", "--flash-wizard-preview", "--flash-wizard-demo", "--help", "-h"}
     if len(argv) <= 1 or not any(arg in cli_flags for arg in argv[1:]):
         return
 
@@ -61,6 +61,8 @@ def _run_cli_command(argv):
         print("                                      Launch full app with modern dashboard enabled")
         print("  python PixelFlasher.py --modern-dashboard-preview")
         print("                                      Launch safe standalone modern dashboard preview")
+        print("  python PixelFlasher.py --modern-shell-preview")
+        print("                                      Launch safe standalone full modern shell preview")
         print("  python PixelFlasher.py --flash-wizard-preview")
         print("                                      Launch safe standalone flash wizard preview")
         print("  python PixelFlasher.py --flash-wizard-demo")
@@ -85,6 +87,10 @@ def _run_cli_command(argv):
     if "--modern-dashboard-preview" in argv:
         from ui.pages.dashboard_app import main as dashboard_preview_main
         raise SystemExit(dashboard_preview_main())
+
+    if "--modern-shell-preview" in argv:
+        from ui.pages.modern_shell_app import main as modern_shell_preview_main
+        raise SystemExit(modern_shell_preview_main())
 
     if "--flash-wizard-preview" in argv:
         from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
