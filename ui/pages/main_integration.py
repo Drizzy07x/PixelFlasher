@@ -68,6 +68,8 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         wrapper_sizer = wx.BoxSizer(wx.VERTICAL)
         toolbar = _build_dashboard_toolbar(wrapper, frame)
         dashboard = CompactModernDashboardPanel(wrapper, frame)
+        dashboard.SetMinSize((-1, 82))
+        dashboard.SetMaxSize((-1, 92))
 
         frame.modern_dashboard_wrapper = wrapper
         frame.modern_dashboard_panel = dashboard
@@ -76,6 +78,7 @@ def _attach_dashboard(frame: wx.Frame) -> None:
         wrapper_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 2)
         wrapper_sizer.Add(dashboard, 0, wx.EXPAND)
         wrapper.SetSizer(wrapper_sizer)
+        wrapper.SetMinSize((-1, 114))
 
         sizer.Insert(0, wrapper, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 8)
         sizer.Layout()
