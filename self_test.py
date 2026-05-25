@@ -189,6 +189,23 @@ def _check_ui_foundation() -> list[CheckResult]:
     return results
 
 
+def _check_modern_entrypoints() -> list[CheckResult]:
+    modules = (
+        "ui.pages.dashboard_app",
+        "ui.pages.flash_wizard_app",
+        "ui.pages.modern_shell_app",
+        "ui.pages.main_integration",
+    )
+    results: list[CheckResult] = []
+    for module in modules:
+        try:
+            __import__(module, fromlist=["*"])
+            results.append(CheckResult(f"entrypoint:{module.rsplit('.', 1)[-1]}", True, "importable"))
+        except Exception as exc:
+            results.append(CheckResult(f"entrypoint:{module.rsplit('.', 1)[-1]}", False, str(exc)))
+    return results
+
+
 def run_checks() -> list[CheckResult]:
     root = _repo_root()
     checks: list[CheckResult] = [
@@ -209,6 +226,7 @@ def run_checks() -> list[CheckResult]:
     ])
     checks.extend(_check_platform_tools())
     checks.extend(_check_ui_foundation())
+    checks.extend(_check_modern_entrypoints())
     checks.extend(_check_packaged_bins())
     return checks
 
