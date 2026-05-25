@@ -1,8 +1,8 @@
 """PyInstaller Linux GTK runtime isolation.
 
 Keeps Linux beta packages from loading incompatible host GVFS/GIO modules and
-filters known harmless GTK stderr noise that appears on some Ubuntu/GNOME
-setups. This hook runs before wx/GTK is imported.
+filters known harmless GTK/wxPython stderr noise that appears on some
+Ubuntu/GNOME setups. This hook runs before wx/GTK is imported.
 """
 
 from __future__ import annotations
@@ -18,9 +18,17 @@ _KNOWN_GTK_NOISE = (
     "GTK_IS_IMAGE_MENU_ITEM",
     "gtk_box_gadget_distribute",
     "GtkScrollbar",
+    "Negative content width",
+    "Negative content height",
+    "while allocating gadget",
+    "GLib-GIO-WARNING",
+    "Error creating IO channel for /proc/self/mountinfo",
+    "g-io-error-quark",
     "libgvfscommon.so: undefined symbol",
     "Failed to load module: /usr/lib",
     "libgvfsdbus.so",
+    "wxMenuBar@",
+    "lost focus even though it didn't have it",
 )
 
 
@@ -64,6 +72,7 @@ def _filter_known_stderr_noise() -> None:
 if sys.platform.startswith("linux"):
     os.environ.setdefault("GIO_USE_VFS", "local")
     os.environ.setdefault("NO_AT_BRIDGE", "1")
+    os.environ.setdefault("G_ENABLE_DIAGNOSTIC", "0")
 
     base = Path(getattr(sys, "_MEIPASS", tempfile.gettempdir()))
     gio_modules = base / "empty-gio-modules"
