@@ -233,6 +233,8 @@ def run_checks() -> list[CheckResult]:
         _check_module("wx", required=False),
         _check_module("requests", required=False),
         _check_module("psutil", required=False),
+        _check_module("darkdetect", required=True),
+        _check_module("json5", required=True),
     ])
     checks.extend(_check_platform_tools())
     checks.extend(_check_ui_foundation())
