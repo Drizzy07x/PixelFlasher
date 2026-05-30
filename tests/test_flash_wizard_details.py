@@ -63,6 +63,20 @@ class FlashWizardDetailsTests(unittest.TestCase):
         lines = step_detail_lines(session, WizardStepKey.FLASH)
         self.assertIn("Can flash: no", lines)
         self.assertIn("Flash execution connected: no", lines)
+        self.assertIn("Final action: disabled until all blocking warnings are resolved", lines)
+        self.assertIn("Execution target: future guarded legacy flash flow", lines)
+
+    def test_flash_details_do_not_claim_execution_when_preview_blocked(self):
+        session = WizardSession(
+            device=WizardDevice(display_name="Pixel", serial="abc", adb_ready=True, bootloader_unlocked=True),
+            firmware=WizardFirmware(path="ota.zip", verified=True),
+            patch_choice=PatchChoice.SKIP,
+            preflight_passed=True,
+            flash_connected=False,
+        )
+        lines = "\n".join(step_detail_lines(session, WizardStepKey.FLASH))
+        self.assertNotIn("Can flash: yes", lines)
+        self.assertNotIn("Flash execution connected: yes", lines)
 
 
 if __name__ == "__main__":
