@@ -14,6 +14,7 @@ from typing import Callable
 import wx
 
 from ui.components.models import DeviceStatus, FirmwareInfo, QuickAction, StatusLevel
+from ui.pages.modern_readonly_state import ModernReadonlyState, build_readonly_state
 from ui.theme import get_theme
 
 
@@ -177,8 +178,9 @@ class ModernDashboardPanel(wx.Panel):
         return panel
 
     def refresh(self) -> None:
-        device = self._device_status()
-        firmware = self._firmware_info()
+        readonly = self._readonly_state()
+        device = _device_status_from_readonly(readonly)
+        firmware = _firmware_info_from_readonly(readonly)
         self._labels["device_name"].SetLabel(device.display_name)
         self._labels["device_subtitle"].SetLabel(device.codename or device.redacted_serial() or "No connected device selected")
         self._set_pill(self._labels["connection_badge"], "ADB Ready" if device.adb_ready else "ADB Unknown", StatusLevel.READY if device.adb_ready else StatusLevel.INFO)
@@ -207,42 +209,14 @@ class ModernDashboardPanel(wx.Panel):
                 picker.SetFocus()
         wx.MessageBox("Use the existing firmware selector below for this preview build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
+    def _readonly_state(self) -> ModernReadonlyState:
+        return build_readonly_state(self.frame)
+
     def _device_status(self) -> DeviceStatus:
-        selected = ""
-        with contextlib.suppress(Exception):
-            selected = self.frame.device_choice.GetStringSelection()
-        phone = None
-        with contextlib.suppress(Exception):
-            from runtime import get_phone
-            phone = get_phone()
-        if phone:
-            return DeviceStatus(
-                display_name=getattr(phone, "model", None) or getattr(phone, "hardware", None) or "Connected device",
-                codename=getattr(phone, "hardware", "") or "",
-                serial=getattr(phone, "id", "") or selected,
-                android_version=str(getattr(phone, "build", "") or getattr(phone, "api_level", "") or ""),
-                adb_ready=getattr(phone, "mode", "") == "adb" or getattr(phone, "true_mode", "") == "adb",
-                bootloader_state="unlocked" if getattr(phone, "unlocked", False) else "unknown",
-                root_status="rooted" if getattr(phone, "rooted", False) else "unknown",
-                active_slot=str(getattr(phone, "active_slot", "") or ""),
-            )
-        return DeviceStatus(display_name="Selected device" if selected else "No device", serial=selected, adb_ready=bool(selected))
+        return _device_status_from_readonly(self._readonly_state())
 
     def _firmware_info(self) -> FirmwareInfo:
-        path = ""
-        with contextlib.suppress(Exception):
-            path = self.frame.firmware_picker.GetPath()
-        if not path:
-            with contextlib.suppress(Exception):
-                path = self.frame.config.firmware_path or ""
-        size = 0
-        with contextlib.suppress(Exception):
-            size = Path(path).stat().st_size
-        package_type = "OTA package" if getattr(getattr(self.frame, "config", object()), "firmware_is_ota", False) else "Firmware package"
-        device = ""
-        with contextlib.suppress(Exception):
-            device = getattr(getattr(self.frame, "config", object()), "device", "") or ""
-        return FirmwareInfo(path=path or "", package_type=package_type, device=device, size_bytes=size, verified=bool(path))
+        return _firmware_info_from_readonly(self._readonly_state())
 
     def _action_handler(self, key: str) -> Callable[[wx.CommandEvent], None]:
         mapping = {
@@ -302,6 +276,51 @@ class ModernDashboardPanel(wx.Panel):
             StatusLevel.DISABLED: self.theme.palette.text_muted,
         }
         label.SetForegroundColour(wx.Colour(colors.get(level, self.theme.palette.info)))
+
+
+def _device_status_from_readonly(state: ModernReadonlyState) -> DeviceStatus:
+    device = state.device
+    display_name = device.display_name or ("Selected device" if device.serial else "No device")
+    codename = "" if device.display_name == device.serial else device.serial
+    return DeviceStatus(
+        display_name=display_name,
+        codename=codename,
+        serial=device.serial,
+        android_version=device.android_version,
+        adb_ready=device.adb_ready,
+        bootloader_state=device.bootloader_state,
+        root_status=device.root_status,
+        active_slot=device.active_slot,
+    )
+
+
+def _firmware_info_from_readonly(state: ModernReadonlyState) -> FirmwareInfo:
+    firmware = state.firmware
+    return FirmwareInfo(
+        path=firmware.path,
+        package_type=_dashboard_package_type(firmware.package_type),
+        build=firmware.build_id,
+        device=firmware.target_device,
+        size_bytes=_safe_file_size(firmware.path),
+        verified=firmware.verified,
+    )
+
+
+def _dashboard_package_type(package_type: str) -> str:
+    return {
+        "factory": "Factory image",
+        "ota": "OTA package",
+        "custom_rom": "Custom ROM",
+        "unknown": "unknown",
+    }.get(str(package_type or "unknown"), str(package_type or "unknown"))
+
+
+def _safe_file_size(path: str) -> int:
+    if not path:
+        return 0
+    with contextlib.suppress(Exception):
+        return Path(path).stat().st_size
+    return 0
 
 
 def _is_dark_mode() -> bool:
