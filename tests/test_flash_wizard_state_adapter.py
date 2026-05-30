@@ -70,6 +70,46 @@ class FlashWizardStateAdapterTests(unittest.TestCase):
         self.assertTrue(session.options.no_reboot)
         self.assertFalse(session.can_flash)
 
+    def test_reuses_shared_readonly_state_mapping(self):
+        config = SimpleNamespace(
+            device="cheetah",
+            firmware_path="",
+            firmware_is_ota=False,
+            custom_rom=False,
+            firmware_sha256="hash",
+            boot_id=None,
+            selected_boot_md5=None,
+            firmware_has_init_boot=False,
+            rom_has_init_boot=True,
+            bootloader_state="unlocked",
+            active_slot="b",
+            flash_both_slots=False,
+            flash_to_inactive_slot=False,
+            disable_verity=False,
+            disable_verification=False,
+            fastboot_force=False,
+            no_reboot=False,
+        )
+        frame = SimpleNamespace(
+            config=config,
+            device_choice=_Choice("Pixel 7 Pro"),
+            firmware_picker=_Picker("cheetah-factory-ap1a.zip"),
+            wipe=False,
+        )
+
+        session = build_wizard_session(frame)
+
+        self.assertEqual("Pixel 7 Pro", session.device.display_name)
+        self.assertTrue(session.device.adb_ready)
+        self.assertTrue(session.device.bootloader_unlocked)
+        self.assertEqual("b", session.device.active_slot)
+        self.assertEqual("cheetah-factory-ap1a.zip", session.firmware.filename)
+        self.assertEqual("factory", session.firmware.package_type)
+        self.assertEqual("hash", session.firmware.sha256)
+        self.assertTrue(session.firmware.has_init_boot_image)
+        self.assertTrue(session.firmware.verified)
+        self.assertFalse(session.can_flash)
+
     def test_reads_dangerous_options(self):
         config = SimpleNamespace(
             device="oriole",
