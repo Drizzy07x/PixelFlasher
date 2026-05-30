@@ -4,17 +4,20 @@ This document tracks the current beta state and the next safe implementation pha
 
 ## Current beta status
 
-Release candidate: `v9.2.0-beta.16` or newer.
+Current baseline: `v9.2.0-beta.18`.
 
-Validated on Linux:
+Validated on Linux source checkout:
 
-- `--self-test` returns `Required failures: 0`.
-- `--modern-dashboard` opens inside the legacy UI.
+- `--self-test` returns `Required failures: 0` and `Warnings: 0`.
+- `--modern-dashboard` opens inside the legacy UI when explicitly requested.
+- `--modern-dashboard-preview` opens the standalone dashboard preview.
 - `--modern-shell-preview` opens the standalone full Modern Shell preview.
 - `--flash-wizard-demo` opens and navigates through all preview steps.
+- Flash Wizard final step is blocked and no longer shows a clickable-looking final flash action.
 - Flash Wizard remains read-only and does not execute flash, patch, ADB, or Fastboot commands.
-- Modern Shell Preview remains UI-only and does not execute flash, patch, ADB, Fastboot, reboot, or file-processing operations.
-- Linux GTK/GVFS terminal noise is filtered in packaged builds.
+- Modern Shell Preview remains UI-only and does not execute flash, patch, ADB, Fastboot, reboot, slot, wipe, or file-processing operations.
+- Modern Shell Preview has explicit preview-only/read-only states for Patch Boot, Devices, Tools, and Logs.
+- Linux, Windows, and macOS assets are attached to the beta18 pre-release.
 
 ## Hard safety rules
 
@@ -26,17 +29,27 @@ Do not wire real flashing into the Wizard or Modern Shell until these are true:
 4. Final review screen shows every dangerous option clearly.
 5. The final action delegates to existing guarded legacy flash logic, not a new independent flash path.
 6. CI validates the Wizard model, state adapter, and preview entrypoints before packaging.
+7. Cross-platform visual validation has been completed on release assets.
 
 ## Phase 1: Beta stabilization
 
+Status: mostly complete for beta18.
+
 Goal: keep the app stable while testers validate the modern overlay.
 
-Tasks:
+Completed:
 
 - Keep Dashboard behind `--modern-dashboard`.
 - Keep Flash Wizard preview-only.
 - Keep Modern Shell behind `--modern-shell-preview`.
-- Collect Linux, Windows, and macOS screenshots.
+- Fix confusing Flash Wizard final action copy.
+- Add explicit Modern Shell preview-only states for Patch Boot, Devices, Tools, and Logs.
+- Package Linux, Windows, and macOS assets for beta18.
+
+Remaining:
+
+- Validate Windows and macOS assets visually.
+- Record beta18 asset validation results.
 - Fix only crashes, layout breakage, packaging failures, and confusing copy.
 - Avoid large UI rewrites during beta feedback.
 
@@ -46,40 +59,84 @@ Exit criteria:
 - Self-test passes on at least one Linux machine.
 - Windows and macOS open without packaging regressions.
 - No terminal/log spam that looks like a crash.
+- Preview-only behavior is clear on every Modern UI surface.
 
-## Phase 2: Dashboard usefulness and shell preview
+## Phase 2: Safety tests and documentation base
 
-Goal: make the compact Dashboard useful while building the full Modern Shell safely beside the legacy UI.
-
-Planned work:
-
-- Add one-click refresh using existing legacy state.
-- Show active slot, bootloader state, and firmware status when available.
-- Show clearer empty states when no device or firmware is selected.
-- Add a small “copy diagnostics” action for bug reports.
-- Keep the Dashboard small enough to not crowd the legacy controls.
-- Iterate on the standalone Modern Shell preview with UI-only pages.
-- Keep Modern Shell actions disabled until adapters are validated.
-
-## Phase 3: Wizard data integration
-
-Goal: make the Wizard reflect real app state while still remaining read-only.
+Goal: protect beta18 behavior and make future work faster.
 
 Planned work:
 
-- Read selected device from legacy scan results.
-- Read selected firmware path and detected package metadata.
-- Read patch availability from existing boot/init_boot image data.
-- Show blocking warnings with concise reasons.
-- Add tests for every WizardSession state.
+- Keep `docs/MODERN_UI_NEXT_STEPS.md` current.
+- Keep beta validation docs current.
+- Add tests that protect Flash Wizard preview-only final action behavior.
+- Add tests for WizardSession blocking logic around `flash_connected=False`.
+- Add lightweight tests for Modern Shell page dispatch, including Tools.
+- Keep CI useful on systems where wxPython is unavailable.
 
 Exit criteria:
 
-- Wizard accurately mirrors legacy selections.
-- Wizard still cannot execute real flashing.
-- Warnings match expected behavior in tests.
+- The beta18 safety behavior is covered by tests.
+- Future contributors can continue from docs without chat history.
 
-## Phase 4: Guarded execution planning
+## Phase 3: Shared read-only state layer
+
+Goal: stop duplicating read-only state logic across Dashboard, Wizard, and Modern Shell.
+
+Planned work:
+
+- Add a shared read-only Modern UI state object.
+- Move safe frame/config reads into one adapter.
+- Keep the adapter side-effect free.
+- Use fake frames/config objects in tests.
+- Make Dashboard, Wizard, and Shell consume consistent state labels.
+
+Non-goals:
+
+- No live ADB scan.
+- No live Fastboot scan.
+- No firmware extraction/parsing.
+- No patch detection that mutates files.
+- No flash planning execution.
+
+Exit criteria:
+
+- Dashboard, Wizard, and Modern Shell display consistent read-only state.
+- Tests prove the adapter does not require wxPython or device commands.
+
+## Phase 4: Modern Shell state usefulness
+
+Goal: make Modern Shell reflect already-loaded legacy state while remaining preview-only.
+
+Planned work:
+
+- Devices page shows selected device and known connection state.
+- Flash page shows selected firmware state.
+- Patch Boot page shows known boot/init_boot availability if already loaded.
+- Tools page shows platform-tool availability as read-only status.
+- Logs page remains static or reads only safe internal diagnostics.
+
+Exit criteria:
+
+- Modern Shell becomes useful for review without executing commands.
+- Every action-looking surface remains disabled or explicitly legacy-owned.
+
+## Phase 5: Dashboard copy polish
+
+Goal: make the compact dashboard clearer inside legacy PixelFlasher.
+
+Planned work:
+
+- Replace generic `Run` labels with safer copy such as `Use legacy` or `Open legacy flow`.
+- Keep all actions delegated to existing guarded legacy handlers.
+- Avoid making Modern UI appear responsible for real execution.
+- Keep Dashboard compact enough to not crowd legacy controls.
+
+Exit criteria:
+
+- Testers understand that real operations remain legacy-owned.
+
+## Phase 6: Guarded execution planning
 
 Goal: prepare real execution without adding risk.
 
@@ -97,7 +154,7 @@ Exit criteria:
 - The plan can be compared against legacy flash inputs.
 - No command execution happens without explicit guarded enablement.
 
-## Phase 5: Optional full modern UI
+## Phase 7: Optional full modern UI
 
 Goal: only after the beta proves stable.
 
@@ -116,6 +173,7 @@ Linux:
 chmod +x PixelFlasher_Ubuntu_24_04
 ./PixelFlasher_Ubuntu_24_04 --self-test
 ./PixelFlasher_Ubuntu_24_04 --modern-dashboard
+./PixelFlasher_Ubuntu_24_04 --modern-dashboard-preview
 ./PixelFlasher_Ubuntu_24_04 --modern-shell-preview
 ./PixelFlasher_Ubuntu_24_04 --flash-wizard-demo
 ```
