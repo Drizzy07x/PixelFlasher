@@ -155,19 +155,14 @@ class ModernDashboardPanel(wx.Panel):
         return card
 
     def _quick_actions(self) -> tuple[QuickAction, ...]:
-        return (
-            QuickAction("patch", "Patch Boot", "Use existing patch flow", "patch_boot"),
-            QuickAction("flash", "Flash Device", "Existing guarded flash", "flash", StatusLevel.WARNING, True),
-            QuickAction("scan", "Scan Devices", "Refresh device list", "devices"),
-            QuickAction("support", "Diagnostics", "Create support package", "logs"),
-        )
+        return _dashboard_quick_actions()
 
     def _action_button(self, parent: wx.Window, action: QuickAction) -> wx.Panel:
         panel = self._card(parent, pad=8)
         sizer = wx.BoxSizer(wx.VERTICAL)
         title = self._text(panel, action.title, 11, bold=True)
         body = self._muted(panel, action.description)
-        button = wx.Button(panel, label="Run")
+        button = wx.Button(panel, label=_dashboard_action_button_label(action.key))
         button.Bind(wx.EVT_BUTTON, self._action_handler(action.key))
         if action.dangerous:
             button.SetToolTip("Uses the existing PixelFlasher confirmation and safety flow.")
@@ -276,6 +271,24 @@ class ModernDashboardPanel(wx.Panel):
             StatusLevel.DISABLED: self.theme.palette.text_muted,
         }
         label.SetForegroundColour(wx.Colour(colors.get(level, self.theme.palette.info)))
+
+
+def _dashboard_quick_actions() -> tuple[QuickAction, ...]:
+    return (
+        QuickAction("patch", "Open legacy patch", "Use the existing patch flow", "patch_boot"),
+        QuickAction("flash", "Open legacy flash", "Use the existing guarded flash flow", "flash", StatusLevel.WARNING, True),
+        QuickAction("scan", "Use legacy scan", "Refresh through the existing device list", "devices"),
+        QuickAction("support", "Create diagnostics", "Create support package", "logs"),
+    )
+
+
+def _dashboard_action_button_label(key: str) -> str:
+    return {
+        "patch": "Use legacy",
+        "flash": "Open guarded flow",
+        "scan": "Use legacy",
+        "support": "Create diagnostics",
+    }.get(str(key or ""), "Use legacy")
 
 
 def _device_status_from_readonly(state: ModernReadonlyState) -> DeviceStatus:
