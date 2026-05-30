@@ -34,6 +34,23 @@ class FlashWizardModelTests(unittest.TestCase):
         self.assertTrue(session.can_flash)
         self.assertEqual((), session.warnings())
 
+    def test_ready_session_stays_blocked_when_flash_is_not_connected(self):
+        session = WizardSession(
+            device=WizardDevice(display_name="Pixel", serial="abc123", adb_ready=True, bootloader_unlocked=True),
+            firmware=WizardFirmware(path="factory.zip", package_type="factory", has_boot_image=True, verified=True),
+            patch_choice=PatchChoice.SKIP,
+            options=WizardOptions(),
+            preflight_passed=True,
+            flash_connected=False,
+        )
+        self.assertTrue(session.step_complete(WizardStepKey.DEVICE))
+        self.assertTrue(session.step_complete(WizardStepKey.FIRMWARE))
+        self.assertTrue(session.step_complete(WizardStepKey.REVIEW))
+        self.assertFalse(session.step_complete(WizardStepKey.FLASH))
+        self.assertFalse(session.can_flash)
+        self.assertIn("Flash execution is not connected in this build.", session.warnings())
+        self.assertEqual((), session.blocking_warnings())
+
     def test_patch_warning_when_no_patchable_image_exists(self):
         session = WizardSession(
             device=WizardDevice(display_name="Pixel", serial="abc", adb_ready=True, bootloader_unlocked=True),
