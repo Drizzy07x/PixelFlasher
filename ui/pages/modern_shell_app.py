@@ -10,6 +10,7 @@ from __future__ import annotations
 import wx
 
 from constants import APPNAME, VERSION
+from ui.pages.modern_readonly_state import ModernReadonlyState, build_readonly_state
 from ui.theme import get_theme
 
 
@@ -142,18 +143,20 @@ class ModernShellFrame(wx.Frame):
         self.Layout()
 
     def _render_dashboard(self) -> None:
+        readonly = self._readonly_state()
         row = wx.BoxSizer(wx.HORIZONTAL)
-        row.Add(self._device_overview_card(self.content_panel), 2, wx.EXPAND | wx.RIGHT, 14)
-        row.Add(self._recommended_card(self.content_panel), 1, wx.EXPAND)
+        row.Add(self._device_overview_card(self.content_panel, readonly), 2, wx.EXPAND | wx.RIGHT, 14)
+        row.Add(self._recommended_card(self.content_panel, readonly), 1, wx.EXPAND)
         self.content_sizer.Add(row, 0, wx.EXPAND | wx.BOTTOM, 14)
-        self.content_sizer.Add(self._firmware_card(self.content_panel), 0, wx.EXPAND | wx.BOTTOM, 14)
+        self.content_sizer.Add(self._firmware_card(self.content_panel, readonly), 0, wx.EXPAND | wx.BOTTOM, 14)
         self.content_sizer.Add(self._quick_actions_card(self.content_panel), 0, wx.EXPAND | wx.BOTTOM, 14)
-        self.content_sizer.Add(self._bottom_status_card(self.content_panel), 0, wx.EXPAND)
+        self.content_sizer.Add(self._bottom_status_card(self.content_panel, readonly), 0, wx.EXPAND)
 
     def _render_flash(self) -> None:
+        readonly = self._readonly_state()
         top = wx.BoxSizer(wx.HORIZONTAL)
-        top.Add(self._flash_package_card(self.content_panel), 3, wx.EXPAND | wx.RIGHT, 14)
-        top.Add(self._flash_summary_card(self.content_panel), 1, wx.EXPAND)
+        top.Add(self._flash_package_card(self.content_panel, readonly), 3, wx.EXPAND | wx.RIGHT, 14)
+        top.Add(self._flash_summary_card(self.content_panel, readonly), 1, wx.EXPAND)
         self.content_sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 14)
 
         body = wx.BoxSizer(wx.HORIZONTAL)
@@ -184,13 +187,7 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._text(card, "Devices Preview", 16, True), 0, wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "Device scanning remains in the legacy app until the modern adapter is validated."), 0, wx.BOTTOM, 14)
         sizer.Add(self._disabled_pill(card, "Preview only · scan/refresh disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
-        for title, value in (
-            ("Selected device", "none"),
-            ("ADB", "not connected"),
-            ("Fastboot", "not connected"),
-            ("Bootloader", "unknown"),
-            ("Current slot", "unknown"),
-        ):
+        for title, value in _shell_device_info_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "Safety note: No connect, reboot, slot switch, or wipe actions are available in preview."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
@@ -202,12 +199,7 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._text(card, "Tools Preview", 16, True), 0, wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "Utility tools are listed for layout validation only. No commands run here."), 0, wx.BOTTOM, 14)
         sizer.Add(self._disabled_pill(card, "Preview only · tool execution disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
-        for title, value in (
-            ("Platform Tools", "detected in legacy context"),
-            ("ADB shell", "disabled"),
-            ("Fastboot commands", "disabled"),
-            ("File open/extract", "disabled"),
-        ):
+        for title, value in _shell_tool_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         sizer.Add(self._muted(card, "Safety note: Modern Shell Tools will delegate to guarded legacy logic in a future phase."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
@@ -247,7 +239,10 @@ class ModernShellFrame(wx.Frame):
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
-    def _device_overview_card(self, parent: wx.Window) -> wx.Panel:
+    def _readonly_state(self) -> ModernReadonlyState:
+        return build_readonly_state(self)
+
+    def _device_overview_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         phone = wx.Panel(card)
@@ -261,21 +256,17 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(phone, 0, wx.RIGHT, 18)
 
         details = wx.BoxSizer(wx.VERTICAL)
-        details.Add(self._text(card, "No device connected", 18, True), 0, wx.BOTTOM, 4)
-        details.Add(self._muted(card, "Connect a device and use the legacy scan flow."), 0, wx.BOTTOM, 14)
-        details.Add(self._status_grid(card), 0, wx.EXPAND)
+        details.Add(self._text(card, _shell_device_title(state), 18, True), 0, wx.BOTTOM, 4)
+        details.Add(self._muted(card, _shell_device_subtitle(state)), 0, wx.BOTTOM, 14)
+        details.Add(self._status_grid(card, state), 0, wx.EXPAND)
         sizer.Add(details, 1, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
-    def _status_grid(self, parent: wx.Window) -> wx.Sizer:
+    def _status_grid(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Sizer:
         grid = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
-        for title, value, color in (
-            ("ADB", "Unknown", self.theme.palette.info),
-            ("Bootloader", "Unknown", self.theme.palette.info),
-            ("Root", "Unknown", self.theme.palette.info),
-            ("Slot", "Unknown", self.theme.palette.info),
-        ):
+        for title, value in _shell_status_rows(state):
+            color = self.theme.palette.success if value.lower() not in {"unknown", "not connected"} else self.theme.palette.info
             grid.Add(self._mini_stat(parent, title, value, color), 1, wx.EXPAND)
         return grid
 
@@ -289,22 +280,22 @@ class ModernShellFrame(wx.Frame):
         panel.SetSizer(self._pad(sizer, 8))
         return panel
 
-    def _recommended_card(self, parent: wx.Window) -> wx.Panel:
+    def _recommended_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Recommended Next Step", 13, True), 0, wx.BOTTOM, 12)
-        sizer.Add(self._text(card, "Select Firmware", 18, True), 0, wx.BOTTOM, 6)
-        sizer.Add(self._muted(card, "Choose a firmware package before planning a flash."), 0, wx.BOTTOM, 18)
+        sizer.Add(self._text(card, _shell_recommended_title(state), 18, True), 0, wx.BOTTOM, 6)
+        sizer.Add(self._muted(card, _shell_recommended_body(state)), 0, wx.BOTTOM, 18)
         sizer.Add(self._disabled_pill(card, "Browse File disabled"), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
-    def _firmware_card(self, parent: wx.Window) -> wx.Panel:
+    def _firmware_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Firmware / ROM File", 14, True), 0, wx.BOTTOM, 4)
-        sizer.Add(self._muted(card, "No firmware selected. This preview does not open files."), 0, wx.BOTTOM, 12)
-        for title, value in (("Type", "not selected"), ("Build", "unknown"), ("Validation", "waiting")):
+        sizer.Add(self._muted(card, _shell_firmware_subtitle(state)), 0, wx.BOTTOM, 12)
+        for title, value in _shell_firmware_rows(state):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 6)
         card.SetSizer(self._pad(sizer, 18))
         return card
@@ -334,19 +325,19 @@ class ModernShellFrame(wx.Frame):
         panel.SetSizer(self._pad(sizer, 10))
         return panel
 
-    def _bottom_status_card(self, parent: wx.Window) -> wx.Panel:
+    def _bottom_status_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        for title, value in (("Active Slot", "Unknown"), ("Magisk", "Unknown"), ("Backup", "No backup found")):
+        for title, value in _shell_bottom_rows(state):
             sizer.Add(self._info_column(card, title, value), 1, wx.EXPAND | wx.RIGHT, 12)
         card.SetSizer(self._pad(sizer, 14))
         return card
 
-    def _flash_package_card(self, parent: wx.Window) -> wx.Panel:
+    def _flash_package_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Flash Package / Boot Image", 15, True), 0, wx.BOTTOM, 10)
-        sizer.Add(self._info_row(card, "Selected package", "none"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._info_row(card, "Selected package", state.firmware.filename or "none"), 0, wx.EXPAND | wx.BOTTOM, 10)
         sizer.Add(self._simple_table(card), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
@@ -364,11 +355,11 @@ class ModernShellFrame(wx.Frame):
         panel.SetSizer(self._pad(grid, 10))
         return panel
 
-    def _flash_summary_card(self, parent: wx.Window) -> wx.Panel:
+    def _flash_summary_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Safety Summary", 15, True), 0, wx.BOTTOM, 10)
-        for title, value in (("Device", "not selected"), ("Firmware", "not selected"), ("Patch", "not ready"), ("Options", "keep data"), ("Flash", "disabled")):
+        for title, value in _shell_flash_summary_rows(state):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 7)
         card.SetSizer(self._pad(sizer, 18))
         return card
@@ -466,6 +457,105 @@ class ModernShellFrame(wx.Frame):
         text = self._text(parent, f"  {label}  ", 10, True)
         text.SetForegroundColour(wx.Colour(color))
         return text
+
+
+def _shell_device_title(state: ModernReadonlyState) -> str:
+    return state.device.display_name or "No device connected"
+
+
+def _shell_device_subtitle(state: ModernReadonlyState) -> str:
+    if state.device.selected:
+        return state.device.connection_label
+    return "Connect a device and use the legacy scan flow."
+
+
+def _shell_status_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    device = state.device
+    return (
+        ("ADB", "Ready" if device.adb_ready else "Unknown"),
+        ("Bootloader", _known_or_unknown(device.bootloader_state)),
+        ("Root", _known_or_unknown(device.root_status)),
+        ("Slot", device.active_slot or "Unknown"),
+    )
+
+
+def _shell_device_info_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    device = state.device
+    return (
+        ("Selected device", device.display_name or device.serial or "none"),
+        ("ADB", device.connection_label),
+        ("Fastboot", "ready" if device.fastboot_ready else "not connected"),
+        ("Bootloader", _known_or_unknown(device.bootloader_state).lower()),
+        ("Current slot", device.active_slot or "unknown"),
+    )
+
+
+def _shell_recommended_title(state: ModernReadonlyState) -> str:
+    return "Review Firmware" if state.firmware.selected else "Select Firmware"
+
+
+def _shell_recommended_body(state: ModernReadonlyState) -> str:
+    if state.firmware.selected:
+        return f"{state.firmware.filename or 'Selected firmware'} is loaded for read-only review."
+    return "Choose a firmware package before planning a flash."
+
+
+def _shell_firmware_subtitle(state: ModernReadonlyState) -> str:
+    if state.firmware.selected:
+        return state.firmware.filename or state.firmware.path
+    return "No firmware selected. This preview does not open files."
+
+
+def _shell_firmware_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    firmware = state.firmware
+    return (
+        ("Type", _shell_package_type(firmware.package_type) if firmware.selected else "not selected"),
+        ("Build", firmware.build_id or "unknown"),
+        ("Validation", "verified" if firmware.verified else ("not verified" if firmware.selected else "waiting")),
+    )
+
+
+def _shell_bottom_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    return (
+        ("Active Slot", state.device.active_slot or "Unknown"),
+        ("Root", _known_or_unknown(state.device.root_status)),
+        ("Patchable Image", "available" if state.firmware.has_patchable_image else "not detected"),
+    )
+
+
+def _shell_flash_summary_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    return (
+        ("Device", state.device.display_name or state.device.serial or "not selected"),
+        ("Firmware", state.firmware.filename or "not selected"),
+        ("Patch", "image available" if state.firmware.has_patchable_image else "not ready"),
+        ("Options", "keep data"),
+        ("Flash", "disabled"),
+    )
+
+
+def _shell_tool_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    tools = state.tools
+    platform_tools = "ADB/Fastboot available" if tools.adb_available and tools.fastboot_available else "not fully detected"
+    return (
+        ("Platform Tools", platform_tools),
+        ("ADB shell", "disabled"),
+        ("Fastboot commands", "disabled"),
+        ("File open/extract", "disabled"),
+    )
+
+
+def _shell_package_type(package_type: str) -> str:
+    return {
+        "factory": "Factory image",
+        "ota": "OTA package",
+        "custom_rom": "Custom ROM",
+        "unknown": "unknown",
+    }.get(str(package_type or "unknown"), str(package_type or "unknown"))
+
+
+def _known_or_unknown(value: str) -> str:
+    value = str(value or "").strip()
+    return value.title() if value and value.lower() != "unknown" else "Unknown"
 
 
 def _title_for_page(key: str) -> str:
