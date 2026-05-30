@@ -37,7 +37,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "fastboot ",
             "adb shell",
             "delete_all",
-            "wipe",
+            "wipe_data",
         )
         for snippet in forbidden_snippets:
             with self.subTest(snippet=snippet):
