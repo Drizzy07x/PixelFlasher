@@ -26,6 +26,9 @@ jobs:
       - name: Show version
         run: python PixelFlasher.py --version
 
+      - name: Install self-test runtime dependencies
+        run: python -m pip install darkdetect json5
+
       - name: Compile beta-safe modules
         run: |
           python -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui/theme.py ui/icons.py ui/components/models.py tools/create_beta_bundle.py
