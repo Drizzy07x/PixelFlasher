@@ -294,7 +294,7 @@ def _dashboard_action_button_label(key: str) -> str:
 def _device_status_from_readonly(state: ModernReadonlyState) -> DeviceStatus:
     device = state.device
     display_name = device.display_name or ("Selected device" if device.serial else "No device")
-    codename = "" if device.display_name == device.serial else device.serial
+    codename = ""
     return DeviceStatus(
         display_name=display_name,
         codename=codename,
