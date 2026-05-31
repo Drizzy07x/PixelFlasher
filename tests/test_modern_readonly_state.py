@@ -66,6 +66,43 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertTrue(state.tools.fastboot_available)
         self.assertTrue(state.ready_for_review)
 
+    def test_custom_rom_path_is_preferred_for_custom_rom_state(self):
+        config = SimpleNamespace(
+            device="raven",
+            firmware_path="raven-factory.zip",
+            custom_rom=True,
+            custom_rom_path="raven-custom-rom.zip",
+            firmware_is_ota=False,
+            firmware_sha256="",
+            rom_sha256="rom-hash",
+        )
+        frame = SimpleNamespace(config=config, firmware_picker=_Picker(""))
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("raven-custom-rom.zip", state.firmware.filename)
+        self.assertEqual("custom_rom", state.firmware.package_type)
+        self.assertTrue(state.firmware.verified)
+
+    def test_custom_rom_requires_rom_hash_for_verification(self):
+        config = SimpleNamespace(
+            device="raven",
+            firmware_path="raven-factory.zip",
+            custom_rom=True,
+            custom_rom_path="raven-custom-rom.zip",
+            firmware_is_ota=False,
+            firmware_sha256="factory-hash",
+            rom_sha256="",
+        )
+        frame = SimpleNamespace(config=config, firmware_picker=_Picker(""))
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("raven-custom-rom.zip", state.firmware.filename)
+        self.assertEqual("custom_rom", state.firmware.package_type)
+        self.assertFalse(state.firmware.verified)
+        self.assertFalse(state.ready_for_review)
+
     def test_unverified_firmware_is_reported(self):
         config = SimpleNamespace(
             device="oriole",
