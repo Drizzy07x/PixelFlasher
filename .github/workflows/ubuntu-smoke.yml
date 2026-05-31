@@ -26,8 +26,10 @@ jobs:
       - name: Show Python version
         run: python --version
 
-      - name: Install self-test runtime dependencies
-        run: python -m pip install darkdetect json5
+      - name: Install CI runtime dependencies
+        run: |
+          python -c "from pathlib import Path; lines = Path('requirements.txt').read_text().splitlines(True); Path('requirements-ci.txt').write_text(''.join(line for line in lines if not line.lstrip().startswith('wxPython')))"
+          python -m pip install -r requirements-ci.txt
 
       - name: Compile beta-safe Python modules
         run: |
