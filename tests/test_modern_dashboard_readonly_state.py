@@ -41,6 +41,7 @@ class ModernDashboardReadonlyStateTests(unittest.TestCase):
         status = _device_status_from_readonly(state)
 
         self.assertEqual("Pixel 7 Pro", status.display_name)
+        self.assertEqual("", status.codename)
         self.assertEqual("abc123456", status.serial)
         self.assertTrue(status.adb_ready)
         self.assertEqual("unlocked", status.bootloader_state)
