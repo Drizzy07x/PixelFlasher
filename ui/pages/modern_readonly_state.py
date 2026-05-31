@@ -122,11 +122,12 @@ def _read_device(frame: Any, config: Any) -> ModernDeviceState:
 
 
 def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
-    path = _call_string(getattr(frame, "firmware_picker", None), "GetPath")
-    if not path:
-        path = str(getattr(config, "firmware_path", "") or "")
-
+    picker_path = _call_string(getattr(frame, "firmware_picker", None), "GetPath")
+    firmware_path = picker_path or str(getattr(config, "firmware_path", "") or "")
     custom_rom = bool(getattr(config, "custom_rom", False))
+    rom_path = str(getattr(config, "custom_rom_path", "") or getattr(config, "rom_path", "") or "")
+    path = rom_path if custom_rom and rom_path else firmware_path
+
     firmware_is_ota = bool(getattr(config, "firmware_is_ota", False))
     if custom_rom:
         package_type = "custom_rom"
@@ -137,7 +138,9 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
     else:
         package_type = "unknown"
 
-    sha256 = str(getattr(config, "firmware_sha256", "") or getattr(config, "rom_sha256", "") or "")
+    firmware_sha256 = str(getattr(config, "firmware_sha256", "") or "")
+    rom_sha256 = str(getattr(config, "rom_sha256", "") or "")
+    sha256 = rom_sha256 if custom_rom and rom_sha256 else firmware_sha256 or rom_sha256
 
     return ModernFirmwareState(
         path=path,
