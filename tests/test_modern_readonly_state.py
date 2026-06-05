@@ -1,7 +1,11 @@
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from ui.pages.modern_readonly_state import build_readonly_state
+
+
+READONLY_STATE_SOURCE = Path("ui/pages/modern_readonly_state.py")
 
 
 class _Picker:
@@ -21,6 +25,10 @@ class _Choice:
 
 
 class ModernReadonlyStateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = READONLY_STATE_SOURCE.read_text(encoding="utf-8")
+
     def test_empty_frame_builds_safe_state(self):
         state = build_readonly_state(SimpleNamespace(config=SimpleNamespace()), tool_resolver=lambda name: None)
 
@@ -130,6 +138,24 @@ class ModernReadonlyStateTests(unittest.TestCase):
 
         self.assertEqual("", state.firmware.path)
         self.assertFalse(state.ready_for_review)
+
+    def test_reader_source_stays_readonly_and_frame_scoped(self):
+        forbidden_snippets = (
+            "from runtime import",
+            "get_phone(",
+            "subprocess.",
+            "os.system",
+            "adb shell",
+            "fastboot -",
+            "fastboot flash",
+            "wipe_data",
+            "delete_all",
+            "reboot_",
+        )
+
+        for snippet in forbidden_snippets:
+            with self.subTest(snippet=snippet):
+                self.assertNotIn(snippet, self.source)
 
 
 if __name__ == "__main__":
