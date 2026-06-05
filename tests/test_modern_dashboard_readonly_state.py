@@ -4,8 +4,10 @@ try:
     from ui.pages.dashboard import _device_status_from_readonly, _firmware_info_from_readonly
 except ModuleNotFoundError as exc:
     if exc.name == "wx":
-        raise unittest.SkipTest("wxPython is not available")
-    raise
+        _device_status_from_readonly = None
+        _firmware_info_from_readonly = None
+    else:
+        raise
 
 from ui.pages.modern_readonly_state import (
     ModernDeviceState,
@@ -25,6 +27,7 @@ def _state(device=None, firmware=None):
 
 
 class ModernDashboardReadonlyStateTests(unittest.TestCase):
+    @unittest.skipIf(_device_status_from_readonly is None, "wxPython is not available")
     def test_device_status_uses_shared_readonly_state(self):
         state = _state(
             device=ModernDeviceState(
@@ -49,6 +52,7 @@ class ModernDashboardReadonlyStateTests(unittest.TestCase):
         self.assertEqual("rooted", status.root_status)
         self.assertEqual("14", status.android_version)
 
+    @unittest.skipIf(_device_status_from_readonly is None, "wxPython is not available")
     def test_device_status_handles_empty_state(self):
         status = _device_status_from_readonly(_state())
 
@@ -56,6 +60,7 @@ class ModernDashboardReadonlyStateTests(unittest.TestCase):
         self.assertFalse(status.adb_ready)
         self.assertEqual("", status.serial)
 
+    @unittest.skipIf(_firmware_info_from_readonly is None, "wxPython is not available")
     def test_firmware_info_uses_shared_readonly_state(self):
         state = _state(
             firmware=ModernFirmwareState(
@@ -77,6 +82,7 @@ class ModernDashboardReadonlyStateTests(unittest.TestCase):
         self.assertEqual("cheetah-factory", firmware.build)
         self.assertTrue(firmware.verified)
 
+    @unittest.skipIf(_firmware_info_from_readonly is None, "wxPython is not available")
     def test_firmware_info_handles_empty_state(self):
         firmware = _firmware_info_from_readonly(_state())
 

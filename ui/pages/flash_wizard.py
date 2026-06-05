@@ -11,6 +11,7 @@ import wx
 
 from ui.pages.flash_wizard_details import step_detail_lines, warning_lines
 from ui.pages.flash_wizard_model import STEPS, WizardSession
+from ui.pages.modern_preview_copy import MODERN_PREVIEW_FOOTER, MODERN_PREVIEW_SUBTITLE, PREVIEW_BADGES
 from ui.theme import get_theme
 
 _STEP_NOTES: dict[str, tuple[str, ...]] = {
@@ -46,7 +47,7 @@ class FlashWizardPanel(wx.Panel):
 
     def __init__(self, parent: wx.Window, session: WizardSession | None = None):
         super().__init__(parent)
-        self.theme = get_theme("light")
+        self.theme = get_theme("dark")
         self.session = session or WizardSession()
         self.current_index = 0
         self._step_labels: list[wx.StaticText] = []
@@ -70,10 +71,12 @@ class FlashWizardPanel(wx.Panel):
 
         header = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, "Flash Wizard", 18, True), 0, wx.BOTTOM, 2)
-        title_stack.Add(self._muted(self, "Preview only. No commands are executed."), 0)
+        title_stack.Add(self._text(self, "Flash Wizard - Preview & Plan Only", 18, True), 0, wx.BOTTOM, 2)
+        title_stack.Add(self._muted(self, MODERN_PREVIEW_SUBTITLE), 0)
         header.Add(title_stack, 1, wx.EXPAND)
-        self._status_badge = self._badge(self, "Preview", "info")
+        for badge in PREVIEW_BADGES:
+            header.Add(self._badge(self, badge, "info"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self._status_badge = self._badge(self, "Blocked", "warning")
         header.Add(self._status_badge, 0, wx.ALIGN_CENTER_VERTICAL)
         root.Add(header, 0, wx.EXPAND | wx.ALL, 14)
 
@@ -142,7 +145,7 @@ class FlashWizardPanel(wx.Panel):
         panel = wx.Panel(self)
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._muted(panel, "Preview mode: navigation only. Real flashing remains disabled."), 1, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self._muted(panel, f"Preview mode: navigation only. {MODERN_PREVIEW_FOOTER}"), 1, wx.ALIGN_CENTER_VERTICAL)
         self._back = wx.Button(panel, label="Back")
         self._next = wx.Button(panel, label="Next")
         self._back.Bind(wx.EVT_BUTTON, self._on_back)
