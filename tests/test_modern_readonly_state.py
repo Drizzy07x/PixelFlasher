@@ -66,6 +66,34 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertTrue(state.tools.fastboot_available)
         self.assertTrue(state.ready_for_review)
 
+    def test_fastboot_selection_preserves_connection_mode(self):
+        config = SimpleNamespace(device="abc123456")
+        frame = SimpleNamespace(
+            config=config,
+            device_choice=_Choice("Pixel 7 Pro [fastboot]"),
+        )
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertTrue(state.device.selected)
+        self.assertFalse(state.device.adb_ready)
+        self.assertTrue(state.device.fastboot_ready)
+        self.assertEqual("Fastboot ready", state.device.connection_label)
+
+    def test_loaded_phone_mode_overrides_selection_text(self):
+        config = SimpleNamespace(device="abc123456")
+        frame = SimpleNamespace(
+            config=config,
+            phone=SimpleNamespace(true_mode="fastboot"),
+            device_choice=_Choice("Pixel 7 Pro"),
+        )
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertFalse(state.device.adb_ready)
+        self.assertTrue(state.device.fastboot_ready)
+        self.assertEqual("Fastboot ready", state.device.connection_label)
+
     def test_custom_rom_path_is_preferred_for_custom_rom_state(self):
         config = SimpleNamespace(
             device="raven",

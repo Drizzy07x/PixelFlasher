@@ -108,12 +108,18 @@ def _read_device(frame: Any, config: Any) -> ModernDeviceState:
     selected = _call_string(getattr(frame, "device_choice", None), "GetStringSelection")
     configured = str(getattr(config, "device", "") or "")
     identifier = selected or configured
+    mode = _read_connection_mode(frame, config, selected)
+    adb_ready = _is_adb_mode(mode)
+    fastboot_ready = _is_fastboot_mode(mode)
+
+    if selected and not mode:
+        adb_ready = True
 
     return ModernDeviceState(
         display_name=identifier,
         serial=identifier,
-        adb_ready=bool(selected),
-        fastboot_ready=False,
+        adb_ready=adb_ready,
+        fastboot_ready=fastboot_ready,
         bootloader_state=str(getattr(config, "bootloader_state", "") or "unknown"),
         active_slot=str(getattr(config, "active_slot", "") or ""),
         root_status=str(getattr(config, "root_status", "") or "unknown"),
@@ -158,6 +164,48 @@ def _read_tools(tool_resolver: ToolResolver) -> ModernToolState:
     adb = tool_resolver("adb") or tool_resolver("adb.exe") or ""
     fastboot = tool_resolver("fastboot") or tool_resolver("fastboot.exe") or ""
     return ModernToolState(adb_path=str(adb or ""), fastboot_path=str(fastboot or ""))
+
+
+def _read_connection_mode(frame: Any, config: Any, selected: str) -> str:
+    for obj in (getattr(frame, "phone", None), getattr(config, "phone", None), config, frame):
+        if obj is None:
+            continue
+        for attr in ("true_mode", "mode", "device_mode"):
+            mode = _normalize_connection_mode(str(getattr(obj, attr, "") or ""))
+            if mode:
+                return mode
+
+    return _connection_mode_from_text(selected)
+
+
+def _connection_mode_from_text(value: str) -> str:
+    text = str(value or "").lower()
+    if any(token in text for token in ("fastboot", "bootloader", "f.b")):
+        return "fastboot"
+    if "recovery" in text:
+        return "recovery"
+    if "adb" in text:
+        return "adb"
+    return ""
+
+
+def _normalize_connection_mode(value: str) -> str:
+    mode = str(value or "").strip().lower()
+    if mode in {"adb", "device"}:
+        return "adb"
+    if mode in {"fastboot", "bootloader", "f.b"}:
+        return "fastboot"
+    if mode == "recovery":
+        return "recovery"
+    return ""
+
+
+def _is_adb_mode(mode: str) -> bool:
+    return _normalize_connection_mode(mode) == "adb"
+
+
+def _is_fastboot_mode(mode: str) -> bool:
+    return _normalize_connection_mode(mode) == "fastboot"
 
 
 def _warnings(device: ModernDeviceState, firmware: ModernFirmwareState) -> tuple[str, ...]:
