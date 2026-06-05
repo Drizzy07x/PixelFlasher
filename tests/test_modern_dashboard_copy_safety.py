@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 try:
     from ui.pages.dashboard import (
@@ -31,7 +32,14 @@ from ui.pages.modern_preview_copy import (
 from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
 
 
+DASHBOARD_SOURCE = Path("ui/pages/dashboard.py")
+
+
 class ModernDashboardCopySafetyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dashboard_source = DASHBOARD_SOURCE.read_text(encoding="utf-8")
+
     def test_shared_preview_header_copy_is_explicit(self):
         self.assertEqual("Modern UI - Preview (Read-Only)", MODERN_PREVIEW_TITLE)
         self.assertIn("No device changes", MODERN_PREVIEW_SUBTITLE)
@@ -70,6 +78,17 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("Downloads", text)
         self.assertNotIn("Flash Device", text)
         self.assertNotIn("Patch Boot", text)
+
+    def test_dashboard_layout_badges_reinforce_readonly_boundaries(self):
+        for expected in (
+            "No execution from this preview",
+            "No slot switching",
+            "No partition writes",
+            "Restore stays guarded",
+            "Preview boundary",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.dashboard_source)
 
     @unittest.skipIf(_dashboard_quick_actions is None, "wxPython is not available")
     def test_quick_action_titles_are_legacy_explicit(self):

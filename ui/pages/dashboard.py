@@ -51,62 +51,71 @@ class ModernDashboardPanel(wx.Panel):
 
         header = self._build_header()
         top_row = wx.BoxSizer(wx.HORIZONTAL)
-        top_row.Add(self._build_device_card(), 2, wx.EXPAND | wx.RIGHT, 10)
-        top_row.Add(self._build_next_step_card(), 1, wx.EXPAND | wx.LEFT, 10)
+        top_row.Add(self._build_device_card(), 2, wx.EXPAND | wx.RIGHT, 12)
+        top_row.Add(self._build_next_step_card(), 1, wx.EXPAND | wx.LEFT, 12)
 
-        content.Add(header, 0, wx.EXPAND | wx.BOTTOM, 12)
-        content.Add(top_row, 0, wx.EXPAND | wx.BOTTOM, 12)
-        content.Add(self._build_firmware_card(), 0, wx.EXPAND | wx.BOTTOM, 12)
+        content.Add(header, 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(top_row, 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(self._build_firmware_card(), 0, wx.EXPAND | wx.BOTTOM, 14)
         detail_row = wx.BoxSizer(wx.HORIZONTAL)
-        detail_row.Add(self._build_safety_boundary_card(), 1, wx.EXPAND | wx.RIGHT, 10)
-        detail_row.Add(self._build_device_slots_card(), 1, wx.EXPAND | wx.LEFT, 10)
-        content.Add(detail_row, 0, wx.EXPAND | wx.BOTTOM, 12)
+        detail_row.Add(self._build_safety_boundary_card(), 1, wx.EXPAND | wx.RIGHT, 12)
+        detail_row.Add(self._build_device_slots_card(), 1, wx.EXPAND | wx.LEFT, 12)
+        content.Add(detail_row, 0, wx.EXPAND | wx.BOTTOM, 14)
         state_row = wx.BoxSizer(wx.HORIZONTAL)
-        state_row.Add(self._build_partitions_card(), 1, wx.EXPAND | wx.RIGHT, 10)
-        state_row.Add(self._build_last_backup_card(), 1, wx.EXPAND | wx.LEFT, 10)
-        content.Add(state_row, 0, wx.EXPAND | wx.BOTTOM, 12)
-        content.Add(self._build_quick_actions(), 0, wx.EXPAND | wx.BOTTOM, 12)
+        state_row.Add(self._build_partitions_card(), 1, wx.EXPAND | wx.RIGHT, 12)
+        state_row.Add(self._build_last_backup_card(), 1, wx.EXPAND | wx.LEFT, 12)
+        content.Add(state_row, 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(self._build_quick_actions(), 0, wx.EXPAND | wx.BOTTOM, 14)
         content.Add(self._build_status_bar(), 0, wx.EXPAND)
 
-        shell.Add(sidebar, 0, wx.EXPAND | wx.RIGHT, 12)
+        shell.Add(sidebar, 0, wx.EXPAND | wx.RIGHT, 16)
         shell.Add(content, 1, wx.EXPAND)
-        root.Add(shell, 1, wx.EXPAND | wx.ALL, 12)
+        root.Add(shell, 1, wx.EXPAND | wx.ALL, 18)
         self.SetSizer(root)
 
     def _build_sidebar(self) -> wx.Panel:
-        panel = self._card(self, pad=12)
+        panel = wx.Panel(self)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
         sizer = wx.BoxSizer(wx.VERTICAL)
-        title = self._text(panel, "PixelFlasher", 14, bold=True)
+
+        brand = wx.BoxSizer(wx.VERTICAL)
+        title = self._text(panel, "PixelFlasher", 16, bold=True)
+        title.SetForegroundColour(wx.Colour(self.theme.palette.accent))
         badge = self._muted(panel, MODERN_PREVIEW_TITLE)
-        sizer.Add(title, 0, wx.BOTTOM, 2)
-        sizer.Add(badge, 0, wx.BOTTOM, 14)
+        brand.Add(title, 0, wx.BOTTOM, 3)
+        brand.Add(badge, 0)
+        sizer.Add(brand, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 16)
+
+        sizer.Add(self._sidebar_divider(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
         for key, title, detail in NAV_ITEMS:
-            label = f"  {title}\n  {detail}"
-            item = self._text(panel, label, 9, bold=(key == "dashboard"))
-            if key == "dashboard":
-                item.SetForegroundColour(wx.Colour(self.theme.palette.accent))
-            sizer.Add(item, 0, wx.EXPAND | wx.BOTTOM, 8)
+            sizer.Add(self._sidebar_item(panel, title, detail, active=(key == "dashboard")), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         sizer.AddStretchSpacer(1)
-        sizer.Add(self._muted(panel, "Preview-only. Read-only state. Legacy flows guarded."), 0, wx.EXPAND)
+        footer = self._sidebar_note(panel)
+        sizer.Add(footer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 14)
         panel.SetSizer(sizer)
-        panel.SetMinSize((190, -1))
+        panel.SetMinSize((236, -1))
         return panel
 
-    def _build_header(self) -> wx.Sizer:
+    def _build_header(self) -> wx.Panel:
+        panel = self._card(self, pad=18)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, MODERN_PREVIEW_TITLE, 20, bold=True), 0, wx.BOTTOM, 2)
-        title_stack.Add(self._muted(self, MODERN_PREVIEW_SUBTITLE), 0)
+        title_stack.Add(self._text(panel, MODERN_PREVIEW_TITLE, 22, bold=True), 0, wx.BOTTOM, 3)
+        title_stack.Add(self._muted(panel, MODERN_PREVIEW_SUBTITLE), 0)
         sizer.Add(title_stack, 1, wx.EXPAND)
         for badge in PREVIEW_BADGES:
-            sizer.Add(self._pill(self, badge, StatusLevel.WARNING), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        self._labels["connection_badge"] = self._pill(self, "ADB: Unknown", StatusLevel.INFO)
+            sizer.Add(self._pill(panel, badge, StatusLevel.WARNING), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self._labels["connection_badge"] = self._pill(panel, "ADB: Unknown", StatusLevel.INFO)
         sizer.Add(self._labels["connection_badge"], 0, wx.ALIGN_CENTER_VERTICAL)
-        return sizer
+        panel.SetSizer(sizer)
+        return panel
 
     def _build_device_card(self) -> wx.Panel:
         card = self._card(self)
-        grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=12)
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(self._card_heading(card, "Connected Device (Read-Only)", "Loaded state only"), 0, wx.EXPAND | wx.BOTTOM, 12)
+
+        grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=14)
         grid.AddGrowableCol(1, 1)
 
         name = self._text(card, "No device", 16, bold=True)
@@ -135,13 +144,14 @@ class ModernDashboardPanel(wx.Panel):
 
         grid.Add(left, 1, wx.EXPAND)
         grid.Add(status_grid, 1, wx.EXPAND)
-        card.SetSizer(grid)
+        root.Add(grid, 0, wx.EXPAND)
+        card.SetSizer(root)
         return card
 
     def _build_next_step_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Recommended next step", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Preview Readiness", "Plan only"), 0, wx.EXPAND | wx.BOTTOM, 12)
         self._labels["next_step_title"] = self._text(card, "Select firmware", 15, bold=True)
         self._labels["next_step_body"] = self._muted(card, "Choose a factory image, OTA package, or custom ROM.")
         sizer.Add(self._labels["next_step_title"], 0, wx.BOTTOM, 4)
@@ -156,7 +166,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_firmware_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Firmware / ROM file", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Firmware / ROM File (Read-Only)", "Existing selector remains source of truth"), 0, wx.EXPAND | wx.BOTTOM, 10)
         self._labels["firmware_filename"] = self._text(card, "No firmware selected", 11, bold=True)
         self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the Browse firmware button above.")
         sizer.Add(self._labels["firmware_filename"], 0, wx.BOTTOM, 3)
@@ -167,7 +177,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_quick_actions(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Quick Actions (Preview)", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Quick Actions (Preview)", "Guarded legacy flow labels"), 0, wx.EXPAND | wx.BOTTOM, 10)
         actions = wx.GridSizer(rows=1, cols=4, vgap=8, hgap=8)
         for action in self._quick_actions():
             actions.Add(self._action_button(card, action), 1, wx.EXPAND)
@@ -178,7 +188,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_safety_boundary_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Safety Boundary", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Safety Boundary", "No execution from this preview"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for line in SAFETY_BOUNDARY_LINES:
             sizer.Add(self._muted(card, line), 0, wx.BOTTOM, 5)
         card.SetSizer(sizer)
@@ -187,7 +197,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_device_slots_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Device Slots (Read-Only)", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Device Slots (Read-Only)", "No slot switching"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for title, value in _dashboard_slot_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
         card.SetSizer(sizer)
@@ -196,7 +206,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_partitions_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Partitions (Read-Only)", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Partitions (Read-Only)", "No partition writes"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for title, value in _dashboard_partition_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
         card.SetSizer(sizer)
@@ -205,7 +215,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_last_backup_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Last Backup (Read-Only)", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Last Backup (Read-Only)", "Restore stays guarded"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for title, value in _dashboard_backup_rows():
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
         card.SetSizer(sizer)
@@ -223,7 +233,8 @@ class ModernDashboardPanel(wx.Panel):
         return _dashboard_quick_actions()
 
     def _action_button(self, parent: wx.Window, action: QuickAction) -> wx.Panel:
-        panel = self._card(parent, pad=8)
+        panel = self._card(parent, pad=10)
+        panel.SetMinSize((-1, 108))
         sizer = wx.BoxSizer(wx.VERTICAL)
         title = self._text(panel, action.title, 11, bold=True)
         body = self._muted(panel, action.description)
@@ -320,6 +331,41 @@ class ModernDashboardPanel(wx.Panel):
         text = self._text(parent, label, 9)
         text.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
         return text
+
+    def _card_heading(self, parent: wx.Window, title: str, badge: str) -> wx.Sizer:
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(self._text(parent, title, 12, True), 1, wx.ALIGN_CENTER_VERTICAL)
+        pill = self._text(parent, f"  {badge}  ", 8, True)
+        pill.SetForegroundColour(wx.Colour(self.theme.palette.info))
+        sizer.Add(pill, 0, wx.ALIGN_CENTER_VERTICAL)
+        return sizer
+
+    def _sidebar_item(self, parent: wx.Window, title: str, detail: str, active: bool = False) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface if active else self.theme.palette.surface_raised))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        title_label = self._text(panel, title, 10, active)
+        if active:
+            title_label.SetForegroundColour(wx.Colour(self.theme.palette.accent))
+        sizer.Add(title_label, 0, wx.BOTTOM, 2)
+        sizer.Add(self._muted(panel, detail), 0)
+        panel.SetSizer(self._wrap(sizer, 9))
+        return panel
+
+    def _sidebar_divider(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetMinSize((-1, 1))
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.border))
+        return panel
+
+    def _sidebar_note(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(panel, "Preview boundary", 9, True), 0, wx.BOTTOM, 3)
+        sizer.Add(self._muted(panel, "Read-only state. Legacy flows guarded."), 0)
+        panel.SetSizer(self._wrap(sizer, 10))
+        return panel
 
     def _pill(self, parent: wx.Window, label: str, level: StatusLevel) -> wx.StaticText:
         text = self._text(parent, label, 10, bold=True)
