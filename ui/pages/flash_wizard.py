@@ -22,6 +22,8 @@ from ui.pages.modern_preview_copy import MODERN_PREVIEW_FOOTER, MODERN_PREVIEW_S
 from ui.pages import modern_preview_style as preview_style
 from ui.theme import get_theme
 
+FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard – Preview & Plan Only"
+
 _STEP_NOTES: dict[str, tuple[str, ...]] = {
     "device": (
         "Legacy scan remains the source of truth.",
@@ -80,7 +82,7 @@ class FlashWizardPanel(wx.Panel):
 
         header = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, "Flash Wizard – Preview & Plan Only", 18, True), 0, wx.BOTTOM, 2)
+        title_stack.Add(self._text(self, _wx_static_label(FLASH_WIZARD_PREVIEW_TITLE), 18, True), 0, wx.BOTTOM, 2)
         title_stack.Add(self._muted(self, MODERN_PREVIEW_SUBTITLE), 0)
         header.Add(title_stack, 1, wx.EXPAND)
         for badge in PREVIEW_BADGES:
@@ -146,15 +148,16 @@ class FlashWizardPanel(wx.Panel):
         top.Add(self._badge(card, "Read-only", "info"), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 8)
 
-        self._summary = self._muted(card, "")
-        sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 8)
-
         alert = preview_style.card(card, self.theme, raised=True)
         alert_sizer = wx.BoxSizer(wx.VERTICAL)
-        alert_sizer.Add(self._text(alert, "Blocked Execution", 10, True), 0, wx.BOTTOM, 4)
-        alert_sizer.Add(self._muted(alert, "Preview-only planning is visible. Flash execution is not available here."), 0)
-        alert.SetSizer(self._wrap(alert_sizer, 10))
-        sizer.Add(alert, 0, wx.EXPAND | wx.BOTTOM, 10)
+        alert_sizer.Add(preview_style.badge(alert, self.theme, "BLOCKED EXECUTION", "warning"), 0, wx.BOTTOM, 8)
+        alert_sizer.Add(self._text(alert, "Blocked Execution", 12, True), 0, wx.BOTTOM, 5)
+        alert_sizer.Add(self._muted(alert, "Preview-only planning is visible. No flash, patch, reboot, or device changes are available here."), 0)
+        alert.SetSizer(self._wrap(alert_sizer, 12))
+        sizer.Add(alert, 0, wx.EXPAND | wx.BOTTOM, 12)
+
+        self._summary = self._muted(card, "")
+        sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 8)
 
         sizer.Add(self._text(card, "Blocked", 10, True), 0, wx.BOTTOM, 4)
         self._warning = self._text(card, "", 9, True)
@@ -224,6 +227,9 @@ class FlashWizardPanel(wx.Panel):
             return
         self._content_sizer.Clear(delete_windows=True)
 
+        if step_key == "device":
+            self._content_sizer.Add(self._device_preview_cards(self._content_panel), 0, wx.EXPAND | wx.BOTTOM, 10)
+
         self._content_sizer.Add(self._section(self._content_panel, "Current state"), 0, wx.EXPAND | wx.BOTTOM, 7)
         for line in step_detail_lines(self.session, step_key):
             self._content_sizer.Add(self._line(self._content_panel, _shorten(line, 76)), 0, wx.EXPAND | wx.BOTTOM, 3)
@@ -245,6 +251,24 @@ class FlashWizardPanel(wx.Panel):
             notice.SetToolTip("Final flash action is intentionally unavailable in preview mode.")
             self._content_sizer.Add(notice, 0, wx.EXPAND)
         self._content_panel.Layout()
+
+    def _device_preview_cards(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        grid = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
+        for title, lines in _device_preview_sections():
+            grid.Add(self._checklist_card(panel, title, lines), 1, wx.EXPAND)
+        panel.SetSizer(grid)
+        return panel
+
+    def _checklist_card(self, parent: wx.Window, title: str, lines: tuple[str, ...]) -> wx.Panel:
+        card = preview_style.card(parent, self.theme)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, title, 10, True), 0, wx.BOTTOM, 6)
+        for line in lines:
+            sizer.Add(self._line(card, line, bullet=True), 0, wx.EXPAND | wx.BOTTOM, 4)
+        card.SetSizer(self._wrap(sizer, 10))
+        return card
 
     def _summary_text(self) -> str:
         lines = [
@@ -331,6 +355,47 @@ def _shorten(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(1, limit - 1)] + "…"
+
+
+def _wx_static_label(label: str) -> str:
+    return label.replace("&", "&&")
+
+
+def _device_preview_sections() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return (
+        (
+            "Device Readiness Checklist",
+            (
+                "Device selection is read from the current session.",
+                "ADB/Fastboot readiness is displayed only.",
+                "No scan, reboot, or slot action runs here.",
+            ),
+        ),
+        (
+            "Firmware Readiness Checklist",
+            (
+                "Firmware status is shown from loaded state.",
+                "Verification remains a future guarded step.",
+                "No archive parsing or file access starts here.",
+            ),
+        ),
+        (
+            "Execution Blocked Checklist",
+            (
+                "Flash action remains unavailable.",
+                "Patch and wipe operations stay disabled.",
+                "Device mutation is blocked in preview.",
+            ),
+        ),
+        (
+            "Preview Limitations",
+            (
+                "Navigation updates this preview only.",
+                "Warnings are informational planning copy.",
+                "Legacy flows remain the source of truth.",
+            ),
+        ),
+    )
 
 
 class FlashWizardPreviewFrame(wx.Frame):

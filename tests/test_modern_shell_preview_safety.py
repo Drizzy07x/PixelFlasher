@@ -106,6 +106,9 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 self.assertIn(label, SAFETY_BOUNDARY_LINES)
         self.assertIn("SAFETY_BOUNDARY_LINES", self.shell_source)
         self.assertIn("Flash Wizard – Preview & Plan Only", self.wizard_source)
+        self.assertIn('FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard – Preview & Plan Only"', self.wizard_source)
+        self.assertIn("_wx_static_label(FLASH_WIZARD_PREVIEW_TITLE)", self.wizard_source)
+        self.assertNotIn("Preview _Plan Only", self.wizard_source)
         self.assertIn("MODERN_PREVIEW_FOOTER", self.wizard_source)
 
     def test_modern_shell_source_does_not_call_device_execution_helpers(self):
@@ -138,13 +141,26 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertIn("self._next.Hide()", self.wizard_source)
         self.assertIn("Preview only · flash execution disabled", self.wizard_source)
         self.assertIn("Blocked Execution", self.wizard_source)
-        self.assertIn("Preview-only planning is visible. Flash execution is not available here.", self.wizard_source)
+        self.assertIn("Preview-only planning is visible. No flash, patch, reboot, or device changes are available here.", self.wizard_source)
         self.assertIn("preview_style.button_panel(panel, self.theme, \"Back\", \"info\")", self.wizard_source)
         self.assertIn("preview_style.button_panel(panel, self.theme, \"Next\", \"info\")", self.wizard_source)
         self.assertNotIn('wx.Button(panel, label="Back")', self.wizard_source)
         self.assertNotIn('wx.Button(panel, label="Next")', self.wizard_source)
         self.assertNotIn('wx.Button(self._content_panel, label="Flash disabled"', self.wizard_source)
         self.assertNotIn('wx.Button(self._content_panel, label="Flash Device"', self.wizard_source)
+
+    def test_flash_wizard_device_step_has_structured_readonly_preview_cards(self):
+        for label in (
+            "Device Readiness Checklist",
+            "Firmware Readiness Checklist",
+            "Execution Blocked Checklist",
+            "Preview Limitations",
+            "No scan, reboot, or slot action runs here.",
+            "No archive parsing or file access starts here.",
+            "Device mutation is blocked in preview.",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, self.wizard_source)
 
 
 if __name__ == "__main__":
