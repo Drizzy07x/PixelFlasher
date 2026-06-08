@@ -15,9 +15,9 @@ from config import Config
 from ui.pages.dashboard import ModernDashboardPanel
 
 
-class _PreviewFrame(wx.Frame):
-    def __init__(self):
-        super().__init__(None, title=f"PixelFlasher {VERSION} - Modern Dashboard Preview", size=(1180, 760))
+class DashboardPreviewFrame(wx.Frame):
+    def __init__(self, parent: wx.Window | None = None):
+        super().__init__(parent, title=f"PixelFlasher {VERSION} - Modern Dashboard Preview", size=(1180, 760))
         self.config = Config()
         self.config.modern_ui_enabled = True
         self.config.modern_dashboard_enabled = True
@@ -57,10 +57,16 @@ class _NullChoice:
 
 def main() -> int:
     app = wx.App(False)
-    frame = _PreviewFrame()
-    frame.Show(True)
+    frame = show_dashboard_preview()
     app.MainLoop()
     return 0
+
+
+def show_dashboard_preview(parent: wx.Window | None = None) -> DashboardPreviewFrame:
+    frame = DashboardPreviewFrame(parent)
+    frame.Show(True)
+    frame.Raise()
+    return frame
 
 
 if __name__ == "__main__":

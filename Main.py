@@ -1938,6 +1938,11 @@ class PixelFlasher(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_support_zip, support_zip_item)
         # separator
         help_menu.AppendSeparator()
+        # Modern UI preview
+        self.modern_ui_preview_item = help_menu.Append(wx.ID_ANY, _("Modern UI Preview"), _("Preview-only · Read-only · No device changes"))
+        self.Bind(wx.EVT_MENU, self._on_modern_ui_preview, self.modern_ui_preview_item)
+        # separator
+        help_menu.AppendSeparator()
         # update check
         update_item = help_menu.Append(wx.ID_ANY, _('Check for New Version'), _('Check for New Version'))
         update_item.SetBitmap(images.update_check_24.GetBitmap())
@@ -2228,6 +2233,23 @@ class PixelFlasher(wx.Frame):
         about = AboutDlg(self)
         about.ShowModal()
         about.Destroy()
+
+    # -----------------------------------------------
+    #                  _on_modern_ui_preview
+    # -----------------------------------------------
+    def _on_modern_ui_preview(self, event):
+        from ui.pages.dashboard_app import show_dashboard_preview
+
+        frame = getattr(self, "_modern_ui_preview_frame", None)
+        try:
+            if frame:
+                frame.Show(True)
+                frame.Raise()
+                return
+        except RuntimeError:
+            frame = None
+
+        self._modern_ui_preview_frame = show_dashboard_preview(self)
 
     # -----------------------------------------------
     #                  _on_advanced_config

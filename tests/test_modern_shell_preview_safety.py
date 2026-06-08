@@ -16,6 +16,7 @@ MODERN_DASHBOARD_APP_SOURCE = Path("ui/pages/dashboard_app.py")
 MODERN_SHELL_SOURCE = Path("ui/pages/modern_shell_app.py")
 FLASH_WIZARD_SOURCE = Path("ui/pages/flash_wizard.py")
 MODERN_STYLE_SOURCE = Path("ui/pages/modern_preview_style.py")
+MAIN_SOURCE = Path("Main.py")
 
 
 class ModernShellPreviewSafetyTests(unittest.TestCase):
@@ -25,6 +26,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         cls.shell_source = MODERN_SHELL_SOURCE.read_text(encoding="utf-8")
         cls.wizard_source = FLASH_WIZARD_SOURCE.read_text(encoding="utf-8")
         cls.style_source = MODERN_STYLE_SOURCE.read_text(encoding="utf-8")
+        cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
 
     def require_wx(self):
         try:
@@ -60,6 +62,40 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn('if __name__ == "__main__":', source)
                 self.assertIn("raise SystemExit(main())", source)
+
+    def test_legacy_menu_exposes_modern_ui_preview_entrypoint(self):
+        self.assertIn('_("Modern UI Preview")', self.main_source)
+        self.assertIn('_("Preview-only · Read-only · No device changes")', self.main_source)
+        self.assertIn("self.modern_ui_preview_item", self.main_source)
+        self.assertIn("self._on_modern_ui_preview", self.main_source)
+
+    def test_legacy_preview_entrypoint_opens_dashboard_preview_only(self):
+        handler = _source_block(self.main_source, "def _on_modern_ui_preview", "def _on_advanced_config")
+
+        self.assertIn("from ui.pages.dashboard_app import show_dashboard_preview", handler)
+        self.assertIn("show_dashboard_preview(self)", handler)
+        self.assertNotIn("modern_shell_app", handler)
+        self.assertNotIn("flash_wizard", handler)
+        self.assertIn("class DashboardPreviewFrame", self.dashboard_app_source)
+        self.assertIn("def show_dashboard_preview", self.dashboard_app_source)
+
+    def test_legacy_preview_entrypoint_does_not_call_execution_helpers(self):
+        handler = _source_block(self.main_source, "def _on_modern_ui_preview", "def _on_advanced_config")
+        forbidden_snippets = (
+            "subprocess",
+            "os.system",
+            "from runtime import",
+            "get_phone(",
+            "fastboot ",
+            "adb shell",
+            "delete_all",
+            "wipe_data",
+            "firmware_parser",
+        )
+
+        for snippet in forbidden_snippets:
+            with self.subTest(snippet=snippet):
+                self.assertNotIn(snippet, handler)
 
     def test_modern_shell_sidebar_uses_dark_preview_rows_not_native_buttons(self):
         self.assertIn("preview_style.sidebar_row", self.shell_source)
@@ -169,6 +205,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 self.assertIn(label, self.wizard_source)
+
+
+def _source_block(source: str, start: str, end: str) -> str:
+    start_index = source.index(start)
+    end_index = source.index(end, start_index)
+    return source[start_index:end_index]
 
 
 if __name__ == "__main__":
