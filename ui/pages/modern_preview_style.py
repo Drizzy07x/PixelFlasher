@@ -79,6 +79,17 @@ def action_tile(parent: wx.Window, theme: object, title: str, body: str, footer:
     return panel
 
 
+def button_panel(parent: wx.Window, theme: object, label: str, tone: str = "info") -> wx.Panel:
+    panel = card(parent, theme, raised=True)
+    panel.SetMinSize((112, 34))
+    row = wx.BoxSizer(wx.HORIZONTAL)
+    row.AddStretchSpacer(1)
+    row.Add(badge(panel, theme, label, tone), 0, wx.ALIGN_CENTER_VERTICAL)
+    row.AddStretchSpacer(1)
+    panel.SetSizer(pad(row, 4))
+    return panel
+
+
 def bind_click_recursive(window: wx.Window, handler: Callable[[wx.Event], None]) -> None:
     window.Bind(wx.EVT_LEFT_UP, handler)
     for child in window.GetChildren():

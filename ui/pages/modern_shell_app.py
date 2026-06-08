@@ -18,7 +18,6 @@ import wx
 from constants import APPNAME, VERSION
 from ui.pages.modern_readonly_state import ModernReadonlyState, build_readonly_state
 from ui.pages.modern_preview_copy import (
-    DASHBOARD_PREVIEW_ACTIONS,
     MODERN_PREVIEW_FOOTER,
     MODERN_PREVIEW_STATUS,
     MODERN_PREVIEW_SUBTITLE,
@@ -37,14 +36,14 @@ class ModernShellFrame(wx.Frame):
     def __init__(self) -> None:
         super().__init__(None, title=f"{APPNAME} {VERSION} - Modern Shell Preview", size=(1280, 820))
         self.theme = get_theme("dark")
-        self.active_page = "dashboard"
+        self.active_page = "devices"
         self.nav_buttons: dict[str, wx.Panel] = {}
         self.page_title: wx.StaticText | None = None
         self.page_subtitle: wx.StaticText | None = None
         self.content_panel: wx.ScrolledWindow | None = None
         self.content_sizer: wx.BoxSizer | None = None
         self._build()
-        self._show_page("dashboard")
+        self._show_page("devices")
         self.Centre()
 
     def _build(self) -> None:
@@ -68,7 +67,7 @@ class ModernShellFrame(wx.Frame):
         brand.Add(self._text(panel, "PixelFlasher", 15, True), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(brand, 0, wx.EXPAND | wx.ALL, 18)
 
-        for key in ("dashboard", "flash", "patch", "devices", "tools", "logs", "settings"):
+        for key in ("dashboard", "devices", "flash", "backups", "downloads", "tools", "settings"):
             item_key = _nav_key_for_page(key)
             title, detail = _nav_parts(item_key)
             row = preview_style.sidebar_row(panel, self.theme, title, detail, active=(key == self.active_page))
@@ -128,11 +127,11 @@ class ModernShellFrame(wx.Frame):
 
         titles = {
             "dashboard": (MODERN_PREVIEW_TITLE, MODERN_PREVIEW_SUBTITLE),
-            "flash": ("Flash Wizard - Preview & plan only", "No flashing, patching, or firmware writing."),
-            "patch": ("Patch Boot - Guarded legacy planning", "Patching is disabled in this preview."),
-            "devices": ("Devices - Read-only state", "Connected device overview preview."),
-            "tools": ("Tools - Utilities preview", "No ADB or Fastboot command execution."),
-            "logs": ("Logs", "Readable activity and diagnostics preview."),
+            "flash": ("Flash Wizard – Preview & Plan Only", "No flashing, patching, or firmware writing."),
+            "devices": ("Modern Shell – Read-only State Explorer", "Loaded state only. No command execution."),
+            "backups": ("Backups – Browse Restore Preview", "Read-only placeholder. Restore remains guarded."),
+            "downloads": ("Downloads – Firmware Updates", "Preview-only update context."),
+            "tools": ("Tools – Utilities Preview", "No ADB or Fastboot command execution."),
             "settings": ("Settings", "Modern UI preferences preview."),
         }
         title, subtitle = titles.get(page, titles["dashboard"])
@@ -147,10 +146,10 @@ class ModernShellFrame(wx.Frame):
         renderer = {
             "dashboard": self._render_dashboard,
             "flash": self._render_flash,
-            "patch": self._render_patch,
             "devices": self._render_devices,
+            "backups": lambda: self._render_placeholder("Backups"),
+            "downloads": lambda: self._render_placeholder("Downloads"),
             "tools": self._render_tools,
-            "logs": self._render_logs,
             "settings": self._render_settings,
         }.get(page)
         if renderer:
@@ -203,6 +202,19 @@ class ModernShellFrame(wx.Frame):
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
     def _render_devices(self) -> None:
+        readonly = self._readonly_state()
+        top = wx.BoxSizer(wx.HORIZONTAL)
+        top.Add(self._shell_state_card(self.content_panel, "Loaded Device State", _shell_device_info_rows(readonly)), 1, wx.EXPAND | wx.RIGHT, 12)
+        top.Add(self._shell_state_card(self.content_panel, "Connection Readiness", _shell_connection_rows(readonly)), 1, wx.EXPAND | wx.LEFT, 12)
+        self.content_sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 14)
+
+        bottom = wx.BoxSizer(wx.HORIZONTAL)
+        bottom.Add(self._shell_state_card(self.content_panel, "Firmware Context", _shell_firmware_rows(readonly)), 1, wx.EXPAND | wx.RIGHT, 12)
+        bottom.Add(self._shell_state_card(self.content_panel, "Safety Boundary", tuple(("Limit", line) for line in SAFETY_BOUNDARY_LINES)), 1, wx.EXPAND | wx.LEFT, 12)
+        self.content_sizer.Add(bottom, 0, wx.EXPAND | wx.BOTTOM, 14)
+        self.content_sizer.Add(self._quick_actions_card(self.content_panel), 0, wx.EXPAND)
+
+    def _render_device_legacy_note(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Devices Preview", 16, True), 0, wx.BOTTOM, 8)
@@ -213,6 +225,15 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._muted(card, "Safety note: No connect, reboot, slot switching, wipe, or device changes are available in preview."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
+
+    def _shell_state_card(self, parent: wx.Window, title: str, rows: tuple[tuple[str, str], ...]) -> wx.Panel:
+        card = self._card(parent)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(preview_style.section_header(card, self.theme, title, "Read-only"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        for row_title, value in rows:
+            sizer.Add(self._info_row(card, row_title, value), 0, wx.EXPAND | wx.BOTTOM, 7)
+        card.SetSizer(self._pad(sizer, 18))
+        return card
 
     def _render_tools(self) -> None:
         card = self._card(self.content_panel)
@@ -561,7 +582,10 @@ def _shell_tool_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
 
 
 def _shell_preview_action_rows() -> tuple[tuple[str, str], ...]:
-    return DASHBOARD_PREVIEW_ACTIONS + (
+    return (
+        ("Modern Shell (Read-Only)", "State explorer uses loaded data without commands."),
+        ("Flash Wizard (Preview)", "Plan only. Execution remains disabled."),
+        ("Tools (Preview)", "Utilities are visible but disabled."),
         ("Settings", "Preferences only. No device changes."),
     )
 
@@ -604,12 +628,20 @@ def _nav_key_for_page(key: str) -> str:
     return {
         "dashboard": "dashboard",
         "flash": "wizard",
-        "patch": "wizard",
         "devices": "shell",
+        "backups": "backups",
+        "downloads": "downloads",
         "tools": "tools",
-        "logs": "shell",
         "settings": "settings",
     }.get(key, key)
+
+
+def _shell_connection_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    return (
+        ("ADB", state.device.connection_label if state.device.adb_ready else "not ready"),
+        ("Fastboot", "ready" if state.device.fastboot_ready else "not connected"),
+        ("Device changes", "none"),
+    )
 
 
 def main() -> int:

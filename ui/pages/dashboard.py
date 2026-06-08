@@ -36,7 +36,7 @@ class ModernDashboardPanel(wx.Panel):
         self.frame = frame
         self.theme = get_theme("dark")
         self._labels: dict[str, wx.StaticText] = {}
-        self._buttons: dict[str, wx.Button] = {}
+        self._buttons: dict[str, wx.Window] = {}
         self._build()
         self.refresh()
 
@@ -157,8 +157,11 @@ class ModernDashboardPanel(wx.Panel):
         self._labels["next_step_body"] = self._muted(card, "Choose a factory image, OTA package, or custom ROM.")
         sizer.Add(self._labels["next_step_title"], 0, wx.BOTTOM, 4)
         sizer.Add(self._labels["next_step_body"], 0, wx.BOTTOM, 12)
-        button = wx.Button(card, label="Browse firmware")
-        button.Bind(wx.EVT_BUTTON, self._focus_legacy_firmware_picker)
+        for title, value in _dashboard_preview_context_rows():
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 6)
+        button = preview_style.button_panel(card, self.theme, "Use legacy selector", "info")
+        preview_style.bind_click_recursive(button, self._focus_legacy_firmware_picker)
+        button.SetToolTip("Focuses the existing firmware selector. No file is opened by Modern UI.")
         self._buttons["browse_firmware"] = button
         sizer.Add(button, 0, wx.EXPAND)
         card.SetSizer(sizer)
@@ -169,7 +172,7 @@ class ModernDashboardPanel(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._card_heading(card, "Firmware / ROM File (Read-Only)", "Existing selector remains source of truth"), 0, wx.EXPAND | wx.BOTTOM, 10)
         self._labels["firmware_filename"] = self._text(card, "No firmware selected", 11, bold=True)
-        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the Browse firmware button above.")
+        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the preview selector focus above.")
         sizer.Add(self._labels["firmware_filename"], 0, wx.BOTTOM, 3)
         sizer.Add(self._labels["firmware_details"], 0)
         card.SetSizer(sizer)
@@ -266,7 +269,7 @@ class ModernDashboardPanel(wx.Panel):
             self._labels["next_step_body"].SetLabel("Firmware is selected. Keep dangerous options in the legacy controls below for now.")
         else:
             self._labels["firmware_filename"].SetLabel("No firmware selected")
-            self._labels["firmware_details"].SetLabel("Use the existing selector below, or the Browse firmware button above.")
+            self._labels["firmware_details"].SetLabel("Use the existing selector below, or the preview selector focus above.")
             self._labels["next_step_title"].SetLabel("Select firmware")
             self._labels["next_step_body"].SetLabel("Choose a factory image, OTA package, or custom ROM.")
         self.Layout()
@@ -415,6 +418,14 @@ def _dashboard_backup_rows() -> tuple[tuple[str, str], ...]:
     return (
         ("Last backup", "not read in preview"),
         ("Restore", "guarded legacy flow only"),
+    )
+
+
+def _dashboard_preview_context_rows() -> tuple[tuple[str, str], ...]:
+    return (
+        ("Preview source", "already-loaded state"),
+        ("State updates", "legacy UI remains source"),
+        ("Actions", "guarded or disabled"),
     )
 
 

@@ -5,6 +5,7 @@ try:
     from ui.pages.dashboard import (
         _dashboard_action_button_label,
         _dashboard_backup_rows,
+        _dashboard_preview_context_rows,
         _dashboard_partition_rows,
         _dashboard_quick_actions,
         _dashboard_slot_rows,
@@ -13,6 +14,7 @@ except ModuleNotFoundError as exc:
     if exc.name == "wx":
         _dashboard_action_button_label = None
         _dashboard_backup_rows = None
+        _dashboard_preview_context_rows = None
         _dashboard_partition_rows = None
         _dashboard_quick_actions = None
         _dashboard_slot_rows = None
@@ -90,9 +92,19 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             "No partition writes",
             "Restore stays guarded",
             "Preview boundary",
+            "Use legacy selector",
+            "No file is opened by Modern UI.",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.dashboard_source)
+
+    @unittest.skipIf(_dashboard_preview_context_rows is None, "wxPython is not available")
+    def test_dashboard_preview_selector_context_is_readonly(self):
+        rows = dict(_dashboard_preview_context_rows())
+
+        self.assertEqual("already-loaded state", rows["Preview source"])
+        self.assertEqual("legacy UI remains source", rows["State updates"])
+        self.assertEqual("guarded or disabled", rows["Actions"])
 
     @unittest.skipIf(_dashboard_quick_actions is None, "wxPython is not available")
     def test_quick_action_titles_are_legacy_explicit(self):

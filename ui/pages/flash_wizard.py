@@ -68,8 +68,8 @@ class FlashWizardPanel(wx.Panel):
         self._content_sizer: wx.BoxSizer | None = None
         self._summary: wx.StaticText | None = None
         self._warning: wx.StaticText | None = None
-        self._back: wx.Button | None = None
-        self._next: wx.Button | None = None
+        self._back: wx.Window | None = None
+        self._next: wx.Window | None = None
         self._build()
         self._render()
 
@@ -80,7 +80,7 @@ class FlashWizardPanel(wx.Panel):
 
         header = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, "Flash Wizard - Preview & Plan Only", 18, True), 0, wx.BOTTOM, 2)
+        title_stack.Add(self._text(self, "Flash Wizard – Preview & Plan Only", 18, True), 0, wx.BOTTOM, 2)
         title_stack.Add(self._muted(self, MODERN_PREVIEW_SUBTITLE), 0)
         header.Add(title_stack, 1, wx.EXPAND)
         for badge in PREVIEW_BADGES:
@@ -149,6 +149,13 @@ class FlashWizardPanel(wx.Panel):
         self._summary = self._muted(card, "")
         sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 8)
 
+        alert = preview_style.card(card, self.theme, raised=True)
+        alert_sizer = wx.BoxSizer(wx.VERTICAL)
+        alert_sizer.Add(self._text(alert, "Blocked Execution", 10, True), 0, wx.BOTTOM, 4)
+        alert_sizer.Add(self._muted(alert, "Preview-only planning is visible. Flash execution is not available here."), 0)
+        alert.SetSizer(self._wrap(alert_sizer, 10))
+        sizer.Add(alert, 0, wx.EXPAND | wx.BOTTOM, 10)
+
         sizer.Add(self._text(card, "Blocked", 10, True), 0, wx.BOTTOM, 4)
         self._warning = self._text(card, "", 9, True)
         self._warning.SetForegroundColour(wx.Colour(self.theme.palette.warning))
@@ -161,10 +168,10 @@ class FlashWizardPanel(wx.Panel):
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         sizer.Add(self._muted(panel, f"Preview mode: navigation only. {MODERN_PREVIEW_FOOTER}"), 1, wx.ALIGN_CENTER_VERTICAL)
-        self._back = wx.Button(panel, label="Back")
-        self._next = wx.Button(panel, label="Next")
-        self._back.Bind(wx.EVT_BUTTON, self._on_back)
-        self._next.Bind(wx.EVT_BUTTON, self._on_next)
+        self._back = preview_style.button_panel(panel, self.theme, "Back", "info")
+        self._next = preview_style.button_panel(panel, self.theme, "Next", "info")
+        preview_style.bind_click_recursive(self._back, self._on_back)
+        preview_style.bind_click_recursive(self._next, self._on_next)
         sizer.Add(self._back, 0, wx.RIGHT, 8)
         sizer.Add(self._next, 0)
         panel.SetSizer(sizer)
@@ -209,7 +216,6 @@ class FlashWizardPanel(wx.Panel):
                 self._next.Hide()
             else:
                 self._next.Show()
-                self._next.SetLabel("Next")
                 self._next.Enable(True)
         self.Layout()
 

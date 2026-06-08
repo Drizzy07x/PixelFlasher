@@ -6,6 +6,7 @@ from ui.pages.modern_preview_copy import (
     MODERN_PREVIEW_FOOTER,
     MODERN_PREVIEW_SUBTITLE,
     MODERN_PREVIEW_TITLE,
+    NAV_ITEMS,
     PREVIEW_BADGES,
     SAFETY_BOUNDARY_LINES,
 )
@@ -38,7 +39,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
     def test_modern_preview_style_helpers_are_importable(self):
         module = importlib.import_module("ui.pages.modern_preview_style")
 
-        for helper in ("action_tile", "badge", "card", "sidebar_row"):
+        for helper in ("action_tile", "badge", "button_panel", "card", "sidebar_row"):
             with self.subTest(helper=helper):
                 self.assertTrue(callable(getattr(module, helper, None)))
 
@@ -58,6 +59,19 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertNotIn("wx.Button(panel, label=nav_label", self.shell_source)
         self.assertIn("def sidebar_row", self.style_source)
         self.assertIn("SetMinSize((-1, 54))", self.style_source)
+
+    def test_modern_shell_sidebar_uses_unique_preview_destinations(self):
+        self.assertIn('("dashboard", "devices", "flash", "backups", "downloads", "tools", "settings")', self.shell_source)
+        self.assertNotIn('("dashboard", "flash", "patch", "devices", "tools", "logs", "settings")', self.shell_source)
+        nav_titles = [title for _key, title, _detail in NAV_ITEMS]
+        self.assertEqual(len(nav_titles), len(set(nav_titles)))
+
+    def test_modern_shell_devices_page_is_readonly_state_explorer(self):
+        self.assertIn('self.active_page = "devices"', self.shell_source)
+        self.assertIn('"devices": self._render_devices', self.shell_source)
+        for label in ("Loaded Device State", "Connection Readiness", "Firmware Context", "Safety Boundary"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.shell_source)
 
     def test_tools_page_has_explicit_renderer(self):
         self.assertIn('"tools": self._render_tools', self.shell_source)
@@ -91,7 +105,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertIn(label, SAFETY_BOUNDARY_LINES)
         self.assertIn("SAFETY_BOUNDARY_LINES", self.shell_source)
-        self.assertIn("Flash Wizard - Preview & Plan Only", self.wizard_source)
+        self.assertIn("Flash Wizard – Preview & Plan Only", self.wizard_source)
         self.assertIn("MODERN_PREVIEW_FOOTER", self.wizard_source)
 
     def test_modern_shell_source_does_not_call_device_execution_helpers(self):
@@ -123,6 +137,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
     def test_flash_wizard_final_footer_action_is_hidden_in_preview(self):
         self.assertIn("self._next.Hide()", self.wizard_source)
         self.assertIn("Preview only · flash execution disabled", self.wizard_source)
+        self.assertIn("Blocked Execution", self.wizard_source)
+        self.assertIn("Preview-only planning is visible. Flash execution is not available here.", self.wizard_source)
+        self.assertIn("preview_style.button_panel(panel, self.theme, \"Back\", \"info\")", self.wizard_source)
+        self.assertIn("preview_style.button_panel(panel, self.theme, \"Next\", \"info\")", self.wizard_source)
+        self.assertNotIn('wx.Button(panel, label="Back")', self.wizard_source)
+        self.assertNotIn('wx.Button(panel, label="Next")', self.wizard_source)
         self.assertNotIn('wx.Button(self._content_panel, label="Flash disabled"', self.wizard_source)
         self.assertNotIn('wx.Button(self._content_panel, label="Flash Device"', self.wizard_source)
 
