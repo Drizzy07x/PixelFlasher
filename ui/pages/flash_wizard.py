@@ -7,8 +7,15 @@ PixelFlasher flows until each wizard step is individually validated.
 
 from __future__ import annotations
 
+if __package__ in {None, ""}:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import wx
 
+from constants import VERSION
 from ui.pages.flash_wizard_details import step_detail_lines, warning_lines
 from ui.pages.flash_wizard_model import STEPS, WizardSession
 from ui.pages.modern_preview_copy import MODERN_PREVIEW_FOOTER, MODERN_PREVIEW_SUBTITLE, PREVIEW_BADGES
@@ -307,3 +314,27 @@ def _shorten(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(1, limit - 1)] + "…"
+
+
+class FlashWizardPreviewFrame(wx.Frame):
+    """Standalone frame for the read-only Flash Wizard preview."""
+
+    def __init__(self) -> None:
+        super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard Preview", size=(980, 640))
+        panel = FlashWizardPanel(self, session=WizardSession())
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(panel, 1, wx.EXPAND)
+        self.SetSizer(root)
+        self.Centre()
+
+
+def main() -> int:
+    app = wx.App(False)
+    frame = FlashWizardPreviewFrame()
+    frame.Show(True)
+    app.MainLoop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
