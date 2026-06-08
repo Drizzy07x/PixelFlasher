@@ -27,6 +27,7 @@ from ui.pages.modern_preview_copy import (
     SAFETY_BOUNDARY_LINES,
     nav_label,
 )
+from ui.pages import modern_preview_style as preview_style
 from ui.theme import get_theme
 
 
@@ -37,7 +38,7 @@ class ModernShellFrame(wx.Frame):
         super().__init__(None, title=f"{APPNAME} {VERSION} - Modern Shell Preview", size=(1280, 820))
         self.theme = get_theme("dark")
         self.active_page = "dashboard"
-        self.nav_buttons: dict[str, wx.Button] = {}
+        self.nav_buttons: dict[str, wx.Panel] = {}
         self.page_title: wx.StaticText | None = None
         self.page_subtitle: wx.StaticText | None = None
         self.content_panel: wx.ScrolledWindow | None = None
@@ -56,7 +57,7 @@ class ModernShellFrame(wx.Frame):
 
     def _build_sidebar(self, parent: wx.Window) -> wx.Panel:
         panel = wx.Panel(parent)
-        panel.SetMinSize((210, -1))
+        panel.SetMinSize((268, -1))
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
         sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -68,11 +69,12 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(brand, 0, wx.EXPAND | wx.ALL, 18)
 
         for key in ("dashboard", "flash", "patch", "devices", "tools", "logs", "settings"):
-            button = wx.Button(panel, label=nav_label(_nav_key_for_page(key)))
-            button.SetMinSize((-1, 32))
-            button.Bind(wx.EVT_BUTTON, lambda event, page=key: self._show_page(page))
-            self.nav_buttons[key] = button
-            sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            item_key = _nav_key_for_page(key)
+            title, detail = _nav_parts(item_key)
+            row = preview_style.sidebar_row(panel, self.theme, title, detail, active=(key == self.active_page))
+            preview_style.bind_click_recursive(row, lambda event, page=key: self._show_page(page))
+            self.nav_buttons[key] = row
+            sizer.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         sizer.AddStretchSpacer(1)
         info = self._card(panel)
@@ -121,7 +123,8 @@ class ModernShellFrame(wx.Frame):
     def _show_page(self, page: str) -> None:
         self.active_page = page
         for key, button in self.nav_buttons.items():
-            button.SetLabel(("● " if key == page else "  ") + nav_label(_nav_key_for_page(key)))
+            button.SetBackgroundColour(wx.Colour(self.theme.palette.surface if key == page else self.theme.palette.surface_raised))
+            button.Refresh()
 
         titles = {
             "dashboard": (MODERN_PREVIEW_TITLE, MODERN_PREVIEW_SUBTITLE),
@@ -339,13 +342,7 @@ class ModernShellFrame(wx.Frame):
         return card
 
     def _action_card(self, parent: wx.Window, title: str, body: str) -> wx.Panel:
-        panel = self._card(parent)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(panel, title, 12, True), 0, wx.BOTTOM, 4)
-        sizer.Add(self._muted(panel, body), 0, wx.BOTTOM, 10)
-        sizer.Add(self._disabled_pill(panel, "Preview only"), 0, wx.EXPAND)
-        panel.SetSizer(self._pad(sizer, 10))
-        return panel
+        return preview_style.action_tile(parent, self.theme, title, body, "Preview only")
 
     def _bottom_status_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
@@ -450,10 +447,7 @@ class ModernShellFrame(wx.Frame):
         return panel
 
     def _card(self, parent: wx.Window) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
-        panel.SetWindowStyleFlag(wx.BORDER_SIMPLE)
-        return panel
+        return preview_style.card(parent, self.theme)
 
     def _pad(self, content: wx.Sizer, pad: int) -> wx.BoxSizer:
         wrapper = wx.BoxSizer(wx.VERTICAL)
@@ -596,6 +590,14 @@ def _title_for_page(key: str) -> str:
         "logs": "Logs",
         "settings": "Settings",
     }.get(key, key.title())
+
+
+def _nav_parts(key: str) -> tuple[str, str]:
+    label = nav_label(key)
+    if " - " in label:
+        title, detail = label.split(" - ", 1)
+        return title, detail
+    return label, "Preview"
 
 
 def _nav_key_for_page(key: str) -> str:

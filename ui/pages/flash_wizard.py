@@ -19,6 +19,7 @@ from constants import VERSION
 from ui.pages.flash_wizard_details import step_detail_lines, warning_lines
 from ui.pages.flash_wizard_model import STEPS, WizardSession
 from ui.pages.modern_preview_copy import MODERN_PREVIEW_FOOTER, MODERN_PREVIEW_SUBTITLE, PREVIEW_BADGES
+from ui.pages import modern_preview_style as preview_style
 from ui.theme import get_theme
 
 _STEP_NOTES: dict[str, tuple[str, ...]] = {
@@ -57,6 +58,7 @@ class FlashWizardPanel(wx.Panel):
         self.theme = get_theme("dark")
         self.session = session or WizardSession()
         self.current_index = 0
+        self._step_cells: list[wx.Panel] = []
         self._step_labels: list[wx.StaticText] = []
         self._step_badges: list[wx.StaticText] = []
         self._title: wx.StaticText | None = None
@@ -100,23 +102,29 @@ class FlashWizardPanel(wx.Panel):
     def _build_steps(self) -> wx.Panel:
         panel = self._card(self)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self._step_cells.clear()
         self._step_labels.clear()
         self._step_badges.clear()
         for index, step in enumerate(STEPS):
+            step_panel = preview_style.card(panel, self.theme, raised=True)
+            step_panel.SetMinSize((-1, 72))
             cell = wx.BoxSizer(wx.VERTICAL)
-            label = self._text(panel, f"{index + 1}. {step.title}", 9, True)
-            badge = self._badge(panel, "Todo", "muted")
+            label = self._text(step_panel, f"{index + 1}. {step.title}", 9, True)
+            badge = self._badge(step_panel, "Todo", "muted")
+            self._step_cells.append(step_panel)
             self._step_labels.append(label)
             self._step_badges.append(badge)
             cell.Add(label, 0, wx.BOTTOM, 2)
             cell.Add(badge, 0)
-            sizer.Add(cell, 1, wx.EXPAND | wx.RIGHT, 6)
-        panel.SetSizer(self._wrap(sizer, 8))
+            step_panel.SetSizer(self._wrap(cell, 10))
+            sizer.Add(step_panel, 1, wx.EXPAND | wx.RIGHT, 8)
+        panel.SetSizer(self._wrap(sizer, 10))
         return panel
 
     def _build_step_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(preview_style.section_header(card, self.theme, "Wizard Step", "Navigation only"), 0, wx.EXPAND | wx.BOTTOM, 10)
         self._title = self._text(card, "", 17, True)
         self._body = self._muted(card, "")
         sizer.Add(self._title, 0, wx.BOTTOM, 4)
@@ -178,16 +186,21 @@ class FlashWizardPanel(wx.Panel):
 
         for index, label in enumerate(self._step_labels):
             badge = self._step_badges[index]
+            cell = self._step_cells[index]
             step_complete = self.session.step_complete(STEPS[index].key)
             if index == self.current_index:
+                cell.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
                 label.SetForegroundColour(wx.Colour(self.theme.palette.accent))
                 self._set_badge(badge, "Active", "info")
             elif step_complete:
+                cell.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
                 label.SetForegroundColour(wx.Colour(self.theme.palette.success))
                 self._set_badge(badge, "Ready", "ready")
             else:
+                cell.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
                 label.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
                 self._set_badge(badge, "Todo", "muted")
+            cell.Refresh()
 
         if self._back:
             self._back.Enable(self.current_index > 0)
@@ -256,10 +269,7 @@ class FlashWizardPanel(wx.Panel):
             wx.MessageBox("Flash would run here in a future guarded build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _card(self, parent: wx.Window) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
-        panel.SetWindowStyleFlag(wx.BORDER_SIMPLE)
-        return panel
+        return preview_style.card(parent, self.theme)
 
     def _wrap(self, content: wx.Sizer, pad: int = 10) -> wx.BoxSizer:
         wrapper = wx.BoxSizer(wx.VERTICAL)
@@ -279,9 +289,10 @@ class FlashWizardPanel(wx.Panel):
         return text
 
     def _badge(self, parent: wx.Window, label: str, kind: str) -> wx.StaticText:
-        text = self._text(parent, label, 8, True)
-        self._set_badge(text, label, kind)
-        return text
+        tone = {"ready": "success", "warning": "warning", "info": "info", "muted": "info"}.get(kind, "info")
+        item = preview_style.badge(parent, self.theme, label, tone)
+        self._set_badge(item, label, kind)
+        return item
 
     def _set_badge(self, text: wx.StaticText, label: str, kind: str) -> None:
         text.SetLabel(label)

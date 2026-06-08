@@ -14,6 +14,7 @@ from ui.pages.modern_preview_copy import (
 MODERN_DASHBOARD_APP_SOURCE = Path("ui/pages/dashboard_app.py")
 MODERN_SHELL_SOURCE = Path("ui/pages/modern_shell_app.py")
 FLASH_WIZARD_SOURCE = Path("ui/pages/flash_wizard.py")
+MODERN_STYLE_SOURCE = Path("ui/pages/modern_preview_style.py")
 
 
 class ModernShellPreviewSafetyTests(unittest.TestCase):
@@ -22,6 +23,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         cls.dashboard_app_source = MODERN_DASHBOARD_APP_SOURCE.read_text(encoding="utf-8")
         cls.shell_source = MODERN_SHELL_SOURCE.read_text(encoding="utf-8")
         cls.wizard_source = FLASH_WIZARD_SOURCE.read_text(encoding="utf-8")
+        cls.style_source = MODERN_STYLE_SOURCE.read_text(encoding="utf-8")
 
     def test_preview_launcher_entrypoints_are_importable(self):
         for module_name in (
@@ -33,6 +35,13 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 module = importlib.import_module(module_name)
                 self.assertTrue(callable(getattr(module, "main", None)))
 
+    def test_modern_preview_style_helpers_are_importable(self):
+        module = importlib.import_module("ui.pages.modern_preview_style")
+
+        for helper in ("action_tile", "badge", "card", "sidebar_row"):
+            with self.subTest(helper=helper):
+                self.assertTrue(callable(getattr(module, helper, None)))
+
     def test_preview_launchers_have_module_entrypoints(self):
         for name, source in (
             ("dashboard_app", self.dashboard_app_source),
@@ -42,6 +51,13 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn('if __name__ == "__main__":', source)
                 self.assertIn("raise SystemExit(main())", source)
+
+    def test_modern_shell_sidebar_uses_dark_preview_rows_not_native_buttons(self):
+        self.assertIn("preview_style.sidebar_row", self.shell_source)
+        self.assertIn("bind_click_recursive", self.shell_source)
+        self.assertNotIn("wx.Button(panel, label=nav_label", self.shell_source)
+        self.assertIn("def sidebar_row", self.style_source)
+        self.assertIn("SetMinSize((-1, 54))", self.style_source)
 
     def test_tools_page_has_explicit_renderer(self):
         self.assertIn('"tools": self._render_tools', self.shell_source)
@@ -94,6 +110,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             ("dashboard_app", self.dashboard_app_source),
             ("modern_shell_app", self.shell_source),
             ("flash_wizard", self.wizard_source),
+            ("modern_preview_style", self.style_source),
         ):
             for snippet in forbidden_snippets:
                 with self.subTest(source_name=source_name, snippet=snippet):

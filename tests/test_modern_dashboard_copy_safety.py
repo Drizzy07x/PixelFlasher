@@ -68,7 +68,11 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("Overview & device summary", labels["dashboard"])
         self.assertIn("Read-only device state", labels["shell"])
         self.assertIn("Preview & plan only", labels["wizard"])
+        self.assertIn("Browse restore preview", labels["backups"])
+        self.assertIn("Firmware updates", labels["downloads"])
         self.assertIn("Utilities preview", labels["tools"])
+        self.assertNotIn("Browse & restore", labels["backups"])
+        self.assertNotIn("Firmware & updates", labels["downloads"])
 
     def test_preview_action_cards_do_not_claim_execution(self):
         text = "\n".join(f"{title}: {body}" for title, body in DASHBOARD_PREVIEW_ACTIONS)

@@ -24,6 +24,7 @@ from ui.pages.modern_preview_copy import (
     PREVIEW_BADGES,
     SAFETY_BOUNDARY_LINES,
 )
+from ui.pages import modern_preview_style as preview_style
 from ui.theme import get_theme
 
 
@@ -233,19 +234,16 @@ class ModernDashboardPanel(wx.Panel):
         return _dashboard_quick_actions()
 
     def _action_button(self, parent: wx.Window, action: QuickAction) -> wx.Panel:
-        panel = self._card(parent, pad=10)
-        panel.SetMinSize((-1, 108))
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        title = self._text(panel, action.title, 11, bold=True)
-        body = self._muted(panel, action.description)
-        button = wx.Button(panel, label=_dashboard_action_button_label(action.key))
-        button.Bind(wx.EVT_BUTTON, self._action_handler(action.key))
+        panel = preview_style.action_tile(
+            parent,
+            self.theme,
+            action.title,
+            action.description,
+            _dashboard_action_button_label(action.key),
+        )
+        preview_style.bind_click_recursive(panel, self._action_handler(action.key))
         if action.dangerous:
-            button.SetToolTip("Uses the existing PixelFlasher confirmation and safety flow.")
-        sizer.Add(title, 0, wx.BOTTOM, 3)
-        sizer.Add(body, 0, wx.BOTTOM, 8)
-        sizer.Add(button, 0, wx.EXPAND)
-        panel.SetSizer(sizer)
+            panel.SetToolTip("Uses the existing PixelFlasher confirmation and safety flow.")
         return panel
 
     def refresh(self) -> None:
@@ -309,9 +307,7 @@ class ModernDashboardPanel(wx.Panel):
         return handler
 
     def _card(self, parent: wx.Window, pad: int = 14) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
-        panel.SetWindowStyleFlag(wx.BORDER_SIMPLE)
+        panel = preview_style.card(parent, self.theme)
         sizer = wx.BoxSizer(wx.VERTICAL)
         panel.SetSizer(sizer)
         panel._modern_card_padding = pad  # type: ignore[attr-defined]
@@ -333,24 +329,10 @@ class ModernDashboardPanel(wx.Panel):
         return text
 
     def _card_heading(self, parent: wx.Window, title: str, badge: str) -> wx.Sizer:
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._text(parent, title, 12, True), 1, wx.ALIGN_CENTER_VERTICAL)
-        pill = self._text(parent, f"  {badge}  ", 8, True)
-        pill.SetForegroundColour(wx.Colour(self.theme.palette.info))
-        sizer.Add(pill, 0, wx.ALIGN_CENTER_VERTICAL)
-        return sizer
+        return preview_style.section_header(parent, self.theme, title, badge)
 
     def _sidebar_item(self, parent: wx.Window, title: str, detail: str, active: bool = False) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface if active else self.theme.palette.surface_raised))
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        title_label = self._text(panel, title, 10, active)
-        if active:
-            title_label.SetForegroundColour(wx.Colour(self.theme.palette.accent))
-        sizer.Add(title_label, 0, wx.BOTTOM, 2)
-        sizer.Add(self._muted(panel, detail), 0)
-        panel.SetSizer(self._wrap(sizer, 9))
-        return panel
+        return preview_style.sidebar_row(parent, self.theme, title, detail, active)
 
     def _sidebar_divider(self, parent: wx.Window) -> wx.Panel:
         panel = wx.Panel(parent)
@@ -393,9 +375,7 @@ class ModernDashboardPanel(wx.Panel):
         return panel
 
     def _wrap(self, content: wx.Sizer, pad: int) -> wx.BoxSizer:
-        wrapper = wx.BoxSizer(wx.VERTICAL)
-        wrapper.Add(content, 1, wx.EXPAND | wx.ALL, pad)
-        return wrapper
+        return preview_style.pad(content, pad)
 
 
 def _dashboard_quick_actions() -> tuple[QuickAction, ...]:

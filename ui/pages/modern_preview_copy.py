@@ -17,8 +17,8 @@ NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dashboard", "Dashboard", "Overview & device summary"),
     ("shell", "Modern Shell", "Read-only device state"),
     ("wizard", "Flash Wizard", "Preview & plan only"),
-    ("backups", "Backups", "Browse & restore preview"),
-    ("downloads", "Downloads", "Firmware & updates"),
+    ("backups", "Backups", "Browse restore preview"),
+    ("downloads", "Downloads", "Firmware updates"),
     ("settings", "Settings", "Preferences"),
     ("tools", "Tools", "Utilities preview"),
 )
