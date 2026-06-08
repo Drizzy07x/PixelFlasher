@@ -26,7 +26,14 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         cls.wizard_source = FLASH_WIZARD_SOURCE.read_text(encoding="utf-8")
         cls.style_source = MODERN_STYLE_SOURCE.read_text(encoding="utf-8")
 
+    def require_wx(self):
+        try:
+            import wx  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("wxPython is not available")
+
     def test_preview_launcher_entrypoints_are_importable(self):
+        self.require_wx()
         for module_name in (
             "ui.pages.dashboard_app",
             "ui.pages.modern_shell_app",
@@ -37,6 +44,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 self.assertTrue(callable(getattr(module, "main", None)))
 
     def test_modern_preview_style_helpers_are_importable(self):
+        self.require_wx()
         module = importlib.import_module("ui.pages.modern_preview_style")
 
         for helper in ("action_tile", "badge", "button_panel", "card", "sidebar_row"):
