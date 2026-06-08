@@ -245,8 +245,9 @@ def run_checks() -> list[CheckResult]:
 
 def format_results(results: list[CheckResult]) -> str:
     lines = [f"{APPNAME} self-test"]
+    pass_marker, fail_marker = _result_markers()
     for result in results:
-        marker = "✓" if result.ok else ("✗" if result.required else "!")
+        marker = pass_marker if result.ok else (fail_marker if result.required else "!")
         lines.append(f"{marker} {result.status:<4} {result.name:<28} {result.message}")
     required_failures = [r for r in results if r.required and not r.ok]
     warnings = [r for r in results if not r.required and not r.ok]
@@ -254,6 +255,15 @@ def format_results(results: list[CheckResult]) -> str:
     lines.append(f"Required failures: {len(required_failures)}")
     lines.append(f"Warnings: {len(warnings)}")
     return "\n".join(lines)
+
+
+def _result_markers() -> tuple[str, str]:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        "✓✗".encode(encoding)
+        return "✓", "✗"
+    except Exception:
+        return "+", "x"
 
 
 def main(argv: list[str] | None = None) -> int:

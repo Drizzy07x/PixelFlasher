@@ -7,11 +7,22 @@ PixelFlasher flows until each wizard step is individually validated.
 
 from __future__ import annotations
 
+if __package__ in {None, ""}:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import wx
 
+from constants import VERSION
 from ui.pages.flash_wizard_details import step_detail_lines, warning_lines
 from ui.pages.flash_wizard_model import STEPS, WizardSession
+from ui.pages.modern_preview_copy import MODERN_PREVIEW_FOOTER, MODERN_PREVIEW_SUBTITLE, PREVIEW_BADGES
+from ui.pages import modern_preview_style as preview_style
 from ui.theme import get_theme
+
+FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard – Preview & Plan Only"
 
 _STEP_NOTES: dict[str, tuple[str, ...]] = {
     "device": (
@@ -46,9 +57,10 @@ class FlashWizardPanel(wx.Panel):
 
     def __init__(self, parent: wx.Window, session: WizardSession | None = None):
         super().__init__(parent)
-        self.theme = get_theme("light")
+        self.theme = get_theme("dark")
         self.session = session or WizardSession()
         self.current_index = 0
+        self._step_cells: list[wx.Panel] = []
         self._step_labels: list[wx.StaticText] = []
         self._step_badges: list[wx.StaticText] = []
         self._title: wx.StaticText | None = None
@@ -58,8 +70,8 @@ class FlashWizardPanel(wx.Panel):
         self._content_sizer: wx.BoxSizer | None = None
         self._summary: wx.StaticText | None = None
         self._warning: wx.StaticText | None = None
-        self._back: wx.Button | None = None
-        self._next: wx.Button | None = None
+        self._back: wx.Window | None = None
+        self._next: wx.Window | None = None
         self._build()
         self._render()
 
@@ -70,10 +82,12 @@ class FlashWizardPanel(wx.Panel):
 
         header = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, "Flash Wizard", 18, True), 0, wx.BOTTOM, 2)
-        title_stack.Add(self._muted(self, "Preview only. No commands are executed."), 0)
+        title_stack.Add(self._text(self, _wx_static_label(FLASH_WIZARD_PREVIEW_TITLE), 18, True), 0, wx.BOTTOM, 2)
+        title_stack.Add(self._muted(self, MODERN_PREVIEW_SUBTITLE), 0)
         header.Add(title_stack, 1, wx.EXPAND)
-        self._status_badge = self._badge(self, "Preview", "info")
+        for badge in PREVIEW_BADGES:
+            header.Add(self._badge(self, badge, "info"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self._status_badge = self._badge(self, "Blocked", "warning")
         header.Add(self._status_badge, 0, wx.ALIGN_CENTER_VERTICAL)
         root.Add(header, 0, wx.EXPAND | wx.ALL, 14)
 
@@ -90,23 +104,29 @@ class FlashWizardPanel(wx.Panel):
     def _build_steps(self) -> wx.Panel:
         panel = self._card(self)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self._step_cells.clear()
         self._step_labels.clear()
         self._step_badges.clear()
         for index, step in enumerate(STEPS):
+            step_panel = preview_style.card(panel, self.theme, raised=True)
+            step_panel.SetMinSize((-1, 72))
             cell = wx.BoxSizer(wx.VERTICAL)
-            label = self._text(panel, f"{index + 1}. {step.title}", 9, True)
-            badge = self._badge(panel, "Todo", "muted")
+            label = self._text(step_panel, f"{index + 1}. {step.title}", 9, True)
+            badge = self._badge(step_panel, "Todo", "muted")
+            self._step_cells.append(step_panel)
             self._step_labels.append(label)
             self._step_badges.append(badge)
             cell.Add(label, 0, wx.BOTTOM, 2)
             cell.Add(badge, 0)
-            sizer.Add(cell, 1, wx.EXPAND | wx.RIGHT, 6)
-        panel.SetSizer(self._wrap(sizer, 8))
+            step_panel.SetSizer(self._wrap(cell, 10))
+            sizer.Add(step_panel, 1, wx.EXPAND | wx.RIGHT, 8)
+        panel.SetSizer(self._wrap(sizer, 10))
         return panel
 
     def _build_step_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(preview_style.section_header(card, self.theme, "Wizard Step", "Navigation only"), 0, wx.EXPAND | wx.BOTTOM, 10)
         self._title = self._text(card, "", 17, True)
         self._body = self._muted(card, "")
         sizer.Add(self._title, 0, wx.BOTTOM, 4)
@@ -128,6 +148,14 @@ class FlashWizardPanel(wx.Panel):
         top.Add(self._badge(card, "Read-only", "info"), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 8)
 
+        alert = preview_style.card(card, self.theme, raised=True)
+        alert_sizer = wx.BoxSizer(wx.VERTICAL)
+        alert_sizer.Add(preview_style.badge(alert, self.theme, "BLOCKED EXECUTION", "warning"), 0, wx.BOTTOM, 8)
+        alert_sizer.Add(self._text(alert, "Blocked Execution", 12, True), 0, wx.BOTTOM, 5)
+        alert_sizer.Add(self._muted(alert, "Preview-only planning is visible. No flash, patch, reboot, or device changes are available here."), 0)
+        alert.SetSizer(self._wrap(alert_sizer, 12))
+        sizer.Add(alert, 0, wx.EXPAND | wx.BOTTOM, 12)
+
         self._summary = self._muted(card, "")
         sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 8)
 
@@ -142,11 +170,11 @@ class FlashWizardPanel(wx.Panel):
         panel = wx.Panel(self)
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._muted(panel, "Preview mode: navigation only. Real flashing remains disabled."), 1, wx.ALIGN_CENTER_VERTICAL)
-        self._back = wx.Button(panel, label="Back")
-        self._next = wx.Button(panel, label="Next")
-        self._back.Bind(wx.EVT_BUTTON, self._on_back)
-        self._next.Bind(wx.EVT_BUTTON, self._on_next)
+        sizer.Add(self._muted(panel, f"Preview mode: navigation only. {MODERN_PREVIEW_FOOTER}"), 1, wx.ALIGN_CENTER_VERTICAL)
+        self._back = preview_style.button_panel(panel, self.theme, "Back", "info")
+        self._next = preview_style.button_panel(panel, self.theme, "Next", "info")
+        preview_style.bind_click_recursive(self._back, self._on_back)
+        preview_style.bind_click_recursive(self._next, self._on_next)
         sizer.Add(self._back, 0, wx.RIGHT, 8)
         sizer.Add(self._next, 0)
         panel.SetSizer(sizer)
@@ -168,16 +196,21 @@ class FlashWizardPanel(wx.Panel):
 
         for index, label in enumerate(self._step_labels):
             badge = self._step_badges[index]
+            cell = self._step_cells[index]
             step_complete = self.session.step_complete(STEPS[index].key)
             if index == self.current_index:
+                cell.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
                 label.SetForegroundColour(wx.Colour(self.theme.palette.accent))
                 self._set_badge(badge, "Active", "info")
             elif step_complete:
+                cell.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
                 label.SetForegroundColour(wx.Colour(self.theme.palette.success))
                 self._set_badge(badge, "Ready", "ready")
             else:
+                cell.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
                 label.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
                 self._set_badge(badge, "Todo", "muted")
+            cell.Refresh()
 
         if self._back:
             self._back.Enable(self.current_index > 0)
@@ -186,7 +219,6 @@ class FlashWizardPanel(wx.Panel):
                 self._next.Hide()
             else:
                 self._next.Show()
-                self._next.SetLabel("Next")
                 self._next.Enable(True)
         self.Layout()
 
@@ -194,6 +226,9 @@ class FlashWizardPanel(wx.Panel):
         if self._content_panel is None or self._content_sizer is None:
             return
         self._content_sizer.Clear(delete_windows=True)
+
+        if step_key == "device":
+            self._content_sizer.Add(self._device_preview_cards(self._content_panel), 0, wx.EXPAND | wx.BOTTOM, 10)
 
         self._content_sizer.Add(self._section(self._content_panel, "Current state"), 0, wx.EXPAND | wx.BOTTOM, 7)
         for line in step_detail_lines(self.session, step_key):
@@ -216,6 +251,24 @@ class FlashWizardPanel(wx.Panel):
             notice.SetToolTip("Final flash action is intentionally unavailable in preview mode.")
             self._content_sizer.Add(notice, 0, wx.EXPAND)
         self._content_panel.Layout()
+
+    def _device_preview_cards(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        grid = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
+        for title, lines in _device_preview_sections():
+            grid.Add(self._checklist_card(panel, title, lines), 1, wx.EXPAND)
+        panel.SetSizer(grid)
+        return panel
+
+    def _checklist_card(self, parent: wx.Window, title: str, lines: tuple[str, ...]) -> wx.Panel:
+        card = preview_style.card(parent, self.theme)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(card, title, 10, True), 0, wx.BOTTOM, 6)
+        for line in lines:
+            sizer.Add(self._line(card, line, bullet=True), 0, wx.EXPAND | wx.BOTTOM, 4)
+        card.SetSizer(self._wrap(sizer, 10))
+        return card
 
     def _summary_text(self) -> str:
         lines = [
@@ -246,10 +299,7 @@ class FlashWizardPanel(wx.Panel):
             wx.MessageBox("Flash would run here in a future guarded build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _card(self, parent: wx.Window) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
-        panel.SetWindowStyleFlag(wx.BORDER_SIMPLE)
-        return panel
+        return preview_style.card(parent, self.theme)
 
     def _wrap(self, content: wx.Sizer, pad: int = 10) -> wx.BoxSizer:
         wrapper = wx.BoxSizer(wx.VERTICAL)
@@ -269,9 +319,10 @@ class FlashWizardPanel(wx.Panel):
         return text
 
     def _badge(self, parent: wx.Window, label: str, kind: str) -> wx.StaticText:
-        text = self._text(parent, label, 8, True)
-        self._set_badge(text, label, kind)
-        return text
+        tone = {"ready": "success", "warning": "warning", "info": "info", "muted": "info"}.get(kind, "info")
+        item = preview_style.badge(parent, self.theme, label, tone)
+        self._set_badge(item, label, kind)
+        return item
 
     def _set_badge(self, text: wx.StaticText, label: str, kind: str) -> None:
         text.SetLabel(label)
@@ -304,3 +355,68 @@ def _shorten(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(1, limit - 1)] + "…"
+
+
+def _wx_static_label(label: str) -> str:
+    return label.replace("&", "&&")
+
+
+def _device_preview_sections() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return (
+        (
+            "Device Readiness Checklist",
+            (
+                "Device selection is read from the current session.",
+                "ADB/Fastboot readiness is displayed only.",
+                "No scan, reboot, or slot action runs here.",
+            ),
+        ),
+        (
+            "Firmware Readiness Checklist",
+            (
+                "Firmware status is shown from loaded state.",
+                "Verification remains a future guarded step.",
+                "No archive parsing or file access starts here.",
+            ),
+        ),
+        (
+            "Execution Blocked Checklist",
+            (
+                "Flash action remains unavailable.",
+                "Patch and wipe operations stay disabled.",
+                "Device mutation is blocked in preview.",
+            ),
+        ),
+        (
+            "Preview Limitations",
+            (
+                "Navigation updates this preview only.",
+                "Warnings are informational planning copy.",
+                "Legacy flows remain the source of truth.",
+            ),
+        ),
+    )
+
+
+class FlashWizardPreviewFrame(wx.Frame):
+    """Standalone frame for the read-only Flash Wizard preview."""
+
+    def __init__(self) -> None:
+        super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard Preview", size=(980, 640))
+        panel = FlashWizardPanel(self, session=WizardSession())
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(panel, 1, wx.EXPAND)
+        self.SetSizer(root)
+        self.Centre()
+
+
+def main() -> int:
+    app = wx.App(False)
+    frame = FlashWizardPreviewFrame()
+    frame.Show(True)
+    app.MainLoop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

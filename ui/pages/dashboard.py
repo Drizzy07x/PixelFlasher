@@ -15,6 +15,16 @@ import wx
 
 from ui.components.models import DeviceStatus, FirmwareInfo, QuickAction, StatusLevel
 from ui.pages.modern_readonly_state import ModernReadonlyState, build_readonly_state
+from ui.pages.modern_preview_copy import (
+    MODERN_PREVIEW_FOOTER,
+    MODERN_PREVIEW_STATUS,
+    MODERN_PREVIEW_SUBTITLE,
+    MODERN_PREVIEW_TITLE,
+    NAV_ITEMS,
+    PREVIEW_BADGES,
+    SAFETY_BOUNDARY_LINES,
+)
+from ui.pages import modern_preview_style as preview_style
 from ui.theme import get_theme
 
 
@@ -24,9 +34,9 @@ class ModernDashboardPanel(wx.Panel):
     def __init__(self, parent: wx.Window, frame: object):
         super().__init__(parent)
         self.frame = frame
-        self.theme = get_theme("dark" if _is_dark_mode() else "light")
+        self.theme = get_theme("dark")
         self._labels: dict[str, wx.StaticText] = {}
-        self._buttons: dict[str, wx.Button] = {}
+        self._buttons: dict[str, wx.Window] = {}
         self._build()
         self.refresh()
 
@@ -42,50 +52,71 @@ class ModernDashboardPanel(wx.Panel):
 
         header = self._build_header()
         top_row = wx.BoxSizer(wx.HORIZONTAL)
-        top_row.Add(self._build_device_card(), 2, wx.EXPAND | wx.RIGHT, 10)
-        top_row.Add(self._build_next_step_card(), 1, wx.EXPAND | wx.LEFT, 10)
+        top_row.Add(self._build_device_card(), 2, wx.EXPAND | wx.RIGHT, 12)
+        top_row.Add(self._build_next_step_card(), 1, wx.EXPAND | wx.LEFT, 12)
 
-        content.Add(header, 0, wx.EXPAND | wx.BOTTOM, 12)
-        content.Add(top_row, 0, wx.EXPAND | wx.BOTTOM, 12)
-        content.Add(self._build_firmware_card(), 0, wx.EXPAND | wx.BOTTOM, 12)
-        content.Add(self._build_quick_actions(), 0, wx.EXPAND)
+        content.Add(header, 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(top_row, 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(self._build_firmware_card(), 0, wx.EXPAND | wx.BOTTOM, 14)
+        detail_row = wx.BoxSizer(wx.HORIZONTAL)
+        detail_row.Add(self._build_safety_boundary_card(), 1, wx.EXPAND | wx.RIGHT, 12)
+        detail_row.Add(self._build_device_slots_card(), 1, wx.EXPAND | wx.LEFT, 12)
+        content.Add(detail_row, 0, wx.EXPAND | wx.BOTTOM, 14)
+        state_row = wx.BoxSizer(wx.HORIZONTAL)
+        state_row.Add(self._build_partitions_card(), 1, wx.EXPAND | wx.RIGHT, 12)
+        state_row.Add(self._build_last_backup_card(), 1, wx.EXPAND | wx.LEFT, 12)
+        content.Add(state_row, 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(self._build_quick_actions(), 0, wx.EXPAND | wx.BOTTOM, 14)
+        content.Add(self._build_status_bar(), 0, wx.EXPAND)
 
-        shell.Add(sidebar, 0, wx.EXPAND | wx.RIGHT, 12)
+        shell.Add(sidebar, 0, wx.EXPAND | wx.RIGHT, 16)
         shell.Add(content, 1, wx.EXPAND)
-        root.Add(shell, 1, wx.EXPAND | wx.ALL, 12)
+        root.Add(shell, 1, wx.EXPAND | wx.ALL, 18)
         self.SetSizer(root)
 
     def _build_sidebar(self) -> wx.Panel:
-        panel = self._card(self, pad=12)
+        panel = wx.Panel(self)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
         sizer = wx.BoxSizer(wx.VERTICAL)
-        title = self._text(panel, "PixelFlasher", 14, bold=True)
-        badge = self._muted(panel, "Modern Dashboard Preview")
-        sizer.Add(title, 0, wx.BOTTOM, 2)
-        sizer.Add(badge, 0, wx.BOTTOM, 14)
-        for label in ("Dashboard", "Flash", "Patch Boot", "Devices", "Tools", "Logs", "Settings"):
-            item = self._text(panel, f"  {label}", 10, bold=(label == "Dashboard"))
-            if label == "Dashboard":
-                item.SetForegroundColour(wx.Colour(self.theme.palette.accent))
-            sizer.Add(item, 0, wx.EXPAND | wx.BOTTOM, 8)
+
+        brand = wx.BoxSizer(wx.VERTICAL)
+        title = self._text(panel, "PixelFlasher", 16, bold=True)
+        title.SetForegroundColour(wx.Colour(self.theme.palette.accent))
+        badge = self._muted(panel, MODERN_PREVIEW_TITLE)
+        brand.Add(title, 0, wx.BOTTOM, 3)
+        brand.Add(badge, 0)
+        sizer.Add(brand, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 16)
+
+        sizer.Add(self._sidebar_divider(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+        for key, title, detail in NAV_ITEMS:
+            sizer.Add(self._sidebar_item(panel, title, detail, active=(key == "dashboard")), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         sizer.AddStretchSpacer(1)
-        sizer.Add(self._muted(panel, "Safe preview: no flashing logic changed."), 0, wx.EXPAND)
+        footer = self._sidebar_note(panel)
+        sizer.Add(footer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 14)
         panel.SetSizer(sizer)
-        panel.SetMinSize((190, -1))
+        panel.SetMinSize((236, -1))
         return panel
 
-    def _build_header(self) -> wx.Sizer:
+    def _build_header(self) -> wx.Panel:
+        panel = self._card(self, pad=18)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._text(self, "Dashboard", 20, bold=True), 0, wx.BOTTOM, 2)
-        title_stack.Add(self._muted(self, "Device status, firmware selection, and safe quick actions."), 0)
+        title_stack.Add(self._text(panel, MODERN_PREVIEW_TITLE, 22, bold=True), 0, wx.BOTTOM, 3)
+        title_stack.Add(self._muted(panel, MODERN_PREVIEW_SUBTITLE), 0)
         sizer.Add(title_stack, 1, wx.EXPAND)
-        self._labels["connection_badge"] = self._pill(self, "ADB: Unknown", StatusLevel.INFO)
+        for badge in PREVIEW_BADGES:
+            sizer.Add(self._pill(panel, badge, StatusLevel.WARNING), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self._labels["connection_badge"] = self._pill(panel, "ADB: Unknown", StatusLevel.INFO)
         sizer.Add(self._labels["connection_badge"], 0, wx.ALIGN_CENTER_VERTICAL)
-        return sizer
+        panel.SetSizer(sizer)
+        return panel
 
     def _build_device_card(self) -> wx.Panel:
         card = self._card(self)
-        grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=12)
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(self._card_heading(card, "Connected Device (Read-Only)", "Loaded state only"), 0, wx.EXPAND | wx.BOTTOM, 12)
+
+        grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=14)
         grid.AddGrowableCol(1, 1)
 
         name = self._text(card, "No device", 16, bold=True)
@@ -114,19 +145,23 @@ class ModernDashboardPanel(wx.Panel):
 
         grid.Add(left, 1, wx.EXPAND)
         grid.Add(status_grid, 1, wx.EXPAND)
-        card.SetSizer(grid)
+        root.Add(grid, 0, wx.EXPAND)
+        card.SetSizer(root)
         return card
 
     def _build_next_step_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Recommended next step", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Preview Readiness", "Plan only"), 0, wx.EXPAND | wx.BOTTOM, 12)
         self._labels["next_step_title"] = self._text(card, "Select firmware", 15, bold=True)
         self._labels["next_step_body"] = self._muted(card, "Choose a factory image, OTA package, or custom ROM.")
         sizer.Add(self._labels["next_step_title"], 0, wx.BOTTOM, 4)
         sizer.Add(self._labels["next_step_body"], 0, wx.BOTTOM, 12)
-        button = wx.Button(card, label="Browse firmware")
-        button.Bind(wx.EVT_BUTTON, self._focus_legacy_firmware_picker)
+        for title, value in _dashboard_preview_context_rows():
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 6)
+        button = preview_style.button_panel(card, self.theme, "Use legacy selector", "info")
+        preview_style.bind_click_recursive(button, self._focus_legacy_firmware_picker)
+        button.SetToolTip("Focuses the existing firmware selector. No file is opened by Modern UI.")
         self._buttons["browse_firmware"] = button
         sizer.Add(button, 0, wx.EXPAND)
         card.SetSizer(sizer)
@@ -135,9 +170,9 @@ class ModernDashboardPanel(wx.Panel):
     def _build_firmware_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Firmware / ROM file", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Firmware / ROM File (Read-Only)", "Existing selector remains source of truth"), 0, wx.EXPAND | wx.BOTTOM, 10)
         self._labels["firmware_filename"] = self._text(card, "No firmware selected", 11, bold=True)
-        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the Browse firmware button above.")
+        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the preview selector focus above.")
         sizer.Add(self._labels["firmware_filename"], 0, wx.BOTTOM, 3)
         sizer.Add(self._labels["firmware_details"], 0)
         card.SetSizer(sizer)
@@ -146,7 +181,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_quick_actions(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Quick actions", 12, bold=True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._card_heading(card, "Quick Actions (Preview)", "Guarded legacy flow labels"), 0, wx.EXPAND | wx.BOTTOM, 10)
         actions = wx.GridSizer(rows=1, cols=4, vgap=8, hgap=8)
         for action in self._quick_actions():
             actions.Add(self._action_button(card, action), 1, wx.EXPAND)
@@ -154,22 +189,64 @@ class ModernDashboardPanel(wx.Panel):
         card.SetSizer(sizer)
         return card
 
+    def _build_safety_boundary_card(self) -> wx.Panel:
+        card = self._card(self)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._card_heading(card, "Safety Boundary", "No execution from this preview"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        for line in SAFETY_BOUNDARY_LINES:
+            sizer.Add(self._muted(card, line), 0, wx.BOTTOM, 5)
+        card.SetSizer(sizer)
+        return card
+
+    def _build_device_slots_card(self) -> wx.Panel:
+        card = self._card(self)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._card_heading(card, "Device Slots (Read-Only)", "No slot switching"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        for title, value in _dashboard_slot_rows(self._readonly_state()):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
+        card.SetSizer(sizer)
+        return card
+
+    def _build_partitions_card(self) -> wx.Panel:
+        card = self._card(self)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._card_heading(card, "Partitions (Read-Only)", "No partition writes"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        for title, value in _dashboard_partition_rows(self._readonly_state()):
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
+        card.SetSizer(sizer)
+        return card
+
+    def _build_last_backup_card(self) -> wx.Panel:
+        card = self._card(self)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._card_heading(card, "Last Backup (Read-Only)", "Restore stays guarded"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        for title, value in _dashboard_backup_rows():
+            sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
+        card.SetSizer(sizer)
+        return card
+
+    def _build_status_bar(self) -> wx.Panel:
+        card = self._card(self, pad=10)
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(self._text(card, MODERN_PREVIEW_STATUS, 10, bold=True), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        sizer.Add(self._muted(card, MODERN_PREVIEW_FOOTER), 1, wx.ALIGN_CENTER_VERTICAL)
+        card.SetSizer(sizer)
+        return card
+
     def _quick_actions(self) -> tuple[QuickAction, ...]:
         return _dashboard_quick_actions()
 
     def _action_button(self, parent: wx.Window, action: QuickAction) -> wx.Panel:
-        panel = self._card(parent, pad=8)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        title = self._text(panel, action.title, 11, bold=True)
-        body = self._muted(panel, action.description)
-        button = wx.Button(panel, label=_dashboard_action_button_label(action.key))
-        button.Bind(wx.EVT_BUTTON, self._action_handler(action.key))
+        panel = preview_style.action_tile(
+            parent,
+            self.theme,
+            action.title,
+            action.description,
+            _dashboard_action_button_label(action.key),
+        )
+        preview_style.bind_click_recursive(panel, self._action_handler(action.key))
         if action.dangerous:
-            button.SetToolTip("Uses the existing PixelFlasher confirmation and safety flow.")
-        sizer.Add(title, 0, wx.BOTTOM, 3)
-        sizer.Add(body, 0, wx.BOTTOM, 8)
-        sizer.Add(button, 0, wx.EXPAND)
-        panel.SetSizer(sizer)
+            panel.SetToolTip("Uses the existing PixelFlasher confirmation and safety flow.")
         return panel
 
     def refresh(self) -> None:
@@ -192,7 +269,7 @@ class ModernDashboardPanel(wx.Panel):
             self._labels["next_step_body"].SetLabel("Firmware is selected. Keep dangerous options in the legacy controls below for now.")
         else:
             self._labels["firmware_filename"].SetLabel("No firmware selected")
-            self._labels["firmware_details"].SetLabel("Use the existing selector below, or the Browse firmware button above.")
+            self._labels["firmware_details"].SetLabel("Use the existing selector below, or the preview selector focus above.")
             self._labels["next_step_title"].SetLabel("Select firmware")
             self._labels["next_step_body"].SetLabel("Choose a factory image, OTA package, or custom ROM.")
         self.Layout()
@@ -233,9 +310,7 @@ class ModernDashboardPanel(wx.Panel):
         return handler
 
     def _card(self, parent: wx.Window, pad: int = 14) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
-        panel.SetWindowStyleFlag(wx.BORDER_SIMPLE)
+        panel = preview_style.card(parent, self.theme)
         sizer = wx.BoxSizer(wx.VERTICAL)
         panel.SetSizer(sizer)
         panel._modern_card_padding = pad  # type: ignore[attr-defined]
@@ -256,6 +331,27 @@ class ModernDashboardPanel(wx.Panel):
         text.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
         return text
 
+    def _card_heading(self, parent: wx.Window, title: str, badge: str) -> wx.Sizer:
+        return preview_style.section_header(parent, self.theme, title, badge)
+
+    def _sidebar_item(self, parent: wx.Window, title: str, detail: str, active: bool = False) -> wx.Panel:
+        return preview_style.sidebar_row(parent, self.theme, title, detail, active)
+
+    def _sidebar_divider(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetMinSize((-1, 1))
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.border))
+        return panel
+
+    def _sidebar_note(self, parent: wx.Window) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self._text(panel, "Preview boundary", 9, True), 0, wx.BOTTOM, 3)
+        sizer.Add(self._muted(panel, "Read-only state. Legacy flows guarded."), 0)
+        panel.SetSizer(self._wrap(sizer, 10))
+        return panel
+
     def _pill(self, parent: wx.Window, label: str, level: StatusLevel) -> wx.StaticText:
         text = self._text(parent, label, 10, bold=True)
         self._set_pill(text, label, level)
@@ -272,23 +368,65 @@ class ModernDashboardPanel(wx.Panel):
         }
         label.SetForegroundColour(wx.Colour(colors.get(level, self.theme.palette.info)))
 
+    def _info_row(self, parent: wx.Window, title: str, value: str) -> wx.Panel:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(self._muted(panel, title), 1, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self._text(panel, value, 10, True), 1, wx.ALIGN_CENTER_VERTICAL)
+        panel.SetSizer(self._wrap(sizer, 7))
+        return panel
+
+    def _wrap(self, content: wx.Sizer, pad: int) -> wx.BoxSizer:
+        return preview_style.pad(content, pad)
+
 
 def _dashboard_quick_actions() -> tuple[QuickAction, ...]:
     return (
-        QuickAction("patch", "Open legacy patch", "Use the existing patch flow", "patch_boot"),
-        QuickAction("flash", "Open legacy flash", "Use the existing guarded flash flow", "flash", StatusLevel.WARNING, True),
-        QuickAction("scan", "Use legacy scan", "Refresh through the existing device list", "devices"),
-        QuickAction("support", "Create diagnostics", "Create support package", "logs"),
+        QuickAction("patch", "Patch (Guarded Legacy)", "Uses the existing guarded patch flow.", "patch_boot"),
+        QuickAction("flash", "Flash (Guarded Legacy)", "Uses the existing guarded flash flow.", "flash", StatusLevel.WARNING, True),
+        QuickAction("scan", "Device Scan (Guarded Legacy)", "Refreshes through the existing device list.", "devices"),
+        QuickAction("support", "Diagnostics (Guarded Legacy)", "Uses the existing diagnostics flow.", "logs"),
     )
 
 
 def _dashboard_action_button_label(key: str) -> str:
     return {
-        "patch": "Use legacy",
+        "patch": "Guarded legacy",
         "flash": "Open guarded flow",
-        "scan": "Use legacy",
-        "support": "Create diagnostics",
-    }.get(str(key or ""), "Use legacy")
+        "scan": "Guarded legacy",
+        "support": "Guarded legacy",
+    }.get(str(key or ""), "Guarded legacy")
+
+
+def _dashboard_slot_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    return (
+        ("Active slot", state.device.active_slot or "unknown"),
+        ("Slot changes", "disabled in preview"),
+    )
+
+
+def _dashboard_partition_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    patchable = "available" if state.firmware.has_patchable_image else "not detected"
+    return (
+        ("boot/init_boot", patchable),
+        ("Partition writes", "disabled in preview"),
+    )
+
+
+def _dashboard_backup_rows() -> tuple[tuple[str, str], ...]:
+    return (
+        ("Last backup", "not read in preview"),
+        ("Restore", "guarded legacy flow only"),
+    )
+
+
+def _dashboard_preview_context_rows() -> tuple[tuple[str, str], ...]:
+    return (
+        ("Preview source", "already-loaded state"),
+        ("State updates", "legacy UI remains source"),
+        ("Actions", "guarded or disabled"),
+    )
 
 
 def _device_status_from_readonly(state: ModernReadonlyState) -> DeviceStatus:

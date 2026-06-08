@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+if __package__ in {None, ""}:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import wx
 
 from constants import VERSION
@@ -24,16 +30,16 @@ class _PreviewFrame(wx.Frame):
         self.Centre()
 
     def _on_scan(self, event):
-        wx.MessageBox("Device scanning stays in the legacy app for this preview build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
+        wx.MessageBox("Device scanning stays in the guarded legacy flow for this preview build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _on_flash(self, event):
-        wx.MessageBox("Flash is intentionally disabled in the standalone dashboard preview.", "PixelFlasher", wx.OK | wx.ICON_WARNING)
+        wx.MessageBox("Modern UI preview does not flash devices. Use the guarded legacy flow for real operations.", "PixelFlasher", wx.OK | wx.ICON_WARNING)
 
     def _on_magisk_patch_boot(self, event):
-        wx.MessageBox("Patch Boot is intentionally disabled in the standalone dashboard preview.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
+        wx.MessageBox("Modern UI preview does not patch images. Use the guarded legacy flow for real operations.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _on_support_zip(self, event):
-        wx.MessageBox("Diagnostics stay available from: python PixelFlasher.py --diagnostics", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
+        wx.MessageBox("Diagnostics stay available through the guarded legacy support flow.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
 
 class _NullPicker:
@@ -55,3 +61,7 @@ def main() -> int:
     frame.Show(True)
     app.MainLoop()
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
