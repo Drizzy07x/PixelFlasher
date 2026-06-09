@@ -148,12 +148,13 @@ class FlashWizardPanel(wx.Panel):
         top.Add(self._badge(card, "Read-only", "info"), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 8)
 
-        alert = preview_style.card(card, self.theme, raised=True)
-        alert_sizer = wx.BoxSizer(wx.VERTICAL)
-        alert_sizer.Add(preview_style.badge(alert, self.theme, "BLOCKED EXECUTION", "warning"), 0, wx.BOTTOM, 8)
-        alert_sizer.Add(self._text(alert, "Blocked Execution", 12, True), 0, wx.BOTTOM, 5)
-        alert_sizer.Add(self._muted(alert, "Preview-only planning is visible. No flash, patch, reboot, or device changes are available here."), 0)
-        alert.SetSizer(self._wrap(alert_sizer, 12))
+        alert = preview_style.notice_card(
+            card,
+            self.theme,
+            "Blocked Execution",
+            "Preview-only planning is visible. No flash, patch, reboot, or device changes are available here.",
+            "warning",
+        )
         sizer.Add(alert, 0, wx.EXPAND | wx.BOTTOM, 12)
 
         self._summary = self._muted(card, "")
@@ -227,8 +228,7 @@ class FlashWizardPanel(wx.Panel):
             return
         self._content_sizer.Clear(delete_windows=True)
 
-        if step_key == "device":
-            self._content_sizer.Add(self._device_preview_cards(self._content_panel), 0, wx.EXPAND | wx.BOTTOM, 10)
+        self._content_sizer.Add(self._step_preview_cards(self._content_panel, step_key), 0, wx.EXPAND | wx.BOTTOM, 10)
 
         self._content_sizer.Add(self._section(self._content_panel, "Current state"), 0, wx.EXPAND | wx.BOTTOM, 7)
         for line in step_detail_lines(self.session, step_key):
@@ -252,23 +252,17 @@ class FlashWizardPanel(wx.Panel):
             self._content_sizer.Add(notice, 0, wx.EXPAND)
         self._content_panel.Layout()
 
-    def _device_preview_cards(self, parent: wx.Window) -> wx.Panel:
+    def _step_preview_cards(self, parent: wx.Window, step_key: str) -> wx.Panel:
         panel = wx.Panel(parent)
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
         grid = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
-        for title, lines in _device_preview_sections():
+        for title, lines in _step_preview_sections(step_key):
             grid.Add(self._checklist_card(panel, title, lines), 1, wx.EXPAND)
         panel.SetSizer(grid)
         return panel
 
     def _checklist_card(self, parent: wx.Window, title: str, lines: tuple[str, ...]) -> wx.Panel:
-        card = preview_style.card(parent, self.theme)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, title, 10, True), 0, wx.BOTTOM, 6)
-        for line in lines:
-            sizer.Add(self._line(card, line, bullet=True), 0, wx.EXPAND | wx.BOTTOM, 4)
-        card.SetSizer(self._wrap(sizer, 10))
-        return card
+        return preview_style.checklist_card(parent, self.theme, title, lines)
 
     def _summary_text(self) -> str:
         lines = [
@@ -361,48 +355,58 @@ def _wx_static_label(label: str) -> str:
     return label.replace("&", "&&")
 
 
-def _device_preview_sections() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    return (
-        (
-            "Device Readiness Checklist",
-            (
-                "Device selection is read from the current session.",
-                "ADB/Fastboot readiness is displayed only.",
-                "No scan, reboot, or slot action runs here.",
-            ),
-        ),
-        (
-            "Firmware Readiness Checklist",
-            (
-                "Firmware status is shown from loaded state.",
-                "Verification remains a future guarded step.",
-                "No archive parsing or file access starts here.",
-            ),
-        ),
-        (
-            "Execution Blocked Checklist",
-            (
-                "Flash action remains unavailable.",
-                "Patch and wipe operations stay disabled.",
-                "Device mutation is blocked in preview.",
-            ),
-        ),
-        (
-            "Preview Limitations",
-            (
-                "Navigation updates this preview only.",
-                "Warnings are informational planning copy.",
-                "Legacy flows remain the source of truth.",
-            ),
-        ),
+def _step_preview_sections(step_key: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    common_blocked = (
+        "Flash action remains unavailable.",
+        "Patch and wipe operations stay disabled.",
+        "Device mutation is blocked in preview.",
     )
+    sections = {
+        "device": (
+            ("Device Readiness Checklist", ("Device selection is read from the current session.", "ADB/Fastboot readiness is displayed only.", "No scan, reboot, or slot action runs here.")),
+            ("Firmware Readiness Checklist", ("Firmware status is shown from loaded state.", "Verification remains a future guarded step.", "No archive parsing or file access starts here.")),
+            ("Execution Blocked Checklist", common_blocked),
+            ("Preview Limitations", ("Navigation updates this preview only.", "Warnings are informational planning copy.", "Legacy flows remain the source of truth.")),
+        ),
+        "firmware": (
+            ("Firmware Context", ("Selected package is read-only.", "Package validation is displayed as planning copy.", "No archive extraction or parsing starts here.")),
+            ("Target Match", ("Device and build labels are informational.", "Mismatch warnings remain non-executing.", "Legacy review stays the source of truth.")),
+            ("Execution Blocked Checklist", common_blocked),
+            ("Preview Limitations", ("File pickers are not opened by this wizard.", "No firmware files are modified.", "Navigation only.")),
+        ),
+        "patch": (
+            ("Patch Plan", ("Patch choices are visual placeholders.", "No boot image is read or written.", "No Magisk patching starts here.")),
+            ("Image Readiness", ("Patchable image status is display-only.", "Output path is not created.", "Existing guarded patch flow remains separate.")),
+            ("Execution Blocked Checklist", common_blocked),
+            ("Preview Limitations", ("No file mutation occurs.", "No package parsing occurs.", "Planning copy only.")),
+        ),
+        "options": (
+            ("Safe Defaults", ("Keep data remains the preview default.", "Dangerous toggles are not actionable.", "Slot choices are read-only.")),
+            ("Guarded Options", ("Force options require future review.", "No wipe or slot switching is available.", "No reboot path is exposed.")),
+            ("Execution Blocked Checklist", common_blocked),
+            ("Preview Limitations", ("Options update preview state only.", "No device command is issued.", "Legacy confirmations remain separate.")),
+        ),
+        "review": (
+            ("Review Summary", ("WizardSession summary is read-only.", "Warnings are informational.", "Final action stays blocked.")),
+            ("Safety Gate", ("Can flash remains false in preview.", "Execution requires guarded legacy flow.", "No command preview is run.")),
+            ("Execution Blocked Checklist", common_blocked),
+            ("Preview Limitations", ("Review does not arm a flash.", "No files or devices are changed.", "Navigation only.")),
+        ),
+        "flash": (
+            ("Final Step", ("Flash execution is intentionally hidden.", "No dry-run command is executed.", "No device communication starts.")),
+            ("Blocked Execution", common_blocked),
+            ("Safety Boundary", ("No flash, patch, reboot, wipe, or slot switch.", "No ADB/Fastboot command execution.", "No firmware parsing or file mutation.")),
+            ("Preview Limitations", ("This screen is a planning end state.", "Use existing guarded legacy flow for real operations.", "Modern UI remains read-only.")),
+        ),
+    }
+    return sections.get(step_key, sections["device"])
 
 
 class FlashWizardPreviewFrame(wx.Frame):
     """Standalone frame for the read-only Flash Wizard preview."""
 
     def __init__(self) -> None:
-        super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard Preview", size=(980, 640))
+        super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard Preview", size=(1120, 760))
         panel = FlashWizardPanel(self, session=WizardSession())
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(panel, 1, wx.EXPAND)

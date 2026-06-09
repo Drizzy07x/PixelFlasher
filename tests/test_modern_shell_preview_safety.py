@@ -6,6 +6,7 @@ from ui.pages.modern_preview_copy import (
     MODERN_PREVIEW_FOOTER,
     MODERN_PREVIEW_SUBTITLE,
     MODERN_PREVIEW_TITLE,
+    NAV_ICONS,
     NAV_ITEMS,
     PREVIEW_BADGES,
     SAFETY_BOUNDARY_LINES,
@@ -49,7 +50,26 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.require_wx()
         module = importlib.import_module("ui.pages.modern_preview_style")
 
-        for helper in ("action_tile", "badge", "button_panel", "card", "sidebar_row"):
+        for helper in (
+            "action_tile",
+            "app_panel",
+            "badge",
+            "badge_row",
+            "button_panel",
+            "card",
+            "checklist_card",
+            "icon_action_tile",
+            "info_column",
+            "info_row",
+            "metric_card",
+            "notice_card",
+            "page_header",
+            "safety_boundary_card",
+            "sidebar_brand",
+            "sidebar_container",
+            "sidebar_row",
+            "stepper_cell",
+        ):
             with self.subTest(helper=helper):
                 self.assertTrue(callable(getattr(module, helper, None)))
 
@@ -99,10 +119,17 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
 
     def test_modern_shell_sidebar_uses_dark_preview_rows_not_native_buttons(self):
         self.assertIn("preview_style.sidebar_row", self.shell_source)
+        self.assertIn("NAV_ICONS", self.shell_source)
         self.assertIn("bind_click_recursive", self.shell_source)
         self.assertNotIn("wx.Button(panel, label=nav_label", self.shell_source)
         self.assertIn("def sidebar_row", self.style_source)
-        self.assertIn("SetMinSize((-1, 54))", self.style_source)
+        self.assertIn("SetMinSize((-1, 62))", self.style_source)
+
+    def test_modern_preview_safe_nav_glyphs_are_defined(self):
+        for key in ("dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools"):
+            with self.subTest(key=key):
+                self.assertIn(key, NAV_ICONS)
+                self.assertTrue(NAV_ICONS[key])
 
     def test_modern_shell_sidebar_uses_unique_preview_destinations(self):
         self.assertIn('("dashboard", "devices", "flash", "backups", "downloads", "tools", "settings")', self.shell_source)
@@ -133,10 +160,11 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         for label in expected:
             with self.subTest(label=label):
                 self.assertIn(label, self.shell_source)
-        self.assertEqual("Modern UI - Preview (Read-Only)", MODERN_PREVIEW_TITLE)
+        self.assertEqual("Modern UI – Preview", MODERN_PREVIEW_TITLE)
         self.assertEqual("Safe by default. No device changes. No flashing. No patches.", MODERN_PREVIEW_SUBTITLE)
         self.assertIn("PREVIEW ONLY", PREVIEW_BADGES)
         self.assertIn("Read-Only", PREVIEW_BADGES)
+        self.assertIn("No Device Changes", PREVIEW_BADGES)
         self.assertEqual("No device changes will be made.", MODERN_PREVIEW_FOOTER)
 
     def test_safety_boundary_copy_is_shared_across_shell_and_wizard(self):
@@ -199,6 +227,10 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Firmware Readiness Checklist",
             "Execution Blocked Checklist",
             "Preview Limitations",
+            "Patch Plan",
+            "Safe Defaults",
+            "Review Summary",
+            "Final Step",
             "No scan, reboot, or slot action runs here.",
             "No archive parsing or file access starts here.",
             "Device mutation is blocked in preview.",

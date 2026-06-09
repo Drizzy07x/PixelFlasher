@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-MODERN_PREVIEW_TITLE = "Modern UI - Preview (Read-Only)"
+MODERN_PREVIEW_TITLE = "Modern UI – Preview"
 MODERN_PREVIEW_SUBTITLE = "Safe by default. No device changes. No flashing. No patches."
 MODERN_PREVIEW_STATUS = "Modern UI: Preview-Only Mode"
 MODERN_PREVIEW_FOOTER = "No device changes will be made."
@@ -11,7 +11,18 @@ MODERN_PREVIEW_FOOTER = "No device changes will be made."
 PREVIEW_BADGES: tuple[str, ...] = (
     "PREVIEW ONLY",
     "Read-Only",
+    "No Device Changes",
 )
+
+NAV_ICONS: dict[str, str] = {
+    "dashboard": "◇",
+    "shell": "▣",
+    "wizard": "◆",
+    "backups": "◫",
+    "downloads": "⇩",
+    "settings": "◌",
+    "tools": "⚙",
+}
 
 NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dashboard", "Dashboard", "Overview & device summary"),

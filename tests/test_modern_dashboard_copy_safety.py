@@ -27,6 +27,7 @@ from ui.pages.modern_preview_copy import (
     MODERN_PREVIEW_STATUS,
     MODERN_PREVIEW_SUBTITLE,
     MODERN_PREVIEW_TITLE,
+    NAV_ICONS,
     NAV_ITEMS,
     PREVIEW_BADGES,
     SAFETY_BOUNDARY_LINES,
@@ -43,12 +44,13 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         cls.dashboard_source = DASHBOARD_SOURCE.read_text(encoding="utf-8")
 
     def test_shared_preview_header_copy_is_explicit(self):
-        self.assertEqual("Modern UI - Preview (Read-Only)", MODERN_PREVIEW_TITLE)
+        self.assertEqual("Modern UI – Preview", MODERN_PREVIEW_TITLE)
         self.assertIn("No device changes", MODERN_PREVIEW_SUBTITLE)
         self.assertIn("No flashing", MODERN_PREVIEW_SUBTITLE)
         self.assertIn("No patches", MODERN_PREVIEW_SUBTITLE)
         self.assertIn("PREVIEW ONLY", PREVIEW_BADGES)
         self.assertIn("Read-Only", PREVIEW_BADGES)
+        self.assertIn("No Device Changes", PREVIEW_BADGES)
         self.assertEqual("Modern UI: Preview-Only Mode", MODERN_PREVIEW_STATUS)
         self.assertEqual("No device changes will be made.", MODERN_PREVIEW_FOOTER)
 
@@ -75,6 +77,8 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("Utilities preview", labels["tools"])
         self.assertNotIn("Browse & restore", labels["backups"])
         self.assertNotIn("Firmware & updates", labels["downloads"])
+        self.assertIn("dashboard", NAV_ICONS)
+        self.assertIn("wizard", NAV_ICONS)
 
     def test_preview_action_cards_do_not_claim_execution(self):
         text = "\n".join(f"{title}: {body}" for title, body in DASHBOARD_PREVIEW_ACTIONS)
@@ -87,13 +91,26 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
 
     def test_dashboard_layout_badges_reinforce_readonly_boundaries(self):
         for expected in (
-            "No execution from this preview",
             "No slot switching",
             "No partition writes",
             "Restore stays guarded",
-            "Preview boundary",
+            "Preview-Only Mode",
             "Use legacy selector",
             "No file is opened by Modern UI.",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.dashboard_source)
+
+    def test_dashboard_uses_shared_mockup_visual_helpers(self):
+        for expected in (
+            "preview_style.sidebar_container",
+            "preview_style.sidebar_brand",
+            "preview_style.sidebar_row",
+            "preview_style.safety_boundary_card",
+            "preview_style.notice_card",
+            "preview_style.info_row",
+            "preview_style.badge",
+            "NAV_ICONS",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.dashboard_source)
