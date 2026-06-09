@@ -36,11 +36,19 @@ def app_panel(parent: wx.Window, theme: object) -> wx.Panel:
     return panel
 
 
+def apply_window_theme(window: wx.Window, theme: object) -> None:
+    window.SetBackgroundColour(wx.Colour(theme.palette.background))
+
+
 def sidebar_container(parent: wx.Window, theme: object, width: int = 270) -> wx.Panel:
     panel = wx.Panel(parent)
     panel.SetMinSize((width, -1))
     panel.SetBackgroundColour(wx.Colour(theme.palette.surface_raised))
     return panel
+
+
+def sidebar(parent: wx.Window, theme: object, width: int = 270) -> wx.Panel:
+    return sidebar_container(parent, theme, width)
 
 
 def pad(content: wx.Sizer, amount: int) -> wx.BoxSizer:
@@ -130,6 +138,28 @@ def metric_card(parent: wx.Window, theme: object, title: str, value: str, tone: 
     return panel
 
 
+def status_card(parent: wx.Window, theme: object, title: str, value: str, tone: str = "info") -> wx.Panel:
+    return metric_card(parent, theme, title, value, tone)
+
+
+def hero_device_card(parent: wx.Window, theme: object) -> wx.Panel:
+    panel = card(parent, theme)
+    panel.SetMinSize((-1, 220))
+    return panel
+
+
+def device_glyph_panel(parent: wx.Window, theme: object, label: str = "▯") -> wx.Panel:
+    panel = card(parent, theme, raised=True)
+    panel.SetMinSize((116, 150))
+    stack = wx.BoxSizer(wx.VERTICAL)
+    stack.AddStretchSpacer(1)
+    stack.Add(text(panel, label, 38, True, theme.palette.accent), 0, wx.ALIGN_CENTER)
+    stack.Add(muted(panel, theme, "Read-only device state", 8), 0, wx.ALIGN_CENTER | wx.TOP, 6)
+    stack.AddStretchSpacer(1)
+    panel.SetSizer(pad(stack, 12))
+    return panel
+
+
 def info_row(parent: wx.Window, theme: object, title: str, value: str, icon: str = "") -> wx.Panel:
     panel = card(parent, theme, raised=True)
     row = wx.BoxSizer(wx.HORIZONTAL)
@@ -184,6 +214,15 @@ def notice_card(parent: wx.Window, theme: object, title: str, body: str, tone: s
     return panel
 
 
+def info_strip(parent: wx.Window, theme: object, label: str, tone: str = "info") -> wx.Panel:
+    panel = card(parent, theme, raised=True)
+    row = wx.BoxSizer(wx.HORIZONTAL)
+    row.Add(text(panel, "●", 9, True, _tone_color(theme, tone)), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+    row.Add(muted(panel, theme, label, 9), 1, wx.ALIGN_CENTER_VERTICAL)
+    panel.SetSizer(pad(row, 10))
+    return panel
+
+
 def safety_boundary_card(parent: wx.Window, theme: object, lines: tuple[str, ...]) -> wx.Panel:
     panel = card(parent, theme)
     stack = wx.BoxSizer(wx.VERTICAL)
@@ -208,8 +247,12 @@ def stepper_cell(parent: wx.Window, theme: object, title: str, state: str, activ
     panel = card(parent, theme, raised=not active)
     panel.SetMinSize((-1, 72))
     stack = wx.BoxSizer(wx.VERTICAL)
-    stack.Add(text(panel, title, 9, True, theme.palette.accent if active else theme.palette.text), 0, wx.BOTTOM, 3)
-    stack.Add(badge(panel, theme, state, "info" if active else "success" if state == "Ready" else "info"), 0)
+    title_label = text(panel, title, 9, True, theme.palette.accent if active else theme.palette.text)
+    state_badge = badge(panel, theme, state, "info" if active else "success" if state == "Ready" else "info")
+    panel._step_label = title_label  # type: ignore[attr-defined]
+    panel._step_badge = state_badge  # type: ignore[attr-defined]
+    stack.Add(title_label, 0, wx.BOTTOM, 3)
+    stack.Add(state_badge, 0)
     panel.SetSizer(pad(stack, 10))
     return panel
 
@@ -222,6 +265,20 @@ def button_panel(parent: wx.Window, theme: object, label: str, tone: str = "info
     row.Add(badge(panel, theme, label, tone), 0, wx.ALIGN_CENTER_VERTICAL)
     row.AddStretchSpacer(1)
     panel.SetSizer(pad(row, 4))
+    return panel
+
+
+def footer_button(parent: wx.Window, theme: object, label: str, tone: str = "info") -> wx.Panel:
+    return button_panel(parent, theme, label, tone)
+
+
+def bottom_status_bar(parent: wx.Window, theme: object, left: str, center: str, right: str = "") -> wx.Panel:
+    panel = card(parent, theme)
+    row = wx.BoxSizer(wx.HORIZONTAL)
+    row.Add(text(panel, left, 10, True, theme.palette.text), 1, wx.ALIGN_CENTER_VERTICAL)
+    row.Add(muted(panel, theme, center, 9), 1, wx.ALIGN_CENTER_VERTICAL)
+    row.Add(muted(panel, theme, right, 9), 1, wx.ALIGN_CENTER_VERTICAL)
+    panel.SetSizer(pad(row, 12))
     return panel
 
 

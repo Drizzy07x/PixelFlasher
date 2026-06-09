@@ -17,7 +17,7 @@ from ui.pages.dashboard import ModernDashboardPanel
 
 class DashboardPreviewFrame(wx.Frame):
     def __init__(self, parent: wx.Window | None = None):
-        super().__init__(parent, title=f"PixelFlasher {VERSION} - Modern Dashboard Preview", size=(1180, 760))
+        super().__init__(parent, title=f"PixelFlasher {VERSION} - Modern Dashboard Preview", size=(1360, 900))
         self.config = Config()
         self.config.modern_ui_enabled = True
         self.config.modern_dashboard_enabled = True

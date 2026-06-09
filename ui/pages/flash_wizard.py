@@ -108,17 +108,12 @@ class FlashWizardPanel(wx.Panel):
         self._step_labels.clear()
         self._step_badges.clear()
         for index, step in enumerate(STEPS):
-            step_panel = preview_style.card(panel, self.theme, raised=True)
-            step_panel.SetMinSize((-1, 72))
-            cell = wx.BoxSizer(wx.VERTICAL)
-            label = self._text(step_panel, f"{index + 1}. {step.title}", 9, True)
-            badge = self._badge(step_panel, "Todo", "muted")
+            step_panel = preview_style.stepper_cell(panel, self.theme, f"{index + 1}. {step.title}", "Todo")
+            label = step_panel._step_label  # type: ignore[attr-defined]
+            badge = step_panel._step_badge  # type: ignore[attr-defined]
             self._step_cells.append(step_panel)
             self._step_labels.append(label)
             self._step_badges.append(badge)
-            cell.Add(label, 0, wx.BOTTOM, 2)
-            cell.Add(badge, 0)
-            step_panel.SetSizer(self._wrap(cell, 10))
             sizer.Add(step_panel, 1, wx.EXPAND | wx.RIGHT, 8)
         panel.SetSizer(self._wrap(sizer, 10))
         return panel

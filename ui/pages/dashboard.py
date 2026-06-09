@@ -108,9 +108,12 @@ class ModernDashboardPanel(wx.Panel):
         return panel
 
     def _build_device_card(self) -> wx.Panel:
-        card = self._card(self)
+        card = preview_style.hero_device_card(self, self.theme)
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(self._card_heading(card, "Connected Device (Read-Only)", "Loaded state only"), 0, wx.EXPAND | wx.BOTTOM, 12)
+
+        body = wx.BoxSizer(wx.HORIZONTAL)
+        body.Add(preview_style.device_glyph_panel(card, self.theme), 0, wx.EXPAND | wx.RIGHT, 16)
 
         grid = wx.FlexGridSizer(cols=2, vgap=10, hgap=14)
         grid.AddGrowableCol(1, 1)
@@ -141,7 +144,8 @@ class ModernDashboardPanel(wx.Panel):
 
         grid.Add(left, 1, wx.EXPAND)
         grid.Add(status_grid, 1, wx.EXPAND)
-        root.Add(grid, 0, wx.EXPAND)
+        body.Add(grid, 1, wx.EXPAND)
+        root.Add(body, 0, wx.EXPAND)
         card.SetSizer(self._wrap(root, 16))
         return card
 
@@ -178,7 +182,7 @@ class ModernDashboardPanel(wx.Panel):
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._card_heading(card, "Quick Actions (Preview)", "Guarded legacy flow labels"), 0, wx.EXPAND | wx.BOTTOM, 10)
-        actions = wx.GridSizer(rows=1, cols=4, vgap=8, hgap=8)
+        actions = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
         for action in self._quick_actions():
             actions.Add(self._action_button(card, action), 1, wx.EXPAND)
         sizer.Add(actions, 0, wx.EXPAND)
@@ -216,20 +220,16 @@ class ModernDashboardPanel(wx.Panel):
         return card
 
     def _build_status_bar(self) -> wx.Panel:
-        card = self._card(self, pad=10)
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._text(card, MODERN_PREVIEW_STATUS, 10, bold=True), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
-        sizer.Add(self._muted(card, MODERN_PREVIEW_FOOTER), 1, wx.ALIGN_CENTER_VERTICAL)
-        card.SetSizer(self._wrap(sizer, 12))
-        return card
+        return preview_style.bottom_status_bar(self, self.theme, MODERN_PREVIEW_STATUS, MODERN_PREVIEW_FOOTER, "Read-only")
 
     def _quick_actions(self) -> tuple[QuickAction, ...]:
         return _dashboard_quick_actions()
 
     def _action_button(self, parent: wx.Window, action: QuickAction) -> wx.Panel:
-        panel = preview_style.action_tile(
+        panel = preview_style.icon_action_tile(
             parent,
             self.theme,
+            _dashboard_action_icon(action.key),
             action.title,
             action.description,
             _dashboard_action_button_label(action.key),
@@ -383,6 +383,15 @@ def _dashboard_action_button_label(key: str) -> str:
         "scan": "Guarded legacy",
         "support": "Guarded legacy",
     }.get(str(key or ""), "Guarded legacy")
+
+
+def _dashboard_action_icon(key: str) -> str:
+    return {
+        "patch": "◆",
+        "flash": "⚡",
+        "scan": "▣",
+        "support": "ⓘ",
+    }.get(str(key or ""), "◇")
 
 
 def _dashboard_slot_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:

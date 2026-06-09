@@ -3,6 +3,7 @@ from pathlib import Path
 
 try:
     from ui.pages.dashboard import (
+        _dashboard_action_icon,
         _dashboard_action_button_label,
         _dashboard_backup_rows,
         _dashboard_preview_context_rows,
@@ -12,6 +13,7 @@ try:
     )
 except ModuleNotFoundError as exc:
     if exc.name == "wx":
+        _dashboard_action_icon = None
         _dashboard_action_button_label = None
         _dashboard_backup_rows = None
         _dashboard_preview_context_rows = None
@@ -106,10 +108,14 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             "preview_style.sidebar_container",
             "preview_style.sidebar_brand",
             "preview_style.sidebar_row",
+            "preview_style.hero_device_card",
+            "preview_style.device_glyph_panel",
+            "preview_style.icon_action_tile",
             "preview_style.safety_boundary_card",
             "preview_style.notice_card",
             "preview_style.info_row",
             "preview_style.badge",
+            "preview_style.bottom_status_bar",
             "NAV_ICONS",
         ):
             with self.subTest(expected=expected):
@@ -139,6 +145,14 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertNotIn("Run", labels)
         self.assertIn("Guarded legacy", labels)
         self.assertIn("Open guarded flow", labels)
+
+    @unittest.skipIf(_dashboard_action_icon is None, "wxPython is not available")
+    def test_quick_action_icons_are_visual_only(self):
+        icons = [_dashboard_action_icon(action.key) for action in _dashboard_quick_actions()]
+
+        self.assertEqual(len(icons), len(_dashboard_quick_actions()))
+        self.assertNotIn("", icons)
+        self.assertNotIn("Run", icons)
 
     @unittest.skipIf(_dashboard_quick_actions is None, "wxPython is not available")
     def test_flash_action_stays_marked_dangerous(self):

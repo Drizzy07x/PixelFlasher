@@ -52,22 +52,30 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
 
         for helper in (
             "action_tile",
+            "apply_window_theme",
             "app_panel",
             "badge",
             "badge_row",
+            "bottom_status_bar",
             "button_panel",
             "card",
             "checklist_card",
+            "device_glyph_panel",
+            "footer_button",
+            "hero_device_card",
             "icon_action_tile",
             "info_column",
             "info_row",
+            "info_strip",
             "metric_card",
             "notice_card",
             "page_header",
             "safety_boundary_card",
+            "sidebar",
             "sidebar_brand",
             "sidebar_container",
             "sidebar_row",
+            "status_card",
             "stepper_cell",
         ):
             with self.subTest(helper=helper):
@@ -214,6 +222,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertIn("Preview only · flash execution disabled", self.wizard_source)
         self.assertIn("Blocked Execution", self.wizard_source)
         self.assertIn("Preview-only planning is visible. No flash, patch, reboot, or device changes are available here.", self.wizard_source)
+        self.assertIn("preview_style.stepper_cell", self.wizard_source)
         self.assertIn("preview_style.button_panel(panel, self.theme, \"Back\", \"info\")", self.wizard_source)
         self.assertIn("preview_style.button_panel(panel, self.theme, \"Next\", \"info\")", self.wizard_source)
         self.assertNotIn('wx.Button(panel, label="Back")', self.wizard_source)
