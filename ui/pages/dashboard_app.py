@@ -13,11 +13,12 @@ import wx
 from constants import VERSION
 from config import Config
 from ui.pages.dashboard import ModernDashboardPanel
+from ui.pages.modern_preview_web import create_modern_preview_frame
 
 
 class DashboardPreviewFrame(wx.Frame):
     def __init__(self, parent: wx.Window | None = None):
-        super().__init__(parent, title=f"PixelFlasher {VERSION} - Modern Dashboard Preview", size=(1180, 760))
+        super().__init__(parent, title=f"PixelFlasher {VERSION} - Modern Dashboard Preview", size=(1360, 900))
         self.config = Config()
         self.config.modern_ui_enabled = True
         self.config.modern_dashboard_enabled = True
@@ -62,7 +63,12 @@ def main() -> int:
     return 0
 
 
-def show_dashboard_preview(parent: wx.Window | None = None) -> DashboardPreviewFrame:
+def show_dashboard_preview(parent: wx.Window | None = None) -> wx.Frame:
+    frame = create_modern_preview_frame(page="dashboard", parent=parent)
+    if frame is not None:
+        frame.Show(True)
+        frame.Raise()
+        return frame
     frame = DashboardPreviewFrame(parent)
     frame.Show(True)
     frame.Raise()

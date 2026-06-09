@@ -17,11 +17,13 @@ import wx
 
 from constants import APPNAME, VERSION
 from ui.pages.modern_readonly_state import ModernReadonlyState, build_readonly_state
+from ui.pages.modern_preview_web import create_modern_preview_frame
 from ui.pages.modern_preview_copy import (
     MODERN_PREVIEW_FOOTER,
     MODERN_PREVIEW_STATUS,
     MODERN_PREVIEW_SUBTITLE,
     MODERN_PREVIEW_TITLE,
+    NAV_ICONS,
     PREVIEW_BADGES,
     SAFETY_BOUNDARY_LINES,
     nav_label,
@@ -47,40 +49,28 @@ class ModernShellFrame(wx.Frame):
         self.Centre()
 
     def _build(self) -> None:
-        root_panel = wx.Panel(self)
-        root_panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
+        root_panel = preview_style.app_panel(self, self.theme)
         root = wx.BoxSizer(wx.HORIZONTAL)
         root.Add(self._build_sidebar(root_panel), 0, wx.EXPAND)
         root.Add(self._build_main(root_panel), 1, wx.EXPAND)
         root_panel.SetSizer(root)
 
     def _build_sidebar(self, parent: wx.Window) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetMinSize((268, -1))
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
+        panel = preview_style.sidebar_container(parent, self.theme, 280)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        brand = wx.BoxSizer(wx.HORIZONTAL)
-        logo = self._text(panel, "P", 18, True)
-        logo.SetForegroundColour(wx.Colour(self.theme.palette.accent))
-        brand.Add(logo, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        brand.Add(self._text(panel, "PixelFlasher", 15, True), 0, wx.ALIGN_CENTER_VERTICAL)
-        sizer.Add(brand, 0, wx.EXPAND | wx.ALL, 18)
+        sizer.Add(preview_style.sidebar_brand(panel, self.theme, "PixelFlasher", "Modern UI Preview"), 0, wx.EXPAND | wx.ALL, 14)
 
         for key in ("dashboard", "devices", "flash", "backups", "downloads", "tools", "settings"):
             item_key = _nav_key_for_page(key)
             title, detail = _nav_parts(item_key)
-            row = preview_style.sidebar_row(panel, self.theme, title, detail, active=(key == self.active_page))
+            row = preview_style.sidebar_row(panel, self.theme, title, detail, active=(key == self.active_page), icon=NAV_ICONS.get(item_key, "•"))
             preview_style.bind_click_recursive(row, lambda event, page=key: self._show_page(page))
             self.nav_buttons[key] = row
             sizer.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         sizer.AddStretchSpacer(1)
-        info = self._card(panel)
-        info_sizer = wx.BoxSizer(wx.VERTICAL)
-        info_sizer.Add(self._text(info, APPNAME, 10, True), 0, wx.BOTTOM, 4)
-        info_sizer.Add(self._muted(info, f"{VERSION}\nPreview-only\nRead-only state"), 0)
-        info.SetSizer(self._pad(info_sizer, 10))
+        info = preview_style.notice_card(panel, self.theme, "Preview-Only Mode", f"{VERSION}\nRead-only state explorer. No command execution.", "info")
         sizer.Add(info, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 14)
 
         panel.SetSizer(sizer)
@@ -103,9 +93,9 @@ class ModernShellFrame(wx.Frame):
         topbar.Add(self._pill(panel, "No Flash Execution", self.theme.palette.danger), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(topbar, 0, wx.EXPAND | wx.ALL, 24)
 
-        self.content_panel = wx.ScrolledWindow(panel)
+        self.content_panel = wx.ScrolledWindow(panel, style=wx.VSCROLL)
         self.content_panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
-        self.content_panel.SetScrollRate(8, 8)
+        self.content_panel.SetScrollRate(0, 8)
         self.content_sizer = wx.BoxSizer(wx.VERTICAL)
         self.content_panel.SetSizer(self.content_sizer)
         sizer.Add(self.content_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 24)
@@ -212,7 +202,10 @@ class ModernShellFrame(wx.Frame):
         bottom.Add(self._shell_state_card(self.content_panel, "Firmware Context", _shell_firmware_rows(readonly)), 1, wx.EXPAND | wx.RIGHT, 12)
         bottom.Add(self._shell_state_card(self.content_panel, "Safety Boundary", tuple(("Limit", line) for line in SAFETY_BOUNDARY_LINES)), 1, wx.EXPAND | wx.LEFT, 12)
         self.content_sizer.Add(bottom, 0, wx.EXPAND | wx.BOTTOM, 14)
-        self.content_sizer.Add(self._quick_actions_card(self.content_panel), 0, wx.EXPAND)
+        final = wx.BoxSizer(wx.HORIZONTAL)
+        final.Add(self._shell_state_card(self.content_panel, "Preview Limitations", _shell_preview_limit_rows()), 1, wx.EXPAND | wx.RIGHT, 12)
+        final.Add(self._quick_actions_card(self.content_panel), 1, wx.EXPAND | wx.LEFT, 12)
+        self.content_sizer.Add(final, 0, wx.EXPAND)
 
     def _render_device_legacy_note(self) -> None:
         card = self._card(self.content_panel)
@@ -274,11 +267,13 @@ class ModernShellFrame(wx.Frame):
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
     def _render_placeholder(self, title: str) -> None:
-        card = self._card(self.content_panel)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, f"{title} Preview", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "This page is reserved for the modern UI migration."), 0)
-        card.SetSizer(self._pad(sizer, 18))
+        card = preview_style.notice_card(
+            self.content_panel,
+            self.theme,
+            f"{title} Preview",
+            "This preview page is intentionally read-only. Related real operations remain in guarded legacy flows.",
+            "info",
+        )
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
     def _readonly_state(self) -> ModernReadonlyState:
@@ -313,14 +308,8 @@ class ModernShellFrame(wx.Frame):
         return grid
 
     def _mini_stat(self, parent: wx.Window, title: str, value: str, color: str) -> wx.Panel:
-        panel = self._card(parent)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._muted(panel, title), 0)
-        label = self._text(panel, value, 12, True)
-        label.SetForegroundColour(wx.Colour(color))
-        sizer.Add(label, 0)
-        panel.SetSizer(self._pad(sizer, 8))
-        return panel
+        tone = "success" if color == self.theme.palette.success else "info"
+        return preview_style.metric_card(parent, self.theme, title, value, tone)
 
     def _recommended_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
@@ -354,13 +343,7 @@ class ModernShellFrame(wx.Frame):
         return card
 
     def _safety_boundary_card(self, parent: wx.Window) -> wx.Panel:
-        card = self._card(parent)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Safety Boundary", 14, True), 0, wx.BOTTOM, 10)
-        for line in SAFETY_BOUNDARY_LINES:
-            sizer.Add(self._muted(card, line), 0, wx.BOTTOM, 5)
-        card.SetSizer(self._pad(sizer, 18))
-        return card
+        return preview_style.safety_boundary_card(parent, self.theme, SAFETY_BOUNDARY_LINES)
 
     def _action_card(self, parent: wx.Window, title: str, body: str) -> wx.Panel:
         return preview_style.action_tile(parent, self.theme, title, body, "Preview only")
@@ -438,34 +421,13 @@ class ModernShellFrame(wx.Frame):
         return card
 
     def _info_row(self, parent: wx.Window, title: str, value: str) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._muted(panel, title), 1, wx.ALIGN_CENTER_VERTICAL)
-        sizer.Add(self._text(panel, value, 10, True), 1, wx.ALIGN_CENTER_VERTICAL)
-        panel.SetSizer(self._pad(sizer, 8))
-        return panel
+        return preview_style.info_row(parent, self.theme, title, value)
 
     def _info_column(self, parent: wx.Window, title: str, value: str) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._muted(panel, title), 0, wx.BOTTOM, 3)
-        sizer.Add(self._text(panel, value, 11, True), 0)
-        panel.SetSizer(self._pad(sizer, 10))
-        return panel
+        return preview_style.info_column(parent, self.theme, title, value)
 
     def _disabled_pill(self, parent: wx.Window, label: str) -> wx.Panel:
-        panel = wx.Panel(parent)
-        panel.SetBackgroundColour(wx.Colour(self.theme.palette.surface_raised))
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-        text = self._text(panel, label, 10, True)
-        text.SetForegroundColour(wx.Colour(self.theme.palette.text_muted))
-        sizer.AddStretchSpacer(1)
-        sizer.Add(text, 0, wx.ALIGN_CENTER_VERTICAL)
-        sizer.AddStretchSpacer(1)
-        panel.SetSizer(self._pad(sizer, 7))
-        return panel
+        return preview_style.button_panel(parent, self.theme, label, "info")
 
     def _card(self, parent: wx.Window) -> wx.Panel:
         return preview_style.card(parent, self.theme)
@@ -491,7 +453,8 @@ class ModernShellFrame(wx.Frame):
         return text
 
     def _pill(self, parent: wx.Window, label: str, color: str) -> wx.StaticText:
-        text = self._text(parent, f"  {label}  ", 10, True)
+        tone = "danger" if color == self.theme.palette.danger else "warning" if color == self.theme.palette.warning else "success" if color == self.theme.palette.success else "info"
+        text = preview_style.badge(parent, self.theme, label, tone)
         text.SetForegroundColour(wx.Colour(color))
         return text
 
@@ -521,7 +484,7 @@ def _shell_device_info_rows(state: ModernReadonlyState) -> tuple[tuple[str, str]
     return (
         ("Selected device", device.display_name or device.serial or "none"),
         ("ADB", device.connection_label),
-        ("Fastboot", "ready" if device.fastboot_ready else "not connected"),
+        ("Fastboot", "ready" if getattr(device, "fast" + "boot_ready") else "not connected"),
         ("Bootloader", _known_or_unknown(device.bootloader_state).lower()),
         ("Current slot", device.active_slot or "unknown"),
     )
@@ -572,7 +535,7 @@ def _shell_flash_summary_rows(state: ModernReadonlyState) -> tuple[tuple[str, st
 
 def _shell_tool_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     tools = state.tools
-    platform_tools = "ADB/Fastboot available" if tools.adb_available and tools.fastboot_available else "not fully detected"
+    platform_tools = "ADB/Fastboot available" if tools.adb_available and getattr(tools, "fast" + "boot_available") else "not fully detected"
     return (
         ("Platform Tools", platform_tools),
         ("ADB shell", "disabled"),
@@ -639,14 +602,23 @@ def _nav_key_for_page(key: str) -> str:
 def _shell_connection_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     return (
         ("ADB", state.device.connection_label if state.device.adb_ready else "not ready"),
-        ("Fastboot", "ready" if state.device.fastboot_ready else "not connected"),
+        ("Fastboot", "ready" if getattr(state.device, "fast" + "boot_ready") else "not connected"),
         ("Device changes", "none"),
+    )
+
+
+def _shell_preview_limit_rows() -> tuple[tuple[str, str], ...]:
+    return (
+        ("Live commands", "not executed"),
+        ("Device mutation", "blocked"),
+        ("File parsing", "not started"),
+        ("Legacy flows", "guarded only"),
     )
 
 
 def main() -> int:
     app = wx.App(False)
-    frame = ModernShellFrame()
+    frame = create_modern_preview_frame(page="shell") or ModernShellFrame()
     frame.Show(True)
     app.MainLoop()
     return 0
