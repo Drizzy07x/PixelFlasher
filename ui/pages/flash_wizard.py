@@ -1,6 +1,6 @@
 """Safe Flash Wizard preview for the modern PixelFlasher UI rollout.
 
-This is UI-only scaffolding. It does not run flash, patch, adb, fastboot, or
+This is UI-only scaffolding. It does not run flash, patch, ADB, Fastboot, or
 file-processing operations. Real operations must stay in the existing guarded
 PixelFlasher flows until each wizard step is individually validated.
 """
@@ -20,6 +20,7 @@ from ui.pages.flash_wizard_details import step_detail_lines, warning_lines
 from ui.pages.flash_wizard_model import STEPS, WizardSession
 from ui.pages.modern_preview_copy import MODERN_PREVIEW_FOOTER, MODERN_PREVIEW_SUBTITLE, PREVIEW_BADGES
 from ui.pages import modern_preview_style as preview_style
+from ui.pages.modern_preview_web import create_modern_preview_frame
 from ui.theme import get_theme
 
 FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard – Preview & Plan Only"
@@ -411,7 +412,7 @@ class FlashWizardPreviewFrame(wx.Frame):
 
 def main() -> int:
     app = wx.App(False)
-    frame = FlashWizardPreviewFrame()
+    frame = create_modern_preview_frame(page="wizard") or FlashWizardPreviewFrame()
     frame.Show(True)
     app.MainLoop()
     return 0

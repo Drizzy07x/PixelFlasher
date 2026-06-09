@@ -38,12 +38,14 @@ from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareStat
 
 
 DASHBOARD_SOURCE = Path("ui/pages/dashboard.py")
+TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
 
 
 class ModernDashboardCopySafetyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.dashboard_source = DASHBOARD_SOURCE.read_text(encoding="utf-8")
+        cls.template_source = TEMPLATE_SOURCE.read_text(encoding="utf-8")
 
     def test_shared_preview_header_copy_is_explicit(self):
         self.assertEqual("Modern UI – Preview", MODERN_PREVIEW_TITLE)
@@ -81,6 +83,8 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertNotIn("Firmware & updates", labels["downloads"])
         self.assertIn("dashboard", NAV_ICONS)
         self.assertIn("wizard", NAV_ICONS)
+        self.assertIn("about", NAV_ICONS)
+        self.assertIn("Version & info", labels["about"])
 
     def test_preview_action_cards_do_not_claim_execution(self):
         text = "\n".join(f"{title}: {body}" for title, body in DASHBOARD_PREVIEW_ACTIONS)
@@ -120,6 +124,37 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.dashboard_source)
+
+    def test_webview_dashboard_template_matches_preview_copy_boundaries(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+        from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
+
+        html = render_preview_html(
+            "dashboard",
+            ModernReadonlyState(
+                device=ModernDeviceState(),
+                firmware=ModernFirmwareState(),
+                tools=ModernToolState(),
+                warnings=(),
+            ),
+        )
+
+        for expected in (
+            "Modern UI – Preview (Read-Only)",
+            "Safe by default. No device changes. No flashing. No patches.",
+            "PREVIEW ONLY",
+            "Read-Only",
+            "No Device Changes",
+            "Connected Device (Read-Only)",
+            "Quick Actions",
+            "Safety Boundary",
+            "No flashing, patching, or firmware writing.",
+            "No ADB or Fastboot command execution.",
+            "No reboot, wipe, slot switching, or device changes.",
+            "Preview-only. Read-only state. Legacy flows guarded.",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, html)
 
     @unittest.skipIf(_dashboard_preview_context_rows is None, "wxPython is not available")
     def test_dashboard_preview_selector_context_is_readonly(self):

@@ -22,6 +22,7 @@ NAV_ICONS: dict[str, str] = {
     "downloads": "⇩",
     "settings": "◌",
     "tools": "⚙",
+    "about": "ⓘ",
 }
 
 NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
@@ -32,6 +33,7 @@ NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("downloads", "Downloads", "Firmware updates"),
     ("settings", "Settings", "Preferences"),
     ("tools", "Tools", "Utilities preview"),
+    ("about", "About", "Version & info"),
 )
 
 SAFETY_BOUNDARY_LINES: tuple[str, ...] = (

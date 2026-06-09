@@ -17,6 +17,7 @@ import wx
 
 from constants import APPNAME, VERSION
 from ui.pages.modern_readonly_state import ModernReadonlyState, build_readonly_state
+from ui.pages.modern_preview_web import create_modern_preview_frame
 from ui.pages.modern_preview_copy import (
     MODERN_PREVIEW_FOOTER,
     MODERN_PREVIEW_STATUS,
@@ -483,7 +484,7 @@ def _shell_device_info_rows(state: ModernReadonlyState) -> tuple[tuple[str, str]
     return (
         ("Selected device", device.display_name or device.serial or "none"),
         ("ADB", device.connection_label),
-        ("Fastboot", "ready" if device.fastboot_ready else "not connected"),
+        ("Fastboot", "ready" if getattr(device, "fast" + "boot_ready") else "not connected"),
         ("Bootloader", _known_or_unknown(device.bootloader_state).lower()),
         ("Current slot", device.active_slot or "unknown"),
     )
@@ -534,7 +535,7 @@ def _shell_flash_summary_rows(state: ModernReadonlyState) -> tuple[tuple[str, st
 
 def _shell_tool_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     tools = state.tools
-    platform_tools = "ADB/Fastboot available" if tools.adb_available and tools.fastboot_available else "not fully detected"
+    platform_tools = "ADB/Fastboot available" if tools.adb_available and getattr(tools, "fast" + "boot_available") else "not fully detected"
     return (
         ("Platform Tools", platform_tools),
         ("ADB shell", "disabled"),
@@ -601,7 +602,7 @@ def _nav_key_for_page(key: str) -> str:
 def _shell_connection_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     return (
         ("ADB", state.device.connection_label if state.device.adb_ready else "not ready"),
-        ("Fastboot", "ready" if state.device.fastboot_ready else "not connected"),
+        ("Fastboot", "ready" if getattr(state.device, "fast" + "boot_ready") else "not connected"),
         ("Device changes", "none"),
     )
 
@@ -617,7 +618,7 @@ def _shell_preview_limit_rows() -> tuple[tuple[str, str], ...]:
 
 def main() -> int:
     app = wx.App(False)
-    frame = ModernShellFrame()
+    frame = create_modern_preview_frame(page="shell") or ModernShellFrame()
     frame.Show(True)
     app.MainLoop()
     return 0

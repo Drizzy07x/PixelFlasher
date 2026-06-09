@@ -13,6 +13,7 @@ import wx
 from constants import VERSION
 from config import Config
 from ui.pages.dashboard import ModernDashboardPanel
+from ui.pages.modern_preview_web import create_modern_preview_frame
 
 
 class DashboardPreviewFrame(wx.Frame):
@@ -62,7 +63,12 @@ def main() -> int:
     return 0
 
 
-def show_dashboard_preview(parent: wx.Window | None = None) -> DashboardPreviewFrame:
+def show_dashboard_preview(parent: wx.Window | None = None) -> wx.Frame:
+    frame = create_modern_preview_frame(page="dashboard", parent=parent)
+    if frame is not None:
+        frame.Show(True)
+        frame.Raise()
+        return frame
     frame = DashboardPreviewFrame(parent)
     frame.Show(True)
     frame.Raise()

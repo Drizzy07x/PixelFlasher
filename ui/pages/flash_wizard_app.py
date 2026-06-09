@@ -6,6 +6,7 @@ import wx
 
 from constants import VERSION
 from ui.pages.flash_wizard import FlashWizardPanel
+from ui.pages.modern_preview_web import create_modern_preview_frame
 
 
 class _FlashWizardPreviewFrame(wx.Frame):
@@ -25,7 +26,8 @@ class _FlashWizardPreviewFrame(wx.Frame):
 
 def main(demo: bool = False) -> int:
     app = wx.App(False)
-    frame = _FlashWizardPreviewFrame(demo=demo)
+    frame = None if demo else create_modern_preview_frame(page="wizard")
+    frame = frame or _FlashWizardPreviewFrame(demo=demo)
     frame.Show(True)
     app.MainLoop()
     return 0
