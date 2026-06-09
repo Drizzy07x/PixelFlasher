@@ -166,15 +166,16 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         for label in (
-            "Modern UI – Preview (Read-Only)",
+            "Modern UI · Safe by Default",
             "Connected Device",
             "Quick Actions",
             "Safety Boundary",
             "Device Slots",
             "Partitions",
             "Last Backup",
-            "Preview-Only Mode",
-            "No device changes will be made",
+            "Safe-by-Default Mode",
+            "Open Classic PixelFlasher",
+            "No direct device execution from Modern UI",
             "PixelFlasher 9.2.0-beta",
         ):
             with self.subTest(label=label):

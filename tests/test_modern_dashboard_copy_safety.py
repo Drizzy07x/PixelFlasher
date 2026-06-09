@@ -140,13 +140,15 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         )
 
         for expected in (
-            "Modern UI – Preview (Read-Only)",
-            "Safe by default. No device changes. No flashing. No patches.",
-            "PREVIEW ONLY",
-            "Read-Only",
-            "No Device Changes",
+            "Modern UI · Safe by Default",
+            "Guarded operations stay in the classic execution flow.",
+            "SAFE BY DEFAULT",
+            "GUARDED OPERATIONS",
+            "NO DEVICE CHANGES",
             "Connected Device (Read-Only)",
             "Quick Actions",
+            "Open Classic PixelFlasher",
+            "Existing guarded legacy flow. Confirm actions before execution.",
             "Safety Boundary",
             "No flashing, patching, or firmware writing.",
             "No ADB or Fastboot command execution.",

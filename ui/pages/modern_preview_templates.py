@@ -504,8 +504,8 @@ def _sidebar(active: str, version: str) -> str:
       </div>
       <nav class="nav">{nav}</nav>
       <div class="mode-card">
-        <h3>Preview-Only Mode</h3>
-        <p>All Modern UI features are read-only. Actions that modify your device are disabled or delegated to guarded legacy flows.</p>
+        <h3>Safe-by-Default Mode</h3>
+        <p>Modern UI is the primary shell. Real device operations remain in existing guarded legacy flows.</p>
       </div>
     </aside>
     """
@@ -531,9 +531,7 @@ def _topbar(page: str) -> str:
         <p>{escape(_subtitle(page))}</p>
       </div>
       <div class="top-actions">
-        <span class="badge yellow">PREVIEW ONLY</span>
-        <span class="badge">Read-Only</span>
-        <span class="badge yellow">No Device Changes</span>
+        {_badge_markup(page)}
         <div class="toggle"><span>Light</span><span class="on">Dark</span></div>
       </div>
     </header>
@@ -605,7 +603,7 @@ def _quick_actions_card() -> str:
         ("blue", "▣", "Flash Wizard (Preview)", "Plan your flash. No changes will be made."),
         ("green", "▤", "Modern Shell (Read-Only)", "Explore device state in a safe, read-only shell."),
         ("yellow", "↓", "Downloads", "Browse firmware and updates in preview."),
-        ("purple", "ⓘ", "Diagnostics", "Review support context. Guarded legacy flow only."),
+        ("purple", "↗", "Open Classic PixelFlasher", "Existing guarded legacy flow. Confirm actions before execution."),
     )
     return f"""
     <article class="card">
@@ -722,8 +720,8 @@ def _wizard_page(state: ModernReadonlyState) -> str:
 def _status_bar(version: str) -> str:
     return f"""
     <footer class="statusbar">
-      <div><span class="status-dot"></span>Modern UI Preview-Only Mode</div>
-      <div>No device changes will be made</div>
+      <div><span class="status-dot"></span>Modern UI · Safe by Default</div>
+      <div>No direct device execution from Modern UI</div>
       <div>PixelFlasher {escape(version)}</div>
     </footer>
     """
@@ -824,7 +822,7 @@ def _icon(key: str) -> str:
 
 def _headline(page: str) -> str:
     return {
-        "dashboard": "Modern UI – Preview (Read-Only)",
+        "dashboard": "Modern UI · Safe by Default",
         "shell": "Modern Shell – Read-Only State",
         "wizard": "Flash Wizard (Preview)",
     }.get(page, "Modern UI – Preview")
@@ -832,10 +830,19 @@ def _headline(page: str) -> str:
 
 def _subtitle(page: str) -> str:
     return {
-        "dashboard": "Safe by default. No device changes. No flashing. No patches.",
+        "dashboard": "Guarded operations stay in the classic execution flow.",
         "shell": "Loaded state only. No command execution.",
-        "wizard": "Create and review a flash plan safely.",
+        "wizard": "Planning preview · execution delegated to guarded legacy flow.",
     }.get(page, "Preview-only. Read-only. No device changes.")
+
+
+def _badge_markup(page: str) -> str:
+    labels = {
+        "dashboard": (("SAFE BY DEFAULT", "yellow"), ("GUARDED OPERATIONS", ""), ("NO DEVICE CHANGES", "yellow")),
+        "shell": (("READ-ONLY STATE", ""), ("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")),
+        "wizard": (("PLANNING PREVIEW", "yellow"), ("EXECUTION BLOCKED", ""), ("NO DEVICE CHANGES", "yellow")),
+    }.get(page, (("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")))
+    return "".join(f'<span class="badge {tone}">{escape(label)}</span>' for label, tone in labels)
 
 
 def _page_title(page: str) -> str:
