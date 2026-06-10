@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 
 from constants import VERSION
+from ui.pages.modern_action_bridge import action_url
 from ui.pages.modern_preview_copy import NAV_ITEMS, SAFETY_BOUNDARY_LINES
 from ui.pages.modern_readonly_state import ModernReadonlyState
 
@@ -319,7 +320,10 @@ body {
   background: rgba(255, 255, 255, .035);
   border: 1px solid var(--border-soft);
   padding: 9px 13px;
+  color: inherit;
+  text-decoration: none;
 }
+.action-row:hover { border-color: rgba(47, 140, 255, .42); background: rgba(47, 140, 255, .08); }
 .action-icon {
   width: 40px;
   height: 40px;
@@ -455,6 +459,11 @@ body {
   background: linear-gradient(145deg, rgba(80, 27, 35, .60), rgba(28, 18, 28, .96));
 }
 .blocked h3 { color: var(--red); }
+.guarded {
+  border-color: rgba(255, 201, 40, .32);
+  background: linear-gradient(145deg, rgba(75, 58, 20, .56), rgba(23, 27, 34, .96));
+}
+.guarded h3 { color: var(--yellow); }
 .notice {
   margin-top: 14px;
   color: #74bfff;
@@ -479,8 +488,10 @@ body {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   font-weight: 700;
+  text-decoration: none;
 }
 .button.primary { color: white; background: linear-gradient(135deg, var(--purple), #3a2b89); }
+.button.guarded-action { background: linear-gradient(135deg, #7a4dff, #7b4b18); border-color: rgba(255, 201, 40, .38); }
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
@@ -600,10 +611,10 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
 
 def _quick_actions_card() -> str:
     rows = (
-        ("blue", "▣", "Flash Wizard (Preview)", "Plan your flash. No changes will be made."),
-        ("green", "▤", "Modern Shell (Read-Only)", "Explore device state in a safe, read-only shell."),
-        ("yellow", "↓", "Downloads", "Browse firmware and updates in preview."),
-        ("purple", "↗", "Open Classic PixelFlasher", "Existing guarded legacy flow. Confirm actions before execution."),
+        ("blue", "▣", "Flash Wizard (Planning + Guarded Flow)", "Plan safely, then hand off through confirmation.", "open_modern_flash_wizard"),
+        ("purple", "◈", "Patch Boot (Guarded Legacy Flow)", "Confirmation required. Existing safeguards remain in control.", "guarded_legacy_patch_flow"),
+        ("green", "▤", "Modern Shell (Read-Only)", "Explore device state in a safe, read-only shell.", "open_modern_shell"),
+        ("yellow", "↗", "Open Classic PixelFlasher", "Existing guarded legacy flow. Confirm actions before execution.", "open_legacy_ui"),
     )
     return f"""
     <article class="card">
@@ -616,11 +627,14 @@ def _quick_actions_card() -> str:
 
 
 def _safety_card() -> str:
+    lines = SAFETY_BOUNDARY_LINES + (
+        "Reboot, wipe, and slot switching remain disabled in Modern UI.",
+    )
     return f"""
     <article class="card safety">
       <div class="card-header"><h2>🛡 Safety Boundary</h2></div>
       <div class="check-list">
-        {"".join(_check(line) for line in SAFETY_BOUNDARY_LINES)}
+        {"".join(_check(line) for line in lines)}
       </div>
     </article>
     """
@@ -687,29 +701,31 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           <div class="card-header">
             <div>
               <h2>Step 1: Device Selection &amp; Readiness</h2>
-              <div class="muted">Select a device and verify readiness in preview.</div>
+              <div class="muted">Create and review a flash plan safely.</div>
             </div>
-            <span class="badge">Navigation only</span>
+            <span class="badge yellow">Guarded legacy flow · confirmation required</span>
           </div>
           <div class="readiness-grid">
             {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected from loaded state"), "USB connection is read-only", "ADB not executed", "Device authorization unknown"))}
             {_wizard_readiness("Firmware Readiness", (("No firmware loaded" if not state.firmware.selected else "Firmware selected from loaded state"), "Select Firmware remains preview copy", "Compatibility unknown", "Slot information unavailable"))}
-            {_wizard_blocked()}
+            {_wizard_blocked("Execution Blocked", ("No commands will be executed directly", "No changes will be made by Modern UI", "Use guarded legacy flow to execute"))}
           </div>
+          <div class="notice">Modern UI prepares the plan; execution is delegated to existing guarded PixelFlasher flow. No flash command is run from Modern UI.</div>
           <div class="notice">ⓘ This is a preview environment. All actions are read-only and safe.</div>
           <div class="footer-controls">
             <div class="button">Cancel</div>
-            <div class="button primary">Next</div>
+            <a class="button primary guarded-action" href="{escape(action_url("guarded_legacy_flash_flow"))}">Continue to Guarded Legacy Flash Flow</a>
           </div>
         </article>
-        <aside class="card blocked">
-          <div class="card-header"><h3>Blocked Execution</h3><span class="badge yellow">Blocked</span></div>
+        <aside class="card guarded">
+          <div class="card-header"><h3>Guarded Legacy Handoff</h3><span class="badge yellow">Confirm first</span></div>
+          <p class="muted">Blocked Execution remains enforced in Modern UI. Continue only opens the existing guarded classic flow after confirmation.</p>
           <div class="stack-list">
-            {_mini_row("Can flash", "no")}
+            {_mini_row("Can flash", "no direct execution")}
             {_mini_row("Warnings", str(len(state.warnings) or 2))}
             {_mini_row("Device", state.device.display_name or "not selected")}
             {_mini_row("Firmware", state.firmware.filename or "not selected")}
-            {_mini_row("Final action", "disabled")}
+            {_mini_row("Final action", "guarded legacy handoff")}
           </div>
         </aside>
       </div>
@@ -737,13 +753,13 @@ def _spec(icon: str, label: str, value: str) -> str:
     """
 
 
-def _action_row(color: str, icon: str, title: str, copy: str) -> str:
+def _action_row(color: str, icon: str, title: str, copy: str, action_id: str) -> str:
     return f"""
-    <div class="action-row">
+    <a class="action-row" href="{escape(action_url(action_id))}">
       <div class="action-icon {escape(color)}">{escape(icon)}</div>
       <div><div class="action-title">{escape(title)}</div><div class="action-copy">{escape(copy)}</div></div>
       <div class="chevron">›</div>
-    </div>
+    </a>
     """
 
 
@@ -786,14 +802,12 @@ def _wizard_readiness(title: str, rows: tuple[str, ...]) -> str:
     """
 
 
-def _wizard_blocked() -> str:
-    return """
+def _wizard_blocked(title: str, rows: tuple[str, ...]) -> str:
+    return f"""
     <article class="card blocked">
-      <h3>Execution Blocked</h3>
+      <h3>{escape(title)}</h3>
       <div class="check-list">
-        <div class="check"><span>×</span><div>No commands will be executed</div></div>
-        <div class="check"><span>×</span><div>No changes will be made</div></div>
-        <div class="check"><span>×</span><div>Use legacy flows to execute</div></div>
+        {"".join(_check(row) for row in rows)}
       </div>
     </article>
     """
@@ -840,7 +854,7 @@ def _badge_markup(page: str) -> str:
     labels = {
         "dashboard": (("SAFE BY DEFAULT", "yellow"), ("GUARDED OPERATIONS", ""), ("NO DEVICE CHANGES", "yellow")),
         "shell": (("READ-ONLY STATE", ""), ("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")),
-        "wizard": (("PLANNING PREVIEW", "yellow"), ("EXECUTION BLOCKED", ""), ("NO DEVICE CHANGES", "yellow")),
+        "wizard": (("PLANNING PREVIEW", "yellow"), ("GUARDED HANDOFF", ""), ("NO DEVICE CHANGES", "yellow")),
     }.get(page, (("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")))
     return "".join(f'<span class="badge {tone}">{escape(label)}</span>' for label, tone in labels)
 

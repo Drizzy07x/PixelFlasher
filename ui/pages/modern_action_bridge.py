@@ -1,14 +1,18 @@
-"""Safe Modern UI action metadata for future guarded wiring."""
+"""Safe Modern UI action metadata for guarded legacy handoffs."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 PREVIEW_ONLY = "preview_only"
 OPEN_LEGACY = "open_legacy"
 GUARDED_LEGACY_FLOW = "guarded_legacy_flow"
 DISABLED = "disabled"
+ACTION_SCHEME = "pixelflasher"
+ACTION_HOST = "action"
+LEGACY_UI_DELEGATE = "open_legacy_ui"
 
 
 @dataclass(frozen=True)
@@ -19,7 +23,10 @@ class ModernAction:
     safety_level: str
     enabled: bool
     requires_confirmation: bool = False
-    legacy_delegate: str = ""
+    delegate: str = ""
+    dangerous: bool = False
+    confirmation_title: str = ""
+    confirmation_body: str = ""
 
 
 MODERN_ACTIONS: tuple[ModernAction, ...] = (
@@ -29,11 +36,12 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         "Open the existing guarded legacy UI. Real device operations remain guarded.",
         OPEN_LEGACY,
         True,
+        delegate=LEGACY_UI_DELEGATE,
     ),
     ModernAction(
-        "open_flash_wizard_preview",
+        "open_modern_flash_wizard",
         "Open Flash Wizard planning preview",
-        "Plan safely in Modern UI. Final execution remains delegated to guarded legacy flow.",
+        "Plan safely in Modern UI. Execution is delegated to the guarded legacy flow.",
         PREVIEW_ONLY,
         True,
     ),
@@ -60,21 +68,36 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
     ),
     ModernAction(
         "guarded_legacy_flash_flow",
-        "Guarded legacy flash flow",
-        "Existing legacy confirmations remain required before execution.",
+        "Continue to Guarded Legacy Flash Flow",
+        "Modern UI prepares the plan; execution is delegated to existing guarded PixelFlasher flow.",
         GUARDED_LEGACY_FLOW,
         True,
-        True,
-        "_on_flash",
+        requires_confirmation=True,
+        delegate=LEGACY_UI_DELEGATE,
+        dangerous=True,
+        confirmation_title="Continue to Guarded Legacy Flash Flow?",
+        confirmation_body=(
+            "Existing guarded legacy flow\n\n"
+            "Modern UI does not execute device commands directly.\n"
+            "No flash command is run from Modern UI.\n"
+            "Review all prompts before continuing."
+        ),
     ),
     ModernAction(
         "guarded_legacy_patch_flow",
         "Guarded legacy patch flow",
-        "Existing legacy confirmations remain required before patching.",
+        "Boot image patching remains delegated to existing guarded PixelFlasher flow.",
         GUARDED_LEGACY_FLOW,
         True,
-        True,
-        "_on_magisk_patch_boot",
+        requires_confirmation=True,
+        delegate=LEGACY_UI_DELEGATE,
+        dangerous=True,
+        confirmation_title="Continue to Guarded Legacy Patch Flow?",
+        confirmation_body=(
+            "Existing guarded legacy flow\n\n"
+            "Modern UI does not execute device commands directly.\n"
+            "Review all prompts before continuing."
+        ),
     ),
     ModernAction(
         "guarded_legacy_support_zip",
@@ -82,8 +105,15 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         "Support package creation remains in the guarded legacy UI.",
         GUARDED_LEGACY_FLOW,
         True,
-        True,
-        "_on_support_zip",
+        requires_confirmation=True,
+        delegate=LEGACY_UI_DELEGATE,
+        dangerous=True,
+        confirmation_title="Continue to Guarded Legacy Diagnostics Flow?",
+        confirmation_body=(
+            "Existing guarded legacy flow\n\n"
+            "Modern UI does not execute device commands directly.\n"
+            "Review all prompts before continuing."
+        ),
     ),
     ModernAction(
         "disabled_reboot",
@@ -118,3 +148,24 @@ def action_by_id(action_id: str) -> ModernAction | None:
         if action.id == action_id:
             return action
     return None
+
+
+def action_url(action_id: str) -> str:
+    return f"{ACTION_SCHEME}://{ACTION_HOST}/{action_id}"
+
+
+def action_from_url(url: str) -> ModernAction | None:
+    parsed = urlparse(str(url or ""))
+    if parsed.scheme != ACTION_SCHEME or parsed.netloc != ACTION_HOST:
+        return None
+    action_id = parsed.path.strip("/")
+    if not action_id or "/" in action_id:
+        return None
+    return action_by_id(action_id)
+
+
+def is_legacy_handoff(action: ModernAction) -> bool:
+    return action.enabled and action.delegate == LEGACY_UI_DELEGATE and action.safety_level in {
+        OPEN_LEGACY,
+        GUARDED_LEGACY_FLOW,
+    }

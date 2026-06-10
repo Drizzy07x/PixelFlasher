@@ -15,6 +15,14 @@ except ImportError:
     html2 = None  # type: ignore[assignment]
 
 from constants import VERSION
+from ui.pages.modern_action_bridge import (
+    DISABLED,
+    GUARDED_LEGACY_FLOW,
+    OPEN_LEGACY,
+    PREVIEW_ONLY,
+    ModernAction,
+    action_from_url,
+)
 from ui.pages.modern_preview_templates import render_preview_html
 from ui.pages.modern_readonly_state import build_readonly_state
 
@@ -45,10 +53,11 @@ class ModernPreviewWebFrame(wx.Frame):
     ) -> None:
         super().__init__(parent, title=f"PixelFlasher {VERSION} - {_frame_title(page)}", size=(1536, 960))
         self._on_open_legacy = on_open_legacy
-        state = build_readonly_state(parent or _empty_state_host(), tool_resolver=lambda name: None)
-        html = render_preview_html(page=page, state=state, version=VERSION)
+        self._state = build_readonly_state(parent or _empty_state_host(), tool_resolver=lambda name: None)
         view = html2.WebView.New(self)  # type: ignore[union-attr]
-        view.SetPage(html, "")
+        self._view = view
+        view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_webview_navigating)  # type: ignore[union-attr]
+        self._show_page(page)
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(view, 1, wx.EXPAND)
         self.SetSizer(root)
@@ -63,7 +72,7 @@ class ModernPreviewWebFrame(wx.Frame):
         menu_bar.Append(classic, "Classic")
         self.SetMenuBar(menu_bar)
 
-    def _open_legacy(self, event: wx.CommandEvent) -> None:
+    def _open_legacy(self, event: wx.CommandEvent | None = None) -> None:
         if callable(self._on_open_legacy):
             self._on_open_legacy()
             return
@@ -72,6 +81,71 @@ class ModernPreviewWebFrame(wx.Frame):
             "PixelFlasher",
             wx.OK | wx.ICON_INFORMATION,
         )
+
+    def _show_page(self, page: str) -> None:
+        html = render_preview_html(page=page, state=self._state, version=VERSION)
+        self._view.SetPage(html, "")
+        self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(page)}")
+
+    def _on_webview_navigating(self, event) -> None:
+        url = str(event.GetURL() or "")
+        action = action_from_url(url)
+        if action is None:
+            if _is_initial_webview_url(url):
+                return
+            event.Veto()
+            return
+        event.Veto()
+        self._handle_action(action)
+
+    def _handle_action(self, action: ModernAction) -> None:
+        if action.safety_level == DISABLED or not action.enabled:
+            wx.MessageBox(
+                f"{action.label}\n\nThis Modern UI action is disabled.",
+                "Modern UI action unavailable",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        if action.safety_level == PREVIEW_ONLY:
+            self._handle_preview_action(action)
+            return
+        if action.safety_level in {OPEN_LEGACY, GUARDED_LEGACY_FLOW}:
+            if action.requires_confirmation and not self._confirm_guarded_action(action):
+                return
+            self._open_legacy()
+
+    def _handle_preview_action(self, action: ModernAction) -> None:
+        page_by_action = {
+            "open_modern_flash_wizard": "wizard",
+            "open_modern_shell": "shell",
+        }
+        page = page_by_action.get(action.id)
+        if page:
+            self._show_page(page)
+            return
+        wx.MessageBox(
+            f"{action.label}\n\n{action.description}",
+            "Modern UI preview",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+
+    def _confirm_guarded_action(self, action: ModernAction) -> bool:
+        body = action.confirmation_body or (
+            "Existing guarded legacy flow\n\n"
+            "Modern UI does not execute device commands directly.\n"
+            "Review all prompts before continuing."
+        )
+        message = f"{action.label}\n\n{action.description}\n\n{body}"
+        dialog = wx.MessageDialog(
+            self,
+            message,
+            action.confirmation_title or action.label,
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        try:
+            return dialog.ShowModal() == wx.ID_YES
+        finally:
+            dialog.Destroy()
 
 
 def _empty_state_host() -> SimpleNamespace:
@@ -84,3 +158,7 @@ def _frame_title(page: str) -> str:
         "shell": "Modern Shell Preview",
         "wizard": "Flash Wizard Preview",
     }.get(str(page or "dashboard"), "Modern UI Preview")
+
+
+def _is_initial_webview_url(url: str) -> bool:
+    return not url or url == "about:blank"

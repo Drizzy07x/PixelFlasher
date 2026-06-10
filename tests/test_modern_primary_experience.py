@@ -4,9 +4,13 @@ from pathlib import Path
 from ui.pages.modern_action_bridge import (
     DISABLED,
     GUARDED_LEGACY_FLOW,
+    LEGACY_UI_DELEGATE,
     OPEN_LEGACY,
     PREVIEW_ONLY,
     action_by_id,
+    action_from_url,
+    action_url,
+    is_legacy_handoff,
     modern_actions,
 )
 
@@ -44,6 +48,10 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertIn("Open Classic PixelFlasher", self.web_source)
         self.assertIn("Open existing guarded legacy flow", self.web_source)
         self.assertIn("wx.EVT_MENU", self.web_source)
+        self.assertIn("EVT_WEBVIEW_NAVIGATING", self.web_source)
+        self.assertIn("action_from_url", self.web_source)
+        self.assertIn("wx.MessageDialog", self.web_source)
+        self.assertIn("wx.NO_DEFAULT", self.web_source)
         self.assertNotIn("AddScriptMessageHandler", self.web_source)
         self.assertNotIn("RunScript", self.web_source)
 
@@ -52,7 +60,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
 
         for action_id in (
             "open_legacy_ui",
-            "open_flash_wizard_preview",
+            "open_modern_flash_wizard",
             "open_modern_shell",
             "open_downloads_preview",
             "open_tools_preview",
@@ -79,14 +87,27 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
                 self.assertEqual(GUARDED_LEGACY_FLOW, action.safety_level)
                 self.assertTrue(action.enabled)
                 self.assertTrue(action.requires_confirmation)
-                self.assertTrue(action.legacy_delegate)
+                self.assertTrue(action.dangerous)
+                self.assertEqual(LEGACY_UI_DELEGATE, action.delegate)
+                self.assertTrue(is_legacy_handoff(action))
+                self.assertIn("Existing guarded legacy flow", action.confirmation_body)
+                self.assertIn("Modern UI does not execute device commands directly", action.confirmation_body)
 
         for action_id in ("disabled_reboot", "disabled_wipe", "disabled_slot_switch"):
             with self.subTest(action_id=action_id):
                 action = actions[action_id]
                 self.assertEqual(DISABLED, action.safety_level)
                 self.assertFalse(action.enabled)
-                self.assertFalse(action.legacy_delegate)
+                self.assertFalse(action.delegate)
+
+    def test_custom_action_urls_are_allow_listed(self):
+        action = action_from_url(action_url("guarded_legacy_flash_flow"))
+
+        self.assertIsNotNone(action)
+        self.assertEqual("guarded_legacy_flash_flow", action.id)
+        self.assertIsNone(action_from_url("pixelflasher://action/not_allowed"))
+        self.assertIsNone(action_from_url("file:///tmp/not_allowed"))
+        self.assertIsNone(action_from_url("mailto:test@example.invalid"))
 
     def test_modern_primary_sources_avoid_execution_patterns(self):
         forbidden = (
@@ -118,8 +139,12 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
             "Modern UI · Safe by Default",
             "Open Classic PixelFlasher",
             "Existing guarded legacy flow",
+            "action_url(\"guarded_legacy_flash_flow\")",
+            "Continue to Guarded Legacy Flash Flow",
+            "Guarded legacy flow · confirmation required",
+            "No flash command is run from Modern UI.",
             "Planning preview · execution delegated to guarded legacy flow.",
-            "Execution Blocked",
+            "Guarded Legacy Handoff",
             "No direct device execution from Modern UI",
         ):
             with self.subTest(label=label):
