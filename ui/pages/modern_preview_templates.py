@@ -436,6 +436,47 @@ body {
 }
 .tile strong { display: block; margin-bottom: 5px; color: white; }
 .tile span { color: var(--muted); font-size: 13px; line-height: 1.4; }
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.metric {
+  min-height: 78px;
+  padding: 13px;
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgba(47, 140, 255, .10), rgba(255, 255, 255, .035));
+  border: 1px solid var(--border-soft);
+}
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.metric strong {
+  display: block;
+  margin-top: 8px;
+  color: white;
+  font-size: 20px;
+}
+.empty-state {
+  min-height: 168px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, .025);
+  border: 1px dashed rgba(118, 153, 197, .22);
+  color: var(--muted);
+}
+.empty-state strong {
+  display: block;
+  color: white;
+  font-size: 18px;
+  margin-bottom: 6px;
+}
 .explorer-card { min-height: 196px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .chip {
@@ -494,6 +535,41 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+.wizard-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.stage-card {
+  min-height: 132px;
+  padding: 13px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid var(--border-soft);
+}
+.stage-card strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: white;
+  margin-bottom: 8px;
+}
+.stage-card strong span {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--purple);
+  font-size: 12px;
+}
+.stage-card p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+  font-size: 13px;
+}
 .wizard-grid > .card:first-child {
   align-self: start;
   min-height: 430px;
@@ -542,7 +618,7 @@ body {
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .wizard-stage-grid { grid-template-columns: 1fr; }
   .device-body { grid-template-columns: 1fr; }
 }
 """
@@ -769,6 +845,7 @@ def _wizard_page(state: ModernReadonlyState) -> str:
             {_wizard_readiness("Firmware Readiness", (("No firmware loaded" if not state.firmware.selected else "Firmware selected from loaded state"), "Select Firmware remains preview copy", "Compatibility unknown", "Slot information unavailable"))}
             {_wizard_blocked("Execution Blocked", ("No commands will be executed directly", "No changes will be made by Modern UI", "Use guarded legacy flow to execute"))}
           </div>
+          {_wizard_stage_overview()}
           <div class="notice">Modern UI prepares the plan; execution is delegated to existing guarded PixelFlasher flow. No flash command is run from Modern UI.</div>
           <div class="notice">ⓘ This is a preview environment. All actions are read-only and safe.</div>
           <div class="footer-controls">
@@ -792,14 +869,36 @@ def _wizard_page(state: ModernReadonlyState) -> str:
     """
 
 
+def _wizard_stage_overview() -> str:
+    rows = (
+        ("2", "Firmware Step Preview", "Shows selected package context only. No file picker, extraction, or package parsing starts here."),
+        ("3", "Options Step Preview", "Displays safe defaults for slot, data, and patch choices. Mutating options stay guarded."),
+        ("4", "Plan Step Preview", "Summarizes what the guarded legacy flow would review before any real operation."),
+        ("5", "Review Step Preview", "Final confirmation remains native and delegates to existing guarded PixelFlasher flow."),
+    )
+    return f"""<div class="wizard-stage-grid">{"".join(_wizard_stage_card(*row) for row in rows)}</div>"""
+
+
+def _wizard_stage_card(number: str, title: str, copy: str) -> str:
+    return f"""
+    <div class="stage-card">
+      <strong><span>{escape(number)}</span>{escape(title)}</strong>
+      <p>{escape(copy)}</p>
+    </div>
+    """
+
+
 def _backups_page() -> str:
     return f"""
     <section class="content">
+      {_metric_strip((("Total backups", "0"), ("Latest backup", "Not loaded"), ("Restore mode", "Guarded"), ("File changes", "None")))}
       <div class="page-grid">
         {_hero_card("▤", "Backups (Preview)", "Browse backup state in Modern UI. Creating, restoring, and deleting backups remain guarded legacy operations.")}
         {_mini_card("Backup Summary (Read-Only)", "Preview", (("Total backups", "0"), ("Latest backup", "not loaded"), ("Location", "not selected")))}
-        {_tile_card("Backup List (Preview)", (("No backups found", "Backup rows appear here after legacy state loads."), ("Create backup", "Guarded legacy flow only."), ("Restore backup", "Guarded legacy flow only."), ("Delete backup", "Disabled in Modern UI.")))}
+        {_tile_card("Backup Actions (Guarded)", (("Create backup", "Delegates to existing guarded legacy flow."), ("Restore backup", "Confirmation remains in classic PixelFlasher."), ("Inspect details", "Read-only preview state."), ("Delete backup", "Disabled in Modern UI.")))}
+        {_explorer_card("Backup Details", (("Selected backup", "none"), ("Archive state", "not opened"), ("Restore target", "not selected"), ("Compatibility", "not evaluated")))}
         {_explorer_card("Preview Limitations", (("File writes", "not available"), ("Restore actions", "guarded legacy only"), ("Backup creation", "guarded legacy only"), ("Device changes", "none")))}
+        <article class="card wide-card">{_empty_state("No backups loaded", "Backup rows will appear here after existing legacy state is available.")}</article>
       </div>
     </section>
     """
@@ -808,6 +907,7 @@ def _backups_page() -> str:
 def _downloads_page() -> str:
     return f"""
     <section class="content">
+      {_metric_strip((("Firmware", "None"), ("Validation", "Waiting"), ("Network", "Off"), ("Device apply", "Blocked")))}
       <div class="page-grid two">
         {_hero_card("↓", "Downloads (Preview)", "Review firmware and resource download context without starting downloads or applying files to a device.")}
         {_tile_card("Firmware Downloads (Preview)", (("Firmware", "No package selected."), ("Tools", "No tool download is started."), ("Others", "No external resource is loaded."), ("Apply to device", "Disabled in Modern UI.")))}
@@ -821,6 +921,7 @@ def _downloads_page() -> str:
 def _settings_page() -> str:
     return f"""
     <section class="content">
+      {_metric_strip((("Mode", "Read-only"), ("Theme", "Dark"), ("Saved changes", "0"), ("Device changes", "0")))}
       <div class="page-grid two">
         {_hero_card("⚙", "Settings (Preview)", "Inspect preference groups in a read-only Modern UI surface. No settings are saved from this preview.")}
         {_tile_card("General Settings", (("Startup behavior", "Modern UI primary when supported."), ("Theme", "Dark visual preview."), ("Window state", "Not changed from Modern UI."), ("Language", "System default preview.")))}
@@ -834,6 +935,7 @@ def _settings_page() -> str:
 def _tools_page() -> str:
     return f"""
     <section class="content">
+      {_metric_strip((("Tool groups", "6"), ("Direct commands", "Off"), ("Guarded flows", "3"), ("Unknown actions", "Blocked")))}
       <div class="page-grid">
         {_hero_card("⚒", "Tools (Preview)", "Tool categories are visible for orientation. Execution remains disabled or delegated to guarded legacy flows.")}
         {_tile_card("Tool Catalog", (("Boot Image Patcher", "Guarded legacy flow."), ("Support Package", "Guarded legacy flow."), ("Log Viewer", "Preview only."), ("Device Info", "Read-only context."), ("Partition Explorer", "Preview only."), ("Command Runner", "Disabled in Modern UI.")))}
@@ -847,6 +949,7 @@ def _tools_page() -> str:
 def _safety_page() -> str:
     return f"""
     <section class="content">
+      {_metric_strip((("Direct execution", "Off"), ("Bridge", "Allow-listed"), ("Unknown URLs", "Blocked"), ("Legacy prompts", "Required")))}
       <div class="page-grid two">
         {_hero_card("◇", "Safety (Read-Only)", "Modern UI is safe by default. Real operations are either disabled or handed to existing guarded legacy flows.")}
         {_explorer_card("Safety Boundary", tuple(("Rule", line) for line in SAFETY_BOUNDARY_LINES))}
@@ -861,6 +964,7 @@ def _about_page(version: str) -> str:
     about_copy = f"PixelFlasher {version} with Modern UI as the primary safe-by-default shell."
     return f"""
     <section class="content">
+      {_metric_strip((("Version", version), ("Modern UI", "Primary"), ("Legacy UI", "Available"), ("Safety", "Guarded")))}
       <div class="page-grid two">
         {_hero_card("PF", "About PixelFlasher", about_copy)}
         {_explorer_card("Application", (("Version", version), ("Modern UI", "primary when supported"), ("Legacy UI", "available through guarded fallback"), ("Device changes", "none from this page")))}
@@ -926,6 +1030,22 @@ def _tile_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
 
 def _tile(label: str, copy: str) -> str:
     return f"""<div class="tile"><strong>{escape(label)}</strong><span>{escape(copy)}</span></div>"""
+
+
+def _metric_strip(rows: tuple[tuple[str, str], ...]) -> str:
+    return f"""<div class="metric-strip">{"".join(_metric(label, value) for label, value in rows)}</div>"""
+
+
+def _metric(label: str, value: str) -> str:
+    return f"""<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>"""
+
+
+def _empty_state(title: str, copy: str) -> str:
+    return f"""
+    <div class="empty-state">
+      <div><strong>{escape(title)}</strong><span>{escape(copy)}</span></div>
+    </div>
+    """
 
 
 def _check(line: str) -> str:

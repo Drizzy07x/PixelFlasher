@@ -82,13 +82,13 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         expected_by_page = {
             "dashboard": ("Modern UI · Safe by Default", "pixelflasher://action/open_modern_dashboard"),
             "shell": ("Modern Shell – Read-Only State", "pixelflasher://action/open_modern_shell"),
-            "wizard": ("Flash Wizard (Preview)", "pixelflasher://action/open_modern_flash_wizard"),
-            "backups": ("Backups (Preview)", "Backup Summary (Read-Only)"),
-            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)"),
-            "settings": ("Settings (Preview)", "General Settings"),
-            "tools": ("Tools (Preview)", "Tool Catalog"),
-            "safety": ("Safety (Read-Only)", "Guarded Handoffs"),
-            "about": ("About PixelFlasher", "Modern UI Status"),
+            "wizard": ("Flash Wizard (Preview)", "pixelflasher://action/open_modern_flash_wizard", "Review Step Preview"),
+            "backups": ("Backups (Preview)", "Backup Summary (Read-Only)", "No backups loaded"),
+            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network"),
+            "settings": ("Settings (Preview)", "General Settings", "Saved changes"),
+            "tools": ("Tools (Preview)", "Tool Catalog", "Direct commands"),
+            "safety": ("Safety (Read-Only)", "Guarded Handoffs", "Unknown URLs"),
+            "about": ("About PixelFlasher", "Modern UI Status", "Legacy UI"),
         }
 
         for page, labels in expected_by_page.items():

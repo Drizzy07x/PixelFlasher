@@ -229,7 +229,18 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         for label in ("Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Preview Limitations"):
             with self.subTest(label=label):
                 self.assertIn(label, shell_html)
-        for label in ("Step 1: Device Selection", "Device Readiness", "Firmware Readiness", "Execution Blocked", "Blocked Execution", "Can flash"):
+        for label in (
+            "Step 1: Device Selection",
+            "Device Readiness",
+            "Firmware Readiness",
+            "Execution Blocked",
+            "Blocked Execution",
+            "Firmware Step Preview",
+            "Options Step Preview",
+            "Plan Step Preview",
+            "Review Step Preview",
+            "Can flash",
+        ):
             with self.subTest(label=label):
                 self.assertIn(label, wizard_html)
 
@@ -245,12 +256,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         expected_by_page = {
-            "backups": ("Backups (Preview)", "Backup Summary (Read-Only)", "Guarded legacy flow only"),
-            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network access"),
-            "settings": ("Settings (Preview)", "General Settings", "No settings are saved"),
-            "tools": ("Tools (Preview)", "Tool Catalog", "Command Runner"),
-            "safety": ("Safety (Read-Only)", "Safety Boundary", "Disabled in Modern UI"),
-            "about": ("About PixelFlasher", "Application", "Modern UI Status"),
+            "backups": ("Backups (Preview)", "Backup Actions (Guarded)", "No backups loaded", "File changes"),
+            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network access", "Device apply"),
+            "settings": ("Settings (Preview)", "General Settings", "Saved changes", "No settings are saved"),
+            "tools": ("Tools (Preview)", "Tool Catalog", "Command Runner", "Unknown actions"),
+            "safety": ("Safety (Read-Only)", "Safety Boundary", "Disabled in Modern UI", "Allow-listed"),
+            "about": ("About PixelFlasher", "Application", "Modern UI Status", "Legacy UI"),
         }
 
         for page, labels in expected_by_page.items():
