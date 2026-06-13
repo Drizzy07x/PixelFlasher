@@ -39,6 +39,13 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         delegate=LEGACY_UI_DELEGATE,
     ),
     ModernAction(
+        "open_modern_dashboard",
+        "Open Dashboard",
+        "Return to the Modern UI overview without executing commands.",
+        PREVIEW_ONLY,
+        True,
+    ),
+    ModernAction(
         "open_modern_flash_wizard",
         "Open Flash Wizard planning preview",
         "Plan safely in Modern UI. Execution is delegated to the guarded legacy flow.",
@@ -53,6 +60,13 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         True,
     ),
     ModernAction(
+        "open_backups_preview",
+        "Open Backups preview",
+        "Review backup state without creating, restoring, or modifying files.",
+        PREVIEW_ONLY,
+        True,
+    ),
+    ModernAction(
         "open_downloads_preview",
         "Open Downloads preview",
         "Browse update context without applying files to a device.",
@@ -60,9 +74,30 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         True,
     ),
     ModernAction(
+        "open_settings_preview",
+        "Open Settings preview",
+        "Review preference categories without saving changes.",
+        PREVIEW_ONLY,
+        True,
+    ),
+    ModernAction(
         "open_tools_preview",
         "Open Tools preview",
         "View tool categories. Command execution remains disabled in Modern UI.",
+        PREVIEW_ONLY,
+        True,
+    ),
+    ModernAction(
+        "open_safety_preview",
+        "Open Safety preview",
+        "Review Modern UI safety boundaries and guarded legacy handoffs.",
+        PREVIEW_ONLY,
+        True,
+    ),
+    ModernAction(
+        "open_about_preview",
+        "Open About preview",
+        "View local application information without network access.",
         PREVIEW_ONLY,
         True,
     ),

@@ -52,10 +52,15 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         self.assertEqual(
             {
                 "open_legacy_ui",
+                "open_modern_dashboard",
                 "open_modern_flash_wizard",
                 "open_modern_shell",
+                "open_backups_preview",
                 "open_downloads_preview",
+                "open_settings_preview",
                 "open_tools_preview",
+                "open_safety_preview",
+                "open_about_preview",
                 "guarded_legacy_flash_flow",
                 "guarded_legacy_patch_flow",
                 "guarded_legacy_support_zip",
@@ -65,6 +70,34 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             },
             actions,
         )
+
+    def test_all_modern_preview_pages_render_static_local_content(self):
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+
+        expected_by_page = {
+            "dashboard": ("Modern UI · Safe by Default", "pixelflasher://action/open_modern_dashboard"),
+            "shell": ("Modern Shell – Read-Only State", "pixelflasher://action/open_modern_shell"),
+            "wizard": ("Flash Wizard (Preview)", "pixelflasher://action/open_modern_flash_wizard"),
+            "backups": ("Backups (Preview)", "Backup Summary (Read-Only)"),
+            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)"),
+            "settings": ("Settings (Preview)", "General Settings"),
+            "tools": ("Tools (Preview)", "Tool Catalog"),
+            "safety": ("Safety (Read-Only)", "Guarded Handoffs"),
+            "about": ("About PixelFlasher", "Modern UI Status"),
+        }
+
+        for page, labels in expected_by_page.items():
+            html = render_preview_html(page, state)
+            for label in labels:
+                with self.subTest(page=page, label=label):
+                    self.assertIn(label, html)
+            self.assertIn("Safety", html)
+            self.assertIn("No direct device execution from Modern UI", html)
 
     def test_guarded_flash_handoff_requires_confirmation_and_delegates_to_legacy_only(self):
         action = action_by_id("guarded_legacy_flash_flow")

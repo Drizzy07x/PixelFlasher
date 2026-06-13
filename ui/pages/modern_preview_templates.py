@@ -140,7 +140,9 @@ body {
   border-radius: var(--radius);
   color: var(--soft);
   border: 1px solid transparent;
+  text-decoration: none;
 }
+.nav-item:hover { border-color: rgba(47, 140, 255, .28); background: rgba(47, 140, 255, .07); }
 .nav-item.active {
   color: white;
   background: linear-gradient(90deg, rgba(47, 140, 255, .24), rgba(122, 77, 255, .12));
@@ -389,6 +391,51 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+.page-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.page-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wide-card { grid-column: 1 / -1; }
+.hero-strip {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(47, 140, 255, .16), rgba(122, 77, 255, .10));
+  border: 1px solid rgba(47, 140, 255, .20);
+}
+.hero-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  box-shadow: 0 16px 32px rgba(47, 140, 255, .24);
+  color: white;
+  font-size: 30px;
+  font-weight: 900;
+}
+.hero-strip h2 { margin: 0 0 6px; font-size: 22px; }
+.hero-strip p { margin: 0; color: var(--muted); line-height: 1.45; }
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.tile {
+  min-height: 92px;
+  padding: 13px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid var(--border-soft);
+}
+.tile strong { display: block; margin-bottom: 5px; color: white; }
+.tile span { color: var(--muted); font-size: 13px; line-height: 1.4; }
 .explorer-card { min-height: 196px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .chip {
@@ -495,7 +542,7 @@ body {
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .readiness-grid { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid { grid-template-columns: 1fr; }
   .device-body { grid-template-columns: 1fr; }
 }
 """
@@ -524,13 +571,13 @@ def _sidebar(active: str, version: str) -> str:
 
 def _nav_item(key: str, title: str, detail: str, active: str) -> str:
     return f"""
-      <div class="nav-item {'active' if key == active else ''}">
+      <a class="nav-item {'active' if key == active else ''}" href="{escape(action_url(_nav_action_id(key)))}">
         <div class="nav-icon">{_icon(key)}</div>
         <div>
           <div class="nav-title">{escape(title)}</div>
           <div class="nav-detail">{escape(detail)}</div>
         </div>
-      </div>
+      </a>
     """
 
 
@@ -554,6 +601,18 @@ def _page_body(page: str, state: ModernReadonlyState, version: str) -> str:
         return _shell_page(state)
     if page == "wizard":
         return _wizard_page(state)
+    if page == "backups":
+        return _backups_page()
+    if page == "downloads":
+        return _downloads_page()
+    if page == "settings":
+        return _settings_page()
+    if page == "tools":
+        return _tools_page()
+    if page == "safety":
+        return _safety_page()
+    if page == "about":
+        return _about_page(version)
     return _dashboard_page(state)
 
 
@@ -733,6 +792,85 @@ def _wizard_page(state: ModernReadonlyState) -> str:
     """
 
 
+def _backups_page() -> str:
+    return f"""
+    <section class="content">
+      <div class="page-grid">
+        {_hero_card("▤", "Backups (Preview)", "Browse backup state in Modern UI. Creating, restoring, and deleting backups remain guarded legacy operations.")}
+        {_mini_card("Backup Summary (Read-Only)", "Preview", (("Total backups", "0"), ("Latest backup", "not loaded"), ("Location", "not selected")))}
+        {_tile_card("Backup List (Preview)", (("No backups found", "Backup rows appear here after legacy state loads."), ("Create backup", "Guarded legacy flow only."), ("Restore backup", "Guarded legacy flow only."), ("Delete backup", "Disabled in Modern UI.")))}
+        {_explorer_card("Preview Limitations", (("File writes", "not available"), ("Restore actions", "guarded legacy only"), ("Backup creation", "guarded legacy only"), ("Device changes", "none")))}
+      </div>
+    </section>
+    """
+
+
+def _downloads_page() -> str:
+    return f"""
+    <section class="content">
+      <div class="page-grid two">
+        {_hero_card("↓", "Downloads (Preview)", "Review firmware and resource download context without starting downloads or applying files to a device.")}
+        {_tile_card("Firmware Downloads (Preview)", (("Firmware", "No package selected."), ("Tools", "No tool download is started."), ("Others", "No external resource is loaded."), ("Apply to device", "Disabled in Modern UI.")))}
+        {_explorer_card("Download Details", (("Selected item", "none"), ("Validation", "not started"), ("Package state", "not loaded"), ("Device apply", "blocked")))}
+        {_explorer_card("Safety Notes", (("Network access", "not used by this preview"), ("Package parsing", "not started"), ("File mutation", "none"), ("Legacy flows", "guarded only")))}
+      </div>
+    </section>
+    """
+
+
+def _settings_page() -> str:
+    return f"""
+    <section class="content">
+      <div class="page-grid two">
+        {_hero_card("⚙", "Settings (Preview)", "Inspect preference groups in a read-only Modern UI surface. No settings are saved from this preview.")}
+        {_tile_card("General Settings", (("Startup behavior", "Modern UI primary when supported."), ("Theme", "Dark visual preview."), ("Window state", "Not changed from Modern UI."), ("Language", "System default preview.")))}
+        {_tile_card("Paths & Environment", (("Platform tools", "Shown only as loaded context."), ("Firmware folder", "No picker opens here."), ("Backup folder", "No path is saved here."), ("Logs", "No live capture starts.")))}
+        {_explorer_card("Preview Policy", (("Saving", "disabled"), ("File writes", "none"), ("Device access", "none"), ("Legacy settings", "unchanged")))}
+      </div>
+    </section>
+    """
+
+
+def _tools_page() -> str:
+    return f"""
+    <section class="content">
+      <div class="page-grid">
+        {_hero_card("⚒", "Tools (Preview)", "Tool categories are visible for orientation. Execution remains disabled or delegated to guarded legacy flows.")}
+        {_tile_card("Tool Catalog", (("Boot Image Patcher", "Guarded legacy flow."), ("Support Package", "Guarded legacy flow."), ("Log Viewer", "Preview only."), ("Device Info", "Read-only context."), ("Partition Explorer", "Preview only."), ("Command Runner", "Disabled in Modern UI.")))}
+        {_explorer_card("Execution Policy", (("Direct commands", "disabled"), ("Device mutation", "none"), ("Confirmation", "required for legacy handoff"), ("Unknown tools", "blocked")))}
+        {_explorer_card("Disabled Operations", (("Reboot", "disabled"), ("Wipe", "disabled"), ("Slot switching", "disabled"), ("Live command output", "not captured")))}
+      </div>
+    </section>
+    """
+
+
+def _safety_page() -> str:
+    return f"""
+    <section class="content">
+      <div class="page-grid two">
+        {_hero_card("◇", "Safety (Read-Only)", "Modern UI is safe by default. Real operations are either disabled or handed to existing guarded legacy flows.")}
+        {_explorer_card("Safety Boundary", tuple(("Rule", line) for line in SAFETY_BOUNDARY_LINES))}
+        {_explorer_card("Guarded Handoffs", (("Flash plan execution", "confirmation required"), ("Patch boot flow", "confirmation required"), ("Support package", "confirmation required"), ("Classic UI", "existing safeguards remain")))}
+        {_explorer_card("Disabled in Modern UI", (("Reboot", "disabled"), ("Wipe", "disabled"), ("Slot switching", "disabled"), ("Direct command execution", "disabled")))}
+      </div>
+    </section>
+    """
+
+
+def _about_page(version: str) -> str:
+    about_copy = f"PixelFlasher {version} with Modern UI as the primary safe-by-default shell."
+    return f"""
+    <section class="content">
+      <div class="page-grid two">
+        {_hero_card("PF", "About PixelFlasher", about_copy)}
+        {_explorer_card("Application", (("Version", version), ("Modern UI", "primary when supported"), ("Legacy UI", "available through guarded fallback"), ("Device changes", "none from this page")))}
+        {_tile_card("Modern UI Status", (("Dashboard", "Available"), ("Shell", "Read-only"), ("Flash Wizard", "Guarded handoff"), ("Remaining pages", "Preview surfaces")))}
+        {_explorer_card("Safety", (("Remote assets", "not loaded"), ("Scripts", "not used"), ("Command bridge", "allow-listed actions only"), ("Unknown actions", "blocked")))}
+      </div>
+    </section>
+    """
+
+
 def _status_bar(version: str) -> str:
     return f"""
     <footer class="statusbar">
@@ -761,6 +899,33 @@ def _action_row(color: str, icon: str, title: str, copy: str, action_id: str) ->
       <div class="chevron">›</div>
     </a>
     """
+
+
+def _hero_card(icon: str, title: str, copy: str) -> str:
+    return f"""
+    <article class="card wide-card">
+      <div class="hero-strip">
+        <div class="hero-icon">{escape(icon)}</div>
+        <div>
+          <h2>{escape(title)}</h2>
+          <p>{escape(copy)}</p>
+        </div>
+      </div>
+    </article>
+    """
+
+
+def _tile_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
+    return f"""
+    <article class="card wide-card">
+      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Read-only</span></div>
+      <div class="tile-grid">{"".join(_tile(label, copy) for label, copy in rows)}</div>
+    </article>
+    """
+
+
+def _tile(label: str, copy: str) -> str:
+    return f"""<div class="tile"><strong>{escape(label)}</strong><span>{escape(copy)}</span></div>"""
 
 
 def _check(line: str) -> str:
@@ -816,9 +981,22 @@ def _wizard_blocked(title: str, rows: tuple[str, ...]) -> str:
 def _nav_rows() -> tuple[tuple[str, str, str], ...]:
     rows = []
     for key, title, detail in NAV_ITEMS:
-        active_key = {"shell": "shell", "wizard": "wizard"}.get(key, key)
-        rows.append((active_key, title, detail))
+        rows.append((key, title, detail))
     return tuple(rows)
+
+
+def _nav_action_id(key: str) -> str:
+    return {
+        "dashboard": "open_modern_dashboard",
+        "shell": "open_modern_shell",
+        "wizard": "open_modern_flash_wizard",
+        "backups": "open_backups_preview",
+        "downloads": "open_downloads_preview",
+        "settings": "open_settings_preview",
+        "tools": "open_tools_preview",
+        "safety": "open_safety_preview",
+        "about": "open_about_preview",
+    }.get(key, "open_modern_dashboard")
 
 
 def _icon(key: str) -> str:
@@ -830,6 +1008,7 @@ def _icon(key: str) -> str:
         "downloads": "↓",
         "settings": "⚙",
         "tools": "⚒",
+        "safety": "◇",
         "about": "ⓘ",
     }.get(key, "•")
 
@@ -839,6 +1018,12 @@ def _headline(page: str) -> str:
         "dashboard": "Modern UI · Safe by Default",
         "shell": "Modern Shell – Read-Only State",
         "wizard": "Flash Wizard (Preview)",
+        "backups": "Backups (Preview)",
+        "downloads": "Downloads (Preview)",
+        "settings": "Settings (Preview)",
+        "tools": "Tools (Preview)",
+        "safety": "Safety (Read-Only)",
+        "about": "About PixelFlasher",
     }.get(page, "Modern UI – Preview")
 
 
@@ -847,6 +1032,12 @@ def _subtitle(page: str) -> str:
         "dashboard": "Guarded operations stay in the classic execution flow.",
         "shell": "Loaded state only. No command execution.",
         "wizard": "Planning preview · execution delegated to guarded legacy flow.",
+        "backups": "Browse backup context without creating, restoring, or deleting files.",
+        "downloads": "Browse download context without network or device changes.",
+        "settings": "Review preferences without saving changes.",
+        "tools": "Tool categories are visible; execution is disabled or guarded.",
+        "safety": "Read the boundaries that keep Modern UI safe by default.",
+        "about": "Application information and Modern UI status.",
     }.get(page, "Preview-only. Read-only. No device changes.")
 
 
@@ -855,6 +1046,12 @@ def _badge_markup(page: str) -> str:
         "dashboard": (("SAFE BY DEFAULT", "yellow"), ("GUARDED OPERATIONS", ""), ("NO DEVICE CHANGES", "yellow")),
         "shell": (("READ-ONLY STATE", ""), ("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")),
         "wizard": (("PLANNING PREVIEW", "yellow"), ("GUARDED HANDOFF", ""), ("NO DEVICE CHANGES", "yellow")),
+        "backups": (("PREVIEW ONLY", "yellow"), ("GUARDED RESTORE", ""), ("NO FILE CHANGES", "yellow")),
+        "downloads": (("PREVIEW ONLY", "yellow"), ("NO NETWORK", ""), ("NO DEVICE CHANGES", "yellow")),
+        "settings": (("READ-ONLY", ""), ("NO SAVES", "yellow"), ("NO DEVICE CHANGES", "yellow")),
+        "tools": (("PREVIEW ONLY", "yellow"), ("GUARDED TOOLS", ""), ("DISABLED COMMANDS", "yellow")),
+        "safety": (("READ-ONLY", ""), ("ALLOW-LISTED", "yellow"), ("NO DEVICE CHANGES", "yellow")),
+        "about": (("READ-ONLY", ""), ("LOCAL INFO", "yellow"), ("NO DEVICE CHANGES", "yellow")),
     }.get(page, (("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")))
     return "".join(f'<span class="badge {tone}">{escape(label)}</span>' for label, tone in labels)
 
@@ -864,12 +1061,18 @@ def _page_title(page: str) -> str:
         "dashboard": "Modern Dashboard Preview",
         "shell": "Modern Shell Preview",
         "wizard": "Flash Wizard Preview",
+        "backups": "Backups Preview",
+        "downloads": "Downloads Preview",
+        "settings": "Settings Preview",
+        "tools": "Tools Preview",
+        "safety": "Safety Preview",
+        "about": "About Preview",
     }.get(page, "Modern UI Preview")
 
 
 def _normalize_page(page: str) -> str:
     page = str(page or "dashboard").strip().lower()
-    return page if page in {"dashboard", "shell", "wizard"} else "dashboard"
+    return page if page in {"dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools", "safety", "about"} else "dashboard"
 
 
 def _known(value: str) -> str:

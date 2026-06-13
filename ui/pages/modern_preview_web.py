@@ -116,8 +116,15 @@ class ModernPreviewWebFrame(wx.Frame):
 
     def _handle_preview_action(self, action: ModernAction) -> None:
         page_by_action = {
+            "open_modern_dashboard": "dashboard",
             "open_modern_flash_wizard": "wizard",
             "open_modern_shell": "shell",
+            "open_backups_preview": "backups",
+            "open_downloads_preview": "downloads",
+            "open_settings_preview": "settings",
+            "open_tools_preview": "tools",
+            "open_safety_preview": "safety",
+            "open_about_preview": "about",
         }
         page = page_by_action.get(action.id)
         if page:
@@ -157,6 +164,12 @@ def _frame_title(page: str) -> str:
         "dashboard": "Modern Dashboard Preview",
         "shell": "Modern Shell Preview",
         "wizard": "Flash Wizard Preview",
+        "backups": "Backups Preview",
+        "downloads": "Downloads Preview",
+        "settings": "Settings Preview",
+        "tools": "Tools Preview",
+        "safety": "Safety Preview",
+        "about": "About Preview",
     }.get(str(page or "dashboard"), "Modern UI Preview")
 
 
