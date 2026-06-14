@@ -18,6 +18,7 @@ from ui.pages.modern_action_bridge import (
 PIXELFLASHER_SOURCE = Path("PixelFlasher.py")
 MODERN_PRIMARY_SOURCE = Path("ui/pages/modern_primary_app.py")
 MODERN_BRIDGE_SOURCE = Path("ui/pages/modern_action_bridge.py")
+MODERN_FEEDBACK_SOURCE = Path("ui/pages/modern_action_feedback.py")
 MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
 MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
 
@@ -28,6 +29,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         cls.pixelflasher_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")
         cls.primary_source = MODERN_PRIMARY_SOURCE.read_text(encoding="utf-8")
         cls.bridge_source = MODERN_BRIDGE_SOURCE.read_text(encoding="utf-8")
+        cls.feedback_source = MODERN_FEEDBACK_SOURCE.read_text(encoding="utf-8")
         cls.web_source = MODERN_WEB_SOURCE.read_text(encoding="utf-8")
         cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
 
@@ -56,15 +58,25 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertNotIn("RunScript", self.web_source)
 
     def test_webview_reports_safe_action_feedback(self):
-        for expected in (
+        for helper in (
+            "blocked_navigation_feedback",
+            "disabled_action_feedback",
+            "guarded_action_canceled_feedback",
+            "guarded_action_opening_feedback",
+            "preview_action_feedback",
+        ):
+            with self.subTest(helper=helper):
+                self.assertIn(helper, self.web_source)
+
+        for message in (
             "Blocked unknown or external navigation. No action was run.",
             "disabled in Modern UI. No device changes.",
             "canceled. No legacy flow opened.",
             "opening existing guarded legacy flow.",
             "preview page opened. No device changes.",
         ):
-            with self.subTest(expected=expected):
-                self.assertIn(expected, self.web_source)
+            with self.subTest(message=message):
+                self.assertIn(message, self.feedback_source)
 
     def test_action_bridge_classifies_all_expected_actions(self):
         actions = {action.id: action for action in modern_actions()}
@@ -143,6 +155,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         for source_name, source in (
             ("modern_primary_app", self.primary_source),
             ("modern_action_bridge", self.bridge_source),
+            ("modern_action_feedback", self.feedback_source),
             ("modern_preview_web", self.web_source),
             ("modern_preview_templates", self.template_source),
         ):
