@@ -23,7 +23,7 @@ from ui.pages.modern_action_bridge import (
     ModernAction,
     action_from_url,
 )
-from ui.pages.modern_preview_templates import render_preview_html
+from ui.pages.modern_preview_templates import DEFAULT_STATUS_MESSAGE, render_preview_html
 from ui.pages.modern_readonly_state import build_readonly_state
 
 
@@ -55,6 +55,9 @@ class ModernPreviewWebFrame(wx.Frame):
         self._on_open_legacy = on_open_legacy
         self._state_host = parent or _empty_state_host()
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
+        self._page = str(page or "dashboard")
+        self._status_message = DEFAULT_STATUS_MESSAGE
+        self._status_tone = "safe"
         view = html2.WebView.New(self)  # type: ignore[union-attr]
         self._view = view
         view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_webview_navigating)  # type: ignore[union-attr]
@@ -77,17 +80,31 @@ class ModernPreviewWebFrame(wx.Frame):
         if callable(self._on_open_legacy):
             self._on_open_legacy()
             return
+        self._set_status("Classic PixelFlasher handoff requested. Use --legacy-ui for the guarded legacy flow.", "warning")
         wx.MessageBox(
             "Open PixelFlasher with --legacy-ui to use the existing guarded legacy flow.",
             "PixelFlasher",
             wx.OK | wx.ICON_INFORMATION,
         )
 
-    def _show_page(self, page: str) -> None:
+    def _show_page(self, page: str, status_message: str | None = None, status_tone: str = "safe") -> None:
+        self._page = str(page or "dashboard")
+        if status_message is not None:
+            self._status_message = status_message
+            self._status_tone = status_tone
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
-        html = render_preview_html(page=page, state=self._state, version=VERSION)
+        html = render_preview_html(
+            page=self._page,
+            state=self._state,
+            version=VERSION,
+            status_message=self._status_message,
+            status_tone=self._status_tone,
+        )
         self._view.SetPage(html, "")
-        self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(page)}")
+        self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(self._page)}")
+
+    def _set_status(self, message: str, tone: str = "safe") -> None:
+        self._show_page(self._page, message, tone)
 
     def _on_webview_navigating(self, event) -> None:
         url = str(event.GetURL() or "")
@@ -96,12 +113,14 @@ class ModernPreviewWebFrame(wx.Frame):
             if _is_initial_webview_url(url):
                 return
             event.Veto()
+            self._set_status("Blocked unknown or external navigation. No action was run.", "blocked")
             return
         event.Veto()
         self._handle_action(action)
 
     def _handle_action(self, action: ModernAction) -> None:
         if action.safety_level == DISABLED or not action.enabled:
+            self._set_status(f"{action.label}: disabled in Modern UI. No device changes.", "blocked")
             wx.MessageBox(
                 f"{action.label}\n\nThis Modern UI action is disabled.",
                 "Modern UI action unavailable",
@@ -113,7 +132,9 @@ class ModernPreviewWebFrame(wx.Frame):
             return
         if action.safety_level in {OPEN_LEGACY, GUARDED_LEGACY_FLOW}:
             if action.requires_confirmation and not self._confirm_guarded_action(action):
+                self._set_status(f"{action.label}: canceled. No legacy flow opened.", "warning")
                 return
+            self._set_status(f"{action.label}: opening existing guarded legacy flow.", "warning")
             self._open_legacy()
 
     def _handle_preview_action(self, action: ModernAction) -> None:
@@ -130,7 +151,7 @@ class ModernPreviewWebFrame(wx.Frame):
         }
         page = page_by_action.get(action.id)
         if page:
-            self._show_page(page)
+            self._show_page(page, f"{action.label}: preview page opened. No device changes.", "safe")
             return
         wx.MessageBox(
             f"{action.label}\n\n{action.description}",

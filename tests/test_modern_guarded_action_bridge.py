@@ -209,6 +209,34 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         self.assertIn("every 7 days", downloads_html)
         self.assertIn("es", settings_html)
 
+    def test_template_status_bar_renders_safe_action_feedback(self):
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+
+        html = render_preview_html(
+            "dashboard",
+            state,
+            status_message="Guarded handoff canceled. No legacy flow opened.",
+            status_tone="warning",
+        )
+        escaped_html = render_preview_html(
+            "dashboard",
+            state,
+            status_message="<blocked action>",
+            status_tone="blocked",
+        )
+
+        self.assertIn("Guarded handoff canceled. No legacy flow opened.", html)
+        self.assertIn('class="statusbar warning"', html)
+        self.assertIn("Modern UI · Safe by Default", html)
+        self.assertIn("&lt;blocked action&gt;", escaped_html)
+        self.assertNotIn("<blocked action>", escaped_html)
+        self.assertIn('class="statusbar blocked"', escaped_html)
+
     def test_modern_preview_sources_avoid_execution_patterns(self):
         forbidden = (
             "subprocess.run",
