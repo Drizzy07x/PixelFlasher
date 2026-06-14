@@ -37,7 +37,7 @@ from ui.pages.modern_readonly_state import build_readonly_state
 
 
 def is_webview_available() -> bool:
-    return bool(html2 is not None and hasattr(html2, "WebView"))
+    return _preferred_webview_backend() is not None
 
 
 def create_modern_preview_frame(
@@ -67,9 +67,14 @@ class ModernPreviewWebFrame(wx.Frame):
         self._page = str(page or "dashboard")
         self._status_message = DEFAULT_STATUS_MESSAGE
         self._status_tone = "safe"
-        view = html2.WebView.New(self)  # type: ignore[union-attr]
+        self._loading_document = False
+        backend = _preferred_webview_backend()
+        if backend is None:
+            raise RuntimeError("wx.html2 WebView backend is not available")
+        view = html2.WebView.New(self, backend=backend)  # type: ignore[union-attr]
         self._view = view
         view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_webview_navigating)  # type: ignore[union-attr]
+        view.Bind(html2.EVT_WEBVIEW_LOADED, self._on_webview_loaded)  # type: ignore[union-attr]
         self._show_page(page)
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(view, 1, wx.EXPAND)
@@ -109,6 +114,7 @@ class ModernPreviewWebFrame(wx.Frame):
             status_message=self._status_message,
             status_tone=self._status_tone,
         )
+        self._loading_document = True
         self._view.SetPage(html, "")
         self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(self._page)}")
 
@@ -122,13 +128,16 @@ class ModernPreviewWebFrame(wx.Frame):
         url = str(event.GetURL() or "")
         action = action_from_url(url)
         if action is None:
-            if _is_initial_webview_url(url):
+            if _is_initial_webview_url(url) or (self._loading_document and _is_safe_document_load_url(url)):
                 return
             event.Veto()
             self._set_feedback(blocked_navigation_feedback())
             return
         event.Veto()
         self._handle_action(action)
+
+    def _on_webview_loaded(self, event) -> None:
+        self._loading_document = False
 
     def _handle_action(self, action: ModernAction) -> None:
         if action.safety_level == DISABLED or not action.enabled:
@@ -195,6 +204,22 @@ def _empty_state_host() -> SimpleNamespace:
     return SimpleNamespace(config=SimpleNamespace(), firmware_picker=None, device_choice=None)
 
 
+def _preferred_webview_backend():
+    if html2 is None or not hasattr(html2, "WebView"):
+        return None
+    webview = html2.WebView
+    can_check_backend = hasattr(webview, "IsBackendAvailable")
+    if wx.Platform == "__WXMSW__":
+        edge_backend = getattr(html2, "WebViewBackendEdge", None)
+        if edge_backend is not None and (not can_check_backend or webview.IsBackendAvailable(edge_backend)):
+            return edge_backend
+        return None
+    default_backend = getattr(html2, "WebViewBackendDefault", "")
+    if not can_check_backend or webview.IsBackendAvailable(default_backend):
+        return default_backend
+    return None
+
+
 def _frame_title(page: str) -> str:
     return {
         "dashboard": "Modern Dashboard Preview",
@@ -211,3 +236,14 @@ def _frame_title(page: str) -> str:
 
 def _is_initial_webview_url(url: str) -> bool:
     return not url or url == "about:blank"
+
+
+def _is_safe_document_load_url(url: str) -> bool:
+    value = str(url or "").strip().lower()
+    return (
+        _is_initial_webview_url(value)
+        or value.startswith("data:text/html")
+        or value.startswith("memory:")
+        or value.startswith("wxfs:")
+        or value.startswith("file:")
+    )

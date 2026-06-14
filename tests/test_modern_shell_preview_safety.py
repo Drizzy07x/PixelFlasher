@@ -58,6 +58,23 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertTrue(callable(getattr(module, "create_modern_preview_frame", None)))
         self.assertTrue(callable(getattr(module, "is_webview_available", None)))
 
+    def test_webview_preview_prefers_modern_windows_backend(self):
+        self.assertIn("_preferred_webview_backend", self.web_source)
+        self.assertIn("WebViewBackendEdge", self.web_source)
+        self.assertIn("IsBackendAvailable", self.web_source)
+        self.assertIn("return None", self.web_source)
+
+    def test_webview_preview_allows_only_initial_document_loads(self):
+        for expected in (
+            "EVT_WEBVIEW_LOADED",
+            "_loading_document",
+            "_is_safe_document_load_url",
+            "event.Veto()",
+            "blocked_navigation_feedback",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
     def test_modern_preview_style_helpers_are_importable(self):
         self.require_wx()
         module = importlib.import_module("ui.pages.modern_preview_style")
