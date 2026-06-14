@@ -24,7 +24,7 @@ def render_preview_html(
     return _document(
         title=_page_title(page_key),
         body=f"""
-        <div class="app-shell">
+        <div class="app-shell" data-active-page="{escape(page_key)}">
           {_sidebar(page_key, version)}
           <main class="main">
             {_topbar(page_key)}
@@ -647,7 +647,7 @@ def _sidebar(active: str, version: str) -> str:
           <div class="brand-subtitle">{escape(version)}</div>
         </div>
       </div>
-      <nav class="nav">{nav}</nav>
+      <nav class="nav" aria-label="Modern UI preview surfaces">{nav}</nav>
       <div class="mode-card">
         <h3>Safe-by-Default Mode</h3>
         <p>Modern UI is the primary shell. Real device operations remain in existing guarded legacy flows.</p>
@@ -657,8 +657,10 @@ def _sidebar(active: str, version: str) -> str:
 
 
 def _nav_item(key: str, title: str, detail: str, active: str) -> str:
+    active_class = " active" if key == active else ""
+    current_attr = ' aria-current="page"' if key == active else ""
     return f"""
-      <a class="nav-item {'active' if key == active else ''}" href="{escape(action_url(_nav_action_id(key)))}">
+      <a class="nav-item{active_class}" data-page="{escape(key)}" href="{escape(action_url(_nav_action_id(key)))}"{current_attr}>
         <div class="nav-icon">{_icon(key)}</div>
         <div>
           <div class="nav-title">{escape(title)}</div>

@@ -1,5 +1,6 @@
 import importlib
 from pathlib import Path
+import re
 import unittest
 
 from ui.pages.modern_preview_copy import (
@@ -212,6 +213,32 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         ):
             with self.subTest(action=action):
                 self.assertIn(action, html)
+
+    def test_webview_preview_navigation_marks_exactly_one_active_page(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+        from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
+
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+
+        for page, _title, _detail in NAV_ITEMS:
+            with self.subTest(page=page):
+                html = render_preview_html(page, state)
+                self.assertIn('aria-label="Modern UI preview surfaces"', html)
+                self.assertIn(f'data-active-page="{page}"', html)
+                self.assertEqual(1, html.count('aria-current="page"'))
+                self.assertRegex(
+                    html,
+                    rf'<a class="nav-item active" data-page="{re.escape(page)}" [^>]*aria-current="page">',
+                )
+
+        unknown_html = render_preview_html("not-a-page", state)
+        self.assertIn('data-active-page="dashboard"', unknown_html)
+        self.assertEqual(1, unknown_html.count('aria-current="page"'))
 
     def test_webview_preview_template_contains_shell_and_wizard_structure(self):
         from ui.pages.modern_preview_templates import render_preview_html
