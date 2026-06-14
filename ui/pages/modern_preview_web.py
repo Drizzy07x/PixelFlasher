@@ -53,7 +53,8 @@ class ModernPreviewWebFrame(wx.Frame):
     ) -> None:
         super().__init__(parent, title=f"PixelFlasher {VERSION} - {_frame_title(page)}", size=(1536, 960))
         self._on_open_legacy = on_open_legacy
-        self._state = build_readonly_state(parent or _empty_state_host(), tool_resolver=lambda name: None)
+        self._state_host = parent or _empty_state_host()
+        self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
         view = html2.WebView.New(self)  # type: ignore[union-attr]
         self._view = view
         view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_webview_navigating)  # type: ignore[union-attr]
@@ -83,6 +84,7 @@ class ModernPreviewWebFrame(wx.Frame):
         )
 
     def _show_page(self, page: str) -> None:
+        self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
         html = render_preview_html(page=page, state=self._state, version=VERSION)
         self._view.SetPage(html, "")
         self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(page)}")

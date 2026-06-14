@@ -12,7 +12,16 @@ from ui.pages.modern_action_bridge import (
     modern_actions,
 )
 from ui.pages.modern_preview_templates import render_preview_html
-from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
+from ui.pages.modern_readonly_state import (
+    ModernBackupState,
+    ModernDeviceState,
+    ModernDownloadState,
+    ModernFirmwareState,
+    ModernFlashOptionsState,
+    ModernReadonlyState,
+    ModernSettingsState,
+    ModernToolState,
+)
 
 
 MODERN_BRIDGE_SOURCE = Path("ui/pages/modern_action_bridge.py")
@@ -158,6 +167,47 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, html)
+
+    def test_templates_render_loaded_readonly_state(self):
+        state = ModernReadonlyState(
+            device=ModernDeviceState(
+                display_name="Pixel 6",
+                serial="abc123",
+                codename="oriole",
+                product="oriole_beta",
+                android_version="15",
+                build_id="AP2A.240605.024",
+                security_patch="2024-06-05",
+                active_slot="b",
+            ),
+            firmware=ModernFirmwareState(path="oriole-factory-ap2a.zip", package_type="factory", build_id="oriole-factory", verified=True),
+            tools=ModernToolState(platform_tools_path="/opt/platform-tools"),
+            warnings=("Loaded state warning.",),
+            flash=ModernFlashOptionsState(flash_mode="keepData", data_behavior="Keep data", slot_behavior="Inactive slot", no_reboot=True),
+            backups=ModernBackupState(total_count=2, latest_label="2024-06-01 · AP2A", location="/storage/emulated/0/Download"),
+            downloads=ModernDownloadState(update_check=True, image_catalog_status="loaded", update_frequency="every 7 days", last_checked="1700000000"),
+            settings=ModernSettingsState(language="es", advanced_options=True, verbose=True, phone_path="/storage/emulated/0/Download"),
+        )
+
+        dashboard_html = render_preview_html("dashboard", state)
+        shell_html = render_preview_html("shell", state)
+        wizard_html = render_preview_html("wizard", state)
+        backups_html = render_preview_html("backups", state)
+        downloads_html = render_preview_html("downloads", state)
+        settings_html = render_preview_html("settings", state)
+
+        for expected in ("AP2A.240605.024", "2024-06-05", "Inactive slot", "2024-06-01 · AP2A"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, dashboard_html)
+        for expected in ("oriole", "oriole_beta", "Loaded Flash Options", "Keep data"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, shell_html)
+        self.assertIn("Loaded Plan Inputs", wizard_html)
+        self.assertIn("keepData", wizard_html)
+        self.assertIn("2", backups_html)
+        self.assertIn("/storage/emulated/0/Download", backups_html)
+        self.assertIn("every 7 days", downloads_html)
+        self.assertIn("es", settings_html)
 
     def test_modern_preview_sources_avoid_execution_patterns(self):
         forbidden = (

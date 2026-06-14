@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,12 +21,16 @@ ToolResolver = Callable[[str], str | None]
 class ModernDeviceState:
     display_name: str = ""
     serial: str = ""
+    codename: str = ""
+    product: str = ""
     adb_ready: bool = False
     fastboot_ready: bool = False
     bootloader_state: str = "unknown"
     active_slot: str = ""
     root_status: str = "unknown"
     android_version: str = ""
+    build_id: str = ""
+    security_patch: str = ""
 
     @property
     def selected(self) -> bool:
@@ -71,6 +75,7 @@ class ModernFirmwareState:
 class ModernToolState:
     adb_path: str = ""
     fastboot_path: str = ""
+    platform_tools_path: str = ""
 
     @property
     def adb_available(self) -> bool:
@@ -87,10 +92,59 @@ class ModernReadonlyState:
     firmware: ModernFirmwareState
     tools: ModernToolState
     warnings: tuple[str, ...]
+    flash: "ModernFlashOptionsState" = field(default_factory=lambda: ModernFlashOptionsState())
+    backups: "ModernBackupState" = field(default_factory=lambda: ModernBackupState())
+    downloads: "ModernDownloadState" = field(default_factory=lambda: ModernDownloadState())
+    settings: "ModernSettingsState" = field(default_factory=lambda: ModernSettingsState())
 
     @property
     def ready_for_review(self) -> bool:
         return self.device.selected and self.firmware.selected and self.firmware.verified
+
+
+@dataclass(frozen=True)
+class ModernFlashOptionsState:
+    flash_mode: str = "dryRun"
+    data_behavior: str = "Dry run"
+    slot_behavior: str = "Default"
+    verification: str = "Default"
+    verity: str = "Default"
+    force: bool = False
+    no_reboot: bool = False
+    temporary_root: bool = False
+    custom_rom: bool = False
+
+
+@dataclass(frozen=True)
+class ModernBackupState:
+    total_count: int = 0
+    latest_label: str = "not loaded"
+    location: str = "not selected"
+    restore_mode: str = "guarded legacy only"
+
+    @property
+    def has_loaded_backups(self) -> bool:
+        return self.total_count > 0
+
+
+@dataclass(frozen=True)
+class ModernDownloadState:
+    update_check: bool = False
+    module_update_check: bool = False
+    image_catalog_status: str = "not loaded"
+    update_frequency: str = "not configured"
+    last_checked: str = "not checked"
+
+
+@dataclass(frozen=True)
+class ModernSettingsState:
+    language: str = "System default"
+    advanced_options: bool = False
+    verbose: bool = False
+    low_memory: bool = False
+    notifications: bool = False
+    custom_rom_options: bool = False
+    phone_path: str = ""
 
 
 def build_readonly_state(frame: Any, tool_resolver: ToolResolver | None = None) -> ModernReadonlyState:
@@ -99,15 +153,34 @@ def build_readonly_state(frame: Any, tool_resolver: ToolResolver | None = None) 
     config = getattr(frame, "config", None)
     device = _read_device(frame, config)
     firmware = _read_firmware(frame, config)
-    tools = _read_tools(tool_resolver or shutil.which)
+    tools = _read_tools(config, tool_resolver or shutil.which)
+    flash = _read_flash_options(config)
+    backups = _read_backups(frame, config)
+    downloads = _read_downloads(config)
+    settings = _read_settings(config)
     warnings = _warnings(device, firmware)
-    return ModernReadonlyState(device=device, firmware=firmware, tools=tools, warnings=warnings)
+    return ModernReadonlyState(
+        device=device,
+        firmware=firmware,
+        tools=tools,
+        warnings=warnings,
+        flash=flash,
+        backups=backups,
+        downloads=downloads,
+        settings=settings,
+    )
 
 
 def _read_device(frame: Any, config: Any) -> ModernDeviceState:
     selected = _call_string(getattr(frame, "device_choice", None), "GetStringSelection")
     configured = str(getattr(config, "device", "") or "")
-    identifier = selected or configured
+    phone = _loaded_phone(frame, config)
+    props = _loaded_props(phone)
+    serial = _raw_string(phone, "id") or configured
+    model = _prop(props, "ro.product.model")
+    codename = _prop(props, "ro.product.device") or _prop(props, "ro.hardware")
+    product = _prop(props, "ro.product.name")
+    identifier = selected or model or configured or serial
     mode = _read_connection_mode(frame, config, selected)
     adb_ready = _is_adb_mode(mode)
     fastboot_ready = _is_fastboot_mode(mode)
@@ -117,13 +190,22 @@ def _read_device(frame: Any, config: Any) -> ModernDeviceState:
 
     return ModernDeviceState(
         display_name=identifier,
-        serial=identifier,
+        serial=serial or identifier,
+        codename=codename,
+        product=product,
         adb_ready=adb_ready,
         fastboot_ready=fastboot_ready,
-        bootloader_state=str(getattr(config, "bootloader_state", "") or "unknown"),
-        active_slot=str(getattr(config, "active_slot", "") or ""),
-        root_status=str(getattr(config, "root_status", "") or "unknown"),
-        android_version=str(getattr(config, "android_version", "") or ""),
+        bootloader_state=_first_text(
+            getattr(config, "bootloader_state", ""),
+            _prop(props, "ro.boot.vbmeta.device_state"),
+            _prop(props, "ro.boot.verifiedbootstate"),
+            "unknown",
+        ),
+        active_slot=_normalize_slot(_first_text(getattr(config, "active_slot", ""), _prop(props, "ro.boot.slot_suffix"), _prop(props, "current-slot"))),
+        root_status=_read_root_status(phone, config),
+        android_version=_first_text(getattr(config, "android_version", ""), _prop(props, "ro.build.version.release")),
+        build_id=_first_text(getattr(config, "build_id", ""), _prop(props, "ro.build.id")),
+        security_patch=_first_text(getattr(config, "security_patch", ""), _prop(props, "ro.build.version.security_patch")),
     )
 
 
@@ -160,18 +242,71 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
     )
 
 
-def _read_tools(tool_resolver: ToolResolver) -> ModernToolState:
+def _read_tools(config: Any, tool_resolver: ToolResolver) -> ModernToolState:
+    configured_path = str(getattr(config, "platform_tools_path", "") or "")
     adb = tool_resolver("adb") or tool_resolver("adb.exe") or ""
     fastboot = tool_resolver("fastboot") or tool_resolver("fastboot.exe") or ""
-    return ModernToolState(adb_path=str(adb or ""), fastboot_path=str(fastboot or ""))
+    return ModernToolState(adb_path=str(adb or ""), fastboot_path=str(fastboot or ""), platform_tools_path=configured_path)
+
+
+def _read_flash_options(config: Any) -> ModernFlashOptionsState:
+    mode = str(getattr(config, "flash_mode", "") or "dryRun")
+    return ModernFlashOptionsState(
+        flash_mode=mode,
+        data_behavior=_data_behavior(mode),
+        slot_behavior=_slot_behavior(config),
+        verification="disabled" if bool(getattr(config, "disable_verification", False)) else "default",
+        verity="disabled" if bool(getattr(config, "disable_verity", False)) else "default",
+        force=bool(getattr(config, "fastboot_force", False)),
+        no_reboot=bool(getattr(config, "no_reboot", False)),
+        temporary_root=bool(getattr(config, "temporary_root", False)),
+        custom_rom=bool(getattr(config, "custom_rom", False)),
+    )
+
+
+def _read_backups(frame: Any, config: Any) -> ModernBackupState:
+    phone = _loaded_phone(frame, config)
+    backups = _raw_attr(phone, "backups")
+    if not isinstance(backups, dict):
+        backups = {}
+    latest = _latest_backup_label(backups)
+    return ModernBackupState(
+        total_count=len(backups),
+        latest_label=latest or "not loaded",
+        location=str(getattr(config, "phone_path", "") or "not selected"),
+    )
+
+
+def _read_downloads(config: Any) -> ModernDownloadState:
+    frequency = getattr(config, "google_images_update_frequency", None)
+    last_checked = getattr(config, "google_images_last_checked", None)
+    return ModernDownloadState(
+        update_check=bool(getattr(config, "update_check", False)),
+        module_update_check=bool(getattr(config, "check_module_updates", False)),
+        image_catalog_status="loaded" if last_checked else "not loaded",
+        update_frequency=_frequency_label(frequency),
+        last_checked=_timestamp_label(last_checked),
+    )
+
+
+def _read_settings(config: Any) -> ModernSettingsState:
+    return ModernSettingsState(
+        language=str(getattr(config, "language", "") or "System default"),
+        advanced_options=bool(getattr(config, "advanced_options", False)),
+        verbose=bool(getattr(config, "verbose", False)),
+        low_memory=bool(getattr(config, "low_mem", False)),
+        notifications=bool(getattr(config, "show_notifications", False)),
+        custom_rom_options=bool(getattr(config, "show_custom_rom_options", False)),
+        phone_path=str(getattr(config, "phone_path", "") or ""),
+    )
 
 
 def _read_connection_mode(frame: Any, config: Any, selected: str) -> str:
-    for obj in (getattr(frame, "phone", None), getattr(config, "phone", None), config, frame):
+    for obj in (_loaded_phone(frame, config), config, frame):
         if obj is None:
             continue
         for attr in ("true_mode", "mode", "device_mode"):
-            mode = _normalize_connection_mode(str(getattr(obj, attr, "") or ""))
+            mode = _normalize_connection_mode(_raw_string(obj, attr) or str(getattr(obj, attr, "") or ""))
             if mode:
                 return mode
 
@@ -228,6 +363,110 @@ def _call_string(obj: Any, method_name: str) -> str:
     with contextlib.suppress(Exception):
         return str(method() or "")
     return ""
+
+
+def _loaded_phone(frame: Any, config: Any) -> Any:
+    return _raw_attr(frame, "phone") or _raw_attr(config, "phone")
+
+
+def _loaded_props(phone: Any) -> dict[str, Any]:
+    props = _raw_attr(phone, "props")
+    prop_dict = _raw_attr(props, "property")
+    return prop_dict if isinstance(prop_dict, dict) else {}
+
+
+def _prop(props: dict[str, Any], key: str) -> str:
+    value = props.get(key, "")
+    if value == "Property not found":
+        return ""
+    return str(value or "")
+
+
+def _raw_attr(obj: Any, name: str) -> Any:
+    if obj is None:
+        return None
+    with contextlib.suppress(Exception):
+        return vars(obj).get(name)
+    return None
+
+
+def _raw_string(obj: Any, name: str) -> str:
+    value = _raw_attr(obj, name)
+    return str(value or "")
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _normalize_slot(value: str) -> str:
+    return str(value or "").strip().strip("_")
+
+
+def _read_root_status(phone: Any, config: Any) -> str:
+    configured = str(getattr(config, "root_status", "") or "")
+    if configured:
+        return configured
+    rooted = _raw_attr(phone, "_rooted")
+    if rooted is True:
+        return "rooted"
+    if rooted is False:
+        return "not rooted"
+    return "unknown"
+
+
+def _data_behavior(mode: str) -> str:
+    return {
+        "wipeData": "Wipe selected in legacy config",
+        "keepData": "Keep data",
+        "dryRun": "Dry run",
+        "OTA": "Full OTA",
+        "customFlash": "Custom flash",
+    }.get(str(mode or ""), str(mode or "unknown"))
+
+
+def _slot_behavior(config: Any) -> str:
+    if bool(getattr(config, "flash_both_slots", False)):
+        return "Both slots"
+    if bool(getattr(config, "flash_to_inactive_slot", False)):
+        return "Inactive slot"
+    return "Default"
+
+
+def _latest_backup_label(backups: dict[Any, Any]) -> str:
+    latest = ""
+    for key, backup in backups.items():
+        date = str(_raw_attr(backup, "date") or "")
+        firmware = str(_raw_attr(backup, "firmware") or "")
+        label = " · ".join(part for part in (date, firmware) if part) or str(key or "")
+        if label > latest:
+            latest = label
+    return latest
+
+
+def _frequency_label(value: Any) -> str:
+    if value is None or value == "":
+        return "not configured"
+    with contextlib.suppress(Exception):
+        days = int(value)
+        if days < 0:
+            return "disabled"
+        if days == 1:
+            return "daily"
+        return f"every {days} days"
+    return str(value)
+
+
+def _timestamp_label(value: Any) -> str:
+    if not value:
+        return "not checked"
+    with contextlib.suppress(Exception):
+        return str(int(value))
+    return str(value)
 
 
 def _infer_build_id(path: str) -> str:

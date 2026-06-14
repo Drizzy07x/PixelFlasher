@@ -74,6 +74,83 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertTrue(state.tools.fastboot_available)
         self.assertTrue(state.ready_for_review)
 
+    def test_reads_extended_loaded_state_without_device_access(self):
+        config = SimpleNamespace(
+            device="abc123",
+            firmware_path="oriole-factory-ap1a.zip",
+            firmware_is_ota=False,
+            custom_rom=False,
+            firmware_sha256="hash",
+            platform_tools_path="/opt/platform-tools",
+            flash_mode="keepData",
+            flash_both_slots=False,
+            flash_to_inactive_slot=True,
+            disable_verification=True,
+            disable_verity=False,
+            fastboot_force=True,
+            no_reboot=True,
+            temporary_root=False,
+            phone_path="/storage/emulated/0/Download",
+            google_images_update_frequency=7,
+            google_images_last_checked=1700000000,
+            update_check=True,
+            check_module_updates=True,
+            language="es",
+            advanced_options=True,
+            verbose=True,
+            low_mem=True,
+            show_notifications=True,
+            show_custom_rom_options=True,
+        )
+        phone = SimpleNamespace(
+            id="abc123",
+            true_mode="adb",
+            _rooted=True,
+            backups={
+                "backup-1": SimpleNamespace(date="2024-05-01", firmware="AP1A"),
+                "backup-2": SimpleNamespace(date="2024-06-01", firmware="AP2A"),
+            },
+            props=SimpleNamespace(
+                property={
+                    "ro.product.model": "Pixel 6",
+                    "ro.product.device": "oriole",
+                    "ro.product.name": "oriole_beta",
+                    "ro.build.version.release": "15",
+                    "ro.build.id": "AP2A.240605.024",
+                    "ro.build.version.security_patch": "2024-06-05",
+                    "ro.boot.slot_suffix": "_b",
+                    "ro.boot.vbmeta.device_state": "unlocked",
+                }
+            ),
+        )
+        frame = SimpleNamespace(config=config, phone=phone)
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 6", state.device.display_name)
+        self.assertEqual("abc123", state.device.serial)
+        self.assertEqual("oriole", state.device.codename)
+        self.assertEqual("oriole_beta", state.device.product)
+        self.assertEqual("15", state.device.android_version)
+        self.assertEqual("AP2A.240605.024", state.device.build_id)
+        self.assertEqual("2024-06-05", state.device.security_patch)
+        self.assertEqual("b", state.device.active_slot)
+        self.assertEqual("rooted", state.device.root_status)
+        self.assertEqual("Inactive slot", state.flash.slot_behavior)
+        self.assertEqual("Keep data", state.flash.data_behavior)
+        self.assertEqual("disabled", state.flash.verification)
+        self.assertTrue(state.flash.force)
+        self.assertTrue(state.flash.no_reboot)
+        self.assertEqual(2, state.backups.total_count)
+        self.assertIn("AP2A", state.backups.latest_label)
+        self.assertEqual("/storage/emulated/0/Download", state.backups.location)
+        self.assertEqual("loaded", state.downloads.image_catalog_status)
+        self.assertEqual("every 7 days", state.downloads.update_frequency)
+        self.assertEqual("1700000000", state.downloads.last_checked)
+        self.assertEqual("es", state.settings.language)
+        self.assertTrue(state.settings.advanced_options)
+        self.assertEqual("/opt/platform-tools", state.tools.platform_tools_path)
+
     def test_fastboot_selection_preserves_connection_mode(self):
         config = SimpleNamespace(device="abc123456")
         frame = SimpleNamespace(
