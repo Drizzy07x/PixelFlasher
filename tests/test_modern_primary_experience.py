@@ -55,6 +55,17 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertNotIn("AddScriptMessageHandler", self.web_source)
         self.assertNotIn("RunScript", self.web_source)
 
+    def test_webview_reports_safe_action_feedback(self):
+        for expected in (
+            "Blocked unknown or external navigation. No action was run.",
+            "disabled in Modern UI. No device changes.",
+            "canceled. No legacy flow opened.",
+            "opening existing guarded legacy flow.",
+            "preview page opened. No device changes.",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
     def test_action_bridge_classifies_all_expected_actions(self):
         actions = {action.id: action for action in modern_actions()}
 

@@ -10,7 +10,16 @@ from ui.pages.modern_preview_copy import NAV_ITEMS, SAFETY_BOUNDARY_LINES
 from ui.pages.modern_readonly_state import ModernReadonlyState
 
 
-def render_preview_html(page: str, state: ModernReadonlyState, version: str = VERSION) -> str:
+DEFAULT_STATUS_MESSAGE = "No direct device execution from Modern UI"
+
+
+def render_preview_html(
+    page: str,
+    state: ModernReadonlyState,
+    version: str = VERSION,
+    status_message: str = DEFAULT_STATUS_MESSAGE,
+    status_tone: str = "safe",
+) -> str:
     page_key = _normalize_page(page)
     return _document(
         title=_page_title(page_key),
@@ -20,7 +29,7 @@ def render_preview_html(page: str, state: ModernReadonlyState, version: str = VE
           <main class="main">
             {_topbar(page_key)}
             {_page_body(page_key, state, version)}
-            {_status_bar(version)}
+            {_status_bar(version, status_message, status_tone)}
           </main>
         </div>
         """,
@@ -386,6 +395,8 @@ body {
 .statusbar div:nth-child(2) { text-align: center; color: var(--soft); }
 .statusbar div:nth-child(3) { text-align: right; }
 .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); margin-right: 8px; }
+.statusbar.warning .status-dot { background: var(--yellow); }
+.statusbar.blocked .status-dot { background: var(--red); }
 .shell-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -985,11 +996,13 @@ def _about_page(version: str, state: ModernReadonlyState) -> str:
     """
 
 
-def _status_bar(version: str) -> str:
+def _status_bar(version: str, status_message: str, status_tone: str) -> str:
+    tone = _status_tone(status_tone)
+    message = status_message or DEFAULT_STATUS_MESSAGE
     return f"""
-    <footer class="statusbar">
+    <footer class="statusbar {escape(tone)}">
       <div><span class="status-dot"></span>Modern UI · Safe by Default</div>
-      <div>No direct device execution from Modern UI</div>
+      <div>{escape(message)}</div>
       <div>PixelFlasher {escape(version)}</div>
     </footer>
     """
@@ -1225,6 +1238,11 @@ def _package_type(state: ModernReadonlyState) -> str:
 
 def _on_off(value: bool) -> str:
     return "on" if value else "off"
+
+
+def _status_tone(tone: str) -> str:
+    value = str(tone or "safe")
+    return value if value in {"safe", "warning", "blocked"} else "safe"
 
 
 def _platform_tools_label(state: ModernReadonlyState) -> str:
