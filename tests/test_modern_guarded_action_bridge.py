@@ -25,6 +25,7 @@ from ui.pages.modern_readonly_state import (
 
 
 MODERN_BRIDGE_SOURCE = Path("ui/pages/modern_action_bridge.py")
+MODERN_FEEDBACK_SOURCE = Path("ui/pages/modern_action_feedback.py")
 MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
 MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
 
@@ -33,6 +34,7 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bridge_source = MODERN_BRIDGE_SOURCE.read_text(encoding="utf-8")
+        cls.feedback_source = MODERN_FEEDBACK_SOURCE.read_text(encoding="utf-8")
         cls.web_source = MODERN_WEB_SOURCE.read_text(encoding="utf-8")
         cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
 
@@ -254,6 +256,7 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
 
         for source_name, source in (
             ("modern_action_bridge", self.bridge_source),
+            ("modern_action_feedback", self.feedback_source),
             ("modern_preview_web", self.web_source),
             ("modern_preview_templates", self.template_source),
         ):

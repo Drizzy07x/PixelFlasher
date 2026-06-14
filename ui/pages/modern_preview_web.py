@@ -23,6 +23,15 @@ from ui.pages.modern_action_bridge import (
     ModernAction,
     action_from_url,
 )
+from ui.pages.modern_action_feedback import (
+    ModernActionFeedback,
+    blocked_navigation_feedback,
+    classic_handoff_feedback,
+    disabled_action_feedback,
+    guarded_action_canceled_feedback,
+    guarded_action_opening_feedback,
+    preview_action_feedback,
+)
 from ui.pages.modern_preview_templates import DEFAULT_STATUS_MESSAGE, render_preview_html
 from ui.pages.modern_readonly_state import build_readonly_state
 
@@ -80,7 +89,7 @@ class ModernPreviewWebFrame(wx.Frame):
         if callable(self._on_open_legacy):
             self._on_open_legacy()
             return
-        self._set_status("Classic PixelFlasher handoff requested. Use --legacy-ui for the guarded legacy flow.", "warning")
+        self._set_feedback(classic_handoff_feedback())
         wx.MessageBox(
             "Open PixelFlasher with --legacy-ui to use the existing guarded legacy flow.",
             "PixelFlasher",
@@ -106,6 +115,9 @@ class ModernPreviewWebFrame(wx.Frame):
     def _set_status(self, message: str, tone: str = "safe") -> None:
         self._show_page(self._page, message, tone)
 
+    def _set_feedback(self, feedback: ModernActionFeedback) -> None:
+        self._set_status(feedback.message, feedback.tone)
+
     def _on_webview_navigating(self, event) -> None:
         url = str(event.GetURL() or "")
         action = action_from_url(url)
@@ -113,14 +125,14 @@ class ModernPreviewWebFrame(wx.Frame):
             if _is_initial_webview_url(url):
                 return
             event.Veto()
-            self._set_status("Blocked unknown or external navigation. No action was run.", "blocked")
+            self._set_feedback(blocked_navigation_feedback())
             return
         event.Veto()
         self._handle_action(action)
 
     def _handle_action(self, action: ModernAction) -> None:
         if action.safety_level == DISABLED or not action.enabled:
-            self._set_status(f"{action.label}: disabled in Modern UI. No device changes.", "blocked")
+            self._set_feedback(disabled_action_feedback(action))
             wx.MessageBox(
                 f"{action.label}\n\nThis Modern UI action is disabled.",
                 "Modern UI action unavailable",
@@ -132,9 +144,9 @@ class ModernPreviewWebFrame(wx.Frame):
             return
         if action.safety_level in {OPEN_LEGACY, GUARDED_LEGACY_FLOW}:
             if action.requires_confirmation and not self._confirm_guarded_action(action):
-                self._set_status(f"{action.label}: canceled. No legacy flow opened.", "warning")
+                self._set_feedback(guarded_action_canceled_feedback(action))
                 return
-            self._set_status(f"{action.label}: opening existing guarded legacy flow.", "warning")
+            self._set_feedback(guarded_action_opening_feedback(action))
             self._open_legacy()
 
     def _handle_preview_action(self, action: ModernAction) -> None:
@@ -151,7 +163,8 @@ class ModernPreviewWebFrame(wx.Frame):
         }
         page = page_by_action.get(action.id)
         if page:
-            self._show_page(page, f"{action.label}: preview page opened. No device changes.", "safe")
+            feedback = preview_action_feedback(action)
+            self._show_page(page, feedback.message, feedback.tone)
             return
         wx.MessageBox(
             f"{action.label}\n\n{action.description}",
