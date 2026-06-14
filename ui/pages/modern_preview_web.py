@@ -1,8 +1,8 @@
-"""wx.html2 WebView host for static Modern UI preview pages."""
+"""wx.html2 WebView host for Modern UI pages."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextlib
 from types import SimpleNamespace
 
 import wx
@@ -17,19 +17,19 @@ except ImportError:
 from constants import VERSION
 from ui.pages.modern_action_bridge import (
     DISABLED,
-    GUARDED_LEGACY_FLOW,
-    OPEN_LEGACY,
-    PREVIEW_ONLY,
+    GUARDED_FLOW,
+    INTERNAL_FLOW,
+    NAVIGATION,
     ModernAction,
     action_from_url,
 )
 from ui.pages.modern_action_feedback import (
     ModernActionFeedback,
     blocked_navigation_feedback,
-    classic_handoff_feedback,
     disabled_action_feedback,
     guarded_action_canceled_feedback,
-    guarded_action_opening_feedback,
+    action_completed_feedback,
+    action_unavailable_feedback,
     preview_action_feedback,
 )
 from ui.pages.modern_preview_templates import DEFAULT_STATUS_MESSAGE, render_preview_html
@@ -43,12 +43,12 @@ def is_webview_available() -> bool:
 def create_modern_preview_frame(
     page: str = "dashboard",
     parent: wx.Window | None = None,
-    on_open_legacy: Callable[[], None] | None = None,
+    state_host: object | None = None,
 ) -> wx.Frame | None:
     if not is_webview_available():
         return None
     try:
-        return ModernPreviewWebFrame(parent=parent, page=page, on_open_legacy=on_open_legacy)
+        return ModernPreviewWebFrame(parent=parent, page=page, state_host=state_host)
     except Exception:
         return None
 
@@ -58,11 +58,10 @@ class ModernPreviewWebFrame(wx.Frame):
         self,
         parent: wx.Window | None = None,
         page: str = "dashboard",
-        on_open_legacy: Callable[[], None] | None = None,
+        state_host: object | None = None,
     ) -> None:
         super().__init__(parent, title=f"PixelFlasher {VERSION} - {_frame_title(page)}", size=(1536, 960))
-        self._on_open_legacy = on_open_legacy
-        self._state_host = parent or _empty_state_host()
+        self._state_host = state_host or parent or _empty_state_host()
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
         self._page = str(page or "dashboard")
         self._status_message = DEFAULT_STATUS_MESSAGE
@@ -79,27 +78,7 @@ class ModernPreviewWebFrame(wx.Frame):
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(view, 1, wx.EXPAND)
         self.SetSizer(root)
-        self._build_menu()
         self.Centre()
-
-    def _build_menu(self) -> None:
-        menu_bar = wx.MenuBar()
-        classic = wx.Menu()
-        open_legacy = classic.Append(wx.ID_ANY, "Open Classic PixelFlasher", "Open existing guarded legacy flow")
-        self.Bind(wx.EVT_MENU, self._open_legacy, open_legacy)
-        menu_bar.Append(classic, "Classic")
-        self.SetMenuBar(menu_bar)
-
-    def _open_legacy(self, event: wx.CommandEvent | None = None) -> None:
-        if callable(self._on_open_legacy):
-            self._on_open_legacy()
-            return
-        self._set_feedback(classic_handoff_feedback())
-        wx.MessageBox(
-            "Open PixelFlasher with --legacy-ui to use the existing guarded legacy flow.",
-            "PixelFlasher",
-            wx.OK | wx.ICON_INFORMATION,
-        )
 
     def _show_page(self, page: str, status_message: str | None = None, status_tone: str = "safe") -> None:
         self._page = str(page or "dashboard")
@@ -148,15 +127,14 @@ class ModernPreviewWebFrame(wx.Frame):
                 wx.OK | wx.ICON_INFORMATION,
             )
             return
-        if action.safety_level == PREVIEW_ONLY:
+        if action.safety_level == NAVIGATION:
             self._handle_preview_action(action)
             return
-        if action.safety_level in {OPEN_LEGACY, GUARDED_LEGACY_FLOW}:
+        if action.safety_level in {INTERNAL_FLOW, GUARDED_FLOW}:
             if action.requires_confirmation and not self._confirm_guarded_action(action):
                 self._set_feedback(guarded_action_canceled_feedback(action))
                 return
-            self._set_feedback(guarded_action_opening_feedback(action))
-            self._open_legacy()
+            self._run_engine_action(action)
 
     def _handle_preview_action(self, action: ModernAction) -> None:
         page_by_action = {
@@ -177,14 +155,63 @@ class ModernPreviewWebFrame(wx.Frame):
             return
         wx.MessageBox(
             f"{action.label}\n\n{action.description}",
-            "Modern UI preview",
+            "PixelFlasher",
             wx.OK | wx.ICON_INFORMATION,
         )
 
+    def _run_engine_action(self, action: ModernAction) -> None:
+        if action.delegate == "select_firmware_file":
+            self._select_firmware_file(action)
+            return
+        method = getattr(self._state_host, action.delegate, None)
+        if not callable(method):
+            self._set_feedback(action_unavailable_feedback(action))
+            wx.MessageBox(
+                f"{action.label}\n\nThis action is not available in the current session.",
+                "PixelFlasher",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        try:
+            method(None)
+            self._set_feedback(action_completed_feedback(action))
+            wx.CallAfter(self._show_page, self._page)
+        except Exception as exc:
+            self._set_status(f"{action.label}: {exc}", "blocked")
+            raise
+
+    def _select_firmware_file(self, action: ModernAction) -> None:
+        wildcard = "Flashable files (*.zip;*.img)|*.zip;*.img|All files (*.*)|*.*"
+        with wx.FileDialog(
+            self,
+            "Select firmware, OTA, ROM, or image",
+            wildcard=wildcard,
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as dialog:
+            if dialog.ShowModal() == wx.ID_CANCEL:
+                self._set_feedback(guarded_action_canceled_feedback(action))
+                return
+            path = dialog.GetPath()
+        picker = getattr(self._state_host, "firmware_picker", None)
+        if picker is not None:
+            with contextlib.suppress(Exception):
+                picker.SetPath(path)
+        updater = getattr(self._state_host, "update_firmware_selection", None)
+        if callable(updater):
+            updater(path)
+        else:
+            config = getattr(self._state_host, "config", None)
+            if config is not None:
+                setattr(config, "firmware_path", path)
+        refresh = getattr(self._state_host, "update_widget_states", None)
+        if callable(refresh):
+            refresh()
+        self._set_feedback(action_completed_feedback(action))
+        wx.CallAfter(self._show_page, self._page)
+
     def _confirm_guarded_action(self, action: ModernAction) -> bool:
         body = action.confirmation_body or (
-            "Existing guarded legacy flow\n\n"
-            "Modern UI does not execute device commands directly.\n"
+            "PixelFlasher will run this action.\n"
             "Review all prompts before continuing."
         )
         message = f"{action.label}\n\n{action.description}\n\n{body}"
@@ -222,16 +249,16 @@ def _preferred_webview_backend():
 
 def _frame_title(page: str) -> str:
     return {
-        "dashboard": "Modern Dashboard Preview",
-        "shell": "Modern Shell Preview",
-        "wizard": "Flash Wizard Preview",
-        "backups": "Backups Preview",
-        "downloads": "Downloads Preview",
-        "settings": "Settings Preview",
-        "tools": "Tools Preview",
-        "safety": "Safety Preview",
-        "about": "About Preview",
-    }.get(str(page or "dashboard"), "Modern UI Preview")
+        "dashboard": "Modern Dashboard",
+        "shell": "Modern Shell",
+        "wizard": "Flash Wizard",
+        "backups": "Backups",
+        "downloads": "Downloads",
+        "settings": "Settings",
+        "tools": "Tools",
+        "safety": "Safety",
+        "about": "About",
+    }.get(str(page or "dashboard"), "Modern UI")
 
 
 def _is_initial_webview_url(url: str) -> bool:

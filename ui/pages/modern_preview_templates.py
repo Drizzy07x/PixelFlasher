@@ -1,4 +1,4 @@
-"""Static local HTML/CSS templates for Modern UI preview surfaces."""
+"""Static local HTML/CSS templates for Modern UI surfaces."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ui.pages.modern_preview_copy import NAV_ITEMS, SAFETY_BOUNDARY_LINES
 from ui.pages.modern_readonly_state import ModernReadonlyState
 
 
-DEFAULT_STATUS_MESSAGE = "No direct device execution from Modern UI"
+DEFAULT_STATUS_MESSAGE = "Ready"
 
 
 def render_preview_html(
@@ -679,14 +679,14 @@ def _sidebar(active: str, version: str) -> str:
         <div class="logo-mark">PF</div>
         <div>
           <div class="brand-title">PixelFlasher <span class="beta">BETA</span></div>
-          <div class="brand-subtitle">Modern UI Preview</div>
+          <div class="brand-subtitle">Modern UI</div>
           <div class="brand-subtitle">{escape(version)}</div>
         </div>
       </div>
-      <nav class="nav" aria-label="Modern UI preview surfaces">{nav}</nav>
+      <nav class="nav" aria-label="Modern UI surfaces">{nav}</nav>
       <div class="mode-card">
-        <h3>Safe-by-Default Mode</h3>
-        <p>Modern UI is the primary shell. Real device operations remain in existing guarded legacy flows.</p>
+        <h3>Modern Experience</h3>
+        <p>Use PixelFlasher from the modern dashboard. Sensitive actions keep the existing confirmations.</p>
       </div>
     </aside>
     """
@@ -748,7 +748,7 @@ def _dashboard_page(state: ModernReadonlyState) -> str:
         {_connected_device_card(state)}
         <div class="right-stack">
           {_quick_actions_card()}
-          {_safety_card()}
+          {_workflow_status_card(state)}
         </div>
       </div>
       <div class="lower-grid">
@@ -772,8 +772,8 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
     return f"""
     <article class="card device-card">
       <div class="card-header">
-        <h2>Connected Device (Read-Only)</h2>
-        <span class="badge">Preview</span>
+        <h2>Connected Device</h2>
+        <span class="badge">Live State</span>
       </div>
       <div class="device-body">
         <div class="phone"></div>
@@ -790,21 +790,22 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
           </div>
         </div>
       </div>
-      <div class="info-strip"><strong>ⓘ</strong><div>This information is read-only and reflects the last known state.<br>No live commands are executed.</div></div>
+      <div class="info-strip"><strong>ⓘ</strong><div>Device details update from the current PixelFlasher session.<br>Use Scan Devices to refresh connected devices.</div></div>
     </article>
     """
 
 
 def _quick_actions_card() -> str:
     rows = (
-        ("blue", "▣", "Flash Wizard (Planning + Guarded Flow)", "Plan safely, then hand off through confirmation.", "open_modern_flash_wizard"),
-        ("purple", "◈", "Patch Boot (Guarded Legacy Flow)", "Confirmation required. Existing safeguards remain in control.", "guarded_legacy_patch_flow"),
-        ("green", "▤", "Modern Shell (Read-Only)", "Explore device state in a safe, read-only shell.", "open_modern_shell"),
-        ("yellow", "↗", "Open Classic PixelFlasher", "Existing guarded legacy flow. Confirm actions before execution.", "open_legacy_ui"),
+        ("blue", "▣", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
+        ("yellow", "ϟ", "Flash Device", "Start the configured flash workflow.", "flash_device"),
+        ("purple", "◈", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
+        ("green", "▤", "Modern Shell", "Explore device and firmware state.", "open_modern_shell"),
+        ("yellow", "↻", "Scan Devices", "Refresh connected devices.", "scan_devices"),
     )
     return f"""
     <article class="card">
-      <div class="card-header"><h2>Quick Actions <span class="muted">(Preview)</span></h2></div>
+      <div class="card-header"><h2>Quick Actions</h2></div>
       <div class="action-list">
         {"".join(_action_row(*row) for row in rows)}
       </div>
@@ -812,15 +813,19 @@ def _quick_actions_card() -> str:
     """
 
 
-def _safety_card() -> str:
-    lines = SAFETY_BOUNDARY_LINES + (
-        "Reboot, wipe, and slot switching remain disabled in Modern UI.",
+def _workflow_status_card(state: ModernReadonlyState) -> str:
+    rows = (
+        ("Device", state.device.display_name or state.device.serial or "not selected"),
+        ("Firmware", state.firmware.filename or "not selected"),
+        ("Platform tools", _platform_tools_label(state)),
+        ("Root status", state.device.root_status),
+        ("Flash plan", state.flash.flash_mode),
     )
     return f"""
-    <article class="card safety">
-      <div class="card-header"><h2>🛡 Safety Boundary</h2></div>
-      <div class="check-list">
-        {"".join(_check(line) for line in lines)}
+    <article class="card">
+      <div class="card-header"><h2>Workflow Status</h2><span class="badge">Ready</span></div>
+      <div class="stack-list">
+        {"".join(_mini_row(label, value) for label, value in rows)}
       </div>
     </article>
     """
@@ -829,25 +834,25 @@ def _safety_card() -> str:
 def _device_slots_card(state: ModernReadonlyState) -> str:
     slot = state.device.active_slot or "unknown"
     return _mini_card(
-        "Device Slots (Read-Only)",
-        "Preview",
-        (("Active slot", slot), ("Slot target", state.flash.slot_behavior), ("Slot changes", "disabled in Modern UI")),
+        "Device Slots",
+        "Slots",
+        (("Active slot", slot), ("Slot target", state.flash.slot_behavior), ("Switch slot", "Use Tools when a device is selected")),
     )
 
 
 def _partitions_card(state: ModernReadonlyState) -> str:
     patchable = "available" if state.firmware.has_patchable_image else "not detected"
     return _mini_card(
-        "Partitions (Read-Only)",
-        "Preview",
-        (("boot/init_boot", patchable), ("Verity", state.flash.verity), ("Verification", state.flash.verification), ("Partition writes", "disabled in Modern UI")),
+        "Partitions",
+        "Images",
+        (("boot/init_boot", patchable), ("Verity", state.flash.verity), ("Verification", state.flash.verification), ("Partition manager", "Available in Tools")),
     )
 
 
 def _last_backup_card(state: ModernReadonlyState) -> str:
     return _mini_card(
-        "Last Backup (Read-Only)",
-        "Preview",
+        "Last Backup",
+        "Backups",
         (("Last backup", state.backups.latest_label), ("Total backups", str(state.backups.total_count)), ("Restore", state.backups.restore_mode)),
     )
 
@@ -856,19 +861,19 @@ def _shell_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       <div class="chip-row">
-        <span class="chip"><span class="dot warn"></span>Preview-only</span>
-        <span class="chip"><span class="dot safe"></span>Read-only</span>
-        <span class="chip"><span class="dot"></span>No device changes</span>
+        <span class="chip"><span class="dot safe"></span>Device state</span>
+        <span class="chip"><span class="dot warn"></span>Firmware context</span>
+        <span class="chip"><span class="dot"></span>Actions</span>
       </div>
-      {_context_ribbon(state, "Read-only state explorer")}
+      {_context_ribbon(state, "Modern Shell")}
       <div class="shell-grid">
         {_explorer_card("Device State Overview", (("Selected device", state.device.display_name or state.device.serial or "none"), ("Android", state.device.android_version or "unknown"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "unknown")))}
-        {_explorer_card("Connection Readiness", (("ADB", "ready" if state.device.adb_ready else "not ready"), ("Fastboot", _bootloader_tool_mode(state)), ("Platform tools", _platform_tools_label(state)), ("Device changes", "none")))}
+        {_explorer_card("Connection Readiness", (("ADB", "ready" if state.device.adb_ready else "not ready"), ("Fastboot", _bootloader_tool_mode(state)), ("Platform tools", _platform_tools_label(state)), ("Selected device", state.device.display_name or "none")))}
         {_explorer_card("Device Information", (("Model", state.device.display_name or "unknown"), ("Codename", state.device.codename or "unknown"), ("Serial", state.device.serial or "none"), ("Product", state.device.product or "unknown")))}
         {_explorer_card("Firmware Context", (("Type", _package_type(state)), ("Build", state.firmware.build_id or "unknown"), ("Validation", "verified" if state.firmware.verified else "waiting"), ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected")))}
         {_explorer_card("Loaded Flash Options", (("Mode", state.flash.flash_mode), ("Data", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("No reboot", _on_off(state.flash.no_reboot))))}
-        {_explorer_card("Safety Boundary", tuple(("Limit", line) for line in SAFETY_BOUNDARY_LINES))}
-        {_explorer_card("Preview Limitations", (("Live commands", "not executed"), ("File parsing", "not started"), ("Mutating actions", "disabled"), ("Legacy flows", "guarded only")))}
+        {_explorer_card("Workflow Controls", (("Flash", "configured from Flash Wizard"), ("Patch", "available from Dashboard"), ("Firmware", "select and process"), ("Tools", "available from sidebar")))}
+        {_explorer_card("Available Actions", (("Scan", "available"), ("Firmware", "select and process"), ("Patch", "available when ready"), ("Flash", "available when ready")))}
       </div>
     </section>
     """
@@ -884,41 +889,41 @@ def _wizard_page(state: ModernReadonlyState) -> str:
         {_step("4", "Plan", False)}
         {_step("5", "Review", False)}
       </div>
-      {_context_ribbon(state, "Guarded handoff only")}
+      {_context_ribbon(state, "Flash workflow")}
       <div class="wizard-grid">
         <article class="card">
           <div class="card-header">
             <div>
-              <h2>Step 1: Device Selection &amp; Readiness</h2>
-              <div class="muted">Create and review a flash plan safely.</div>
+              <h2>Step 1: Device &amp; Firmware</h2>
+              <div class="muted">Prepare the selected device and firmware package.</div>
             </div>
-            <span class="badge yellow">Guarded legacy flow · confirmation required</span>
+            <span class="badge yellow">PixelFlasher safeguards</span>
           </div>
           <div class="readiness-grid">
-            {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected from loaded state"), "USB connection is read-only", "ADB not executed", "Device authorization unknown"))}
-            {_wizard_readiness("Firmware Readiness", (("No firmware loaded" if not state.firmware.selected else "Firmware selected from loaded state"), "Select Firmware remains preview copy", "Compatibility unknown", "Slot information unavailable"))}
-            {_wizard_blocked("Execution Blocked", ("No commands will be executed directly", "No changes will be made by Modern UI", "Use guarded legacy flow to execute"))}
+            {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected"), state.device.connection_label, f"Active slot: {state.device.active_slot or 'unknown'}", f"Root: {state.device.root_status}"))}
+            {_wizard_readiness("Firmware Readiness", (("No firmware selected" if not state.firmware.selected else state.firmware.filename), _package_type(state), "Process firmware when ready", "Patchable image: " + ("available" if state.firmware.has_patchable_image else "not detected")))}
+            {_wizard_readiness("Flash Workflow", ("Review flash mode", "Confirm options", "Run PixelFlasher flash", "Follow prompts"))}
           </div>
           {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "not selected")))}
           {_wizard_stage_overview()}
-          <div class="notice">Modern UI prepares the plan; execution is delegated to existing guarded PixelFlasher flow. No flash command is run from Modern UI.</div>
-          <div class="notice">ⓘ This is a preview environment. All actions are read-only and safe.</div>
+          <div class="notice">PixelFlasher keeps its existing confirmations for flash, patch, wipe, slot, and reboot operations.</div>
           <div class="footer-controls">
-            <div class="button">Cancel</div>
-            <a class="button primary guarded-action" href="{escape(action_url("guarded_legacy_flash_flow"))}">Continue to Guarded Legacy Flash Flow</a>
+            <a class="button" href="{escape(action_url("select_firmware"))}">Select Firmware</a>
+            <a class="button" href="{escape(action_url("process_firmware"))}">Process Firmware</a>
+            <a class="button primary guarded-action" href="{escape(action_url("flash_device"))}">Flash Device</a>
           </div>
         </article>
         <aside class="card guarded">
-          <div class="card-header"><h3>Guarded Legacy Handoff</h3><span class="badge yellow">Confirm first</span></div>
-          <p class="muted">Blocked Execution remains enforced in Modern UI. Continue only opens the existing guarded classic flow after confirmation.</p>
+          <div class="card-header"><h3>Flash Summary</h3><span class="badge yellow">Review</span></div>
+          <p class="muted">Review the current plan before starting the configured PixelFlasher flash workflow.</p>
           <div class="stack-list">
-            {_mini_row("Can flash", "no direct execution")}
+            {_mini_row("Status", "ready when device and firmware are selected")}
             {_mini_row("Warnings", str(len(state.warnings) or 2))}
             {_mini_row("Device", state.device.display_name or "not selected")}
             {_mini_row("Firmware", state.firmware.filename or "not selected")}
             {_mini_row("Mode", state.flash.flash_mode)}
             {_mini_row("Slot target", state.flash.slot_behavior)}
-            {_mini_row("Final action", "guarded legacy handoff")}
+            {_mini_row("Final action", "Flash Device")}
           </div>
         </aside>
       </div>
@@ -928,10 +933,10 @@ def _wizard_page(state: ModernReadonlyState) -> str:
 
 def _wizard_stage_overview() -> str:
     rows = (
-        ("2", "Firmware Step Preview", "Shows selected package context only. No file picker, extraction, or package parsing starts here."),
-        ("3", "Options Step Preview", "Displays safe defaults for slot, data, and patch choices. Mutating options stay guarded."),
-        ("4", "Plan Step Preview", "Summarizes what the guarded legacy flow would review before any real operation."),
-        ("5", "Review Step Preview", "Final confirmation remains native and delegates to existing guarded PixelFlasher flow."),
+        ("2", "Firmware", "Select a factory image, OTA package, custom ROM, or image file."),
+        ("3", "Options", "Review data, slot, verity, verification, force, and reboot settings."),
+        ("4", "Plan", "Confirm the selected device, package, mode, and target slot."),
+        ("5", "Review", "Start the PixelFlasher workflow and follow the final prompts."),
     )
     return f"""<div class="wizard-stage-grid">{"".join(_wizard_stage_card(*row) for row in rows)}</div>"""
 
@@ -948,19 +953,19 @@ def _wizard_stage_card(number: str, title: str, copy: str) -> str:
 def _backups_page(state: ModernReadonlyState) -> str:
     empty = ""
     if not state.backups.has_loaded_backups:
-        empty = '<article class="card wide-card">' + _empty_state("No backups loaded", "Backup rows will appear here after existing legacy state is available.") + "</article>"
+        empty = '<article class="card wide-card">' + _empty_state("No backups loaded", "Connect and scan a rooted device to load backup details.") + "</article>"
     return f"""
     <section class="content">
       {_metric_strip((("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Restore mode", "Guarded"), ("File changes", "None")))}
       {_context_ribbon(state, "No file changes")}
       <div class="page-grid">
-        {_hero_card("▤", "Backups (Preview)", "Browse backup state in Modern UI. Creating, restoring, and deleting backups remain guarded legacy operations.")}
-        {_mini_card("Backup Summary (Read-Only)", "Preview", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location)))}
-        {_tile_card("Backup Actions (Guarded)", (("Create backup", "Delegates to existing guarded legacy flow."), ("Restore backup", "Confirmation remains in classic PixelFlasher."), ("Inspect details", "Read-only preview state."), ("Delete backup", "Disabled in Modern UI.")))}
+        {_hero_card("▤", "Backups", "Review backup context and open the backup manager for connected devices.")}
+        {_mini_card("Backup Summary", "Backups", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location)))}
+        {_tile_card("Backup Actions", (("Backup Manager", "Open the available backup tools."), ("Create backup", "Available from Backup Manager."), ("Restore backup", "Available from Backup Manager."), ("Inspect details", "Review loaded backup state.")))}
         {_explorer_card("Loaded Backup Context", (("Device", state.device.display_name or state.device.serial or "not selected"), ("Backup index", "loaded" if state.backups.has_loaded_backups else "not loaded"), ("Backup location", state.backups.location), ("Restore mode", state.backups.restore_mode)))}
         {_explorer_card("Backup Details", (("Selected backup", state.backups.latest_label if state.backups.has_loaded_backups else "none"), ("Archive state", "not opened"), ("Restore target", "not selected"), ("Compatibility", "not evaluated")))}
-        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
-        {_explorer_card("Preview Limitations", (("File writes", "not available"), ("Restore actions", "guarded legacy only"), ("Backup creation", "guarded legacy only"), ("Device changes", "none")))}
+        {_explorer_card("Warnings", _warning_rows(state))}
+        {_explorer_card("Backup Tools", (("Backup Manager", "available"), ("Support package", "available"), ("Device required", "yes"), ("Root required", "for Magisk backups")))}
         {empty}
       </div>
     </section>
@@ -973,12 +978,12 @@ def _downloads_page(state: ModernReadonlyState) -> str:
       {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Validation", "Verified" if state.firmware.verified else "Waiting"), ("Catalog", state.downloads.image_catalog_status), ("Device apply", "Blocked")))}
       {_context_ribbon(state, "No network or device apply")}
       <div class="page-grid two">
-        {_hero_card("↓", "Downloads (Preview)", "Review firmware and resource download context without starting downloads or applying files to a device.")}
-        {_tile_card("Firmware Downloads (Preview)", (("Firmware", state.firmware.filename or "No package selected."), ("Tools", "No tool download is started."), ("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Apply to device", "Disabled in Modern UI.")))}
+        {_hero_card("↓", "Downloads", "Browse firmware resources and rooting app downloads.")}
+        {_tile_card("Firmware Downloads", (("Firmware", state.firmware.filename or "No package selected."), ("Tools", "Open rooting app downloads."), ("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Apply to device", "Use Flash Wizard.")))}
         {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Module updates", "enabled" if state.downloads.module_update_check else "disabled"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "none")))}
         {_explorer_card("Download Details", (("Selected item", state.firmware.filename or "none"), ("Validation", "verified" if state.firmware.verified else "not started"), ("Last catalog check", state.downloads.last_checked), ("Frequency", state.downloads.update_frequency)))}
-        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
-        {_explorer_card("Safety Notes", (("Network access", "not used by this preview"), ("Package parsing", "not started"), ("File mutation", "none"), ("Legacy flows", "guarded only")))}
+        {_explorer_card("Warnings", _warning_rows(state))}
+        {_explorer_card("Download Actions", (("Firmware downloads", "available for selected device"), ("Rooting App", "available"), ("Process package", "available after selection"), ("Flash package", "use Flash Wizard")))}
       </div>
     </section>
     """
@@ -987,15 +992,15 @@ def _downloads_page(state: ModernReadonlyState) -> str:
 def _settings_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Mode", "Read-only"), ("Language", state.settings.language), ("Saved changes", "0"), ("Device changes", "0")))}
+      {_metric_strip((("Mode", "Modern"), ("Language", state.settings.language), ("Advanced", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
       {_context_ribbon(state, "No saves")}
       <div class="page-grid two">
-        {_hero_card("⚙", "Settings (Preview)", "Inspect preference groups in a read-only Modern UI surface. No settings are saved from this preview.")}
+        {_hero_card("⚙", "Settings", "Review configured preferences and open the full settings dialog.")}
         {_tile_card("General Settings", (("Startup behavior", "Modern UI primary when supported."), ("Advanced options", _on_off(state.settings.advanced_options)), ("Verbose logs", _on_off(state.settings.verbose)), ("Notifications", _on_off(state.settings.notifications))))}
         {_tile_card("Paths & Environment", (("Platform tools", state.tools.platform_tools_path or "not configured"), ("Firmware", state.firmware.filename or "not selected"), ("Phone path", state.settings.phone_path or "not configured"), ("Low memory", _on_off(state.settings.low_memory))))}
         {_explorer_card("Loaded Preference Flags", (("Language", state.settings.language), ("Custom ROM options", _on_off(state.settings.custom_rom_options)), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
-        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
-        {_explorer_card("Preview Policy", (("Saving", "disabled"), ("File writes", "none"), ("Device access", "none"), ("Legacy settings", "unchanged")))}
+        {_explorer_card("Warnings", _warning_rows(state))}
+        {_explorer_card("Settings Actions", (("Open Settings", "available"), ("Language", state.settings.language), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
       </div>
     </section>
     """
@@ -1004,16 +1009,16 @@ def _settings_page(state: ModernReadonlyState) -> str:
 def _tools_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Tool groups", "6"), ("Direct commands", "Off"), ("Platform tools", _platform_tools_label(state)), ("Unknown actions", "Blocked")))}
-      {_context_ribbon(state, "Direct commands off")}
+      {_metric_strip((("Tool groups", "6"), ("Actions", "Ready"), ("Platform tools", _platform_tools_label(state)), ("Unknown actions", "Blocked")))}
+      {_context_ribbon(state, "Tools")}
       <div class="page-grid">
-        {_hero_card("⚒", "Tools (Preview)", "Tool categories are visible for orientation. Execution remains disabled or delegated to guarded legacy flows.")}
-        {_tile_card("Tool Catalog", (("Boot Image Patcher", "Guarded legacy flow."), ("Support Package", "Guarded legacy flow."), ("Log Viewer", "Preview only."), ("Device Info", "Read-only context."), ("Partition Explorer", "Preview only."), ("Command Runner", "Disabled in Modern UI.")))}
-        {_explorer_card("Loaded Tool State", (("ADB", "available" if state.tools.adb_available else "not available"), ("Fastboot", _bootloader_tool_status(state)), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Direct use", "disabled in Modern UI")))}
-        {_explorer_card("Tool Availability Summary", (("ADB path", "loaded" if state.tools.adb_path else "not found"), ("Bootloader tool path", "loaded" if _bootloader_tool_available(state) else "not found"), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Live commands", "not run from Modern UI")))}
-        {_explorer_card("Execution Policy", (("Direct commands", "disabled"), ("Device mutation", "none"), ("Confirmation", "required for legacy handoff"), ("Unknown tools", "blocked")))}
-        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
-        {_explorer_card("Disabled Operations", (("Reboot", "disabled"), ("Wipe", "disabled"), ("Slot switching", "disabled"), ("Live command output", "not captured")))}
+        {_hero_card("⚒", "Tools", "Open PixelFlasher tools from the modern workspace.")}
+        {_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image."), ("Support Package", "Create support archive."), ("Rooting App", "Download or install root tools."), ("Magisk Modules", "Manage modules."), ("Partition Manager", "Open partition tools."), ("Device Scan", "Refresh devices.")))}
+        {_explorer_card("Loaded Tool State", (("ADB", "available" if state.tools.adb_available else "not available"), ("Fastboot", _bootloader_tool_status(state)), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Selected device", state.device.display_name or "none")))}
+        {_explorer_card("Tool Availability Summary", (("ADB path", "loaded" if state.tools.adb_path else "not found"), ("Bootloader tool path", "loaded" if _bootloader_tool_available(state) else "not found"), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Root status", state.device.root_status)))}
+        {_explorer_card("Operation Policy", (("Flash", "PixelFlasher prompts"), ("Patch", "PixelFlasher prompts"), ("Partition tools", "PixelFlasher prompts"), ("Unknown tools", "blocked")))}
+        {_explorer_card("Warnings", _warning_rows(state))}
+        {_explorer_card("Advanced Operations", (("Reboot", "requires device"), ("Wipe", "requires flash workflow"), ("Slot switching", "requires device"), ("Live command output", "available in tools")))}
       </div>
     </section>
     """
@@ -1022,15 +1027,16 @@ def _tools_page(state: ModernReadonlyState) -> str:
 def _safety_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Direct execution", "Off"), ("Bridge", "Allow-listed"), ("Unknown URLs", "Blocked"), ("Legacy prompts", "Required")))}
+      {_metric_strip((("Actions", "Allow-listed"), ("Confirmations", "Required"), ("Unknown URLs", "Blocked"), ("Engine", "PixelFlasher")))}
       {_context_ribbon(state, "Allow-listed only")}
       <div class="page-grid two">
-        {_hero_card("◇", "Safety (Read-Only)", "Modern UI is safe by default. Real operations are either disabled or handed to existing guarded legacy flows.")}
+        {_hero_card("◇", "Safety", "PixelFlasher keeps the existing confirmations for sensitive operations.")}
         {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
-        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
+        {_explorer_card("Warnings", _warning_rows(state))}
         {_explorer_card("Safety Boundary", tuple(("Rule", line) for line in SAFETY_BOUNDARY_LINES))}
-        {_explorer_card("Guarded Handoffs", (("Flash plan execution", "confirmation required"), ("Patch boot flow", "confirmation required"), ("Support package", "confirmation required"), ("Classic UI", "existing safeguards remain")))}
-        {_explorer_card("Disabled in Modern UI", (("Reboot", "disabled"), ("Wipe", "disabled"), ("Slot switching", "disabled"), ("Direct command execution", "disabled")))}
+        {_explorer_card("Operation Policy", (("Flash device", "requires confirmation"), ("Patch boot", "requires confirmation"), ("Support package", "asks for destination"), ("Partition tools", "requires confirmation")))}
+        {_explorer_card("Confirmations", (("Flash device", "required"), ("Patch boot", "required when prompted"), ("Support package", "file destination required"), ("Partition tools", "required")))}
+        {_explorer_card("Boundaries", (("Unknown navigation", "blocked"), ("External links", "blocked"), ("Unsafe action IDs", "blocked"), ("Raw command bridge", "not exposed")))}
       </div>
     </section>
     """
@@ -1040,13 +1046,13 @@ def _about_page(version: str, state: ModernReadonlyState) -> str:
     about_copy = f"PixelFlasher {version} with Modern UI as the primary safe-by-default shell."
     return f"""
     <section class="content">
-      {_metric_strip((("Version", version), ("Modern UI", "Primary"), ("Legacy UI", "Available"), ("Loaded warnings", str(len(state.warnings)))))}
+      {_metric_strip((("Version", version), ("Modern UI", "Primary"), ("Engine", "PixelFlasher"), ("Loaded warnings", str(len(state.warnings)))))}
       {_context_ribbon(state, "Local info only")}
       <div class="page-grid two">
         {_hero_card("PF", "About PixelFlasher", about_copy)}
-        {_explorer_card("Application", (("Version", version), ("Modern UI", "primary when supported"), ("Legacy UI", "available through guarded fallback"), ("Device changes", "none from this page")))}
+        {_explorer_card("Application Engine", (("Version", version), ("Modern UI", "primary"), ("Engine", "PixelFlasher"), ("Workspace", "modern")))}
         {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
-        {_tile_card("Modern UI Status", (("Dashboard", "Available"), ("Shell", "Read-only"), ("Flash Wizard", "Guarded handoff"), ("Remaining pages", "Preview surfaces")))}
+        {_tile_card("Modern UI Status", (("Dashboard", "Available"), ("Shell", "Device state"), ("Flash Wizard", "Functional workflow"), ("Remaining pages", "Modern workspace")))}
         {_explorer_card("Safety", (("Remote assets", "not loaded"), ("Scripts", "not used"), ("Command bridge", "allow-listed actions only"), ("Unknown actions", "blocked")))}
       </div>
     </section>
@@ -1058,7 +1064,7 @@ def _status_bar(version: str, status_message: str, status_tone: str) -> str:
     message = status_message or DEFAULT_STATUS_MESSAGE
     return f"""
     <footer class="statusbar {escape(tone)}">
-      <div><span class="status-dot"></span>Modern UI · Safe by Default</div>
+      <div><span class="status-dot"></span>Modern UI</div>
       <div>{escape(message)}</div>
       <div>PixelFlasher {escape(version)}</div>
     </footer>
@@ -1102,7 +1108,7 @@ def _hero_card(icon: str, title: str, copy: str) -> str:
 def _tile_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
     return f"""
     <article class="card wide-card">
-      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Read-only</span></div>
+      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Open</span></div>
       <div class="tile-grid">{"".join(_tile(label, copy) for label, copy in rows)}</div>
     </article>
     """
@@ -1129,7 +1135,7 @@ def _context_ribbon(state: ModernReadonlyState, boundary: str) -> str:
         ("Boundary", boundary, "safe"),
     )
     return f"""
-    <div class="context-ribbon" aria-label="Loaded read-only page context">
+    <div class="context-ribbon" aria-label="Loaded app context">
       {"".join(_context_item(*row) for row in rows)}
     </div>
     """
@@ -1164,7 +1170,7 @@ def _mini_card(title: str, badge: str, rows: tuple[tuple[str, str], ...]) -> str
 def _explorer_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
     return f"""
     <article class="card explorer-card">
-      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Read-only</span></div>
+      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Details</span></div>
       <div class="stack-list">{"".join(_mini_row(label, value) for label, value in rows)}</div>
     </article>
     """
@@ -1235,59 +1241,59 @@ def _icon(key: str) -> str:
 
 def _headline(page: str) -> str:
     return {
-        "dashboard": "Modern UI · Safe by Default",
-        "shell": "Modern Shell – Read-Only State",
-        "wizard": "Flash Wizard (Preview)",
-        "backups": "Backups (Preview)",
-        "downloads": "Downloads (Preview)",
-        "settings": "Settings (Preview)",
-        "tools": "Tools (Preview)",
-        "safety": "Safety (Read-Only)",
+        "dashboard": "Modern UI",
+        "shell": "Modern Shell",
+        "wizard": "Flash Wizard",
+        "backups": "Backups",
+        "downloads": "Downloads",
+        "settings": "Settings",
+        "tools": "Tools",
+        "safety": "Safety",
         "about": "About PixelFlasher",
-    }.get(page, "Modern UI – Preview")
+    }.get(page, "Modern UI")
 
 
 def _subtitle(page: str) -> str:
     return {
-        "dashboard": "Guarded operations stay in the classic execution flow.",
-        "shell": "Loaded state only. No command execution.",
-        "wizard": "Planning preview · execution delegated to guarded legacy flow.",
+        "dashboard": "Manage PixelFlasher from the modern workspace.",
+        "shell": "Device, firmware, and tool state in one place.",
+        "wizard": "Plan firmware, options, patching, and flash execution.",
         "backups": "Browse backup context without creating, restoring, or deleting files.",
         "downloads": "Browse download context without network or device changes.",
         "settings": "Review preferences without saving changes.",
-        "tools": "Tool categories are visible; execution is disabled or guarded.",
-        "safety": "Read the boundaries that keep Modern UI safe by default.",
+        "tools": "Open PixelFlasher tools from one workspace.",
+        "safety": "Review confirmations and protected operation boundaries.",
         "about": "Application information and Modern UI status.",
-    }.get(page, "Preview-only. Read-only. No device changes.")
+    }.get(page, "Ready.")
 
 
 def _badge_markup(page: str) -> str:
     labels = {
-        "dashboard": (("SAFE BY DEFAULT", "yellow"), ("GUARDED OPERATIONS", ""), ("NO DEVICE CHANGES", "yellow")),
-        "shell": (("READ-ONLY STATE", ""), ("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")),
-        "wizard": (("PLANNING PREVIEW", "yellow"), ("GUARDED HANDOFF", ""), ("NO DEVICE CHANGES", "yellow")),
-        "backups": (("PREVIEW ONLY", "yellow"), ("GUARDED RESTORE", ""), ("NO FILE CHANGES", "yellow")),
-        "downloads": (("PREVIEW ONLY", "yellow"), ("NO NETWORK", ""), ("NO DEVICE CHANGES", "yellow")),
-        "settings": (("READ-ONLY", ""), ("NO SAVES", "yellow"), ("NO DEVICE CHANGES", "yellow")),
-        "tools": (("PREVIEW ONLY", "yellow"), ("GUARDED TOOLS", ""), ("DISABLED COMMANDS", "yellow")),
-        "safety": (("READ-ONLY", ""), ("ALLOW-LISTED", "yellow"), ("NO DEVICE CHANGES", "yellow")),
-        "about": (("READ-ONLY", ""), ("LOCAL INFO", "yellow"), ("NO DEVICE CHANGES", "yellow")),
-    }.get(page, (("SAFE BY DEFAULT", "yellow"), ("NO DEVICE CHANGES", "yellow")))
+        "dashboard": (("READY", "yellow"), ("MODERN UI", ""), ("PROTECTED", "yellow")),
+        "shell": (("DEVICE STATE", ""), ("FIRMWARE", "yellow"), ("TOOLS", "yellow")),
+        "wizard": (("FLASH WORKFLOW", "yellow"), ("OPTIONS", ""), ("REVIEW", "yellow")),
+        "backups": (("BACKUPS", "yellow"), ("RESTORE", ""), ("SUPPORT", "yellow")),
+        "downloads": (("FIRMWARE", "yellow"), ("ROOTING APP", ""), ("TOOLS", "yellow")),
+        "settings": (("SETTINGS", ""), ("PREFERENCES", "yellow"), ("PROFILE", "yellow")),
+        "tools": (("TOOLS", "yellow"), ("DEVICE", ""), ("ADVANCED", "yellow")),
+        "safety": (("CONFIRMATIONS", ""), ("ALLOW-LISTED", "yellow"), ("PROTECTED", "yellow")),
+        "about": (("PIXELFLASHER", ""), ("LOCAL INFO", "yellow"), ("MODERN UI", "yellow")),
+    }.get(page, (("READY", "yellow"), ("MODERN UI", "yellow")))
     return "".join(f'<span class="badge {tone}">{escape(label)}</span>' for label, tone in labels)
 
 
 def _page_title(page: str) -> str:
     return {
-        "dashboard": "Modern Dashboard Preview",
-        "shell": "Modern Shell Preview",
-        "wizard": "Flash Wizard Preview",
-        "backups": "Backups Preview",
-        "downloads": "Downloads Preview",
-        "settings": "Settings Preview",
-        "tools": "Tools Preview",
-        "safety": "Safety Preview",
-        "about": "About Preview",
-    }.get(page, "Modern UI Preview")
+        "dashboard": "Modern Dashboard",
+        "shell": "Modern Shell",
+        "wizard": "Flash Wizard",
+        "backups": "Backups",
+        "downloads": "Downloads",
+        "settings": "Settings",
+        "tools": "Tools",
+        "safety": "Safety",
+        "about": "About",
+    }.get(page, "Modern UI")
 
 
 def _normalize_page(page: str) -> str:
@@ -1319,7 +1325,7 @@ def _on_off(value: bool) -> str:
 
 def _warning_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     if not state.warnings:
-        return (("Status", "No read-only warnings"), ("Device changes", "none"))
+        return (("Status", "No warnings"), ("Ready", "yes"))
     return tuple((f"Warning {index}", warning) for index, warning in enumerate(state.warnings[:4], start=1))
 
 

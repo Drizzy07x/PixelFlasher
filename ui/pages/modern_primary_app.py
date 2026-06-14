@@ -1,47 +1,58 @@
-"""Primary Modern UI startup wrapper with safe legacy fallback."""
+"""Primary Modern UI startup wrapper."""
 
 from __future__ import annotations
 
 import os
-import sys
+import time
 from collections.abc import Sequence
+from types import SimpleNamespace
 
 import wx
 
 from ui.pages.modern_preview_web import create_modern_preview_frame, is_webview_available
 
 
-OPEN_LEGACY_EXIT_CODE = 2
-
-
-def legacy_override_requested(argv: Sequence[str] | None = None, env: dict[str, str] | None = None) -> bool:
-    args = tuple(argv or ())
-    values = env if env is not None else os.environ
-    return "--legacy-ui" in args or values.get("PIXELFLASHER_LEGACY_UI") == "1"
-
-
 def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
-    if legacy_override_requested(argv or sys.argv):
-        return OPEN_LEGACY_EXIT_CODE
+    _ = argv
     if not is_webview_available():
-        return OPEN_LEGACY_EXIT_CODE
+        print("Modern UI WebView is not available.")
+        return 1
 
     app = wx.App(False)
-    legacy_requested = {"value": False}
-
-    def request_legacy() -> None:
-        legacy_requested["value"] = True
-        frame = getattr(app, "_modern_primary_frame", None)
-        if frame is not None:
-            frame.Close()
-        app.ExitMainLoop()
-
-    frame = create_modern_preview_frame(page="dashboard", parent=None, on_open_legacy=request_legacy)
+    engine = _create_hidden_engine()
+    frame = create_modern_preview_frame(page="dashboard", parent=None, state_host=engine)
     if frame is None:
-        return OPEN_LEGACY_EXIT_CODE
+        if engine is not None:
+            engine.Destroy()
+        return 1
 
     app._modern_primary_frame = frame  # type: ignore[attr-defined]
+    app._modern_engine_frame = engine  # type: ignore[attr-defined]
+
+    def on_close(event: wx.CloseEvent) -> None:
+        if engine is not None:
+            engine.Destroy()
+        event.Skip()
+        wx.CallAfter(app.ExitMainLoop)
+
+    frame.Bind(wx.EVT_CLOSE, on_close)
     frame.Show(True)
     frame.Raise()
     app.MainLoop()
-    return OPEN_LEGACY_EXIT_CODE if legacy_requested["value"] else 0
+    return 0
+
+
+def _create_hidden_engine() -> wx.Frame:
+    os.environ["PIXELFLASHER_MODERN_ENGINE"] = "1"
+    import Main
+
+    Main.global_args = SimpleNamespace(config=None, console=False, console_only=False)
+    Main.init_config_path()
+    timestamp = time.strftime("%Y-%m-%d_%Hh%Mm%Ss")
+    pumlfile = os.path.join(Main.get_config_path(), "puml", f"PixelFlasher_{timestamp}.puml")
+    Main.set_pumlfile(pumlfile)
+    Main.puml(f"@startuml {timestamp}\nscale 2\nstart\n", False, "w")
+    Main.puml("<style>\n  note {\n    FontName Courier\n    FontSize 10\n  }\n</style>\n")
+    frame = Main.PixelFlasher(None, "PixelFlasher")
+    frame.Hide()
+    return frame

@@ -733,10 +733,15 @@ class PixelFlasher(wx.Frame):
             self.SetPosition((self.config.pos_x, self.config.pos_y))
 
         self.resizing = False
+        self._modern_engine_mode = os.environ.get("PIXELFLASHER_MODERN_ENGINE") == "1"
+
         if not dont_initialize:
             self.initialize()
-        set_window_shown(True)
-        self.Show(True)
+        set_window_shown(not self._modern_engine_mode)
+        if self._modern_engine_mode:
+            self.Hide()
+        else:
+            self.Show(True)
 
     def get_progress_window(self):
         if not hasattr(self, 'download_progress_window') or self.download_progress_window is None:
