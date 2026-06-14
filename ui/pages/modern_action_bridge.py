@@ -51,42 +51,42 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         True,
     ),
     ModernAction(
-        "open_backups_preview",
+        "open_backups",
         "Open Backups",
         "Review and manage available backup tools.",
         NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_downloads_preview",
+        "open_downloads",
         "Open Downloads",
         "Browse firmware and rooting app downloads.",
         NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_settings_preview",
+        "open_settings",
         "Open Settings",
         "Open PixelFlasher settings.",
         NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_tools_preview",
+        "open_tools",
         "Open Tools",
         "Open PixelFlasher tools.",
         NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_safety_preview",
+        "open_safety",
         "Open Safety",
         "Review operation boundaries and confirmations.",
         NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_about_preview",
+        "open_about",
         "Open About",
         "View application information.",
         NAVIGATION,
@@ -255,7 +255,9 @@ def action_url(action_id: str) -> str:
 
 def action_from_url(url: str) -> ModernAction | None:
     parsed = urlparse(str(url or ""))
-    if parsed.scheme != ACTION_SCHEME or parsed.netloc != ACTION_HOST:
+    if parsed.scheme.lower() != ACTION_SCHEME or parsed.netloc.lower() != ACTION_HOST:
+        return None
+    if parsed.params or parsed.query or parsed.fragment:
         return None
     action_id = parsed.path.strip("/")
     if not action_id or "/" in action_id:

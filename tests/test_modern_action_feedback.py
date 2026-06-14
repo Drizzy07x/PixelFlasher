@@ -10,7 +10,7 @@ from ui.pages.modern_action_feedback import (
     blocked_navigation_feedback,
     disabled_action_feedback,
     guarded_action_canceled_feedback,
-    preview_action_feedback,
+    navigation_action_feedback,
 )
 
 
@@ -18,7 +18,7 @@ class ModernActionFeedbackTests(unittest.TestCase):
     def test_navigation_feedback_is_short_and_product_ready(self):
         blocked = blocked_navigation_feedback()
         action = action_by_id("open_modern_shell")
-        opened = preview_action_feedback(action)
+        opened = navigation_action_feedback(action)
 
         self.assertEqual(BLOCKED, blocked.tone)
         self.assertEqual("Unknown or external navigation was blocked.", blocked.message)

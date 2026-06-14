@@ -59,17 +59,20 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
 
     def test_action_bridge_classifies_navigation_and_engine_actions(self):
         actions = {action.id: action for action in modern_actions()}
+        action_ids = [action.id for action in modern_actions()]
+
+        self.assertEqual(len(action_ids), len(set(action_ids)))
 
         for action_id in (
             "open_modern_dashboard",
             "open_modern_flash_wizard",
             "open_modern_shell",
-            "open_backups_preview",
-            "open_downloads_preview",
-            "open_settings_preview",
-            "open_tools_preview",
-            "open_safety_preview",
-            "open_about_preview",
+            "open_backups",
+            "open_downloads",
+            "open_settings",
+            "open_tools",
+            "open_safety",
+            "open_about",
             "scan_devices",
             "select_firmware",
             "process_firmware",
@@ -128,6 +131,8 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertIsNone(action_from_url("pixelflasher://action/not_allowed"))
         self.assertIsNone(action_from_url("file:///tmp/not_allowed"))
         self.assertIsNone(action_from_url("mailto:test@example.invalid"))
+        self.assertIsNone(action_from_url("pixelflasher://action/flash_device?confirm=yes"))
+        self.assertIsNone(action_from_url("pixelflasher://action/flash_device#run"))
 
     def test_modern_primary_sources_avoid_raw_execution_patterns(self):
         forbidden = (

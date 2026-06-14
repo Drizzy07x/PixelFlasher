@@ -57,6 +57,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertIn("WebViewBackendEdge", self.web_source)
         self.assertIn("IsBackendAvailable", self.web_source)
         self.assertIn("return None", self.web_source)
+        self.assertNotIn("except Exception:\n        return None", self.web_source)
 
     def test_webview_allows_only_initial_document_and_action_urls(self):
         for expected in (
@@ -167,12 +168,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "pixelflasher://action/open_modern_dashboard",
             "pixelflasher://action/open_modern_shell",
             "pixelflasher://action/open_modern_flash_wizard",
-            "pixelflasher://action/open_backups_preview",
-            "pixelflasher://action/open_downloads_preview",
-            "pixelflasher://action/open_settings_preview",
-            "pixelflasher://action/open_tools_preview",
-            "pixelflasher://action/open_safety_preview",
-            "pixelflasher://action/open_about_preview",
+            "pixelflasher://action/open_backups",
+            "pixelflasher://action/open_downloads",
+            "pixelflasher://action/open_settings",
+            "pixelflasher://action/open_tools",
+            "pixelflasher://action/open_safety",
+            "pixelflasher://action/open_about",
         ):
             with self.subTest(action=action):
                 self.assertIn(action, html)

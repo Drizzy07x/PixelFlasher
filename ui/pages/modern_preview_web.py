@@ -30,7 +30,7 @@ from ui.pages.modern_action_feedback import (
     guarded_action_canceled_feedback,
     action_completed_feedback,
     action_unavailable_feedback,
-    preview_action_feedback,
+    navigation_action_feedback,
 )
 from ui.pages.modern_preview_templates import DEFAULT_STATUS_MESSAGE, render_preview_html
 from ui.pages.modern_readonly_state import build_readonly_state
@@ -47,10 +47,7 @@ def create_modern_preview_frame(
 ) -> wx.Frame | None:
     if not is_webview_available():
         return None
-    try:
-        return ModernPreviewWebFrame(parent=parent, page=page, state_host=state_host)
-    except Exception:
-        return None
+    return ModernPreviewWebFrame(parent=parent, page=page, state_host=state_host)
 
 
 class ModernPreviewWebFrame(wx.Frame):
@@ -128,7 +125,7 @@ class ModernPreviewWebFrame(wx.Frame):
             )
             return
         if action.safety_level == NAVIGATION:
-            self._handle_preview_action(action)
+            self._handle_navigation_action(action)
             return
         if action.safety_level in {INTERNAL_FLOW, GUARDED_FLOW}:
             if action.requires_confirmation and not self._confirm_guarded_action(action):
@@ -136,21 +133,21 @@ class ModernPreviewWebFrame(wx.Frame):
                 return
             self._run_engine_action(action)
 
-    def _handle_preview_action(self, action: ModernAction) -> None:
+    def _handle_navigation_action(self, action: ModernAction) -> None:
         page_by_action = {
             "open_modern_dashboard": "dashboard",
             "open_modern_flash_wizard": "wizard",
             "open_modern_shell": "shell",
-            "open_backups_preview": "backups",
-            "open_downloads_preview": "downloads",
-            "open_settings_preview": "settings",
-            "open_tools_preview": "tools",
-            "open_safety_preview": "safety",
-            "open_about_preview": "about",
+            "open_backups": "backups",
+            "open_downloads": "downloads",
+            "open_settings": "settings",
+            "open_tools": "tools",
+            "open_safety": "safety",
+            "open_about": "about",
         }
         page = page_by_action.get(action.id)
         if page:
-            feedback = preview_action_feedback(action)
+            feedback = navigation_action_feedback(action)
             self._show_page(page, feedback.message, feedback.tone)
             return
         wx.MessageBox(

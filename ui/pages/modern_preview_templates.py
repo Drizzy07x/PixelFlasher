@@ -1216,12 +1216,12 @@ def _nav_action_id(key: str) -> str:
         "dashboard": "open_modern_dashboard",
         "shell": "open_modern_shell",
         "wizard": "open_modern_flash_wizard",
-        "backups": "open_backups_preview",
-        "downloads": "open_downloads_preview",
-        "settings": "open_settings_preview",
-        "tools": "open_tools_preview",
-        "safety": "open_safety_preview",
-        "about": "open_about_preview",
+        "backups": "open_backups",
+        "downloads": "open_downloads",
+        "settings": "open_settings",
+        "tools": "open_tools",
+        "safety": "open_safety",
+        "about": "open_about",
     }.get(key, "open_modern_dashboard")
 
 

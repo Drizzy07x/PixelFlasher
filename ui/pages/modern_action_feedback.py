@@ -26,7 +26,7 @@ def disabled_action_feedback(action: ModernAction) -> ModernActionFeedback:
     return ModernActionFeedback(f"{action.label}: unavailable until the required state is selected.", BLOCKED)
 
 
-def preview_action_feedback(action: ModernAction) -> ModernActionFeedback:
+def navigation_action_feedback(action: ModernAction) -> ModernActionFeedback:
     return ModernActionFeedback(f"{action.label}: opened.", SAFE)
 
 

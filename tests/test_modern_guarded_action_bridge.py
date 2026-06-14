@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -49,6 +50,9 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             "http://example.invalid/action/flash_device",
             "file:///tmp/flash_device",
             "javascript:flash_device",
+            "pixelflasher://action/flash_device?confirm=yes",
+            "pixelflasher://action/flash_device#confirm",
+            "pixelflasher://action/flash_device;run",
         ):
             with self.subTest(url=url):
                 self.assertIsNone(action_from_url(url))
@@ -61,12 +65,12 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
                 "open_modern_dashboard",
                 "open_modern_flash_wizard",
                 "open_modern_shell",
-                "open_backups_preview",
-                "open_downloads_preview",
-                "open_settings_preview",
-                "open_tools_preview",
-                "open_safety_preview",
-                "open_about_preview",
+                "open_backups",
+                "open_downloads",
+                "open_settings",
+                "open_tools",
+                "open_safety",
+                "open_about",
                 "scan_devices",
                 "select_firmware",
                 "process_firmware",
@@ -85,6 +89,8 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             },
             actions,
         )
+
+        self.assertEqual(len(actions), len(modern_actions()))
 
     def test_all_modern_pages_render_static_local_content(self):
         state = ModernReadonlyState(
@@ -171,6 +177,22 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, html)
+
+    def test_rendered_action_urls_are_allow_listed(self):
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+
+        for page in ("dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools", "safety", "about"):
+            html = render_preview_html(page, state)
+            action_ids = re.findall(r"pixelflasher://action/([a-z0-9_]+)", html)
+            self.assertTrue(action_ids, page)
+            for action_id in action_ids:
+                with self.subTest(page=page, action_id=action_id):
+                    self.assertIsNotNone(action_by_id(action_id))
 
     def test_templates_render_loaded_state(self):
         state = ModernReadonlyState(
