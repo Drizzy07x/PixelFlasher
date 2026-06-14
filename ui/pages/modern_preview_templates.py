@@ -219,8 +219,9 @@ body {
 .toggle .on { color: white; background: rgba(255, 255, 255, .07); }
 .content {
   min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
   scrollbar-width: thin;
   scrollbar-color: rgba(76, 111, 155, .36) transparent;
 }
@@ -264,11 +265,15 @@ body {
   height: 216px;
   position: relative;
   overflow: hidden;
+  margin: 0 auto;
   border-radius: 22px;
   border: 3px solid rgba(255, 255, 255, .45);
   background:
+    radial-gradient(circle at 62% 28%, rgba(244, 255, 230, .32), transparent 18%),
+    linear-gradient(28deg, transparent 0 34%, rgba(238, 255, 220, .22) 35% 46%, transparent 47%),
+    linear-gradient(145deg, rgba(43, 72, 45, .20), transparent 42%),
     linear-gradient(145deg, rgba(166, 190, 153, .88), rgba(73, 96, 68, .86));
-  box-shadow: inset 0 0 0 5px rgba(0, 0, 0, .36), 0 18px 32px rgba(0, 0, 0, .40);
+  box-shadow: inset 0 0 0 5px rgba(0, 0, 0, .36), inset 0 -42px 50px rgba(18, 30, 20, .38), 0 18px 32px rgba(0, 0, 0, .40);
 }
 .phone::before {
   content: "";
@@ -472,6 +477,37 @@ body {
   color: white;
   font-size: 20px;
 }
+.context-ribbon {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.context-item {
+  min-height: 66px;
+  padding: 12px 13px;
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgba(255, 255, 255, .045), rgba(47, 140, 255, .055));
+  border: 1px solid var(--border-soft);
+}
+.context-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.context-item strong {
+  display: block;
+  margin-top: 7px;
+  color: white;
+  font-size: 14px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-item.safe { border-color: rgba(66, 223, 91, .24); background: linear-gradient(145deg, rgba(66, 223, 91, .08), rgba(255, 255, 255, .035)); }
+.context-item.warn { border-color: rgba(255, 201, 40, .28); background: linear-gradient(145deg, rgba(255, 201, 40, .10), rgba(255, 255, 255, .035)); }
 .empty-state {
   min-height: 168px;
   display: grid;
@@ -512,7 +548,7 @@ body {
 }
 .wizard-content {
   display: grid;
-  align-content: center;
+  align-content: start;
 }
 .stepper {
   display: grid;
@@ -629,7 +665,7 @@ body {
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .wizard-stage-grid { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid { grid-template-columns: 1fr; }
   .device-body { grid-template-columns: 1fr; }
 }
 """
@@ -699,7 +735,7 @@ def _page_body(page: str, state: ModernReadonlyState, version: str) -> str:
     if page == "tools":
         return _tools_page(state)
     if page == "safety":
-        return _safety_page()
+        return _safety_page(state)
     if page == "about":
         return _about_page(version, state)
     return _dashboard_page(state)
@@ -824,6 +860,7 @@ def _shell_page(state: ModernReadonlyState) -> str:
         <span class="chip"><span class="dot safe"></span>Read-only</span>
         <span class="chip"><span class="dot"></span>No device changes</span>
       </div>
+      {_context_ribbon(state, "Read-only state explorer")}
       <div class="shell-grid">
         {_explorer_card("Device State Overview", (("Selected device", state.device.display_name or state.device.serial or "none"), ("Android", state.device.android_version or "unknown"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "unknown")))}
         {_explorer_card("Connection Readiness", (("ADB", "ready" if state.device.adb_ready else "not ready"), ("Fastboot", _bootloader_tool_mode(state)), ("Platform tools", _platform_tools_label(state)), ("Device changes", "none")))}
@@ -847,6 +884,7 @@ def _wizard_page(state: ModernReadonlyState) -> str:
         {_step("4", "Plan", False)}
         {_step("5", "Review", False)}
       </div>
+      {_context_ribbon(state, "Guarded handoff only")}
       <div class="wizard-grid">
         <article class="card">
           <div class="card-header">
@@ -914,11 +952,14 @@ def _backups_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Restore mode", "Guarded"), ("File changes", "None")))}
+      {_context_ribbon(state, "No file changes")}
       <div class="page-grid">
         {_hero_card("▤", "Backups (Preview)", "Browse backup state in Modern UI. Creating, restoring, and deleting backups remain guarded legacy operations.")}
         {_mini_card("Backup Summary (Read-Only)", "Preview", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location)))}
         {_tile_card("Backup Actions (Guarded)", (("Create backup", "Delegates to existing guarded legacy flow."), ("Restore backup", "Confirmation remains in classic PixelFlasher."), ("Inspect details", "Read-only preview state."), ("Delete backup", "Disabled in Modern UI.")))}
+        {_explorer_card("Loaded Backup Context", (("Device", state.device.display_name or state.device.serial or "not selected"), ("Backup index", "loaded" if state.backups.has_loaded_backups else "not loaded"), ("Backup location", state.backups.location), ("Restore mode", state.backups.restore_mode)))}
         {_explorer_card("Backup Details", (("Selected backup", state.backups.latest_label if state.backups.has_loaded_backups else "none"), ("Archive state", "not opened"), ("Restore target", "not selected"), ("Compatibility", "not evaluated")))}
+        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
         {_explorer_card("Preview Limitations", (("File writes", "not available"), ("Restore actions", "guarded legacy only"), ("Backup creation", "guarded legacy only"), ("Device changes", "none")))}
         {empty}
       </div>
@@ -930,10 +971,13 @@ def _downloads_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Validation", "Verified" if state.firmware.verified else "Waiting"), ("Catalog", state.downloads.image_catalog_status), ("Device apply", "Blocked")))}
+      {_context_ribbon(state, "No network or device apply")}
       <div class="page-grid two">
         {_hero_card("↓", "Downloads (Preview)", "Review firmware and resource download context without starting downloads or applying files to a device.")}
         {_tile_card("Firmware Downloads (Preview)", (("Firmware", state.firmware.filename or "No package selected."), ("Tools", "No tool download is started."), ("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Apply to device", "Disabled in Modern UI.")))}
+        {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Module updates", "enabled" if state.downloads.module_update_check else "disabled"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "none")))}
         {_explorer_card("Download Details", (("Selected item", state.firmware.filename or "none"), ("Validation", "verified" if state.firmware.verified else "not started"), ("Last catalog check", state.downloads.last_checked), ("Frequency", state.downloads.update_frequency)))}
+        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
         {_explorer_card("Safety Notes", (("Network access", "not used by this preview"), ("Package parsing", "not started"), ("File mutation", "none"), ("Legacy flows", "guarded only")))}
       </div>
     </section>
@@ -944,10 +988,13 @@ def _settings_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Mode", "Read-only"), ("Language", state.settings.language), ("Saved changes", "0"), ("Device changes", "0")))}
+      {_context_ribbon(state, "No saves")}
       <div class="page-grid two">
         {_hero_card("⚙", "Settings (Preview)", "Inspect preference groups in a read-only Modern UI surface. No settings are saved from this preview.")}
         {_tile_card("General Settings", (("Startup behavior", "Modern UI primary when supported."), ("Advanced options", _on_off(state.settings.advanced_options)), ("Verbose logs", _on_off(state.settings.verbose)), ("Notifications", _on_off(state.settings.notifications))))}
         {_tile_card("Paths & Environment", (("Platform tools", state.tools.platform_tools_path or "not configured"), ("Firmware", state.firmware.filename or "not selected"), ("Phone path", state.settings.phone_path or "not configured"), ("Low memory", _on_off(state.settings.low_memory))))}
+        {_explorer_card("Loaded Preference Flags", (("Language", state.settings.language), ("Custom ROM options", _on_off(state.settings.custom_rom_options)), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
+        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
         {_explorer_card("Preview Policy", (("Saving", "disabled"), ("File writes", "none"), ("Device access", "none"), ("Legacy settings", "unchanged")))}
       </div>
     </section>
@@ -958,23 +1005,29 @@ def _tools_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Tool groups", "6"), ("Direct commands", "Off"), ("Platform tools", _platform_tools_label(state)), ("Unknown actions", "Blocked")))}
+      {_context_ribbon(state, "Direct commands off")}
       <div class="page-grid">
         {_hero_card("⚒", "Tools (Preview)", "Tool categories are visible for orientation. Execution remains disabled or delegated to guarded legacy flows.")}
         {_tile_card("Tool Catalog", (("Boot Image Patcher", "Guarded legacy flow."), ("Support Package", "Guarded legacy flow."), ("Log Viewer", "Preview only."), ("Device Info", "Read-only context."), ("Partition Explorer", "Preview only."), ("Command Runner", "Disabled in Modern UI.")))}
         {_explorer_card("Loaded Tool State", (("ADB", "available" if state.tools.adb_available else "not available"), ("Fastboot", _bootloader_tool_status(state)), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Direct use", "disabled in Modern UI")))}
+        {_explorer_card("Tool Availability Summary", (("ADB path", "loaded" if state.tools.adb_path else "not found"), ("Bootloader tool path", "loaded" if _bootloader_tool_available(state) else "not found"), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Live commands", "not run from Modern UI")))}
         {_explorer_card("Execution Policy", (("Direct commands", "disabled"), ("Device mutation", "none"), ("Confirmation", "required for legacy handoff"), ("Unknown tools", "blocked")))}
+        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
         {_explorer_card("Disabled Operations", (("Reboot", "disabled"), ("Wipe", "disabled"), ("Slot switching", "disabled"), ("Live command output", "not captured")))}
       </div>
     </section>
     """
 
 
-def _safety_page() -> str:
+def _safety_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Direct execution", "Off"), ("Bridge", "Allow-listed"), ("Unknown URLs", "Blocked"), ("Legacy prompts", "Required")))}
+      {_context_ribbon(state, "Allow-listed only")}
       <div class="page-grid two">
         {_hero_card("◇", "Safety (Read-Only)", "Modern UI is safe by default. Real operations are either disabled or handed to existing guarded legacy flows.")}
+        {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
+        {_explorer_card("Read-Only Warnings", _warning_rows(state))}
         {_explorer_card("Safety Boundary", tuple(("Rule", line) for line in SAFETY_BOUNDARY_LINES))}
         {_explorer_card("Guarded Handoffs", (("Flash plan execution", "confirmation required"), ("Patch boot flow", "confirmation required"), ("Support package", "confirmation required"), ("Classic UI", "existing safeguards remain")))}
         {_explorer_card("Disabled in Modern UI", (("Reboot", "disabled"), ("Wipe", "disabled"), ("Slot switching", "disabled"), ("Direct command execution", "disabled")))}
@@ -988,9 +1041,11 @@ def _about_page(version: str, state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Version", version), ("Modern UI", "Primary"), ("Legacy UI", "Available"), ("Loaded warnings", str(len(state.warnings)))))}
+      {_context_ribbon(state, "Local info only")}
       <div class="page-grid two">
         {_hero_card("PF", "About PixelFlasher", about_copy)}
         {_explorer_card("Application", (("Version", version), ("Modern UI", "primary when supported"), ("Legacy UI", "available through guarded fallback"), ("Device changes", "none from this page")))}
+        {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
         {_tile_card("Modern UI Status", (("Dashboard", "Available"), ("Shell", "Read-only"), ("Flash Wizard", "Guarded handoff"), ("Remaining pages", "Preview surfaces")))}
         {_explorer_card("Safety", (("Remote assets", "not loaded"), ("Scripts", "not used"), ("Command bridge", "allow-listed actions only"), ("Unknown actions", "blocked")))}
       </div>
@@ -1063,6 +1118,26 @@ def _metric_strip(rows: tuple[tuple[str, str], ...]) -> str:
 
 def _metric(label: str, value: str) -> str:
     return f"""<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>"""
+
+
+def _context_ribbon(state: ModernReadonlyState, boundary: str) -> str:
+    warning_tone = "warn" if state.warnings else "safe"
+    rows = (
+        ("Device", state.device.display_name or state.device.serial or "not selected", ""),
+        ("Firmware", state.firmware.filename or "not selected", ""),
+        ("Warnings", str(len(state.warnings)), warning_tone),
+        ("Boundary", boundary, "safe"),
+    )
+    return f"""
+    <div class="context-ribbon" aria-label="Loaded read-only page context">
+      {"".join(_context_item(*row) for row in rows)}
+    </div>
+    """
+
+
+def _context_item(label: str, value: str, tone: str) -> str:
+    tone_class = f" {tone}" if tone in {"safe", "warn"} else ""
+    return f"""<div class="context-item{tone_class}"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>"""
 
 
 def _empty_state(title: str, copy: str) -> str:
@@ -1240,6 +1315,21 @@ def _package_type(state: ModernReadonlyState) -> str:
 
 def _on_off(value: bool) -> str:
     return "on" if value else "off"
+
+
+def _warning_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    if not state.warnings:
+        return (("Status", "No read-only warnings"), ("Device changes", "none"))
+    return tuple((f"Warning {index}", warning) for index, warning in enumerate(state.warnings[:4], start=1))
+
+
+def _loaded_context_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
+    return (
+        ("Device", state.device.display_name or state.device.serial or "not selected"),
+        ("Firmware", state.firmware.filename or "not selected"),
+        ("Firmware validation", "verified" if state.firmware.verified else "not verified"),
+        ("Warnings", str(len(state.warnings))),
+    )
 
 
 def _status_tone(tone: str) -> str:

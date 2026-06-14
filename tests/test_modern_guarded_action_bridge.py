@@ -92,14 +92,14 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
 
         expected_by_page = {
             "dashboard": ("Modern UI · Safe by Default", "pixelflasher://action/open_modern_dashboard"),
-            "shell": ("Modern Shell – Read-Only State", "pixelflasher://action/open_modern_shell"),
-            "wizard": ("Flash Wizard (Preview)", "pixelflasher://action/open_modern_flash_wizard", "Review Step Preview"),
-            "backups": ("Backups (Preview)", "Backup Summary (Read-Only)", "No backups loaded"),
-            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network"),
-            "settings": ("Settings (Preview)", "General Settings", "Saved changes"),
-            "tools": ("Tools (Preview)", "Tool Catalog", "Direct commands"),
-            "safety": ("Safety (Read-Only)", "Guarded Handoffs", "Unknown URLs"),
-            "about": ("About PixelFlasher", "Modern UI Status", "Legacy UI"),
+            "shell": ("Modern Shell – Read-Only State", "pixelflasher://action/open_modern_shell", "Loaded read-only page context"),
+            "wizard": ("Flash Wizard (Preview)", "pixelflasher://action/open_modern_flash_wizard", "Review Step Preview", "Guarded handoff only"),
+            "backups": ("Backups (Preview)", "Backup Summary (Read-Only)", "No backups loaded", "No file changes"),
+            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network", "No network or device apply"),
+            "settings": ("Settings (Preview)", "General Settings", "Saved changes", "No saves"),
+            "tools": ("Tools (Preview)", "Tool Catalog", "Direct commands", "Direct commands off"),
+            "safety": ("Safety (Read-Only)", "Guarded Handoffs", "Unknown URLs", "Allow-listed only"),
+            "about": ("About PixelFlasher", "Modern UI Status", "Legacy UI", "Local info only"),
         }
 
         for page, labels in expected_by_page.items():
@@ -183,12 +183,12 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
                 active_slot="b",
             ),
             firmware=ModernFirmwareState(path="oriole-factory-ap2a.zip", package_type="factory", build_id="oriole-factory", verified=True),
-            tools=ModernToolState(platform_tools_path="/opt/platform-tools"),
+            tools=ModernToolState(adb_path="/opt/platform-tools/adb", fastboot_path="/opt/platform-tools/fastboot", platform_tools_path="/opt/platform-tools"),
             warnings=("Loaded state warning.",),
             flash=ModernFlashOptionsState(flash_mode="keepData", data_behavior="Keep data", slot_behavior="Inactive slot", no_reboot=True),
             backups=ModernBackupState(total_count=2, latest_label="2024-06-01 · AP2A", location="/storage/emulated/0/Download"),
             downloads=ModernDownloadState(update_check=True, image_catalog_status="loaded", update_frequency="every 7 days", last_checked="1700000000"),
-            settings=ModernSettingsState(language="es", advanced_options=True, verbose=True, phone_path="/storage/emulated/0/Download"),
+            settings=ModernSettingsState(language="es", advanced_options=True, verbose=True, custom_rom_options=True, phone_path="/storage/emulated/0/Download"),
         )
 
         dashboard_html = render_preview_html("dashboard", state)
@@ -197,6 +197,8 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         backups_html = render_preview_html("backups", state)
         downloads_html = render_preview_html("downloads", state)
         settings_html = render_preview_html("settings", state)
+        safety_html = render_preview_html("safety", state)
+        about_html = render_preview_html("about", state)
 
         for expected in ("AP2A.240605.024", "2024-06-05", "Inactive slot", "2024-06-01 · AP2A"):
             with self.subTest(expected=expected):
@@ -205,11 +207,34 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, shell_html)
         self.assertIn("Loaded Plan Inputs", wizard_html)
+        self.assertIn("Guarded handoff only", wizard_html)
         self.assertIn("keepData", wizard_html)
         self.assertIn("2", backups_html)
         self.assertIn("/storage/emulated/0/Download", backups_html)
+        self.assertIn("Loaded Backup Context", backups_html)
+        self.assertIn("No file changes", backups_html)
+        self.assertIn("Read-Only Warnings", backups_html)
+        self.assertIn("Loaded state warning.", backups_html)
         self.assertIn("every 7 days", downloads_html)
+        self.assertIn("Loaded Download Context", downloads_html)
+        self.assertIn("No network or device apply", downloads_html)
+        self.assertIn("Module updates", downloads_html)
+        self.assertIn("Loaded state warning.", downloads_html)
         self.assertIn("es", settings_html)
+        self.assertIn("Loaded Preference Flags", settings_html)
+        self.assertIn("No saves", settings_html)
+        self.assertIn("Custom ROM options", settings_html)
+        self.assertIn("Loaded state warning.", settings_html)
+        tools_html = render_preview_html("tools", state)
+        self.assertIn("Tool Availability Summary", tools_html)
+        self.assertIn("Direct commands off", tools_html)
+        self.assertIn("Loaded state warning.", tools_html)
+        self.assertIn("Loaded State Snapshot", safety_html)
+        self.assertIn("Allow-listed only", safety_html)
+        self.assertIn("Loaded state warning.", safety_html)
+        self.assertIn("Loaded State Snapshot", about_html)
+        self.assertIn("Local info only", about_html)
+        self.assertIn("Pixel 6", about_html)
 
     def test_template_status_bar_renders_safe_action_feedback(self):
         state = ModernReadonlyState(

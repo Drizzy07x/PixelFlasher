@@ -253,14 +253,16 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         shell_html = render_preview_html("shell", state)
         wizard_html = render_preview_html("wizard", state)
 
-        for label in ("Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Preview Limitations"):
+        for label in ("Loaded read-only page context", "Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Preview Limitations"):
             with self.subTest(label=label):
                 self.assertIn(label, shell_html)
         for label in (
+            "Loaded read-only page context",
             "Step 1: Device Selection",
             "Device Readiness",
             "Firmware Readiness",
             "Execution Blocked",
+            "Guarded handoff only",
             "Blocked Execution",
             "Firmware Step Preview",
             "Options Step Preview",
@@ -283,12 +285,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         expected_by_page = {
-            "backups": ("Backups (Preview)", "Backup Actions (Guarded)", "No backups loaded", "File changes"),
-            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network access", "Device apply"),
-            "settings": ("Settings (Preview)", "General Settings", "Saved changes", "No settings are saved"),
-            "tools": ("Tools (Preview)", "Tool Catalog", "Command Runner", "Unknown actions"),
-            "safety": ("Safety (Read-Only)", "Safety Boundary", "Disabled in Modern UI", "Allow-listed"),
-            "about": ("About PixelFlasher", "Application", "Modern UI Status", "Legacy UI"),
+            "backups": ("Loaded read-only page context", "Backups (Preview)", "Backup Actions (Guarded)", "Loaded Backup Context", "Read-Only Warnings", "No backups loaded", "File changes"),
+            "downloads": ("Loaded read-only page context", "Downloads (Preview)", "Firmware Downloads (Preview)", "Loaded Download Context", "Read-Only Warnings", "Network access", "Device apply"),
+            "settings": ("Loaded read-only page context", "Settings (Preview)", "General Settings", "Loaded Preference Flags", "Read-Only Warnings", "Saved changes", "No settings are saved"),
+            "tools": ("Loaded read-only page context", "Tools (Preview)", "Tool Catalog", "Tool Availability Summary", "Read-Only Warnings", "Command Runner", "Unknown actions"),
+            "safety": ("Loaded read-only page context", "Safety (Read-Only)", "Loaded State Snapshot", "Read-Only Warnings", "Safety Boundary", "Disabled in Modern UI", "Allow-listed"),
+            "about": ("Loaded read-only page context", "About PixelFlasher", "Application", "Loaded State Snapshot", "Modern UI Status", "Legacy UI"),
         }
 
         for page, labels in expected_by_page.items():
