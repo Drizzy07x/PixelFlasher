@@ -45,7 +45,7 @@ def _run_cli_command(argv):
     This keeps CI, beta diagnostics, and support collection working on systems
     that do not have wxPython or a display server installed.
     """
-    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--modern-dashboard", "--modern-dashboard-preview", "--modern-shell-preview", "--flash-wizard-preview", "--flash-wizard-demo", "--help", "-h"}
+    cli_flags = {"--self-test", "--doctor", "--diagnostics", "--version", "-V", "--legacy-ui", "--modern-dashboard", "--modern-dashboard-preview", "--modern-shell-preview", "--flash-wizard-preview", "--flash-wizard-demo", "--help", "-h"}
     if len(argv) <= 1 or not any(arg in cli_flags for arg in argv[1:]):
         return
 
@@ -57,6 +57,7 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --doctor        Alias for --self-test")
         print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
         print("  python PixelFlasher.py --version       Print version")
+        print("  python PixelFlasher.py --legacy-ui     Launch classic PixelFlasher UI directly")
         print("  python PixelFlasher.py --modern-dashboard")
         print("                                      Launch full app with modern dashboard enabled")
         print("  python PixelFlasher.py --modern-dashboard-preview")
@@ -84,6 +85,11 @@ def _run_cli_command(argv):
         filtered = [arg for arg in argv[1:] if arg != "--diagnostics"]
         raise SystemExit(diagnostics_main(filtered))
 
+    if "--legacy-ui" in argv:
+        os.environ["PIXELFLASHER_LEGACY_UI"] = "1"
+        argv.remove("--legacy-ui")
+        return
+
     if "--modern-dashboard-preview" in argv:
         from ui.pages.dashboard_app import main as dashboard_preview_main
         raise SystemExit(dashboard_preview_main())
@@ -107,6 +113,25 @@ def _run_cli_command(argv):
 
 
 _run_cli_command(sys.argv)
+
+
+def _run_modern_primary_or_fallback(argv):
+    if os.environ.get("PIXELFLASHER_LEGACY_UI") == "1":
+        return
+    if os.environ.get("PIXELFLASHER_MODERN_DASHBOARD") == "1":
+        return
+    try:
+        from ui.pages.modern_primary_app import OPEN_LEGACY_EXIT_CODE, launch_modern_primary
+        result = launch_modern_primary(argv)
+    except Exception as exc:
+        print(f"Modern UI startup unavailable, falling back to classic UI: {exc}")
+        return
+    if result == OPEN_LEGACY_EXIT_CODE:
+        return
+    raise SystemExit(result)
+
+
+_run_modern_primary_or_fallback(sys.argv)
 
 import Main
 

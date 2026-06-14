@@ -79,10 +79,12 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("Browse restore preview", labels["backups"])
         self.assertIn("Firmware updates", labels["downloads"])
         self.assertIn("Utilities preview", labels["tools"])
+        self.assertIn("Boundaries & policy", labels["safety"])
         self.assertNotIn("Browse & restore", labels["backups"])
         self.assertNotIn("Firmware & updates", labels["downloads"])
         self.assertIn("dashboard", NAV_ICONS)
         self.assertIn("wizard", NAV_ICONS)
+        self.assertIn("safety", NAV_ICONS)
         self.assertIn("about", NAV_ICONS)
         self.assertIn("Version & info", labels["about"])
 
@@ -140,13 +142,15 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         )
 
         for expected in (
-            "Modern UI – Preview (Read-Only)",
-            "Safe by default. No device changes. No flashing. No patches.",
-            "PREVIEW ONLY",
-            "Read-Only",
-            "No Device Changes",
+            "Modern UI · Safe by Default",
+            "Guarded operations stay in the classic execution flow.",
+            "SAFE BY DEFAULT",
+            "GUARDED OPERATIONS",
+            "NO DEVICE CHANGES",
             "Connected Device (Read-Only)",
             "Quick Actions",
+            "Open Classic PixelFlasher",
+            "Existing guarded legacy flow. Confirm actions before execution.",
             "Safety Boundary",
             "No flashing, patching, or firmware writing.",
             "No ADB or Fastboot command execution.",

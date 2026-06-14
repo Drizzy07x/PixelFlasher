@@ -146,7 +146,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertIn("SetMinSize((-1, 62))", self.style_source)
 
     def test_modern_preview_safe_nav_glyphs_are_defined(self):
-        for key in ("dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools", "about"):
+        for key in ("dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools", "safety", "about"):
             with self.subTest(key=key):
                 self.assertIn(key, NAV_ICONS)
                 self.assertTrue(NAV_ICONS[key])
@@ -166,15 +166,16 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         for label in (
-            "Modern UI – Preview (Read-Only)",
+            "Modern UI · Safe by Default",
             "Connected Device",
             "Quick Actions",
             "Safety Boundary",
             "Device Slots",
             "Partitions",
             "Last Backup",
-            "Preview-Only Mode",
-            "No device changes will be made",
+            "Safe-by-Default Mode",
+            "Open Classic PixelFlasher",
+            "No direct device execution from Modern UI",
             "PixelFlasher 9.2.0-beta",
         ):
             with self.subTest(label=label):
@@ -194,9 +195,23 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             ),
         )
 
-        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "About"):
+        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "Safety", "About"):
             with self.subTest(label=label):
                 self.assertIn(label, html)
+
+        for action in (
+            "pixelflasher://action/open_modern_dashboard",
+            "pixelflasher://action/open_modern_shell",
+            "pixelflasher://action/open_modern_flash_wizard",
+            "pixelflasher://action/open_backups_preview",
+            "pixelflasher://action/open_downloads_preview",
+            "pixelflasher://action/open_settings_preview",
+            "pixelflasher://action/open_tools_preview",
+            "pixelflasher://action/open_safety_preview",
+            "pixelflasher://action/open_about_preview",
+        ):
+            with self.subTest(action=action):
+                self.assertIn(action, html)
 
     def test_webview_preview_template_contains_shell_and_wizard_structure(self):
         from ui.pages.modern_preview_templates import render_preview_html
@@ -214,9 +229,46 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         for label in ("Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Preview Limitations"):
             with self.subTest(label=label):
                 self.assertIn(label, shell_html)
-        for label in ("Step 1: Device Selection", "Device Readiness", "Firmware Readiness", "Execution Blocked", "Blocked Execution", "Can flash"):
+        for label in (
+            "Step 1: Device Selection",
+            "Device Readiness",
+            "Firmware Readiness",
+            "Execution Blocked",
+            "Blocked Execution",
+            "Firmware Step Preview",
+            "Options Step Preview",
+            "Plan Step Preview",
+            "Review Step Preview",
+            "Can flash",
+        ):
             with self.subTest(label=label):
                 self.assertIn(label, wizard_html)
+
+    def test_webview_preview_template_contains_remaining_concept_pages(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+        from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
+
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+
+        expected_by_page = {
+            "backups": ("Backups (Preview)", "Backup Actions (Guarded)", "No backups loaded", "File changes"),
+            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network access", "Device apply"),
+            "settings": ("Settings (Preview)", "General Settings", "Saved changes", "No settings are saved"),
+            "tools": ("Tools (Preview)", "Tool Catalog", "Command Runner", "Unknown actions"),
+            "safety": ("Safety (Read-Only)", "Safety Boundary", "Disabled in Modern UI", "Allow-listed"),
+            "about": ("About PixelFlasher", "Application", "Modern UI Status", "Legacy UI"),
+        }
+
+        for page, labels in expected_by_page.items():
+            html = render_preview_html(page, state)
+            for label in labels:
+                with self.subTest(page=page, label=label):
+                    self.assertIn(label, html)
 
     def test_webview_preview_html_is_static_and_local(self):
         forbidden_snippets = (
