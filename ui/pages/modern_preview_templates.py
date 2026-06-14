@@ -164,8 +164,8 @@ body {
   display: grid;
   place-items: center;
   color: var(--blue);
-  font-size: 19px;
 }
+.nav-icon svg { width: 21px; height: 21px; stroke-width: 2.1; }
 .nav-title { font-size: 14px; font-weight: 700; }
 .nav-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .mode-card {
@@ -310,6 +310,7 @@ body {
   font-size: 14px;
 }
 .spec-icon { color: var(--blue); font-size: 16px; }
+.spec-icon svg { width: 16px; height: 16px; stroke-width: 2.2; }
 .spec-label { color: var(--muted); }
 .spec-value { color: white; font-weight: 650; }
 .info-strip {
@@ -348,8 +349,8 @@ body {
   place-items: center;
   color: #07101e;
   font-weight: 900;
-  font-size: 22px;
 }
+.action-icon svg { width: 23px; height: 23px; stroke-width: 2.35; }
 .action-icon.blue { background: var(--blue); }
 .action-icon.green { background: var(--green); }
 .action-icon.yellow { background: var(--yellow); }
@@ -433,9 +434,9 @@ body {
   background: linear-gradient(135deg, var(--blue), var(--purple));
   box-shadow: 0 16px 32px rgba(47, 140, 255, .24);
   color: white;
-  font-size: 30px;
   font-weight: 900;
 }
+.hero-icon svg { width: 32px; height: 32px; stroke-width: 2.15; }
 .hero-strip h2 { margin: 0 0 6px; font-size: 22px; }
 .hero-strip p { margin: 0; color: var(--muted); line-height: 1.45; }
 .tile-grid {
@@ -781,12 +782,12 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
           <div class="device-name">{escape(device_name)}</div>
           <div class="muted">{escape(subtitle)}</div>
           <div class="spec-list">
-            {_spec("☀", "Android Version", android)}
-            {_spec("▦", "Build Number", build_id)}
-            {_spec("🛡", "Security Patch", security_patch)}
-            {_spec("▣", "Bootloader", bootloader)}
-            {_spec("↔", "Connection", connection)}
-            {_spec("●", "State Source", "Loaded from last scan")}
+            {_spec("android", "Android Version", android)}
+            {_spec("build", "Build Number", build_id)}
+            {_spec("shield", "Security Patch", security_patch)}
+            {_spec("lock", "Bootloader", bootloader)}
+            {_spec("connection", "Connection", connection)}
+            {_spec("source", "State Source", "Loaded from last scan")}
           </div>
         </div>
       </div>
@@ -797,11 +798,11 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
 
 def _quick_actions_card() -> str:
     rows = (
-        ("blue", "▣", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
-        ("yellow", "ϟ", "Flash Device", "Start the configured flash workflow.", "flash_device"),
-        ("purple", "◈", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
-        ("green", "▤", "Modern Shell", "Explore device and firmware state.", "open_modern_shell"),
-        ("yellow", "↻", "Scan Devices", "Refresh connected devices.", "scan_devices"),
+        ("blue", "wizard", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
+        ("yellow", "flash", "Flash Device", "Start the configured flash workflow.", "flash_device"),
+        ("purple", "patch", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
+        ("green", "shell", "Modern Shell", "Explore device and firmware state.", "open_modern_shell"),
+        ("yellow", "scan", "Scan Devices", "Refresh connected devices.", "scan_devices"),
     )
     return f"""
     <article class="card">
@@ -959,7 +960,7 @@ def _backups_page(state: ModernReadonlyState) -> str:
       {_metric_strip((("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Restore mode", "Guarded"), ("File changes", "None")))}
       {_context_ribbon(state, "No file changes")}
       <div class="page-grid">
-        {_hero_card("▤", "Backups", "Review backup context and open the backup manager for connected devices.")}
+        {_hero_card("backups", "Backups", "Review backup context and open the backup manager for connected devices.")}
         {_mini_card("Backup Summary", "Backups", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location)))}
         {_tile_card("Backup Actions", (("Backup Manager", "Open the available backup tools."), ("Create backup", "Available from Backup Manager."), ("Restore backup", "Available from Backup Manager."), ("Inspect details", "Review loaded backup state.")))}
         {_explorer_card("Loaded Backup Context", (("Device", state.device.display_name or state.device.serial or "not selected"), ("Backup index", "loaded" if state.backups.has_loaded_backups else "not loaded"), ("Backup location", state.backups.location), ("Restore mode", state.backups.restore_mode)))}
@@ -978,7 +979,7 @@ def _downloads_page(state: ModernReadonlyState) -> str:
       {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Validation", "Verified" if state.firmware.verified else "Waiting"), ("Catalog", state.downloads.image_catalog_status), ("Device apply", "Blocked")))}
       {_context_ribbon(state, "No network or device apply")}
       <div class="page-grid two">
-        {_hero_card("↓", "Downloads", "Browse firmware resources and rooting app downloads.")}
+        {_hero_card("downloads", "Downloads", "Browse firmware resources and rooting app downloads.")}
         {_tile_card("Firmware Downloads", (("Firmware", state.firmware.filename or "No package selected."), ("Tools", "Open rooting app downloads."), ("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Apply to device", "Use Flash Wizard.")))}
         {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Module updates", "enabled" if state.downloads.module_update_check else "disabled"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "none")))}
         {_explorer_card("Download Details", (("Selected item", state.firmware.filename or "none"), ("Validation", "verified" if state.firmware.verified else "not started"), ("Last catalog check", state.downloads.last_checked), ("Frequency", state.downloads.update_frequency)))}
@@ -995,7 +996,7 @@ def _settings_page(state: ModernReadonlyState) -> str:
       {_metric_strip((("Mode", "Modern"), ("Language", state.settings.language), ("Advanced", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
       {_context_ribbon(state, "No saves")}
       <div class="page-grid two">
-        {_hero_card("⚙", "Settings", "Review configured preferences and open the full settings dialog.")}
+        {_hero_card("settings", "Settings", "Review configured preferences and open the full settings dialog.")}
         {_tile_card("General Settings", (("Startup behavior", "Modern UI primary when supported."), ("Advanced options", _on_off(state.settings.advanced_options)), ("Verbose logs", _on_off(state.settings.verbose)), ("Notifications", _on_off(state.settings.notifications))))}
         {_tile_card("Paths & Environment", (("Platform tools", state.tools.platform_tools_path or "not configured"), ("Firmware", state.firmware.filename or "not selected"), ("Phone path", state.settings.phone_path or "not configured"), ("Low memory", _on_off(state.settings.low_memory))))}
         {_explorer_card("Loaded Preference Flags", (("Language", state.settings.language), ("Custom ROM options", _on_off(state.settings.custom_rom_options)), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
@@ -1012,7 +1013,7 @@ def _tools_page(state: ModernReadonlyState) -> str:
       {_metric_strip((("Tool groups", "6"), ("Actions", "Ready"), ("Platform tools", _platform_tools_label(state)), ("Unknown actions", "Blocked")))}
       {_context_ribbon(state, "Tools")}
       <div class="page-grid">
-        {_hero_card("⚒", "Tools", "Open PixelFlasher tools from the modern workspace.")}
+        {_hero_card("tools", "Tools", "Open PixelFlasher tools from the modern workspace.")}
         {_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image."), ("Support Package", "Create support archive."), ("Rooting App", "Download or install root tools."), ("Magisk Modules", "Manage modules."), ("Partition Manager", "Open partition tools."), ("Device Scan", "Refresh devices.")))}
         {_explorer_card("Loaded Tool State", (("ADB", "available" if state.tools.adb_available else "not available"), ("Fastboot", _bootloader_tool_status(state)), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Selected device", state.device.display_name or "none")))}
         {_explorer_card("Tool Availability Summary", (("ADB path", "loaded" if state.tools.adb_path else "not found"), ("Bootloader tool path", "loaded" if _bootloader_tool_available(state) else "not found"), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Root status", state.device.root_status)))}
@@ -1030,7 +1031,7 @@ def _safety_page(state: ModernReadonlyState) -> str:
       {_metric_strip((("Actions", "Allow-listed"), ("Confirmations", "Required"), ("Unknown URLs", "Blocked"), ("Engine", "PixelFlasher")))}
       {_context_ribbon(state, "Allow-listed only")}
       <div class="page-grid two">
-        {_hero_card("◇", "Safety", "PixelFlasher keeps the existing confirmations for sensitive operations.")}
+        {_hero_card("safety", "Safety", "PixelFlasher keeps the existing confirmations for sensitive operations.")}
         {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
         {_explorer_card("Warnings", _warning_rows(state))}
         {_explorer_card("Safety Boundary", tuple(("Rule", line) for line in SAFETY_BOUNDARY_LINES))}
@@ -1071,20 +1072,20 @@ def _status_bar(version: str, status_message: str, status_tone: str) -> str:
     """
 
 
-def _spec(icon: str, label: str, value: str) -> str:
+def _spec(icon_key: str, label: str, value: str) -> str:
     return f"""
     <div class="spec-row">
-      <div class="spec-icon">{escape(icon)}</div>
+      <div class="spec-icon">{_svg_icon(icon_key)}</div>
       <div class="spec-label">{escape(label)}</div>
       <div class="spec-value">{escape(value)}</div>
     </div>
     """
 
 
-def _action_row(color: str, icon: str, title: str, copy: str, action_id: str) -> str:
+def _action_row(color: str, icon_key: str, title: str, copy: str, action_id: str) -> str:
     return f"""
     <a class="action-row" href="{escape(action_url(action_id))}">
-      <div class="action-icon {escape(color)}">{escape(icon)}</div>
+      <div class="action-icon {escape(color)}">{_svg_icon(icon_key)}</div>
       <div><div class="action-title">{escape(title)}</div><div class="action-copy">{escape(copy)}</div></div>
       <div class="chevron">›</div>
     </a>
@@ -1092,10 +1093,11 @@ def _action_row(color: str, icon: str, title: str, copy: str, action_id: str) ->
 
 
 def _hero_card(icon: str, title: str, copy: str) -> str:
+    icon_markup = _svg_icon(icon) if icon in _SVG_ICONS else escape(icon)
     return f"""
     <article class="card wide-card">
       <div class="hero-strip">
-        <div class="hero-icon">{escape(icon)}</div>
+        <div class="hero-icon">{icon_markup}</div>
         <div>
           <h2>{escape(title)}</h2>
           <p>{escape(copy)}</p>
@@ -1226,17 +1228,36 @@ def _nav_action_id(key: str) -> str:
 
 
 def _icon(key: str) -> str:
-    return {
-        "dashboard": "▦",
-        "shell": "▣",
-        "wizard": "ϟ",
-        "backups": "▤",
-        "downloads": "↓",
-        "settings": "⚙",
-        "tools": "⚒",
-        "safety": "◇",
-        "about": "ⓘ",
-    }.get(key, "•")
+    return _svg_icon(key)
+
+
+_SVG_ICONS: dict[str, str] = {
+    "dashboard": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    "shell": '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+    "wizard": '<path d="M13 2 5 13h6l-1 9 8-12h-6l1-8z"/>',
+    "flash": '<path d="M13 2 5 13h6l-1 9 8-12h-6l1-8z"/>',
+    "patch": '<path d="M12 3 21 12 12 21 3 12 12 3z"/><path d="m9 12 2 2 4-5"/>',
+    "backups": '<path d="M4 7h16v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"/><path d="M8 7V4h8v3"/><path d="M9 12h6"/>',
+    "downloads": '<path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
+    "settings": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 2-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V20h-3.6v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-2-2 .1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4v-3.6h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-2 .1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V4h3.6v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2 2-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v3.6h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    "tools": '<path d="m14.7 6.3 3-3a3.5 3.5 0 0 1-4.6 4.6l-7.8 7.8a2 2 0 1 1-2.8-2.8l7.8-7.8a3.5 3.5 0 0 1 4.4-4.4l-3 3 3 3z"/>',
+    "safety": '<path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/><path d="m8.5 12 2.2 2.2 4.8-5"/>',
+    "about": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7h.01"/>',
+    "scan": '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/>',
+    "android": '<path d="M7 10h10v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/><path d="M9 5 7.5 3"/><path d="M15 5 16.5 3"/>',
+    "build": '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/>',
+    "shield": '<path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/>',
+    "lock": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    "connection": '<path d="M7 7h10"/><path d="m14 4 3 3-3 3"/><path d="M17 17H7"/><path d="m10 14-3 3 3 3"/>',
+    "source": '<circle cx="12" cy="12" r="3"/><path d="M12 3v3"/><path d="M12 18v3"/><path d="M3 12h3"/><path d="M18 12h3"/>',
+}
+
+
+def _svg_icon(key: str) -> str:
+    paths = _SVG_ICONS.get(key)
+    if not paths:
+        return escape(str(key or ""))
+    return f'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">{paths}</svg>'
 
 
 def _headline(page: str) -> str:
