@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from ui.pages.modern_readonly_state import build_readonly_state
 
@@ -222,6 +223,46 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
         self.assertEqual("45241FDAS0097U", state.device.serial)
         self.assertEqual("komodo", state.device.codename)
+
+    def test_reads_cached_scan_phone_props_without_frame_phone(self):
+        cached_phone = SimpleNamespace(
+            id="45241FDAS0097U",
+            true_mode="adb",
+            _rooted=False,
+            props=SimpleNamespace(
+                property={
+                    "ro.product.model": "Pixel 9 Pro XL",
+                    "ro.product.device": "komodo",
+                    "ro.product.name": "komodo_beta",
+                    "ro.build.version.release": "16",
+                    "ro.build.id": "CP1A.260505.005",
+                    "ro.build.version.security_patch": "2026-05-05",
+                    "ro.boot.slot_suffix": "_a",
+                    "ro.boot.vbmeta.device_state": "locked",
+                }
+            ),
+        )
+        runtime = SimpleNamespace(
+            get_phones=lambda: [cached_phone],
+            get_phone_id=lambda: "45241FDAS0097U",
+        )
+        frame = SimpleNamespace(
+            config=SimpleNamespace(device="45241FDAS0097U"),
+            device_choice=_Choice("X (adb) 45241FDAS0097U komodo CP1A.260505.005"),
+        )
+
+        with patch("ui.pages.modern_readonly_state.importlib.import_module", return_value=runtime):
+            state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
+        self.assertEqual("45241FDAS0097U", state.device.serial)
+        self.assertEqual("komodo", state.device.codename)
+        self.assertEqual("16", state.device.android_version)
+        self.assertEqual("CP1A.260505.005", state.device.build_id)
+        self.assertEqual("2026-05-05", state.device.security_patch)
+        self.assertEqual("locked", state.device.bootloader_state)
+        self.assertEqual("a", state.device.active_slot)
+        self.assertEqual("not rooted", state.device.root_status)
 
     def test_custom_rom_path_is_preferred_for_custom_rom_state(self):
         config = SimpleNamespace(

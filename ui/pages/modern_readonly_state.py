@@ -8,6 +8,7 @@ mutation operations.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -484,7 +485,28 @@ def _call_string(obj: Any, method_name: str) -> str:
 
 
 def _loaded_phone(frame: Any, config: Any) -> Any:
-    return _raw_attr(frame, "phone") or _raw_attr(config, "phone")
+    return _raw_attr(frame, "phone") or _raw_attr(config, "phone") or _cached_phone(frame, config)
+
+
+def _cached_phone(frame: Any, config: Any) -> Any:
+    with contextlib.suppress(Exception):
+        runtime = importlib.import_module("runtime")
+        phones = runtime.get_phones()
+        if not phones:
+            return None
+        selected = _call_string(getattr(frame, "device_choice", None), "GetStringSelection")
+        selected_id = _first_text(
+            str(getattr(config, "device", "") or ""),
+            _serial_from_device_text(selected),
+            str(runtime.get_phone_id() or ""),
+        )
+        if selected_id:
+            for phone in phones:
+                if _raw_string(phone, "id") == selected_id:
+                    return phone
+        if len(phones) == 1:
+            return phones[0]
+    return None
 
 
 def _loaded_props(phone: Any) -> dict[str, Any]:

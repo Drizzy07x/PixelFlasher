@@ -126,6 +126,28 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertNotIn("Open Classic PixelFlasher", html)
         self.assertNotIn("Execution Blocked", html)
 
+    def test_webview_dashboard_deduplicates_device_subtitle(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+
+        html = render_preview_html(
+            "dashboard",
+            ModernReadonlyState(
+                device=ModernDeviceState(
+                    display_name="Pixel 9 Pro XL",
+                    serial="45241FDAS0097U",
+                    codename="komodo",
+                    product="komodo",
+                    adb_ready=True,
+                ),
+                firmware=ModernFirmwareState(),
+                tools=ModernToolState(),
+                warnings=(),
+            ),
+        )
+
+        self.assertIn("45241FDAS0097U · komodo", html)
+        self.assertNotIn("45241FDAS0097U · komodo · komodo", html)
+
     def test_webview_template_does_not_load_remote_assets(self):
         for forbidden in ("http://", "https://", "cdn", "script src", "javascript:", "onclick="):
             with self.subTest(forbidden=forbidden):

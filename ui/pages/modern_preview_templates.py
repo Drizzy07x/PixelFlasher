@@ -933,7 +933,7 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
     device = state.device
     device_name = device.display_name or "No device selected"
     serial = device.serial or "No serial loaded"
-    subtitle_parts = tuple(part for part in (serial, device.codename, device.product) if part)
+    subtitle_parts = _unique_parts(serial, device.codename, device.product)
     android = device.android_version or "Unknown"
     build_id = device.build_id or state.firmware.build_id or "Unknown"
     security_patch = device.security_patch or "Unknown"
@@ -1345,6 +1345,18 @@ def _action_tile_card(title: str, rows: tuple[tuple[str, str, str, str], ...]) -
 
 def _tile(label: str, copy: str) -> str:
     return f"""<div class="tile"><strong>{escape(label)}</strong><span>{escape(copy)}</span></div>"""
+
+
+def _unique_parts(*parts: str) -> tuple[str, ...]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        value = str(part or "").strip()
+        key = value.lower()
+        if value and key not in seen:
+            values.append(value)
+            seen.add(key)
+    return tuple(values)
 
 
 def _action_tile(label: str, copy: str, action_id: str, icon_key: str) -> str:
