@@ -1003,6 +1003,8 @@ def _workflow_status_card(state: ModernReadonlyState) -> str:
     rows = (
         ("Device", state.device.display_name or state.device.serial or "not selected"),
         ("Firmware", state.firmware.filename or "not selected"),
+        ("Firmware type", _package_type(state)),
+        ("Firmware size", state.firmware.size_label),
         ("Platform tools", _platform_tools_label(state)),
         ("Flash plan", state.flash.flash_mode),
     )
@@ -1087,7 +1089,7 @@ def _shell_page(state: ModernReadonlyState) -> str:
         {_explorer_card("Device State Overview", (("Selected device", state.device.display_name or state.device.serial or "none"), ("Android", state.device.android_version or "unknown"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "unknown")))}
         {_explorer_card("Connection Readiness", (("ADB", "ready" if state.device.adb_ready else "not ready"), ("Fastboot", _bootloader_tool_mode(state)), ("Platform tools", _platform_tools_label(state)), ("Selected device", state.device.display_name or "none")))}
         {_explorer_card("Device Information", (("Model", state.device.display_name or "unknown"), ("Codename", state.device.codename or "unknown"), ("Serial", state.device.serial or "none"), ("Product", state.device.product or "unknown")))}
-        {_explorer_card("Firmware Context", (("Type", _package_type(state)), ("Build", state.firmware.build_id or "unknown"), ("Validation", "verified" if state.firmware.verified else "waiting"), ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected")))}
+        {_explorer_card("Firmware Context", (("Type", _package_type(state)), ("Build", state.firmware.build_id or "unknown"), ("Size", state.firmware.size_label), ("Validation", "verified" if state.firmware.verified else "waiting"), ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected")))}
         {_explorer_card("Loaded Flash Options", (("Mode", state.flash.flash_mode), ("Data", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("No reboot", _on_off(state.flash.no_reboot))))}
         {_explorer_card("Workflow Controls", (("Flash", "configured from Flash Wizard"), ("Patch", "available from Dashboard"), ("Firmware", "select and process"), ("Tools", "available from sidebar")))}
         {_explorer_card("Available Actions", (("Scan", "available"), ("Firmware", "select and process"), ("Patch", "available when ready"), ("Flash", "available when ready")))}
@@ -1119,10 +1121,10 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           </div>
           <div class="readiness-grid">
             {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected"), state.device.connection_label, f"Active slot: {state.device.active_slot or 'unknown'}", f"Root: {state.device.root_status}"))}
-            {_wizard_readiness("Firmware Readiness", (("No firmware selected" if not state.firmware.selected else state.firmware.filename), _package_type(state), "Process firmware when ready", "Patchable image: " + ("available" if state.firmware.has_patchable_image else "not detected")))}
+            {_wizard_readiness("Firmware Readiness", (("No firmware selected" if not state.firmware.selected else state.firmware.filename), _package_type(state), "Size: " + state.firmware.size_label, "Process firmware when ready", "Patchable image: " + ("available" if state.firmware.has_patchable_image else "not detected")))}
             {_wizard_readiness("Flash Workflow", ("Review flash mode", "Confirm options", "Run PixelFlasher flash", "Follow prompts"))}
           </div>
-          {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "not selected")))}
+          {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "not selected"), ("Package type", _package_type(state))))}
           {_wizard_stage_overview()}
           <div class="footer-controls">
             <a class="button" href="{escape(action_url("select_firmware"))}">Select Firmware</a>
@@ -1138,6 +1140,7 @@ def _wizard_page(state: ModernReadonlyState) -> str:
             {_mini_row("Items to review", str(len(state.warnings) or 2))}
             {_mini_row("Device", state.device.display_name or "not selected")}
             {_mini_row("Firmware", state.firmware.filename or "not selected")}
+            {_mini_row("Package type", _package_type(state))}
             {_mini_row("Mode", state.flash.flash_mode)}
             {_mini_row("Slot target", state.flash.slot_behavior)}
             {_mini_row("Final action", "Flash Device")}
@@ -1193,12 +1196,12 @@ def _backups_page(state: ModernReadonlyState) -> str:
 def _downloads_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Validation", "Verified" if state.firmware.verified else "Waiting"), ("Catalog", state.downloads.image_catalog_status), ("Next step", "Flash Wizard")))}
+      {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Type", _package_type(state)), ("Size", state.firmware.size_label), ("Next step", "Flash Wizard")))}
       {_context_ribbon(state, "Download center")}
       <div class="page-grid two">
         {_hero_card("downloads", "Downloads", "Browse firmware resources and rooting app downloads.")}
         {_action_tile_card("Firmware Downloads", (("Firmware Downloads", "Find firmware for the selected device.", "firmware_downloads", "downloads"), ("Rooting App", "Open rooting app downloads.", "rooting_app", "android"), ("Select Firmware", state.firmware.filename or "Choose a local package.", "select_firmware", "build"), ("Flash Wizard", "Continue with firmware planning.", "open_modern_flash_wizard", "wizard")))}
-        {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Module updates", "enabled" if state.downloads.module_update_check else "disabled"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "none")))}
+        {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Module updates", "enabled" if state.downloads.module_update_check else "disabled"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "none"), ("File size", state.firmware.size_label)))}
         {_explorer_card("Download Details", (("Selected item", state.firmware.filename or "none"), ("Validation", "verified" if state.firmware.verified else "not started"), ("Last catalog check", state.downloads.last_checked), ("Frequency", state.downloads.update_frequency)))}
         {_explorer_card("Warnings", _warning_rows(state))}
         {_explorer_card("Download Actions", (("Firmware downloads", "available for selected device"), ("Rooting App", "available"), ("Process package", "available after selection"), ("Flash package", "use Flash Wizard")))}
@@ -1594,6 +1597,7 @@ def _package_type(state: ModernReadonlyState) -> str:
         "factory": "Factory image",
         "ota": "OTA package",
         "custom_rom": "Custom ROM",
+        "image": "Image file",
         "unknown": "unknown",
     }.get(str(state.firmware.package_type or "unknown"), str(state.firmware.package_type or "unknown"))
 

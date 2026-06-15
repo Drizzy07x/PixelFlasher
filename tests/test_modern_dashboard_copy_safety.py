@@ -148,6 +148,29 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("45241FDAS0097U · komodo", html)
         self.assertNotIn("45241FDAS0097U · komodo · komodo", html)
 
+    def test_webview_surfaces_show_firmware_metadata(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+
+        state = ModernReadonlyState(
+            device=ModernDeviceState(display_name="Pixel 9 Pro XL"),
+            firmware=ModernFirmwareState(
+                path="komodo-ota-cp1a.zip",
+                package_type="ota",
+                build_id="komodo-ota",
+                file_size_bytes=1536,
+                extension=".zip",
+            ),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+        dashboard_html = render_preview_html("dashboard", state)
+        wizard_html = render_preview_html("wizard", state)
+
+        for expected in ("komodo-ota-cp1a.zip", "OTA package", "1.5 KB"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, dashboard_html)
+                self.assertIn(expected, wizard_html)
+
     def test_webview_template_does_not_load_remote_assets(self):
         for forbidden in ("http://", "https://", "cdn", "script src", "javascript:", "onclick="):
             with self.subTest(forbidden=forbidden):

@@ -81,6 +81,8 @@ class ModernFirmwareState:
     verified: bool = False
     has_boot_image: bool = False
     has_init_boot_image: bool = False
+    file_size_bytes: int = 0
+    extension: str = ""
 
     @property
     def selected(self) -> bool:
@@ -93,6 +95,10 @@ class ModernFirmwareState:
     @property
     def has_patchable_image(self) -> bool:
         return self.has_boot_image or self.has_init_boot_image
+
+    @property
+    def size_label(self) -> str:
+        return _size_label(self.file_size_bytes)
 
 
 @dataclass(frozen=True)
@@ -248,15 +254,8 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
     rom_path = str(getattr(config, "custom_rom_path", "") or getattr(config, "rom_path", "") or "")
     path = rom_path if custom_rom and rom_path else firmware_path
 
-    firmware_is_ota = bool(getattr(config, "firmware_is_ota", False))
-    if custom_rom:
-        package_type = "custom_rom"
-    elif firmware_is_ota:
-        package_type = "ota"
-    elif path:
-        package_type = "factory"
-    else:
-        package_type = "unknown"
+    extension = _file_extension(path)
+    package_type = _firmware_package_type(path, config, custom_rom, extension)
 
     firmware_sha256 = str(getattr(config, "firmware_sha256", "") or "")
     rom_sha256 = str(getattr(config, "rom_sha256", "") or "")
@@ -271,6 +270,8 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
         verified=bool(path and sha256),
         has_boot_image=bool(getattr(config, "boot_id", None) or getattr(config, "selected_boot_md5", None)),
         has_init_boot_image=bool(getattr(config, "firmware_has_init_boot", False) or getattr(config, "rom_has_init_boot", False)),
+        file_size_bytes=_file_size(path),
+        extension=extension,
     )
 
 
@@ -290,6 +291,47 @@ def _configured_tool(configured_path: str, names: tuple[str, ...]) -> str:
         if candidate.is_file():
             return str(candidate)
     return ""
+
+
+def _firmware_package_type(path: str, config: Any, custom_rom: bool, extension: str) -> str:
+    if not path:
+        return "unknown"
+    filename = Path(path).name.lower()
+    firmware_is_ota = bool(getattr(config, "firmware_is_ota", False))
+    if custom_rom:
+        return "custom_rom"
+    if firmware_is_ota or "-ota-" in filename or filename.startswith("ota-"):
+        return "ota"
+    if extension == ".img":
+        return "image"
+    if extension in {".zip", ".tgz", ".tar"}:
+        return "factory"
+    return "unknown"
+
+
+def _file_extension(path: str) -> str:
+    return Path(path).suffix.lower() if path else ""
+
+
+def _file_size(path: str) -> int:
+    if not path:
+        return 0
+    with contextlib.suppress(OSError):
+        return Path(path).stat().st_size
+    return 0
+
+
+def _size_label(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return "unknown"
+    units = ("B", "KB", "MB", "GB")
+    value = float(size_bytes)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
 
 
 def _read_flash_options(config: Any) -> ModernFlashOptionsState:

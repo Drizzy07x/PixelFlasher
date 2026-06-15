@@ -318,6 +318,38 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertFalse(state.ready_for_review)
         self.assertIn("Firmware package has not been verified.", state.warnings)
 
+    def test_firmware_metadata_is_inferred_from_selected_file(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="pf-modern-fw-") as tmp:
+            ota_path = Path(tmp) / "komodo-ota-cp1a.zip"
+            ota_path.write_bytes(b"0" * 1536)
+            image_path = Path(tmp) / "init_boot.img"
+            image_path.write_bytes(b"1" * 2048)
+
+            ota_state = build_readonly_state(
+                SimpleNamespace(
+                    config=SimpleNamespace(firmware_path=str(ota_path), firmware_is_ota=False),
+                    firmware_picker=_Picker(""),
+                ),
+                tool_resolver=lambda name: None,
+            )
+            image_state = build_readonly_state(
+                SimpleNamespace(
+                    config=SimpleNamespace(firmware_path=str(image_path), firmware_is_ota=False),
+                    firmware_picker=_Picker(""),
+                ),
+                tool_resolver=lambda name: None,
+            )
+
+        self.assertEqual("ota", ota_state.firmware.package_type)
+        self.assertEqual(".zip", ota_state.firmware.extension)
+        self.assertEqual(1536, ota_state.firmware.file_size_bytes)
+        self.assertEqual("1.5 KB", ota_state.firmware.size_label)
+        self.assertEqual("image", image_state.firmware.package_type)
+        self.assertEqual(".img", image_state.firmware.extension)
+        self.assertEqual("2.0 KB", image_state.firmware.size_label)
+
     def test_reader_suppresses_bad_legacy_controls(self):
         class BadPicker:
             def GetPath(self):
