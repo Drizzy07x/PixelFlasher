@@ -255,9 +255,9 @@ body {
 }
 .lower-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
-  margin-top: 16px;
+  margin-top: 14px;
 }
 .card {
   position: relative;
@@ -292,30 +292,125 @@ body {
 .card h3 { font-size: 15px; }
 .card-subtitle { color: var(--muted); margin-top: 4px; font-size: 12px; line-height: 1.35; }
 .muted { color: var(--muted); }
-.device-card { min-height: 352px; }
-.device-body { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; }
-.phone {
-  width: 132px;
-  height: 228px;
+.device-card { min-height: 320px; }
+.device-body { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: center; }
+.device-visual {
+  width: 194px;
+  height: 238px;
   position: relative;
-  overflow: hidden;
   margin: 0 auto;
-  border-radius: 22px;
-  border: 2px solid rgba(255, 255, 255, .52);
-  background:
-    radial-gradient(circle at 50% 8%, rgba(255, 255, 255, .18), transparent 12%),
-    radial-gradient(circle at 62% 28%, rgba(244, 255, 230, .32), transparent 18%),
-    linear-gradient(28deg, transparent 0 33%, rgba(238, 255, 220, .25) 34% 45%, transparent 46%),
-    linear-gradient(145deg, rgba(54, 91, 58, .20), transparent 42%),
-    linear-gradient(145deg, rgba(172, 197, 160, .90), rgba(71, 99, 77, .88));
-  box-shadow:
-    inset 0 0 0 5px rgba(0, 0, 0, .36),
-    inset 0 -42px 50px rgba(18, 30, 20, .38),
-    0 22px 40px rgba(0, 0, 0, .45),
-    0 0 0 8px rgba(47, 140, 255, .035);
+  --device-back: #bdc9b2;
+  --device-back-2: #7d8e78;
+  --device-rail: #d7dfd2;
+  --device-wallpaper-a: #1a3440;
+  --device-wallpaper-b: #8ca27e;
+  --device-camera: #1f2326;
 }
-.phone::before {
+.device-visual::before {
   content: "";
+  position: absolute;
+  left: 16px;
+  right: 10px;
+  bottom: 0;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, .48), transparent 68%);
+  filter: blur(4px);
+}
+.device-rear,
+.device-front {
+  position: absolute;
+  border-radius: 25px;
+  box-shadow: 0 24px 42px rgba(0, 0, 0, .48);
+}
+.device-rear {
+  left: 4px;
+  top: 14px;
+  width: 124px;
+  height: 218px;
+  transform: rotate(-5deg);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .34), transparent 34%),
+    linear-gradient(145deg, var(--device-back), var(--device-back-2));
+  border: 2px solid rgba(255, 255, 255, .40);
+}
+.device-rear::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 17px;
+  border: 1px solid rgba(255, 255, 255, .13);
+  background: linear-gradient(155deg, rgba(255, 255, 255, .18), transparent 54%);
+}
+.camera-bar {
+  position: absolute;
+  left: 11px;
+  right: 11px;
+  top: 26px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .16), transparent 34%),
+    linear-gradient(135deg, #32383d, var(--device-camera));
+  border: 1px solid rgba(255, 255, 255, .20);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .28), 0 7px 15px rgba(0, 0, 0, .28);
+  z-index: 2;
+}
+.camera-lens {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 37% 35%, #5e7188 0 10%, transparent 12%),
+    radial-gradient(circle at 52% 53%, #111923 0 35%, #030508 38% 100%);
+  border: 1px solid rgba(255, 255, 255, .20);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .06);
+}
+.camera-flash {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: auto;
+  background: #f3e7b5;
+  box-shadow: 0 0 10px rgba(255, 232, 151, .32);
+}
+.device-front {
+  right: 4px;
+  top: 0;
+  width: 124px;
+  height: 232px;
+  background: linear-gradient(145deg, #101820, #03060c);
+  border: 2px solid var(--device-rail);
+  box-shadow:
+    inset 0 0 0 5px rgba(4, 7, 12, .92),
+    0 26px 44px rgba(0, 0, 0, .52),
+    0 0 0 7px rgba(47, 140, 255, .035);
+  overflow: hidden;
+}
+.device-screen {
+  position: absolute;
+  inset: 16px 9px 10px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 62% 18%, rgba(255, 255, 255, .16), transparent 19%),
+    linear-gradient(28deg, transparent 0 32%, rgba(230, 250, 214, .30) 33% 43%, transparent 44%),
+    linear-gradient(154deg, var(--device-wallpaper-a), var(--device-wallpaper-b));
+  border: 1px solid rgba(255, 255, 255, .10);
+  box-shadow: inset 0 -38px 52px rgba(0, 0, 0, .20);
+}
+.device-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, .24), transparent 28%, rgba(255, 255, 255, .08) 52%, transparent 70%);
+  opacity: .7;
+}
+.punch-hole {
   position: absolute;
   left: 50%;
   top: 10px;
@@ -323,22 +418,36 @@ body {
   height: 8px;
   transform: translateX(-50%);
   border-radius: 50%;
-  background: #05070b;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, .12);
-  z-index: 2;
+  background: #030508;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .13);
+  z-index: 3;
 }
-.phone::after {
-  content: "";
-  position: absolute;
-  inset: 26px 12px 16px;
-  border-radius: 10px;
-  background:
-    linear-gradient(22deg, transparent 0 26%, rgba(232, 244, 218, .24) 27% 38%, transparent 39%),
-    linear-gradient(150deg, rgba(18, 45, 24, .18) 0 24%, transparent 25%),
-    linear-gradient(45deg, rgba(239, 255, 228, .30), rgba(47, 75, 52, .28));
-  border: 1px solid rgba(255, 255, 255, .10);
-  filter: saturate(.86);
+.pixel-9-pro-xl,
+.pixel-9-pro {
+  --device-back: #d3dccd;
+  --device-back-2: #81937e;
+  --device-rail: #dfe8da;
+  --device-wallpaper-a: #183046;
+  --device-wallpaper-b: #a5b997;
 }
+.pixel-9 { --device-back: #c7d4e4; --device-back-2: #667d98; --device-rail: #dce7f3; --device-wallpaper-a: #142642; --device-wallpaper-b: #7ea7c9; }
+.pixel-8-pro { --device-back: #cbd0c8; --device-back-2: #7d837b; --device-rail: #e1e5df; }
+.pixel-8,
+.pixel-8a { --device-back: #c0d7d1; --device-back-2: #5f817b; --device-rail: #d8ebe6; }
+.pixel-7-pro,
+.pixel-7,
+.pixel-6-pro,
+.pixel-6 { --device-back: #cfd4da; --device-back-2: #6c7480; --device-rail: #e4e8ee; --device-camera: #12161b; }
+.pixel-fold .device-rear { width: 142px; border-radius: 18px; }
+.pixel-fold .device-front { width: 108px; border-radius: 18px; }
+.pixel-tablet { width: 218px; }
+.pixel-tablet .device-rear { width: 176px; height: 132px; top: 54px; border-radius: 18px; }
+.pixel-tablet .device-front { width: 170px; height: 126px; top: 42px; border-radius: 18px; }
+.camera-two .lens-3,
+.camera-one .lens-2,
+.camera-one .lens-3 { display: none; }
+.camera-bar-style .camera-bar { left: -2px; right: -2px; border-radius: 14px; }
+.camera-visor .camera-bar { left: -5px; right: -5px; border-radius: 0; height: 38px; }
 .device-name { font-size: 25px; font-weight: 850; margin: 4px 0 6px; letter-spacing: 0; }
 .device-subline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
 .device-pill {
@@ -420,7 +529,7 @@ body {
 }
 .dashboard-actions .action-row {
   grid-template-columns: 42px minmax(0, 1fr) 14px;
-  min-height: 72px;
+  min-height: 62px;
 }
 .dashboard-actions .action-copy { line-height: 1.25; }
 .action-row {
@@ -797,41 +906,6 @@ body {
   font-size: 12px;
   line-height: 1.38;
 }
-.wizard-stage-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
-}
-.stage-card {
-  min-height: 118px;
-  padding: 13px;
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, .035);
-  border: 1px solid var(--border-soft);
-}
-.stage-card strong {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: white;
-  margin-bottom: 8px;
-}
-.stage-card strong span {
-  width: 24px;
-  height: 24px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--purple);
-  font-size: 12px;
-}
-.stage-card p {
-  color: var(--muted);
-  line-height: 1.45;
-  margin: 0;
-  font-size: 13px;
-}
 .wizard-grid > .card:first-child,
 .wizard-grid > .blocked,
 .wizard-grid > .guarded {
@@ -880,7 +954,7 @@ body {
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid, .state-overview, .plan-brief { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .state-overview, .plan-brief { grid-template-columns: 1fr; }
   .dashboard-actions { grid-template-columns: 1fr; }
   .setup-notice { grid-template-columns: auto minmax(0, 1fr); }
   .setup-button { grid-column: 1 / -1; text-align: center; }
@@ -903,8 +977,8 @@ def _sidebar(active: str, version: str) -> str:
       </div>
       <nav class="nav" aria-label="Modern UI surfaces">{nav}</nav>
       <div class="mode-card">
-        <h3>Modern Experience</h3>
-        <p>Use PixelFlasher from the modern dashboard. Sensitive actions keep the existing confirmations.</p>
+        <h3>Workspace</h3>
+        <p>Modern dashboard, guided workflows, connected state, and confirmations in one place.</p>
       </div>
     </aside>
     """
@@ -967,10 +1041,10 @@ def _dashboard_page(state: ModernReadonlyState) -> str:
         {_connected_device_card(state)}
         <div class="right-stack">
           {_quick_actions_card(state)}
-          {_workflow_status_card(state)}
         </div>
       </div>
       <div class="lower-grid">
+        {_workflow_status_card(state)}
         {_device_slots_card(state)}
         {_partitions_card(state)}
         {_last_backup_card(state)}
@@ -989,7 +1063,6 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
     security_patch = device.security_patch or "Unknown"
     bootloader = _known(device.bootloader_state)
     connection = device.connection_label
-    phone_class = " connected" if device.selected else ""
     connection_badge = "green" if device.selected else "yellow"
     return f"""
     <article class="card device-card">
@@ -1001,7 +1074,7 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
         <span class="badge {connection_badge}">{escape(connection)}</span>
       </div>
       <div class="device-body">
-        <div class="phone{phone_class}"></div>
+        {_device_art(device)}
         <div>
           <div class="device-name">{escape(device_name)}</div>
           <div class="device-subline">
@@ -1021,6 +1094,53 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
       <div class="info-strip"><strong>ⓘ</strong><div>Device details update from the current PixelFlasher session.<br>Use Scan Devices to refresh connected devices.</div></div>
     </article>
     """
+
+
+def _device_art(device: ModernDeviceState) -> str:
+    label = device.display_name or device.codename or "Pixel device"
+    art_class = _device_art_class(device)
+    return f"""
+    <div class="device-visual {escape(art_class)}" aria-label="{escape(label)} device illustration">
+      <div class="device-rear">
+        <div class="camera-bar">
+          <span class="camera-lens lens-1"></span>
+          <span class="camera-lens lens-2"></span>
+          <span class="camera-lens lens-3"></span>
+          <span class="camera-flash"></span>
+        </div>
+      </div>
+      <div class="device-front">
+        <span class="punch-hole"></span>
+        <span class="device-screen"></span>
+      </div>
+    </div>
+    """
+
+
+def _device_art_class(device: ModernDeviceState) -> str:
+    descriptor = " ".join(
+        part
+        for part in (device.codename, device.product, device.display_name)
+        if part
+    ).lower()
+    families = (
+        (("komodo", "pixel 9 pro xl", "pixel 10 pro xl"), "pixel-9-pro-xl camera-three"),
+        (("caiman", "pixel 9 pro", "pixel 10 pro"), "pixel-9-pro camera-three"),
+        (("tokay", "pixel 9", "pixel 10"), "pixel-9 camera-two"),
+        (("akita", "pixel 8a", "pixel 9a"), "pixel-8a camera-two"),
+        (("husky", "pixel 8 pro"), "pixel-8-pro camera-three camera-bar-style"),
+        (("shiba", "pixel 8"), "pixel-8 camera-two camera-bar-style"),
+        (("cheetah", "pixel 7 pro"), "pixel-7-pro camera-three camera-visor"),
+        (("panther", "lynx", "pixel 7"), "pixel-7 camera-two camera-visor"),
+        (("raven", "pixel 6 pro"), "pixel-6-pro camera-three camera-visor"),
+        (("oriole", "bluejay", "pixel 6"), "pixel-6 camera-two camera-visor"),
+        (("felix", "fold"), "pixel-fold camera-three"),
+        (("tangorpro", "tablet"), "pixel-tablet camera-one"),
+    )
+    for markers, css_class in families:
+        if any(marker in descriptor for marker in markers):
+            return css_class
+    return "pixel-9 camera-two"
 
 
 def _quick_actions_card(state: ModernReadonlyState) -> str:
@@ -1053,10 +1173,8 @@ def _workflow_status_card(state: ModernReadonlyState) -> str:
     rows = (
         ("Device", state.device.display_name or state.device.serial or "Choose device"),
         ("Firmware", state.firmware.filename or "Choose firmware"),
-        ("Firmware type", _package_type(state)),
-        ("Firmware size", state.firmware.size_label),
-        ("Platform tools", _platform_tools_label(state)),
-        ("Flash plan", state.flash.flash_mode),
+        ("Package", f"{_package_type(state)} - {state.firmware.size_label}"),
+        ("Plan", state.flash.flash_mode),
     )
     return f"""
     <article class="card">
@@ -1098,7 +1216,7 @@ def _device_slots_card(state: ModernReadonlyState) -> str:
     return _mini_card(
         "Device Slots",
         "Slots",
-        (("Active slot", slot), ("Slot target", state.flash.slot_behavior), ("Switch slot", "Use Tools when a device is selected")),
+        (("Active slot", slot), ("Slot target", state.flash.slot_behavior), ("Switch slot", "Open Tools")),
     )
 
 
@@ -1176,7 +1294,6 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           </div>
           {_wizard_plan_brief(state)}
           {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "Choose firmware"), ("Package type", _package_type(state))))}
-          {_wizard_stage_overview()}
           <div class="footer-controls">
             <a class="button" href="{escape(action_url("select_firmware"))}">Select Firmware</a>
             <a class="button" href="{escape(action_url("process_firmware"))}">Process Firmware</a>
@@ -1203,16 +1320,6 @@ def _wizard_page(state: ModernReadonlyState) -> str:
       </div>
     </section>
     """
-
-
-def _wizard_stage_overview() -> str:
-    rows = (
-        ("2", "Firmware", "Select a factory image, OTA package, custom ROM, or image file."),
-        ("3", "Options", "Review data, slot, verity, verification, force, and reboot settings."),
-        ("4", "Plan", "Confirm the selected device, package, mode, and target slot."),
-        ("5", "Review", "Start the PixelFlasher workflow and follow the final prompts."),
-    )
-    return f"""<div class="wizard-stage-grid">{"".join(_wizard_stage_card(*row) for row in rows)}</div>"""
 
 
 def _wizard_plan_brief(state: ModernReadonlyState) -> str:
@@ -1268,15 +1375,6 @@ def _plan_status_label(state: ModernReadonlyState) -> str:
 
 def _plan_review_label(state: ModernReadonlyState) -> str:
     return str(len(state.warnings)) if state.warnings else "clear"
-
-
-def _wizard_stage_card(number: str, title: str, copy: str) -> str:
-    return f"""
-    <div class="stage-card">
-      <strong><span>{escape(number)}</span>{escape(title)}</strong>
-      <p>{escape(copy)}</p>
-    </div>
-    """
 
 
 def _backups_page(state: ModernReadonlyState) -> str:

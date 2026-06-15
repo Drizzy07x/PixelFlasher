@@ -178,6 +178,61 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("45241FDAS0097U · komodo", html)
         self.assertNotIn("45241FDAS0097U · komodo · komodo", html)
 
+    def test_webview_dashboard_uses_model_specific_device_art(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+
+        html = render_preview_html(
+            "dashboard",
+            ModernReadonlyState(
+                device=ModernDeviceState(
+                    display_name="Pixel 9 Pro XL",
+                    serial="45241FDAS0097U",
+                    codename="komodo",
+                    product="komodo",
+                    adb_ready=True,
+                ),
+                firmware=ModernFirmwareState(),
+                tools=ModernToolState(),
+                warnings=(),
+            ),
+        )
+
+        for expected in (
+            "device-visual pixel-9-pro-xl camera-three",
+            "device-rear",
+            "camera-bar",
+            "camera-lens lens-3",
+            "device-front",
+            "punch-hole",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, html)
+        self.assertNotIn('class="phone', html)
+
+    def test_device_art_tracks_common_pixel_families(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+
+        cases = (
+            ("komodo", "Pixel 9 Pro XL", "pixel-9-pro-xl camera-three"),
+            ("husky", "Pixel 8 Pro", "pixel-8-pro camera-three camera-bar-style"),
+            ("panther", "Pixel 7", "pixel-7 camera-two camera-visor"),
+            ("felix", "Pixel Fold", "pixel-fold camera-three"),
+            ("tangorpro", "Pixel Tablet", "pixel-tablet camera-one"),
+        )
+
+        for codename, display_name, expected_class in cases:
+            with self.subTest(codename=codename):
+                html = render_preview_html(
+                    "dashboard",
+                    ModernReadonlyState(
+                        device=ModernDeviceState(display_name=display_name, codename=codename),
+                        firmware=ModernFirmwareState(),
+                        tools=ModernToolState(),
+                        warnings=(),
+                    ),
+                )
+                self.assertIn(f"device-visual {expected_class}", html)
+
     def test_webview_surfaces_show_firmware_metadata(self):
         from ui.pages.modern_preview_templates import render_preview_html
 
