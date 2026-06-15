@@ -15,6 +15,7 @@ from ui.pages.modern_action_bridge import (
 
 
 PIXELFLASHER_SOURCE = Path("PixelFlasher.py")
+MAIN_SOURCE = Path("Main.py")
 MODERN_PRIMARY_SOURCE = Path("ui/pages/modern_primary_app.py")
 MODERN_BRIDGE_SOURCE = Path("ui/pages/modern_action_bridge.py")
 MODERN_FEEDBACK_SOURCE = Path("ui/pages/modern_action_feedback.py")
@@ -26,6 +27,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pixelflasher_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")
+        cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
         cls.primary_source = MODERN_PRIMARY_SOURCE.read_text(encoding="utf-8")
         cls.bridge_source = MODERN_BRIDGE_SOURCE.read_text(encoding="utf-8")
         cls.feedback_source = MODERN_FEEDBACK_SOURCE.read_text(encoding="utf-8")
@@ -128,6 +130,17 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
                 self.assertEqual(DISABLED, action.safety_level)
                 self.assertFalse(action.enabled)
                 self.assertFalse(action.delegate)
+
+    def test_engine_action_delegates_exist_on_primary_engine(self):
+        web_frame_delegates = {"_setup_platform_tools", "select_firmware_file"}
+
+        for action in modern_actions():
+            if not is_engine_action(action):
+                continue
+            if action.delegate in web_frame_delegates:
+                continue
+            with self.subTest(action_id=action.id, delegate=action.delegate):
+                self.assertIn(f"def {action.delegate}(", self.main_source)
 
     def test_custom_action_urls_are_allow_listed(self):
         action = action_from_url(action_url("flash_device"))

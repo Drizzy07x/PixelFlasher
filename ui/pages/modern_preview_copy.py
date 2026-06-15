@@ -34,15 +34,15 @@ NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("downloads", "Downloads", "Firmware updates"),
     ("settings", "Settings", "Preferences"),
     ("tools", "Tools", "Utilities"),
-    ("safety", "Safety", "Boundaries & policy"),
+    ("safety", "System", "Protection & confirmations"),
     ("about", "About", "Version & info"),
 )
 
 SAFETY_BOUNDARY_LINES: tuple[str, ...] = (
     "Sensitive operations require existing PixelFlasher confirmation.",
     "ADB and Fastboot actions use PixelFlasher confirmations.",
-    "Reboot, wipe, and slot changes are not launched from this screen.",
-    "Unknown actions and external navigation are blocked.",
+    "Reboot, wipe, and slot changes require dedicated PixelFlasher flows.",
+    "External navigation stays inside the PixelFlasher workspace.",
 )
 
 DASHBOARD_PREVIEW_ACTIONS: tuple[tuple[str, str], ...] = (

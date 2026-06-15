@@ -165,7 +165,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             ),
         )
 
-        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "Safety", "About"):
+        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "System", "About"):
             with self.subTest(label=label):
                 self.assertIn(label, html)
 
@@ -259,7 +259,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "downloads": ("Downloads", "Firmware Downloads", "Loaded Download Context", "Download Actions"),
             "settings": ("Settings", "General Settings", "Loaded Preference Flags", "Settings Actions"),
             "tools": ("Tools", "Tool Catalog", "Advanced Operations", "Partition Manager"),
-            "safety": ("Safety", "Safety Boundary", "Loaded State Snapshot", "Operation Policy"),
+            "safety": ("System", "Protection", "Loaded State Snapshot", "Operation Policy"),
             "about": ("About PixelFlasher", "Application Engine", "Loaded State Snapshot", "Modern UI Status"),
         }
 

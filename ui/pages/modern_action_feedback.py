@@ -19,11 +19,11 @@ class ModernActionFeedback:
 
 
 def blocked_navigation_feedback() -> ModernActionFeedback:
-    return ModernActionFeedback("Unknown or external navigation was blocked.", BLOCKED)
+    return ModernActionFeedback("Navigation stayed inside the PixelFlasher workspace.", BLOCKED)
 
 
 def disabled_action_feedback(action: ModernAction) -> ModernActionFeedback:
-    return ModernActionFeedback(f"{action.label}: unavailable until the required state is selected.", BLOCKED)
+    return ModernActionFeedback(f"{action.label}: select the required device or firmware first.", BLOCKED)
 
 
 def navigation_action_feedback(action: ModernAction) -> ModernActionFeedback:
@@ -39,4 +39,4 @@ def action_completed_feedback(action: ModernAction) -> ModernActionFeedback:
 
 
 def action_unavailable_feedback(action: ModernAction) -> ModernActionFeedback:
-    return ModernActionFeedback(f"{action.label}: not available in this session.", BLOCKED)
+    return ModernActionFeedback(f"{action.label}: connect the required state and try again.", BLOCKED)

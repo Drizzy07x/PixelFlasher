@@ -64,8 +64,8 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         for expected in (
             "Sensitive operations require existing PixelFlasher confirmation.",
             "ADB and Fastboot actions use PixelFlasher confirmations.",
-            "Reboot, wipe, and slot changes are not launched from this screen.",
-            "Unknown actions and external navigation are blocked.",
+            "Reboot, wipe, and slot changes require dedicated PixelFlasher flows.",
+            "External navigation stays inside the PixelFlasher workspace.",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, safety_text)
@@ -81,7 +81,7 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         self.assertIn("Backup context", labels["backups"])
         self.assertIn("Firmware updates", labels["downloads"])
         self.assertIn("Utilities", labels["tools"])
-        self.assertIn("Boundaries & policy", labels["safety"])
+        self.assertIn("Protection & confirmations", labels["safety"])
         self.assertIn("Version & info", labels["about"])
         for key in labels:
             with self.subTest(key=key):
@@ -131,6 +131,30 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
                 self.assertIn(expected, html)
         self.assertNotIn("Open Classic PixelFlasher", html)
         self.assertNotIn("Execution Blocked", html)
+        self.assertNotIn(">BETA<", html)
+
+    def test_webview_visible_copy_avoids_unfinished_preview_language(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+        html = "\n".join(render_preview_html(page, state) for page in ("dashboard", "shell", "wizard", "safety", "about"))
+
+        for forbidden in (
+            ">BETA<",
+            "Preview-only",
+            "Read-Only",
+            "Execution Blocked",
+            "Safety Boundary",
+            "not exposed",
+            "Open Classic PixelFlasher",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, html)
 
     def test_webview_dashboard_deduplicates_device_subtitle(self):
         from ui.pages.modern_preview_templates import render_preview_html

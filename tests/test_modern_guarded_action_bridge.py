@@ -120,7 +120,7 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             "downloads": ("Downloads", "Firmware Downloads", "Download Actions", "Rooting App"),
             "settings": ("Settings", "General Settings", "Settings Actions", "Open Settings"),
             "tools": ("Tools", "Tool Catalog", "Advanced Operations", "Partition Manager"),
-            "safety": ("Safety", "Safety Boundary", "Operation Policy", "Confirmations"),
+            "safety": ("System", "Protection", "Operation Policy", "Confirmations"),
             "about": ("About PixelFlasher", "Modern UI Status", "Application Engine", "PixelFlasher"),
         }
 

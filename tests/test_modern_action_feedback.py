@@ -21,7 +21,7 @@ class ModernActionFeedbackTests(unittest.TestCase):
         opened = navigation_action_feedback(action)
 
         self.assertEqual(BLOCKED, blocked.tone)
-        self.assertEqual("Unknown or external navigation was blocked.", blocked.message)
+        self.assertEqual("Navigation stayed inside the PixelFlasher workspace.", blocked.message)
         self.assertEqual(SAFE, opened.tone)
         self.assertEqual("Open Modern Shell: opened.", opened.message)
 
@@ -30,9 +30,9 @@ class ModernActionFeedbackTests(unittest.TestCase):
         unavailable = action_unavailable_feedback(action_by_id("scan_devices"))
 
         self.assertEqual(BLOCKED, disabled.tone)
-        self.assertIn("unavailable", disabled.message)
+        self.assertIn("select the required device or firmware first", disabled.message)
         self.assertEqual(BLOCKED, unavailable.tone)
-        self.assertIn("not available", unavailable.message)
+        self.assertIn("connect the required state", unavailable.message)
 
     def test_guarded_feedback_distinguishes_cancel_and_completion(self):
         action = action_by_id("flash_device")
