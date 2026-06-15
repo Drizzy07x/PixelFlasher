@@ -196,6 +196,33 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertTrue(state.device.fastboot_ready)
         self.assertEqual("Fastboot ready", state.device.connection_label)
 
+    def test_device_choice_text_is_humanized_for_modern_display(self):
+        config = SimpleNamespace(device="45241FDAS0097U")
+        frame = SimpleNamespace(
+            config=config,
+            device_choice=_Choice("X (adb) 45241FDAS0097U komodo CP1A.260505.005"),
+        )
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
+        self.assertEqual("45241FDAS0097U", state.device.serial)
+        self.assertEqual("komodo", state.device.codename)
+        self.assertEqual("ADB ready", state.device.connection_label)
+
+    def test_adb_model_text_is_humanized_for_modern_display(self):
+        config = SimpleNamespace(device="")
+        frame = SimpleNamespace(
+            config=config,
+            device_choice=_Choice("45241FDAS0097U device product:komodo model:Pixel_9_Pro_XL device:komodo"),
+        )
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
+        self.assertEqual("45241FDAS0097U", state.device.serial)
+        self.assertEqual("komodo", state.device.codename)
+
     def test_custom_rom_path_is_preferred_for_custom_rom_state(self):
         config = SimpleNamespace(
             device="raven",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import wx
@@ -14,7 +15,7 @@ except ModuleNotFoundError:
 except ImportError:
     html2 = None  # type: ignore[assignment]
 
-from constants import VERSION
+from constants import APPNAME, CONFIG_FILE_NAME, VERSION
 from ui.pages.modern_action_bridge import (
     DISABLED,
     GUARDED_FLOW,
@@ -299,7 +300,19 @@ class ModernPreviewWebFrame(wx.Frame):
 
 
 def _empty_state_host() -> SimpleNamespace:
-    return SimpleNamespace(config=SimpleNamespace(), firmware_picker=None, device_choice=None)
+    return SimpleNamespace(config=_load_standalone_config(), firmware_picker=None, device_choice=None)
+
+
+def _load_standalone_config() -> object:
+    with contextlib.suppress(Exception):
+        from config import Config
+        from platformdirs import user_data_dir
+
+        config_path = Path(user_data_dir(APPNAME, appauthor=False, roaming=True)) / CONFIG_FILE_NAME
+        if config_path.exists():
+            return Config.load(str(config_path))
+        return Config()
+    return SimpleNamespace()
 
 
 def _preferred_webview_backend():

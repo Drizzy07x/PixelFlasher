@@ -74,8 +74,11 @@ def _css() -> str:
   --green: #42df5b;
   --yellow: #ffc928;
   --red: #ff6868;
-  --shadow: 0 18px 44px rgba(0, 0, 0, .35);
+  --shadow: 0 22px 52px rgba(0, 0, 0, .40);
+  --shadow-soft: 0 12px 28px rgba(0, 0, 0, .25);
   --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
 }
 * { box-sizing: border-box; }
 html, body {
@@ -85,7 +88,10 @@ html, body {
   overflow: hidden;
 }
 body {
-  background: radial-gradient(circle at 84% 0%, rgba(47, 140, 255, .10), transparent 26%), var(--bg);
+  background:
+    radial-gradient(circle at 82% 0%, rgba(47, 140, 255, .11), transparent 24%),
+    radial-gradient(circle at 28% 100%, rgba(122, 77, 255, .08), transparent 28%),
+    var(--bg);
   color: var(--text);
   font-family: "Segoe UI", Arial, sans-serif;
   letter-spacing: 0;
@@ -96,16 +102,20 @@ body {
   overflow: hidden;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  background: linear-gradient(180deg, #080d16 0%, #070b12 100%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 22%),
+    linear-gradient(180deg, #080d16 0%, #070b12 100%);
 }
 .sidebar {
-  background: linear-gradient(180deg, var(--sidebar) 0%, #0a101a 100%);
+  background:
+    linear-gradient(180deg, rgba(47, 140, 255, .075), transparent 42%),
+    linear-gradient(180deg, var(--sidebar) 0%, #0a101a 100%);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: 24px 18px 16px;
+  padding: 22px 18px 16px;
   gap: 10px;
 }
 .brand {
@@ -113,15 +123,17 @@ body {
   align-items: center;
   gap: 14px;
   padding: 8px 10px 22px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(118, 153, 197, .16);
 }
 .logo-mark {
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--blue), var(--purple));
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .22), transparent 38%),
+    linear-gradient(135deg, var(--blue), var(--purple));
   color: white;
   font-weight: 800;
   box-shadow: 0 10px 28px rgba(47, 140, 255, .28);
@@ -144,19 +156,20 @@ body {
   grid-template-columns: 34px 1fr;
   align-items: center;
   gap: 8px;
-  min-height: 53px;
+  min-height: 52px;
   padding: 8px 12px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   color: var(--soft);
   border: 1px solid transparent;
   text-decoration: none;
+  transition: background .14s ease, border-color .14s ease, transform .14s ease;
 }
-.nav-item:hover { border-color: rgba(47, 140, 255, .28); background: rgba(47, 140, 255, .07); }
+.nav-item:hover { border-color: rgba(47, 140, 255, .28); background: rgba(47, 140, 255, .08); transform: translateX(1px); }
 .nav-item.active {
   color: white;
   background: linear-gradient(90deg, rgba(47, 140, 255, .24), rgba(122, 77, 255, .12));
   border-color: rgba(47, 140, 255, .42);
-  box-shadow: inset 3px 0 0 var(--blue);
+  box-shadow: inset 3px 0 0 var(--blue), 0 12px 24px rgba(47, 140, 255, .10);
 }
 .nav-icon {
   width: 28px;
@@ -170,10 +183,13 @@ body {
 .nav-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .mode-card {
   margin-top: auto;
-  background: linear-gradient(180deg, rgba(47, 140, 255, .13), rgba(47, 140, 255, .06));
-  border: 1px solid rgba(47, 140, 255, .18);
-  border-radius: var(--radius);
-  padding: 13px;
+  background:
+    linear-gradient(135deg, rgba(47, 140, 255, .16), rgba(122, 77, 255, .10)),
+    rgba(255, 255, 255, .035);
+  border: 1px solid rgba(47, 140, 255, .22);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow-soft);
 }
 .mode-card h3 { margin: 0 0 8px; color: var(--cyan); font-size: 14px; }
 .mode-card p { margin: 0; color: var(--soft); font-size: 12px; line-height: 1.45; }
@@ -191,8 +207,9 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+  padding-bottom: 2px;
 }
-.title h1 { margin: 0; font-size: 28px; line-height: 1.1; }
+.title h1 { margin: 0; font-size: 29px; line-height: 1.1; font-weight: 850; }
 .title p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
 .top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .badge {
@@ -207,6 +224,7 @@ body {
   white-space: nowrap;
 }
 .badge.yellow { color: var(--yellow); background: rgba(255, 201, 40, .12); border-color: rgba(255, 201, 40, .22); }
+.badge.green { color: var(--green); background: rgba(66, 223, 91, .12); border-color: rgba(66, 223, 91, .22); }
 .toggle {
   display: flex;
   gap: 4px;
@@ -221,7 +239,7 @@ body {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 2px 4px 2px 0;
   scrollbar-width: thin;
   scrollbar-color: rgba(76, 111, 155, .36) transparent;
 }
@@ -232,22 +250,37 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr);
   grid-template-rows: auto auto;
-  gap: 14px;
+  gap: 16px;
+  align-items: start;
 }
 .lower-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 14px;
+  gap: 16px;
+  margin-top: 16px;
 }
 .card {
-  background: linear-gradient(145deg, rgba(23, 33, 49, .98), rgba(13, 21, 34, .98));
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .045), transparent 42%),
+    linear-gradient(145deg, rgba(23, 33, 49, .98), rgba(13, 21, 34, .98));
+  border: 1px solid rgba(118, 153, 197, .20);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 18px;
   min-width: 0;
 }
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), transparent 34%);
+  opacity: .55;
+}
+.card > * { position: relative; z-index: 1; }
 .card-header {
   display: flex;
   align-items: center;
@@ -257,23 +290,29 @@ body {
 }
 .card h2, .card h3 { margin: 0; font-size: 17px; }
 .card h3 { font-size: 15px; }
+.card-subtitle { color: var(--muted); margin-top: 4px; font-size: 12px; line-height: 1.35; }
 .muted { color: var(--muted); }
-.device-card { min-height: 332px; }
-.device-body { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 26px; align-items: start; }
+.device-card { min-height: 352px; }
+.device-body { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; }
 .phone {
-  width: 126px;
-  height: 216px;
+  width: 132px;
+  height: 228px;
   position: relative;
   overflow: hidden;
   margin: 0 auto;
   border-radius: 22px;
-  border: 3px solid rgba(255, 255, 255, .45);
+  border: 2px solid rgba(255, 255, 255, .52);
   background:
+    radial-gradient(circle at 50% 8%, rgba(255, 255, 255, .18), transparent 12%),
     radial-gradient(circle at 62% 28%, rgba(244, 255, 230, .32), transparent 18%),
-    linear-gradient(28deg, transparent 0 34%, rgba(238, 255, 220, .22) 35% 46%, transparent 47%),
-    linear-gradient(145deg, rgba(43, 72, 45, .20), transparent 42%),
-    linear-gradient(145deg, rgba(166, 190, 153, .88), rgba(73, 96, 68, .86));
-  box-shadow: inset 0 0 0 5px rgba(0, 0, 0, .36), inset 0 -42px 50px rgba(18, 30, 20, .38), 0 18px 32px rgba(0, 0, 0, .40);
+    linear-gradient(28deg, transparent 0 33%, rgba(238, 255, 220, .25) 34% 45%, transparent 46%),
+    linear-gradient(145deg, rgba(54, 91, 58, .20), transparent 42%),
+    linear-gradient(145deg, rgba(172, 197, 160, .90), rgba(71, 99, 77, .88));
+  box-shadow:
+    inset 0 0 0 5px rgba(0, 0, 0, .36),
+    inset 0 -42px 50px rgba(18, 30, 20, .38),
+    0 22px 40px rgba(0, 0, 0, .45),
+    0 0 0 8px rgba(47, 140, 255, .035);
 }
 .phone::before {
   content: "";
@@ -300,7 +339,20 @@ body {
   border: 1px solid rgba(255, 255, 255, .10);
   filter: saturate(.86);
 }
-.device-name { font-size: 24px; font-weight: 800; margin: 4px 0 6px; }
+.device-name { font-size: 25px; font-weight: 850; margin: 4px 0 6px; letter-spacing: 0; }
+.device-subline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+.device-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(66, 223, 91, .22);
+  background: rgba(66, 223, 91, .10);
+  color: #a7f5b2;
+  font-size: 12px;
+  font-weight: 750;
+}
 .spec-list { display: grid; gap: 10px; margin-top: 18px; }
 .spec-row {
   display: grid;
@@ -319,9 +371,9 @@ body {
   gap: 12px;
   align-items: flex-start;
   color: #73b7ff;
-  background: rgba(47, 140, 255, .12);
+  background: linear-gradient(135deg, rgba(47, 140, 255, .14), rgba(55, 185, 255, .07));
   border: 1px solid rgba(47, 140, 255, .14);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 14px;
   line-height: 1.45;
 }
@@ -332,7 +384,7 @@ body {
   align-items: center;
   margin-bottom: 16px;
   padding: 16px 18px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(255, 193, 7, .32);
   background: linear-gradient(135deg, rgba(255, 193, 7, .16), rgba(47, 140, 255, .12));
   box-shadow: 0 18px 40px rgba(0, 0, 0, .24);
@@ -354,38 +406,49 @@ body {
   color: white;
   font-weight: 850;
   padding: 11px 15px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(135deg, var(--blue), var(--purple));
   box-shadow: 0 12px 24px rgba(47, 140, 255, .2);
   white-space: nowrap;
 }
 .setup-button:hover { filter: brightness(1.08); }
 .right-stack { display: grid; gap: 14px; }
-.action-list { display: grid; gap: 7px; }
+.action-list { display: grid; gap: 9px; }
+.dashboard-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.dashboard-actions .action-row {
+  grid-template-columns: 42px minmax(0, 1fr) 14px;
+  min-height: 72px;
+}
+.dashboard-actions .action-copy { line-height: 1.25; }
 .action-row {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) 22px;
   align-items: center;
   gap: 12px;
-  min-height: 60px;
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, .035);
+  min-height: 54px;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .025));
   border: 1px solid var(--border-soft);
-  padding: 9px 13px;
+  padding: 8px 12px;
   color: inherit;
   text-decoration: none;
+  transition: transform .14s ease, border-color .14s ease, background .14s ease;
 }
-.action-row:hover { border-color: rgba(47, 140, 255, .42); background: rgba(47, 140, 255, .08); }
+.action-row:hover { border-color: rgba(47, 140, 255, .42); background: rgba(47, 140, 255, .085); transform: translateY(-1px); }
 .action-icon {
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   color: #07101e;
   font-weight: 900;
 }
-.action-icon svg { width: 23px; height: 23px; stroke-width: 2.35; }
+.action-icon svg { width: 21px; height: 21px; stroke-width: 2.35; }
 .action-icon.blue { background: var(--blue); }
 .action-icon.green { background: var(--green); }
 .action-icon.yellow { background: var(--yellow); }
@@ -396,20 +459,20 @@ body {
 .safety h2 { color: var(--green); }
 .check-list { display: grid; gap: 8px; }
 .check { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 9px; color: white; font-size: 14px; }
-.check span:first-child { color: var(--green); }
+.check span:first-child { color: var(--cyan); }
 .mini-card { min-height: 132px; }
 .stack-list { display: grid; gap: 8px; }
 .mini-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 9px 10px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .035);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .04);
   color: var(--soft);
   font-size: 13px;
 }
-.mini-row strong { color: white; }
+.mini-row strong { color: white; text-align: right; overflow-wrap: anywhere; }
 .shell-grid .mini-row {
   align-items: center;
   border: 1px solid rgba(118, 153, 197, .10);
@@ -421,6 +484,43 @@ body {
   font-size: 12px;
   text-transform: uppercase;
 }
+.state-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.state-card {
+  min-height: 112px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+  background:
+    linear-gradient(145deg, rgba(47, 140, 255, .12), rgba(255, 255, 255, .035));
+}
+.state-card strong {
+  display: block;
+  margin-top: 12px;
+  color: white;
+  font-size: 18px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.state-card span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.state-card .state-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: white;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+}
+.state-card .state-icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
 .statusbar {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -441,12 +541,12 @@ body {
 .shell-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 .page-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 .page-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .wide-card { grid-column: 1 / -1; }
@@ -482,12 +582,37 @@ body {
 .tile {
   min-height: 92px;
   padding: 13px;
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, .035);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .052), rgba(255, 255, 255, .024));
   border: 1px solid var(--border-soft);
+  color: inherit;
+  text-decoration: none;
 }
 .tile strong { display: block; margin-bottom: 5px; color: white; }
 .tile span { color: var(--muted); font-size: 13px; line-height: 1.4; }
+.tile.action-tile {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  transition: transform .14s ease, border-color .14s ease, background .14s ease;
+}
+.tile.action-tile:hover {
+  transform: translateY(-1px);
+  border-color: rgba(47, 140, 255, .38);
+  background: rgba(47, 140, 255, .075);
+}
+.tile-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: white;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+}
+.tile-icon svg { width: 22px; height: 22px; stroke-width: 2.25; }
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -497,7 +622,7 @@ body {
 .metric {
   min-height: 78px;
   padding: 13px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(47, 140, 255, .10), rgba(255, 255, 255, .035));
   border: 1px solid var(--border-soft);
 }
@@ -522,7 +647,7 @@ body {
 .context-item {
   min-height: 66px;
   padding: 12px 13px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(255, 255, 255, .045), rgba(47, 140, 255, .055));
   border: 1px solid var(--border-soft);
 }
@@ -549,7 +674,7 @@ body {
   display: grid;
   place-items: center;
   text-align: center;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, .025);
   border: 1px dashed rgba(118, 153, 197, .22);
   color: var(--muted);
@@ -578,8 +703,8 @@ body {
 .dot.warn { background: var(--yellow); }
 .wizard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 310px;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
   align-items: stretch;
 }
 .wizard-content {
@@ -598,11 +723,11 @@ body {
   gap: 8px;
   color: var(--muted);
   padding: 12px 8px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, .035);
   border: 1px solid var(--border-soft);
 }
-.step.active { color: white; border-color: rgba(122, 77, 255, .55); background: rgba(122, 77, 255, .20); }
+.step.active { color: white; border-color: rgba(122, 77, 255, .55); background: linear-gradient(135deg, rgba(122, 77, 255, .26), rgba(47, 140, 255, .10)); }
 .step-circle {
   width: 28px;
   height: 28px;
@@ -618,6 +743,10 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+.readiness-grid .card {
+  box-shadow: var(--shadow-soft);
+  padding: 15px;
+}
 .wizard-stage-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -625,9 +754,9 @@ body {
   margin-top: 14px;
 }
 .stage-card {
-  min-height: 132px;
+  min-height: 118px;
   padding: 13px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, .035);
   border: 1px solid var(--border-soft);
 }
@@ -653,12 +782,10 @@ body {
   margin: 0;
   font-size: 13px;
 }
-.wizard-grid > .card:first-child {
-  align-self: start;
-  min-height: 430px;
-}
-.wizard-grid > .blocked {
-  min-height: 430px;
+.wizard-grid > .card:first-child,
+.wizard-grid > .blocked,
+.wizard-grid > .guarded {
+  align-self: stretch;
 }
 .blocked {
   border-color: rgba(255, 104, 104, .32);
@@ -675,7 +802,7 @@ body {
   color: #74bfff;
   background: rgba(47, 140, 255, .12);
   border: 1px solid rgba(47, 140, 255, .22);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 12px 14px;
   font-size: 13px;
 }
@@ -688,20 +815,23 @@ body {
 .button {
   min-width: 110px;
   text-align: center;
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   padding: 11px 16px;
   color: var(--soft);
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   font-weight: 700;
   text-decoration: none;
+  transition: transform .14s ease, border-color .14s ease, filter .14s ease;
 }
+.button:hover { transform: translateY(-1px); border-color: rgba(47, 140, 255, .36); filter: brightness(1.06); }
 .button.primary { color: white; background: linear-gradient(135deg, var(--purple), #3a2b89); }
 .button.guarded-action { background: linear-gradient(135deg, #7a4dff, #7b4b18); border-color: rgba(255, 201, 40, .38); }
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid, .state-overview { grid-template-columns: 1fr; }
+  .dashboard-actions { grid-template-columns: 1fr; }
   .setup-notice { grid-template-columns: auto minmax(0, 1fr); }
   .setup-button { grid-column: 1 / -1; text-align: center; }
   .device-body { grid-template-columns: 1fr; }
@@ -802,23 +932,32 @@ def _dashboard_page(state: ModernReadonlyState) -> str:
 def _connected_device_card(state: ModernReadonlyState) -> str:
     device = state.device
     device_name = device.display_name or "No device selected"
-    subtitle = device.serial or "No connected device selected"
+    serial = device.serial or "No serial loaded"
+    subtitle_parts = tuple(part for part in (serial, device.codename, device.product) if part)
     android = device.android_version or "Unknown"
     build_id = device.build_id or state.firmware.build_id or "Unknown"
     security_patch = device.security_patch or "Unknown"
     bootloader = _known(device.bootloader_state)
     connection = device.connection_label
+    phone_class = " connected" if device.selected else ""
+    connection_badge = "green" if device.selected else "yellow"
     return f"""
     <article class="card device-card">
       <div class="card-header">
-        <h2>Connected Device</h2>
-        <span class="badge">Live State</span>
+        <div>
+          <h2>Connected Device</h2>
+          <div class="card-subtitle">Current device context from PixelFlasher</div>
+        </div>
+        <span class="badge {connection_badge}">{escape(connection)}</span>
       </div>
       <div class="device-body">
-        <div class="phone"></div>
+        <div class="phone{phone_class}"></div>
         <div>
           <div class="device-name">{escape(device_name)}</div>
-          <div class="muted">{escape(subtitle)}</div>
+          <div class="device-subline">
+            <span>{escape(" · ".join(subtitle_parts) or "Scan a USB device to load details")}</span>
+            <span class="device-pill">{escape(connection)}</span>
+          </div>
           <div class="spec-list">
             {_spec("android", "Android Version", android)}
             {_spec("build", "Build Number", build_id)}
@@ -840,15 +979,20 @@ def _quick_actions_card(state: ModernReadonlyState) -> str:
         rows.append(("yellow", "tools", "Set Up Platform Tools", "Install ADB and Fastboot for USB detection.", "setup_platform_tools"))
     rows.extend((
         ("blue", "wizard", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
-        ("yellow", "flash", "Flash Device", "Start the configured flash workflow.", "flash_device"),
+        ("yellow", "flash", "Flash Device", "Start the configured PixelFlasher workflow.", "flash_device"),
         ("purple", "patch", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
-        ("green", "shell", "Modern Shell", "Explore device and firmware state.", "open_modern_shell"),
+        ("green", "shell", "Device Explorer", "Review device, firmware, and tools.", "open_modern_shell"),
         ("yellow", "scan", "Scan Devices", "Refresh connected devices.", "scan_devices"),
     ))
     return f"""
     <article class="card">
-      <div class="card-header"><h2>Quick Actions</h2></div>
-      <div class="action-list">
+      <div class="card-header">
+        <div>
+          <h2>Quick Actions</h2>
+          <div class="card-subtitle">Primary workflows in one place</div>
+        </div>
+      </div>
+      <div class="action-list dashboard-actions">
         {"".join(_action_row(*row) for row in rows)}
       </div>
     </article>
@@ -860,12 +1004,17 @@ def _workflow_status_card(state: ModernReadonlyState) -> str:
         ("Device", state.device.display_name or state.device.serial or "not selected"),
         ("Firmware", state.firmware.filename or "not selected"),
         ("Platform tools", _platform_tools_label(state)),
-        ("Root status", state.device.root_status),
         ("Flash plan", state.flash.flash_mode),
     )
     return f"""
     <article class="card">
-      <div class="card-header"><h2>Workflow Status</h2><span class="badge">Ready</span></div>
+      <div class="card-header">
+        <div>
+          <h2>Workflow Status</h2>
+          <div class="card-subtitle">What PixelFlasher has loaded right now</div>
+        </div>
+        <span class="badge">Ready</span>
+      </div>
       <div class="stack-list">
         {"".join(_mini_row(label, value) for label, value in rows)}
       </div>
@@ -928,6 +1077,12 @@ def _shell_page(state: ModernReadonlyState) -> str:
       </div>
       {_platform_tools_notice(state)}
       {_context_ribbon(state, "Modern Shell")}
+      <div class="state-overview">
+        {_state_card("shell", "Device", state.device.display_name or state.device.serial or "Not selected")}
+        {_state_card("connection", "Connection", state.device.connection_label)}
+        {_state_card("downloads", "Firmware", state.firmware.filename or "Not selected")}
+        {_state_card("tools", "Tools", _platform_tools_label(state))}
+      </div>
       <div class="shell-grid">
         {_explorer_card("Device State Overview", (("Selected device", state.device.display_name or state.device.serial or "none"), ("Android", state.device.android_version or "unknown"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "unknown")))}
         {_explorer_card("Connection Readiness", (("ADB", "ready" if state.device.adb_ready else "not ready"), ("Fastboot", _bootloader_tool_mode(state)), ("Platform tools", _platform_tools_label(state)), ("Selected device", state.device.display_name or "none")))}
@@ -958,9 +1113,9 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           <div class="card-header">
             <div>
               <h2>Step 1: Device &amp; Firmware</h2>
-              <div class="muted">Prepare the selected device and firmware package.</div>
+              <div class="card-subtitle">Choose the target, confirm firmware, then review the final flash plan.</div>
             </div>
-            <span class="badge yellow">PixelFlasher safeguards</span>
+            <span class="badge yellow">Confirmed workflow</span>
           </div>
           <div class="readiness-grid">
             {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected"), state.device.connection_label, f"Active slot: {state.device.active_slot or 'unknown'}", f"Root: {state.device.root_status}"))}
@@ -969,7 +1124,6 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           </div>
           {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "not selected")))}
           {_wizard_stage_overview()}
-          <div class="notice">PixelFlasher keeps its existing confirmations for flash, patch, wipe, slot, and reboot operations.</div>
           <div class="footer-controls">
             <a class="button" href="{escape(action_url("select_firmware"))}">Select Firmware</a>
             <a class="button" href="{escape(action_url("process_firmware"))}">Process Firmware</a>
@@ -981,13 +1135,14 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           <p class="muted">Review the current plan before starting the configured PixelFlasher flash workflow.</p>
           <div class="stack-list">
             {_mini_row("Status", "ready when device and firmware are selected")}
-            {_mini_row("Warnings", str(len(state.warnings) or 2))}
+            {_mini_row("Items to review", str(len(state.warnings) or 2))}
             {_mini_row("Device", state.device.display_name or "not selected")}
             {_mini_row("Firmware", state.firmware.filename or "not selected")}
             {_mini_row("Mode", state.flash.flash_mode)}
             {_mini_row("Slot target", state.flash.slot_behavior)}
             {_mini_row("Final action", "Flash Device")}
           </div>
+          <div class="notice">Sensitive operations still use PixelFlasher confirmations.</div>
         </aside>
       </div>
     </section>
@@ -1019,12 +1174,12 @@ def _backups_page(state: ModernReadonlyState) -> str:
         empty = '<article class="card wide-card">' + _empty_state("No backups loaded", "Connect and scan a rooted device to load backup details.") + "</article>"
     return f"""
     <section class="content">
-      {_metric_strip((("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Restore mode", "Guarded"), ("File changes", "None")))}
-      {_context_ribbon(state, "No file changes")}
+      {_metric_strip((("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Restore mode", "Confirmed flow"), ("Backup tools", "Available")))}
+      {_context_ribbon(state, "Backup workspace")}
       <div class="page-grid">
         {_hero_card("backups", "Backups", "Review backup context and open the backup manager for connected devices.")}
         {_mini_card("Backup Summary", "Backups", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location)))}
-        {_tile_card("Backup Actions", (("Backup Manager", "Open the available backup tools."), ("Create backup", "Available from Backup Manager."), ("Restore backup", "Available from Backup Manager."), ("Inspect details", "Review loaded backup state.")))}
+        {_action_tile_card("Backup Actions", (("Backup Manager", "Open the available backup tools.", "backup_manager", "backups"), ("Support Package", "Create a support archive.", "create_support_package", "tools"), ("Scan Device", "Refresh connected device state.", "scan_devices", "scan"), ("Settings", "Review backup paths and preferences.", "settings_dialog", "settings")))}
         {_explorer_card("Loaded Backup Context", (("Device", state.device.display_name or state.device.serial or "not selected"), ("Backup index", "loaded" if state.backups.has_loaded_backups else "not loaded"), ("Backup location", state.backups.location), ("Restore mode", state.backups.restore_mode)))}
         {_explorer_card("Backup Details", (("Selected backup", state.backups.latest_label if state.backups.has_loaded_backups else "none"), ("Archive state", "not opened"), ("Restore target", "not selected"), ("Compatibility", "not evaluated")))}
         {_explorer_card("Warnings", _warning_rows(state))}
@@ -1038,11 +1193,11 @@ def _backups_page(state: ModernReadonlyState) -> str:
 def _downloads_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Validation", "Verified" if state.firmware.verified else "Waiting"), ("Catalog", state.downloads.image_catalog_status), ("Device apply", "Blocked")))}
-      {_context_ribbon(state, "No network or device apply")}
+      {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Validation", "Verified" if state.firmware.verified else "Waiting"), ("Catalog", state.downloads.image_catalog_status), ("Next step", "Flash Wizard")))}
+      {_context_ribbon(state, "Download center")}
       <div class="page-grid two">
         {_hero_card("downloads", "Downloads", "Browse firmware resources and rooting app downloads.")}
-        {_tile_card("Firmware Downloads", (("Firmware", state.firmware.filename or "No package selected."), ("Tools", "Open rooting app downloads."), ("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Apply to device", "Use Flash Wizard.")))}
+        {_action_tile_card("Firmware Downloads", (("Firmware Downloads", "Find firmware for the selected device.", "firmware_downloads", "downloads"), ("Rooting App", "Open rooting app downloads.", "rooting_app", "android"), ("Select Firmware", state.firmware.filename or "Choose a local package.", "select_firmware", "build"), ("Flash Wizard", "Continue with firmware planning.", "open_modern_flash_wizard", "wizard")))}
         {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "disabled"), ("Module updates", "enabled" if state.downloads.module_update_check else "disabled"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "none")))}
         {_explorer_card("Download Details", (("Selected item", state.firmware.filename or "none"), ("Validation", "verified" if state.firmware.verified else "not started"), ("Last catalog check", state.downloads.last_checked), ("Frequency", state.downloads.update_frequency)))}
         {_explorer_card("Warnings", _warning_rows(state))}
@@ -1056,10 +1211,10 @@ def _settings_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_metric_strip((("Mode", "Modern"), ("Language", state.settings.language), ("Advanced", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
-      {_context_ribbon(state, "No saves")}
+      {_context_ribbon(state, "Preferences")}
       <div class="page-grid two">
         {_hero_card("settings", "Settings", "Review configured preferences and open the full settings dialog.")}
-        {_tile_card("General Settings", (("Startup behavior", "Modern UI primary when supported."), ("Advanced options", _on_off(state.settings.advanced_options)), ("Verbose logs", _on_off(state.settings.verbose)), ("Notifications", _on_off(state.settings.notifications))))}
+        {_action_tile_card("General Settings", (("Open Settings", "Configure PixelFlasher preferences.", "settings_dialog", "settings"), ("Scan Devices", "Refresh connected device state.", "scan_devices", "scan"), ("Select Firmware", "Choose a firmware package.", "select_firmware", "build"), ("Flash Wizard", "Review flash workflow setup.", "open_modern_flash_wizard", "wizard")))}
         {_tile_card("Paths & Environment", (("Platform tools", state.tools.platform_tools_path or "not configured"), ("Firmware", state.firmware.filename or "not selected"), ("Phone path", state.settings.phone_path or "not configured"), ("Low memory", _on_off(state.settings.low_memory))))}
         {_explorer_card("Loaded Preference Flags", (("Language", state.settings.language), ("Custom ROM options", _on_off(state.settings.custom_rom_options)), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
         {_explorer_card("Warnings", _warning_rows(state))}
@@ -1077,7 +1232,7 @@ def _tools_page(state: ModernReadonlyState) -> str:
       {_context_ribbon(state, "Tools")}
       <div class="page-grid">
         {_hero_card("tools", "Tools", "Open PixelFlasher tools from the modern workspace.")}
-        {_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image."), ("Support Package", "Create support archive."), ("Rooting App", "Download or install root tools."), ("Magisk Modules", "Manage modules."), ("Partition Manager", "Open partition tools."), ("Device Scan", "Refresh devices.")))}
+        {_action_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image.", "patch_boot", "patch"), ("Support Package", "Create support archive.", "create_support_package", "tools"), ("Rooting App", "Download or install root tools.", "rooting_app", "android"), ("Magisk Modules", "Manage modules.", "magisk_modules", "settings"), ("Partition Manager", "Open partition tools.", "partition_manager", "backups"), ("Device Scan", "Refresh devices.", "scan_devices", "scan")))}
         {_explorer_card("Loaded Tool State", (("ADB", "available" if state.tools.adb_available else "not available"), ("Fastboot", _bootloader_tool_status(state)), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Selected device", state.device.display_name or "none")))}
         {_explorer_card("Tool Availability Summary", (("ADB path", "loaded" if state.tools.adb_path else "not found"), ("Bootloader tool path", "loaded" if _bootloader_tool_available(state) else "not found"), ("Configured path", state.tools.platform_tools_path or "not configured"), ("Root status", state.device.root_status)))}
         {_explorer_card("Operation Policy", (("Flash", "PixelFlasher prompts"), ("Patch", "PixelFlasher prompts"), ("Partition tools", "PixelFlasher prompts"), ("Unknown tools", "blocked")))}
@@ -1179,8 +1334,36 @@ def _tile_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
     """
 
 
+def _action_tile_card(title: str, rows: tuple[tuple[str, str, str, str], ...]) -> str:
+    return f"""
+    <article class="card wide-card">
+      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Open</span></div>
+      <div class="tile-grid">{"".join(_action_tile(label, copy, action_id, icon_key) for label, copy, action_id, icon_key in rows)}</div>
+    </article>
+    """
+
+
 def _tile(label: str, copy: str) -> str:
     return f"""<div class="tile"><strong>{escape(label)}</strong><span>{escape(copy)}</span></div>"""
+
+
+def _action_tile(label: str, copy: str, action_id: str, icon_key: str) -> str:
+    return f"""
+    <a class="tile action-tile" href="{escape(action_url(action_id))}">
+      <div class="tile-icon">{_svg_icon(icon_key)}</div>
+      <div><strong>{escape(label)}</strong><span>{escape(copy)}</span></div>
+    </a>
+    """
+
+
+def _state_card(icon_key: str, label: str, value: str) -> str:
+    return f"""
+    <div class="state-card">
+      <div class="state-icon">{_svg_icon(icon_key)}</div>
+      <span>{escape(label)}</span>
+      <strong>{escape(value)}</strong>
+    </div>
+    """
 
 
 def _metric_strip(rows: tuple[tuple[str, str], ...]) -> str:
@@ -1196,8 +1379,8 @@ def _context_ribbon(state: ModernReadonlyState, boundary: str) -> str:
     rows = (
         ("Device", state.device.display_name or state.device.serial or "not selected", ""),
         ("Firmware", state.firmware.filename or "not selected", ""),
-        ("Warnings", str(len(state.warnings)), warning_tone),
-        ("Boundary", boundary, "safe"),
+        ("Review", str(len(state.warnings)) if state.warnings else "clear", warning_tone),
+        ("Workspace", boundary, "safe"),
     )
     return f"""
     <div class="context-ribbon" aria-label="Loaded app context">
@@ -1220,7 +1403,7 @@ def _empty_state(title: str, copy: str) -> str:
 
 
 def _check(line: str) -> str:
-    return f"""<div class="check"><span>✓</span><div>{escape(line)}</div></div>"""
+    return f"""<div class="check"><span>•</span><div>{escape(line)}</div></div>"""
 
 
 def _mini_card(title: str, badge: str, rows: tuple[tuple[str, str], ...]) -> str:
