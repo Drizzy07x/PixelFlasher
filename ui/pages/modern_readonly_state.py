@@ -244,9 +244,20 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
 
 def _read_tools(config: Any, tool_resolver: ToolResolver) -> ModernToolState:
     configured_path = str(getattr(config, "platform_tools_path", "") or "")
-    adb = tool_resolver("adb") or tool_resolver("adb.exe") or ""
-    fastboot = tool_resolver("fastboot") or tool_resolver("fastboot.exe") or ""
+    adb = _configured_tool(configured_path, ("adb.exe", "adb")) or tool_resolver("adb") or tool_resolver("adb.exe") or ""
+    fastboot = _configured_tool(configured_path, ("fastboot.exe", "fastboot")) or tool_resolver("fastboot") or tool_resolver("fastboot.exe") or ""
     return ModernToolState(adb_path=str(adb or ""), fastboot_path=str(fastboot or ""), platform_tools_path=configured_path)
+
+
+def _configured_tool(configured_path: str, names: tuple[str, ...]) -> str:
+    if not configured_path:
+        return ""
+    root = Path(configured_path)
+    for name in names:
+        candidate = root / name
+        if candidate.is_file():
+            return str(candidate)
+    return ""
 
 
 def _read_flash_options(config: Any) -> ModernFlashOptionsState:

@@ -109,6 +109,9 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertIn("PIXELFLASHER_MODERN_ENGINE", self.main_source)
         self.assertIn("set_window_shown(not self._modern_engine_mode)", self.main_source)
         self.assertIn("self.Hide()", self.main_source)
+        self.assertIn("if self._modern_engine_mode:", self.main_source)
+        self.assertIn("self.device_choice.Count == 1", self.main_source)
+        self.assertIn("self.device_choice.SetSelection(0)", self.main_source)
 
     def test_shared_nav_glyphs_are_defined(self):
         for key in ("dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools", "safety", "about"):
@@ -141,6 +144,8 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Flash Device",
             "Patch Boot",
             "Scan Devices",
+            "Platform Tools need setup",
+            "Set Up Platform Tools",
             "PixelFlasher 9.2.0-beta",
         ):
             with self.subTest(label=label):

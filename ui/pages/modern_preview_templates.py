@@ -325,6 +325,41 @@ body {
   padding: 14px;
   line-height: 1.45;
 }
+.setup-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 193, 7, .32);
+  background: linear-gradient(135deg, rgba(255, 193, 7, .16), rgba(47, 140, 255, .12));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .24);
+}
+.setup-notice strong { display: block; font-size: 16px; margin-bottom: 4px; }
+.setup-notice span { color: var(--muted); line-height: 1.45; }
+.setup-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #07101e;
+  background: var(--yellow);
+}
+.setup-icon svg { width: 24px; height: 24px; stroke-width: 2.3; }
+.setup-button {
+  text-decoration: none;
+  color: white;
+  font-weight: 850;
+  padding: 11px 15px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  box-shadow: 0 12px 24px rgba(47, 140, 255, .2);
+  white-space: nowrap;
+}
+.setup-button:hover { filter: brightness(1.08); }
 .right-stack { display: grid; gap: 14px; }
 .action-list { display: grid; gap: 7px; }
 .action-row {
@@ -667,6 +702,8 @@ body {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
   .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid { grid-template-columns: 1fr; }
+  .setup-notice { grid-template-columns: auto minmax(0, 1fr); }
+  .setup-button { grid-column: 1 / -1; text-align: center; }
   .device-body { grid-template-columns: 1fr; }
 }
 """
@@ -745,10 +782,11 @@ def _page_body(page: str, state: ModernReadonlyState, version: str) -> str:
 def _dashboard_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
+      {_platform_tools_notice(state)}
       <div class="dashboard-grid">
         {_connected_device_card(state)}
         <div class="right-stack">
-          {_quick_actions_card()}
+          {_quick_actions_card(state)}
           {_workflow_status_card(state)}
         </div>
       </div>
@@ -796,14 +834,17 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
     """
 
 
-def _quick_actions_card() -> str:
-    rows = (
+def _quick_actions_card(state: ModernReadonlyState) -> str:
+    rows = []
+    if _needs_platform_tools_setup(state):
+        rows.append(("yellow", "tools", "Set Up Platform Tools", "Install ADB and Fastboot for USB detection.", "setup_platform_tools"))
+    rows.extend((
         ("blue", "wizard", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
         ("yellow", "flash", "Flash Device", "Start the configured flash workflow.", "flash_device"),
         ("purple", "patch", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
         ("green", "shell", "Modern Shell", "Explore device and firmware state.", "open_modern_shell"),
         ("yellow", "scan", "Scan Devices", "Refresh connected devices.", "scan_devices"),
-    )
+    ))
     return f"""
     <article class="card">
       <div class="card-header"><h2>Quick Actions</h2></div>
@@ -829,6 +870,25 @@ def _workflow_status_card(state: ModernReadonlyState) -> str:
         {"".join(_mini_row(label, value) for label, value in rows)}
       </div>
     </article>
+    """
+
+
+def _platform_tools_notice(state: ModernReadonlyState) -> str:
+    if not _needs_platform_tools_setup(state):
+        return ""
+    if state.tools.platform_tools_path:
+        detail = "The configured Platform Tools folder is missing ADB or Fastboot. Reinstall or choose a valid folder to detect USB devices."
+    else:
+        detail = "PixelFlasher needs Android Platform Tools to detect phones over USB. Set it up automatically to install ADB and Fastboot."
+    return f"""
+    <div class="setup-notice">
+      <div class="setup-icon">{_svg_icon("tools")}</div>
+      <div>
+        <strong>Platform Tools need setup</strong>
+        <span>{escape(detail)}</span>
+      </div>
+      <a class="setup-button" href="{escape(action_url("setup_platform_tools"))}">Set Up Platform Tools</a>
+    </div>
     """
 
 
@@ -866,6 +926,7 @@ def _shell_page(state: ModernReadonlyState) -> str:
         <span class="chip"><span class="dot warn"></span>Firmware context</span>
         <span class="chip"><span class="dot"></span>Actions</span>
       </div>
+      {_platform_tools_notice(state)}
       {_context_ribbon(state, "Modern Shell")}
       <div class="shell-grid">
         {_explorer_card("Device State Overview", (("Selected device", state.device.display_name or state.device.serial or "none"), ("Android", state.device.android_version or "unknown"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "unknown")))}
@@ -890,6 +951,7 @@ def _wizard_page(state: ModernReadonlyState) -> str:
         {_step("4", "Plan", False)}
         {_step("5", "Review", False)}
       </div>
+      {_platform_tools_notice(state)}
       {_context_ribbon(state, "Flash workflow")}
       <div class="wizard-grid">
         <article class="card">
@@ -1010,6 +1072,7 @@ def _settings_page(state: ModernReadonlyState) -> str:
 def _tools_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
+      {_platform_tools_notice(state)}
       {_metric_strip((("Tool groups", "6"), ("Actions", "Ready"), ("Platform tools", _platform_tools_label(state)), ("Unknown actions", "Blocked")))}
       {_context_ribbon(state, "Tools")}
       <div class="page-grid">
@@ -1370,6 +1433,10 @@ def _platform_tools_label(state: ModernReadonlyState) -> str:
     if state.tools.platform_tools_path:
         return "configured path"
     return "not configured"
+
+
+def _needs_platform_tools_setup(state: ModernReadonlyState) -> bool:
+    return not (state.tools.adb_available and _bootloader_tool_available(state))
 
 
 def _bootloader_tool_available(state: ModernReadonlyState) -> bool:

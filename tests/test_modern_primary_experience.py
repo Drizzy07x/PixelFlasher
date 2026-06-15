@@ -74,6 +74,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
             "open_safety",
             "open_about",
             "scan_devices",
+            "setup_platform_tools",
             "select_firmware",
             "process_firmware",
             "flash_device",
@@ -95,6 +96,11 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
 
         levels = {action.safety_level for action in actions.values()}
         self.assertEqual({NAVIGATION, INTERNAL_FLOW, GUARDED_FLOW, DISABLED}, levels)
+
+        setup = actions["setup_platform_tools"]
+        self.assertEqual(INTERNAL_FLOW, setup.safety_level)
+        self.assertTrue(setup.requires_confirmation)
+        self.assertEqual("_setup_platform_tools", setup.delegate)
 
     def test_dangerous_actions_require_confirmation_and_delegate_to_engine(self):
         actions = {action.id: action for action in modern_actions()}

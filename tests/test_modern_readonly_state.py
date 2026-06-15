@@ -151,6 +151,23 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertTrue(state.settings.advanced_options)
         self.assertEqual("/opt/platform-tools", state.tools.platform_tools_path)
 
+    def test_reads_platform_tools_from_configured_path(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="pf-readonly-tools-") as tmp:
+            root = Path(tmp)
+            (root / "adb.exe").write_text("adb", encoding="utf-8")
+            (root / "fastboot.exe").write_text("fastboot", encoding="utf-8")
+            config = SimpleNamespace(platform_tools_path=str(root))
+            frame = SimpleNamespace(config=config)
+
+            state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertTrue(state.tools.adb_available)
+        self.assertTrue(state.tools.fastboot_available)
+        self.assertTrue(state.tools.adb_path.endswith("adb.exe"))
+        self.assertTrue(state.tools.fastboot_path.endswith("fastboot.exe"))
+
     def test_fastboot_selection_preserves_connection_mode(self):
         config = SimpleNamespace(device="abc123456")
         frame = SimpleNamespace(

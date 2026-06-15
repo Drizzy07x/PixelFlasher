@@ -4163,9 +4163,14 @@ class PixelFlasher(wx.Frame):
                 self._on_spin('stop')
 
                 if self.device_choice.StringSelection == '':
-                    # Popup the devices dropdown
-                    self.device_choice.Popup()
-                    self.toast(_("Scan"), _("✅ Select your device from the list of %s found devices.") % self.device_choice.Count)
+                    if self._modern_engine_mode:
+                        if self.device_choice.Count == 1:
+                            self.device_choice.SetSelection(0)
+                            self._select_configured_device()
+                    else:
+                        # Popup the devices dropdown
+                        self.device_choice.Popup()
+                        self.toast(_("Scan"), _("✅ Select your device from the list of %s found devices.") % self.device_choice.Count)
 
                 # Refresh the devices menu to show updated connection status
                 wx.CallAfter(self._build_devices_menu)

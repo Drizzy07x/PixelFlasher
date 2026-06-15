@@ -101,6 +101,21 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         delegate="_on_scan",
     ),
     ModernAction(
+        "setup_platform_tools",
+        "Set Up Platform Tools",
+        "Download and configure Android Platform Tools for USB device detection.",
+        INTERNAL_FLOW,
+        True,
+        requires_confirmation=True,
+        delegate="_setup_platform_tools",
+        confirmation_title="Set Up Platform Tools?",
+        confirmation_body=(
+            "PixelFlasher will download Android Platform Tools from Google, install them in your user profile, "
+            "and update the configured Platform Tools folder.\n"
+            "No flash, patch, reboot, wipe, or device operation will be run."
+        ),
+    ),
+    ModernAction(
         "select_firmware",
         "Select Firmware",
         "Choose a firmware, OTA, or ROM package.",

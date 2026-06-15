@@ -34,6 +34,7 @@ from ui.pages.modern_action_feedback import (
 )
 from ui.pages.modern_preview_templates import DEFAULT_STATUS_MESSAGE, render_preview_html
 from ui.pages.modern_readonly_state import build_readonly_state
+from ui.pages.platform_tools_setup import PlatformToolsSetupError, install_platform_tools
 
 
 def is_webview_available() -> bool:
@@ -157,6 +158,9 @@ class ModernPreviewWebFrame(wx.Frame):
         )
 
     def _run_engine_action(self, action: ModernAction) -> None:
+        if action.delegate == "_setup_platform_tools":
+            self._setup_platform_tools(action)
+            return
         if action.delegate == "select_firmware_file":
             self._select_firmware_file(action)
             return
@@ -205,6 +209,76 @@ class ModernPreviewWebFrame(wx.Frame):
             refresh()
         self._set_feedback(action_completed_feedback(action))
         wx.CallAfter(self._show_page, self._page)
+
+    def _setup_platform_tools(self, action: ModernAction) -> None:
+        self._set_status("Platform Tools: downloading and configuring...", "warning")
+        wx.YieldIfNeeded()
+        busy = wx.BusyCursor()
+        try:
+            result = install_platform_tools()
+            config = getattr(self._state_host, "config", None)
+            if config is not None:
+                setattr(config, "platform_tools_path", result.platform_tools_path)
+                self._save_config(config)
+            picker = getattr(self._state_host, "platform_tools_picker", None)
+            if picker is not None:
+                with contextlib.suppress(Exception):
+                    picker.SetPath(result.platform_tools_path)
+            self._refresh_platform_tools()
+            self._refresh_engine_state()
+        except PlatformToolsSetupError as exc:
+            self._set_status(f"Platform Tools: {exc}", "blocked")
+            wx.MessageBox(
+                f"Platform Tools could not be configured.\n\n{exc}",
+                "PixelFlasher",
+                wx.OK | wx.ICON_ERROR,
+            )
+            return
+        except Exception as exc:
+            self._set_status(f"Platform Tools setup failed: {exc}", "blocked")
+            raise
+        finally:
+            del busy
+
+        self._set_feedback(action_completed_feedback(action))
+        wx.MessageBox(
+            "Android Platform Tools are configured.\n\nUse Scan Devices to refresh connected USB devices.",
+            "PixelFlasher",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        wx.CallAfter(self._show_page, self._page)
+
+    def _save_config(self, config: object) -> None:
+        save = getattr(config, "save", None)
+        if not callable(save):
+            return
+        with contextlib.suppress(Exception):
+            import runtime as pf_runtime
+
+            config_path = pf_runtime.get_config_file_path()
+            if config_path:
+                save(config_path)
+
+    def _refresh_platform_tools(self) -> None:
+        with contextlib.suppress(Exception):
+            from pf_modules import check_platform_tools
+
+            check_platform_tools(self._state_host)
+
+        label = getattr(self._state_host, "platform_tools_label", None)
+        if label is None:
+            return
+        with contextlib.suppress(Exception):
+            import runtime as pf_runtime
+
+            sdk_version = pf_runtime.get_sdk_version()
+            label.SetLabel(f"Android Platform Tools\nVersion {sdk_version}" if sdk_version else "Android Platform Tools")
+
+    def _refresh_engine_state(self) -> None:
+        refresh = getattr(self._state_host, "update_widget_states", None)
+        if callable(refresh):
+            with contextlib.suppress(Exception):
+                refresh()
 
     def _confirm_guarded_action(self, action: ModernAction) -> bool:
         body = action.confirmation_body or (

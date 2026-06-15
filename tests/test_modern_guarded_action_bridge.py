@@ -72,6 +72,7 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
                 "open_safety",
                 "open_about",
                 "scan_devices",
+                "setup_platform_tools",
                 "select_firmware",
                 "process_firmware",
                 "flash_device",
@@ -91,6 +92,17 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         )
 
         self.assertEqual(len(actions), len(modern_actions()))
+
+    def test_platform_tools_setup_action_is_confirmed_internal_setup(self):
+        action = action_by_id("setup_platform_tools")
+
+        self.assertIsNotNone(action)
+        self.assertTrue(action.enabled)
+        self.assertTrue(action.requires_confirmation)
+        self.assertFalse(action.dangerous)
+        self.assertEqual("_setup_platform_tools", action.delegate)
+        self.assertIn("Android Platform Tools", action.description)
+        self.assertIn("No flash", action.confirmation_body)
 
     def test_all_modern_pages_render_static_local_content(self):
         state = ModernReadonlyState(
@@ -171,9 +183,11 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             "Select Firmware",
             "Process Firmware",
             "Flash Device",
+            "Set Up Platform Tools",
             "pixelflasher://action/select_firmware",
             "pixelflasher://action/process_firmware",
             "pixelflasher://action/flash_device",
+            "pixelflasher://action/setup_platform_tools",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, html)

@@ -24,10 +24,16 @@ from typing import Iterable
 from platform_utils import current_platform, repo_root, resolve_executable
 
 try:
-    from constants import APPNAME, VERSION
+    from constants import APPNAME, CONFIG_FILE_NAME, VERSION
 except Exception:  # pragma: no cover - defensive fallback for broken imports
     APPNAME = "PixelFlasher"
+    CONFIG_FILE_NAME = "PixelFlasher.json"
     VERSION = "unknown"
+
+try:
+    from platformdirs import user_data_dir
+except Exception:  # pragma: no cover - optional diagnostic fallback
+    user_data_dir = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +67,31 @@ def _is_executable(path: Path) -> bool:
 def _find_binary(names: Iterable[str]) -> str | None:
     found = resolve_executable(names)
     return str(found) if found else None
+
+
+def _find_configured_platform_tool(names: Iterable[str]) -> str | None:
+    root = _configured_platform_tools_path()
+    if root is None:
+        return None
+    for name in names:
+        candidate = root / name
+        if _is_executable(candidate):
+            return str(candidate)
+    return None
+
+
+def _configured_platform_tools_path() -> Path | None:
+    if user_data_dir is None:
+        return None
+    try:
+        config_path = Path(user_data_dir(APPNAME, appauthor=False, roaming=True)) / CONFIG_FILE_NAME
+        if not config_path.is_file():
+            return None
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        configured = str(data.get("platform_tools_path") or "").strip()
+        return Path(configured) if configured else None
+    except Exception:
+        return None
 
 
 def _check_python_version() -> CheckResult:
@@ -130,11 +161,11 @@ def _check_config_writable() -> CheckResult:
 
 
 def _check_platform_tools() -> list[CheckResult]:
-    adb = _find_binary(["adb.exe", "adb"])
-    fastboot = _find_binary(["fastboot.exe", "fastboot"])
+    adb = _find_binary(["adb.exe", "adb"]) or _find_configured_platform_tool(["adb.exe", "adb"])
+    fastboot = _find_binary(["fastboot.exe", "fastboot"]) or _find_configured_platform_tool(["fastboot.exe", "fastboot"])
     return [
-        CheckResult("platform_tool:adb", adb is not None, adb or "not found in PATH", required=False),
-        CheckResult("platform_tool:fastboot", fastboot is not None, fastboot or "not found in PATH", required=False),
+        CheckResult("platform_tool:adb", adb is not None, adb or "not found in PATH or configured Platform Tools path", required=False),
+        CheckResult("platform_tool:fastboot", fastboot is not None, fastboot or "not found in PATH or configured Platform Tools path", required=False),
     ]
 
 

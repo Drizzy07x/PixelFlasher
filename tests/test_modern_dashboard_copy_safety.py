@@ -110,6 +110,8 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             "Flash Wizard",
             "Patch Boot",
             "Scan Devices",
+            "Platform Tools need setup",
+            "Set Up Platform Tools",
             "Workflow Status",
             "Device Slots",
             "Partitions",
@@ -117,6 +119,7 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             "pixelflasher://action/flash_device",
             "pixelflasher://action/patch_boot",
             "pixelflasher://action/scan_devices",
+            "pixelflasher://action/setup_platform_tools",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, html)

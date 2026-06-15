@@ -1,8 +1,11 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from self_test import CheckResult, format_results, run_checks
+from self_test import CheckResult, _check_platform_tools, format_results, run_checks
 
 
 class SelfTestDependencyTests(unittest.TestCase):
@@ -26,6 +29,27 @@ class SelfTestDependencyTests(unittest.TestCase):
 
         self.assertIn("+ PASS", output)
         self.assertIn("x FAIL", output)
+
+    def test_platform_tools_check_uses_configured_path(self):
+        with tempfile.TemporaryDirectory(prefix="pf-self-test-tools-") as tmp:
+            root = Path(tmp)
+            config_dir = root / "config"
+            tools = root / "platform-tools"
+            config_dir.mkdir()
+            tools.mkdir()
+            (tools / "adb.exe").write_text("adb", encoding="utf-8")
+            (tools / "fastboot.exe").write_text("fastboot", encoding="utf-8")
+            (config_dir / "PixelFlasher.json").write_text(
+                json.dumps({"platform_tools_path": str(tools)}),
+                encoding="utf-8",
+            )
+
+            with patch("self_test._find_binary", return_value=None), patch("self_test.user_data_dir", return_value=str(config_dir)):
+                results = {result.name: result for result in _check_platform_tools()}
+
+        self.assertTrue(results["platform_tool:adb"].ok)
+        self.assertTrue(results["platform_tool:fastboot"].ok)
+        self.assertIn("platform-tools", results["platform_tool:adb"].message)
 
 
 if __name__ == "__main__":
