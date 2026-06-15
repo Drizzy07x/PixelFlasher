@@ -32,7 +32,13 @@ from ui.pages.modern_preview_copy import (
     PREVIEW_BADGES,
     SAFETY_BOUNDARY_LINES,
 )
-from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
+from ui.pages.modern_readonly_state import (
+    ModernDeviceState,
+    ModernFirmwareState,
+    ModernFlashOptionsState,
+    ModernReadonlyState,
+    ModernToolState,
+)
 
 
 DASHBOARD_SOURCE = Path("ui/pages/dashboard.py")
@@ -170,6 +176,47 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, dashboard_html)
                 self.assertIn(expected, wizard_html)
+
+    def test_webview_wizard_shows_flash_plan_snapshot(self):
+        from ui.pages.modern_preview_templates import render_preview_html
+
+        html = render_preview_html(
+            "wizard",
+            ModernReadonlyState(
+                device=ModernDeviceState(
+                    display_name="Pixel 9 Pro XL",
+                    serial="45241FDAS0097U",
+                    adb_ready=True,
+                ),
+                firmware=ModernFirmwareState(
+                    path="komodo-ota-cp1a.zip",
+                    package_type="ota",
+                    file_size_bytes=1536,
+                    verified=True,
+                ),
+                tools=ModernToolState(),
+                warnings=(),
+                flash=ModernFlashOptionsState(
+                    flash_mode="Full OTA",
+                    data_behavior="Keep data",
+                    slot_behavior="Inactive slot",
+                ),
+            ),
+        )
+
+        for expected in (
+            "Plan Snapshot",
+            "Target Device",
+            "Firmware Package",
+            "Flash Options",
+            "Final Review",
+            "Ready to start",
+            "PixelFlasher confirmations remain in place.",
+            "Full OTA",
+            "Keep data - Slot Inactive slot",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, html)
 
     def test_webview_template_does_not_load_remote_assets(self):
         for forbidden in ("http://", "https://", "cdn", "script src", "javascript:", "onclick="):

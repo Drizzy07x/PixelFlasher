@@ -747,6 +747,56 @@ body {
   box-shadow: var(--shadow-soft);
   padding: 15px;
 }
+.plan-brief {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.plan-brief-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 10px;
+}
+.plan-brief-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.plan-brief-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.plan-card {
+  min-height: 116px;
+  padding: 13px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(47, 140, 255, .11), rgba(255, 255, 255, .035));
+  border: 1px solid var(--border-soft);
+}
+.plan-card.ready { border-color: rgba(66, 223, 91, .26); background: linear-gradient(145deg, rgba(66, 223, 91, .09), rgba(255, 255, 255, .035)); }
+.plan-card.attention { border-color: rgba(255, 201, 40, .30); background: linear-gradient(145deg, rgba(255, 201, 40, .11), rgba(255, 255, 255, .035)); }
+.plan-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.plan-card strong {
+  display: block;
+  margin-top: 9px;
+  color: white;
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.plan-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.38;
+}
 .wizard-stage-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -830,7 +880,7 @@ body {
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid, .state-overview { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .wizard-stage-grid, .state-overview, .plan-brief { grid-template-columns: 1fr; }
   .dashboard-actions { grid-template-columns: 1fr; }
   .setup-notice { grid-template-columns: auto minmax(0, 1fr); }
   .setup-button { grid-column: 1 / -1; text-align: center; }
@@ -1124,6 +1174,7 @@ def _wizard_page(state: ModernReadonlyState) -> str:
             {_wizard_readiness("Firmware Readiness", (("No firmware selected" if not state.firmware.selected else state.firmware.filename), _package_type(state), "Size: " + state.firmware.size_label, "Process firmware when ready", "Patchable image: " + ("available" if state.firmware.has_patchable_image else "not detected")))}
             {_wizard_readiness("Flash Workflow", ("Review flash mode", "Confirm options", "Run PixelFlasher flash", "Follow prompts"))}
           </div>
+          {_wizard_plan_brief(state)}
           {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "not selected"), ("Package type", _package_type(state))))}
           {_wizard_stage_overview()}
           <div class="footer-controls">
@@ -1136,12 +1187,14 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           <div class="card-header"><h3>Flash Summary</h3><span class="badge yellow">Review</span></div>
           <p class="muted">Review the current plan before starting the configured PixelFlasher flash workflow.</p>
           <div class="stack-list">
-            {_mini_row("Status", "ready when device and firmware are selected")}
-            {_mini_row("Items to review", str(len(state.warnings) or 2))}
+            {_mini_row("Status", _plan_status_label(state))}
+            {_mini_row("Review notes", _plan_review_label(state))}
             {_mini_row("Device", state.device.display_name or "not selected")}
             {_mini_row("Firmware", state.firmware.filename or "not selected")}
             {_mini_row("Package type", _package_type(state))}
+            {_mini_row("Firmware size", state.firmware.size_label)}
             {_mini_row("Mode", state.flash.flash_mode)}
+            {_mini_row("Data", state.flash.data_behavior)}
             {_mini_row("Slot target", state.flash.slot_behavior)}
             {_mini_row("Final action", "Flash Device")}
           </div>
@@ -1160,6 +1213,61 @@ def _wizard_stage_overview() -> str:
         ("5", "Review", "Start the PixelFlasher workflow and follow the final prompts."),
     )
     return f"""<div class="wizard-stage-grid">{"".join(_wizard_stage_card(*row) for row in rows)}</div>"""
+
+
+def _wizard_plan_brief(state: ModernReadonlyState) -> str:
+    rows = (
+        (
+            "Target Device",
+            state.device.display_name or state.device.serial or "Select a device",
+            state.device.connection_label,
+            "ready" if state.device.selected else "attention",
+        ),
+        (
+            "Firmware Package",
+            state.firmware.filename or "Select firmware",
+            f"{_package_type(state)} - {state.firmware.size_label}",
+            "ready" if state.firmware.selected else "attention",
+        ),
+        (
+            "Flash Options",
+            state.flash.flash_mode,
+            f"{state.flash.data_behavior} - Slot {state.flash.slot_behavior}",
+            "",
+        ),
+        (
+            "Final Review",
+            _plan_status_label(state),
+            "PixelFlasher confirmations remain in place.",
+            "ready" if state.ready_for_review else "attention",
+        ),
+    )
+    return f"""
+    <div class="plan-brief-header">
+      <h3>Plan Snapshot</h3>
+      <span>Current flash workflow setup</span>
+    </div>
+    <div class="plan-brief" aria-label="Flash plan snapshot">{"".join(_plan_card(*row) for row in rows)}</div>
+    """
+
+
+def _plan_card(label: str, title: str, copy: str, tone: str) -> str:
+    tone_class = f" {tone}" if tone in {"ready", "attention"} else ""
+    return f"""
+    <div class="plan-card{tone_class}">
+      <span>{escape(label)}</span>
+      <strong>{escape(title)}</strong>
+      <p>{escape(copy)}</p>
+    </div>
+    """
+
+
+def _plan_status_label(state: ModernReadonlyState) -> str:
+    return "Ready to start" if state.ready_for_review else "Needs attention"
+
+
+def _plan_review_label(state: ModernReadonlyState) -> str:
+    return str(len(state.warnings)) if state.warnings else "clear"
 
 
 def _wizard_stage_card(number: str, title: str, copy: str) -> str:
