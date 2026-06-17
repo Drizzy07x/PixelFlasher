@@ -2439,42 +2439,42 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
         if app_type == 'KernelSU-Next':
             repo_user = 'rifsxd'
             repo_name = 'KernelSU-Next'
-            pattern = r'^KernelSU_Next(?!.*spoofed).*\.apk$'
+            pattern = ROOT_APP_ASSET_PATTERNS["kernelsu_next"]
             path_getter = lambda: device.ksu_next_path  # type: ignore[union-attr]
             app_name = "KernelSU-Next"
             package_name = KSU_NEXT_PKG_NAME
         elif app_type == 'APatch':
             repo_user = 'bmax121'
             repo_name = 'APatch'
-            pattern = r'^APatch_.*\.apk$'
+            pattern = ROOT_APP_ASSET_PATTERNS["apatch"]
             path_getter = lambda: device.apatch_path  # type: ignore[union-attr]
             app_name = "APatch"
             package_name = APATCH_PKG_NAME
         elif app_type == 'SukiSU':
             repo_user = 'SukiSU-Ultra'
             repo_name = 'SukiSU-Ultra'
-            pattern = r'^SukiSU_(?!.*spoofed).*\.apk$'
+            pattern = ROOT_APP_ASSET_PATTERNS["sukisu"]
             path_getter = lambda: device.sukisu_path  # type: ignore[union-attr]
             app_name = "SukiSU"
             package_name = SUKISU_PKG_NAME
         elif app_type == 'Wild_KSU':
             repo_user = 'WildKernels'
             repo_name = 'Wild_KSU'
-            pattern = r'^Wild_KSU(?!.*spoofed).*\.apk$'
+            pattern = ROOT_APP_ASSET_PATTERNS["wild_ksu"]
             path_getter = lambda: device.wild_ksu_path  # type: ignore[union-attr]
             app_name = "Wild_KSU"
             package_name = WILD_KSU_PKG_NAME
         elif app_type == "KernelSU-Legacy":
             repo_user = 'rsuntk'
             repo_name = 'KernelSU'
-            pattern = r'^KernelSU(?!.*spoofed).*\.apk$'
+            pattern = ROOT_APP_ASSET_PATTERNS["kernelsu"]
             path_getter = lambda: device.ksu_path  # type: ignore[union-attr]
             app_name = "KernelSU"
             package_name = KERNEL_SU_PKG_NAME
         else:  # KernelSU
             repo_user = 'tiann'
             repo_name = 'KernelSU'
-            pattern = r'^KernelSU(?!.*spoofed).*\.apk$'
+            pattern = ROOT_APP_ASSET_PATTERNS["kernelsu"]
             path_getter = lambda: device.ksu_path  # type: ignore[union-attr]
             app_name = "KernelSU"
             package_name = KERNEL_SU_PKG_NAME

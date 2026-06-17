@@ -156,6 +156,15 @@ _puml_enabled = True
 _rooting_app_apks = None
 _selected_boot_partition = None
 
+ROOT_APP_ASSET_PATTERNS = {
+    "magisk": r"(?i)^Magisk.*\.apk$",
+    "kernelsu": r"(?i)^KernelSU(?!.*spoofed).*\.apk$",
+    "kernelsu_next": r"(?i)^KernelSU_Next(?!.*spoofed).*\.apk$",
+    "sukisu": r"(?i)^SukiSU(?!.*spoofed).*\.apk$",
+    "wild_ksu": r"(?i)^Wild_KSU(?!.*spoofed).*\.apk$",
+    "apatch": r"(?i)^APatch_.*\.apk$",
+}
+
 
 # ============================================================================
 #                               Class Boot
@@ -9915,7 +9924,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^Magisk.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["magisk"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -9951,7 +9960,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^Magisk.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["magisk"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -9987,7 +9996,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^KernelSU.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["kernelsu"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10023,7 +10032,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'(?i)^KernelSU_Next(?!.*spoofed).*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["kernelsu_next"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10059,7 +10068,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^SukiSU.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["sukisu"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10095,7 +10104,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'(?i)^Wild_KSU(?!.*spoofed).*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["wild_ksu"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10131,7 +10140,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^APatch_.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["apatch"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:

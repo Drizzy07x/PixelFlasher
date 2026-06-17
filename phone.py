@@ -380,7 +380,14 @@ class Device():
                 else:
                     theCmd = f"\"{get_adb()}\" -s {self.id} shell /bin/getprop"
                 res = run_shell(theCmd, timeout=10)
-                if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 127 or "/system/bin/sh: /bin/getprop: not found" in res.stdout:
+                if (
+                    res
+                    and isinstance(res, subprocess.CompletedProcess)
+                    and (
+                        res.returncode == 127
+                        or "/system/bin/sh: /bin/getprop: not found" in res.stdout
+                    )
+                ):
                     if self.rooted:
                         theCmd = f"\"{get_adb()}\" -s {self.id} shell \"su -c \'getprop\'\""
                     else:
@@ -4597,6 +4604,9 @@ add_hosts_module
                     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while rebooting to bootloader")
                     self.clear_device_selection()
                     bootloader_issue_message()
+                    return -1
+                self.refresh_phone_mode()
+                mode = self.get_device_state()
             if mode == 'fastboot' and get_fastboot():
                 print(f"Switching to other slot. Current slot [{self.active_slot}] for device: {self.id} ...")
                 puml(f":Switching slot. Current Slot [{self.active_slot}];\n", True)
