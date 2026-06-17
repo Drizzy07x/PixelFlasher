@@ -71,6 +71,44 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.web_source)
 
+    def test_webview_uses_custom_frameless_window_chrome(self):
+        for expected in (
+            "FRAME_STYLE = wx.NO_BORDER",
+            "wx.CLIP_CHILDREN",
+            "wx.NO_FULL_REPAINT_ON_RESIZE",
+            "ModernWindowChrome",
+            "Iconize(True)",
+            "Close(True)",
+            "Maximize(not self._frame.IsMaximized())",
+            "EVT_LEFT_DOWN",
+            "EVT_MOTION",
+            "ClientToScreen",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_webview_blocks_duplicate_engine_actions(self):
+        for expected in (
+            "_action_running",
+            "another operation is already running",
+            "finally:",
+            "self._action_running = False",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_platform_tools_setup_does_not_block_ui_thread(self):
+        for expected in (
+            "import threading",
+            "threading.Thread",
+            "_install_platform_tools_worker",
+            "_finish_platform_tools_setup",
+            "daemon=True",
+            "wx.CallAfter(self._finish_platform_tools_setup",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
     def test_modern_style_helpers_are_importable(self):
         self.require_wx()
         module = importlib.import_module("ui.pages.modern_preview_style")
