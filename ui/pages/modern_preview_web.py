@@ -40,6 +40,7 @@ from ui.pages.platform_tools_setup import PlatformToolsSetupError, install_platf
 
 
 FRAME_STYLE = wx.NO_BORDER | wx.CLIP_CHILDREN | wx.NO_FULL_REPAINT_ON_RESIZE
+APP_BACKGROUND = "#070b12"
 CHROME_BACKGROUND = "#08111f"
 CHROME_TEXT = "#e7eefb"
 CHROME_MUTED = "#94a3b8"
@@ -75,6 +76,9 @@ class ModernPreviewWebFrame(wx.Frame):
             size=(1536, 960),
             style=FRAME_STYLE,
         )
+        self.SetBackgroundColour(_colour(APP_BACKGROUND))
+        self.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
+        self.SetDoubleBuffered(True)
         self._state_host = state_host or parent or _empty_state_host()
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
         self._page = str(page or "dashboard")
@@ -85,11 +89,14 @@ class ModernPreviewWebFrame(wx.Frame):
         backend = _preferred_webview_backend()
         if backend is None:
             raise RuntimeError("wx.html2 WebView backend is not available")
-        shell = wx.Panel(self)
-        shell.SetBackgroundColour(_colour(CHROME_BACKGROUND))
+        shell = wx.Panel(self, style=wx.BORDER_NONE | wx.CLIP_CHILDREN)
+        shell.SetBackgroundColour(_colour(APP_BACKGROUND))
+        shell.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
+        shell.SetDoubleBuffered(True)
         chrome = ModernWindowChrome(shell, self, _frame_title(page))
         self._chrome = chrome
-        view = html2.WebView.New(shell, backend=backend)  # type: ignore[union-attr]
+        view = html2.WebView.New(shell, backend=backend, style=wx.BORDER_NONE)  # type: ignore[union-attr]
+        view.SetBackgroundColour(_colour(APP_BACKGROUND))
         self._view = view
         view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_webview_navigating)  # type: ignore[union-attr]
         view.Bind(html2.EVT_WEBVIEW_LOADED, self._on_webview_loaded)  # type: ignore[union-attr]

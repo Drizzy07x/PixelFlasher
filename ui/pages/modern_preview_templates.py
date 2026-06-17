@@ -85,9 +85,14 @@ html, body {
   width: 100%;
   height: 100%;
   margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
   overflow: hidden;
+  background: var(--bg);
 }
 body {
+  min-width: 0;
   background:
     radial-gradient(circle at 82% 0%, rgba(47, 140, 255, .11), transparent 24%),
     radial-gradient(circle at 28% 100%, rgba(122, 77, 255, .08), transparent 28%),
@@ -97,6 +102,7 @@ body {
   letter-spacing: 0;
 }
 .app-shell {
+  width: 100vw;
   height: 100vh;
   min-height: 0;
   overflow: hidden;

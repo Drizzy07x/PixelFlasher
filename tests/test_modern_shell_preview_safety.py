@@ -87,6 +87,26 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.web_source)
 
+    def test_webview_uses_dark_borderless_edges(self):
+        for expected in (
+            "APP_BACKGROUND = \"#070b12\"",
+            "self.SetBackgroundColour(_colour(APP_BACKGROUND))",
+            "wx.Panel(self, style=wx.BORDER_NONE | wx.CLIP_CHILDREN)",
+            "html2.WebView.New(shell, backend=backend, style=wx.BORDER_NONE)",
+            "view.SetBackgroundColour(_colour(APP_BACKGROUND))",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+        for expected in (
+            "padding: 0;",
+            "border: 0;",
+            "outline: 0;",
+            "background: var(--bg);",
+            "width: 100vw;",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.template_source)
+
     def test_webview_blocks_duplicate_engine_actions(self):
         for expected in (
             "_action_running",
