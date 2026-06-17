@@ -1,4 +1,4 @@
-"""Shared read-only state adapter for Modern UI preview surfaces.
+"""Shared state adapter for Modern UI surfaces.
 
 This module only reads already-loaded frame/config values. It does not run adb,
 fastboot, patching, flashing, firmware parsing, reboot, slot, wipe, or file
@@ -150,7 +150,7 @@ class ModernBackupState:
     total_count: int = 0
     latest_label: str = "not loaded"
     location: str = "not selected"
-    restore_mode: str = "guarded legacy only"
+    restore_mode: str = "requires confirmation"
 
     @property
     def has_loaded_backups(self) -> bool:

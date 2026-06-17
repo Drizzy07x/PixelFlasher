@@ -79,6 +79,7 @@ class ModernPreviewWebFrame(wx.Frame):
         self.SetBackgroundColour(_colour(APP_BACKGROUND))
         self.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
         self.SetDoubleBuffered(True)
+        _apply_frame_icon(self)
         self._state_host = state_host or parent or _empty_state_host()
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
         self._page = str(page or "dashboard")
@@ -378,7 +379,6 @@ class ModernWindowChrome(wx.Panel):
         self._drag_start: tuple[int, int, int, int] | None = None
         self._title_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self._subtitle_font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        self._button_font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.SetBackgroundColour(_colour(CHROME_BACKGROUND))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.SetDoubleBuffered(True)
@@ -417,15 +417,7 @@ class ModernWindowChrome(wx.Panel):
             dc.SetBrush(wx.Brush(_colour(fill)))
             dc.SetPen(wx.Pen(_colour(fill)))
             dc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, 2)
-            dc.SetTextForeground(_colour(CHROME_TEXT))
-            dc.SetFont(self._button_font)
-            label = {"minimize": "_", "maximize": "[]", "close": "X"}[action]
-            text_width, text_height = dc.GetTextExtent(label)
-            dc.DrawText(
-                label,
-                rect.x + (rect.width - text_width) // 2,
-                rect.y + (rect.height - text_height) // 2,
-            )
+            self._draw_button_glyph(dc, action, rect)
 
     def _on_size(self, event: wx.SizeEvent) -> None:
         self.Refresh(False)
@@ -460,6 +452,20 @@ class ModernWindowChrome(wx.Panel):
             self._on_maximize_restore()
         elif action == "close":
             self._on_close()
+
+    def _draw_button_glyph(self, dc: wx.DC, action: str, rect: wx.Rect) -> None:
+        pen = wx.Pen(_colour(CHROME_TEXT), 1)
+        dc.SetPen(pen)
+        cx = rect.x + rect.width // 2
+        cy = rect.y + rect.height // 2
+        if action == "minimize":
+            dc.DrawLine(cx - 6, cy + 5, cx + 6, cy + 5)
+        elif action == "maximize":
+            dc.SetBrush(wx.TRANSPARENT_BRUSH)
+            dc.DrawRectangle(cx - 5, cy - 5, 10, 10)
+        elif action == "close":
+            dc.DrawLine(cx - 5, cy - 5, cx + 5, cy + 5)
+            dc.DrawLine(cx + 5, cy - 5, cx - 5, cy + 5)
 
     def _on_minimize(self) -> None:
         self._frame.Iconize(True)
@@ -538,6 +544,15 @@ def _event_screen_position(event: wx.MouseEvent, fallback: wx.Window) -> wx.Poin
 
 def _colour(value: str) -> wx.Colour:
     return wx.Colour(value)
+
+
+def _apply_frame_icon(frame: wx.Frame) -> None:
+    with contextlib.suppress(Exception):
+        import images
+
+        icon = images.Icon_dark_256.GetIcon()
+        if icon.IsOk():
+            frame.SetIcon(icon)
 
 
 def _empty_state_host() -> SimpleNamespace:

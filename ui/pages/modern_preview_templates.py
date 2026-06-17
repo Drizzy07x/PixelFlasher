@@ -146,16 +146,6 @@ body {
 }
 .brand-title { font-size: 17px; font-weight: 800; line-height: 1.2; }
 .brand-subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; }
-.beta {
-  color: var(--cyan);
-  font-size: 11px;
-  font-weight: 800;
-  border: 1px solid rgba(55, 185, 255, .24);
-  background: rgba(47, 140, 255, .12);
-  border-radius: 999px;
-  padding: 4px 8px;
-  margin-left: 8px;
-}
 .nav { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
 .nav-item {
   display: grid;
@@ -204,8 +194,8 @@ body {
   min-height: 0;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  padding: 24px 28px 12px;
-  gap: 14px;
+  padding: 22px 28px 10px;
+  gap: 12px;
   overflow: hidden;
 }
 .topbar {
@@ -246,12 +236,11 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 2px 4px 2px 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(76, 111, 155, .36) transparent;
+  scrollbar-width: none;
 }
-.content::-webkit-scrollbar { width: 6px; height: 6px; }
+.content::-webkit-scrollbar { width: 0; height: 0; }
 .content::-webkit-scrollbar-track { background: transparent; }
-.content::-webkit-scrollbar-thumb { background: rgba(76, 111, 155, .34); border-radius: 999px; }
+.content::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr);
@@ -262,8 +251,8 @@ body {
 .lower-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 14px;
+  gap: 14px;
+  margin-top: 12px;
 }
 .card {
   position: relative;
@@ -274,7 +263,7 @@ body {
   border: 1px solid rgba(118, 153, 197, .20);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 18px;
+  padding: 16px;
   min-width: 0;
 }
 .card::before {
@@ -298,7 +287,7 @@ body {
 .card h3 { font-size: 15px; }
 .card-subtitle { color: var(--muted); margin-top: 4px; font-size: 12px; line-height: 1.35; }
 .muted { color: var(--muted); }
-.device-card { min-height: 320px; }
+.device-card { min-height: 306px; }
 .device-body { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 22px; align-items: center; }
 .device-visual {
   width: 194px;

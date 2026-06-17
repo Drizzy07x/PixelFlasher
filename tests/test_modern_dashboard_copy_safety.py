@@ -345,7 +345,7 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
 
         self.assertIn(("Slot changes", "disabled in preview"), _dashboard_slot_rows(state))
         self.assertIn(("Partition writes", "disabled in preview"), _dashboard_partition_rows(state))
-        self.assertIn(("Restore", "guarded legacy flow only"), _dashboard_backup_rows())
+        self.assertIn(("Restore", "requires confirmation"), _dashboard_backup_rows())
 
 
 if __name__ == "__main__":

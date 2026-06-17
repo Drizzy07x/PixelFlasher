@@ -102,6 +102,15 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertNotIn("wx.Button(self, label=", self.web_source)
         self.assertNotIn("wx.StaticText(self, label=", self.web_source)
 
+    def test_webview_frame_uses_application_icon(self):
+        for expected in (
+            "_apply_frame_icon(self)",
+            "images.Icon_dark_256.GetIcon()",
+            "frame.SetIcon(icon)",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
     def test_webview_uses_dark_borderless_edges(self):
         for expected in (
             "APP_BACKGROUND = \"#070b12\"",
@@ -219,7 +228,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Scan Devices",
             "Platform Tools need setup",
             "Set Up Platform Tools",
-            "PixelFlasher 9.2.0-beta",
+            "PixelFlasher 9.2.0",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, html)

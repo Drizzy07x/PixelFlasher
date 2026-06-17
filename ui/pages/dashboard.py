@@ -412,7 +412,7 @@ def _dashboard_partition_rows(state: ModernReadonlyState) -> tuple[tuple[str, st
 def _dashboard_backup_rows() -> tuple[tuple[str, str], ...]:
     return (
         ("Last backup", "not read in preview"),
-        ("Restore", "guarded legacy flow only"),
+        ("Restore", "requires confirmation"),
     )
 
 

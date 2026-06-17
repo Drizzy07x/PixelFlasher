@@ -18,6 +18,20 @@ class SelfTestDependencyTests(unittest.TestCase):
                 self.assertIn(name, results)
                 self.assertTrue(results[name].required)
 
+    def test_release_metadata_is_checked(self):
+        results = {result.name: result for result in run_checks()}
+
+        for name in (
+            "release_version",
+            "file:icon-dark-256.png",
+            "file:icon-dark-256.ico",
+            "file:icon-dark-256.icns",
+            "file:windows-version-info.txt",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, results)
+                self.assertTrue(results[name].ok)
+
     def test_format_results_uses_ascii_markers_when_stdout_needs_them(self):
         results = [
             CheckResult("pass", True, "ok"),

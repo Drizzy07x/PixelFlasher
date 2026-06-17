@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """PixelFlasher self-test helpers.
 
-This module performs low-risk startup checks that are useful for beta builds and
-CI. It deliberately avoids importing the main wxPython UI or talking to a real
-phone unless an adb/fastboot executable is already discoverable.
+This module performs low-risk startup checks that are useful for release builds
+and CI. It deliberately avoids importing the main wxPython UI or talking to a
+real phone unless an adb/fastboot executable is already discoverable.
 """
 
 from __future__ import annotations
@@ -149,6 +149,20 @@ def _check_source_layout(root: Path) -> list[CheckResult]:
     ]
 
 
+def _check_release_metadata(root: Path) -> list[CheckResult]:
+    version_is_stable = "beta" not in VERSION.lower()
+    icon_paths = (
+        root / "images" / "icon-dark-256.png",
+        root / "images" / "icon-dark-256.ico",
+        root / "images" / "icon-dark-256.icns",
+        root / "windows-version-info.txt",
+    )
+    return [
+        CheckResult("release_version", version_is_stable, VERSION if version_is_stable else f"pre-release version: {VERSION}"),
+        *(_check_required_file(path) for path in icon_paths),
+    ]
+
+
 def _check_config_writable() -> CheckResult:
     try:
         with tempfile.TemporaryDirectory(prefix="pf-self-test-") as tmp:
@@ -254,6 +268,7 @@ def run_checks() -> list[CheckResult]:
         _check_python_version(),
     ]
     checks.extend(_check_source_layout(root))
+    checks.extend(_check_release_metadata(root))
     checks.extend([
         _check_platform_layer(),
         _check_required_dir(root / "images"),

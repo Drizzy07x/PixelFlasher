@@ -42,7 +42,7 @@ import sys
 def _run_cli_command(argv):
     """Handle low-risk CLI utilities without importing the wx UI.
 
-    This keeps CI, beta diagnostics, and support collection working on systems
+    This keeps CI, diagnostics, and support collection working on systems
     that do not have wxPython or a display server installed.
     """
     cli_flags = {
@@ -57,7 +57,6 @@ def _run_cli_command(argv):
         "--modern-dashboard-preview",
         "--modern-shell-preview",
         "--flash-wizard-preview",
-        "--flash-wizard-demo",
         "--help",
         "-h",
     }
@@ -78,8 +77,6 @@ def _run_cli_command(argv):
         print("                                      Launch standalone modern shell")
         print("  python PixelFlasher.py --flash-wizard")
         print("                                      Launch standalone flash wizard")
-        print("  python PixelFlasher.py --flash-wizard-demo")
-        print("                                      Launch safe standalone flash wizard demo")
         raise SystemExit(0)
 
     if "--version" in argv or "-V" in argv:
@@ -108,10 +105,6 @@ def _run_cli_command(argv):
     if "--flash-wizard" in argv or "--flash-wizard-preview" in argv:
         from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
         raise SystemExit(flash_wizard_preview_main())
-
-    if "--flash-wizard-demo" in argv:
-        from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
-        raise SystemExit(flash_wizard_preview_main(demo=True))
 
 
 _run_cli_command(sys.argv)

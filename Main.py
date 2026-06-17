@@ -1943,8 +1943,8 @@ class PixelFlasher(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_support_zip, support_zip_item)
         # separator
         help_menu.AppendSeparator()
-        # Modern UI preview
-        self.modern_ui_preview_item = help_menu.Append(wx.ID_ANY, _("Modern UI Preview"), _("Preview-only · Read-only · No device changes"))
+        # Modern UI
+        self.modern_ui_preview_item = help_menu.Append(wx.ID_ANY, _("Modern UI"), _("Open the modern PixelFlasher workspace"))
         self.Bind(wx.EVT_MENU, self._on_modern_ui_preview, self.modern_ui_preview_item)
         # separator
         help_menu.AppendSeparator()
@@ -1979,12 +1979,12 @@ class PixelFlasher(wx.Frame):
         self.menuBar.Append(lang_menu, _("&Language"))
         # Add the Help menu to the menu bar
         self.menuBar.Append(help_menu, _('&Help'))
-        # Add the Test menu to the menu bar
+        # Add the developer menu to the menu bar
         if self.config.dev_mode:
             test_menu = wx.Menu()
-            test1_item = test_menu.Append(wx.ID_ANY, "Test1", "Test1")
+            test1_item = test_menu.Append(wx.ID_ANY, "Diagnostics", "Open developer diagnostics")
             self.Bind(wx.EVT_MENU, self.Test, test1_item)
-            self.menuBar.Append(test_menu, 'Test')
+            self.menuBar.Append(test_menu, 'Developer')
 
         self.SetMenuBar(self.menuBar)
 
@@ -2671,9 +2671,9 @@ class PixelFlasher(wx.Frame):
     # -----------------------------------------------
     def Test(self, event):
         print("\n==============================================================================")
-        print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Test Function")
+        print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated developer diagnostics")
         print("==============================================================================")
-        print("Entering Test function (used during development only) ...")
+        print("Opening developer diagnostics ...")
         # print("Error: ❌ (U+274C, Cross Mark)")
         # print("Warning: ⚠️ (U+26A0, Warning)")
         # print("Info: ℹ️ (U+2139, Information Source)")
