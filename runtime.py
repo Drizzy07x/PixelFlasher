@@ -4525,11 +4525,10 @@ def get_latest_android_version(force_version=None):
                         beta_links[ver] = full_url
 
         # Look for version links
-        href = link.get('href')
-        if href and re.match(r'https:\/\/developer\.android\.com\/about\/versions\/\d+', href):
-            # capture the d+ part
-            match = re.search(r'\d+', href)
-            link_version = int(match.group()) if match else 0
+        href = _normalize_android_developer_url(link.get('href'))
+        if href and re.match(r'https:\/\/developer\.android\.com\/about\/versions\/\d+(?:[\/?#]|$)', href):
+            match = re.search(r'about\/versions\/(\d+)', href)
+            link_version = int(match.group(1)) if match else 0
             if force_version and not str(force_version).startswith('CANARY'):
                 if link_version == force_version:
                     version = link_version
@@ -4586,6 +4585,16 @@ def get_latest_android_version(force_version=None):
         beta_link_url = resolve_url_redirects(beta_link_url)
 
     return version, beta_link_url
+
+
+def _normalize_android_developer_url(href):
+    if not href:
+        return ''
+    if href.startswith('/'):
+        return f"https://developer.android.com{href}"
+    if href.startswith('https://developer.android.com/'):
+        return href
+    return ''
 
 
 # ============================================================================

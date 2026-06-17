@@ -139,8 +139,8 @@ LINKS_MENU_DATA = [
     (_("Factory Images for Pixel Watches"), "google_24", 'https://developers.google.com/android/images-watch'),
     None,  # Separator
     # Beta images
-    (_("Full OTA Images for Pixel Beta 16"), "android_24", 'https://developer.android.com/about/versions/16/download-ota'),
-    (_("Factory Images for Pixel Beta 16"), "android_24", 'https://developer.android.com/about/versions/16/download'),
+    (_("Full OTA Images for Pixel Beta 17"), "android_24", 'https://developer.android.com/about/versions/17/download-ota'),
+    (_("Factory Images for Pixel Beta 17"), "android_24", 'https://developer.android.com/about/versions/17/download'),
 ]
 
 # Help menu URLs and descriptions
