@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -25,6 +28,22 @@ class BetaInfraTests(unittest.TestCase):
         self.assertNotIn(str(Path.home()), redacted)
         self.assertIn("<home>", redacted)
         self.assertIn("ABCD…redacted", redacted)
+
+    def test_runtime_imports_and_flushes_without_gui_console(self):
+        env = os.environ.copy()
+        env.pop("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", None)
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import runtime; runtime.flush_output(); print('runtime import ok')"],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("runtime import ok", result.stdout)
 
 
 if __name__ == "__main__":

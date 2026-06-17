@@ -110,6 +110,7 @@ _firmware_id = None
 _custom_rom_id = None
 _logfile = None
 _pumlfile = None
+_console_widget = None
 _sdk_version = None
 _image_mode = None
 _image_path = None
