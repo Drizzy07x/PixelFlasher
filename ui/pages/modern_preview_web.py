@@ -372,81 +372,146 @@ class ModernWindowChrome(wx.Panel):
     def __init__(self, parent: wx.Window, frame: wx.Frame, page_title: str) -> None:
         super().__init__(parent, style=wx.BORDER_NONE)
         self._frame = frame
+        self._page_title = ""
+        self._hover_button: str | None = None
+        self._pressed_button: str | None = None
         self._drag_start: tuple[int, int, int, int] | None = None
+        self._title_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        self._subtitle_font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        self._button_font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.SetBackgroundColour(_colour(CHROME_BACKGROUND))
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetDoubleBuffered(True)
         self.SetMinSize((-1, 42))
 
-        self._title = wx.StaticText(self, label="")
-        self._title.SetForegroundColour(_colour(CHROME_TEXT))
-        self._title.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        self._subtitle = wx.StaticText(self, label=f"PixelFlasher {VERSION}")
-        self._subtitle.SetForegroundColour(_colour(CHROME_MUTED))
-        self._subtitle.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.SetPageTitle(page_title)
 
-        title_stack = wx.BoxSizer(wx.VERTICAL)
-        title_stack.Add(self._title, 0, wx.BOTTOM, 1)
-        title_stack.Add(self._subtitle, 0)
-
-        controls = wx.BoxSizer(wx.HORIZONTAL)
-        controls.Add(self._chrome_button("_", "Minimize", self._on_minimize), 0, wx.LEFT, 6)
-        controls.Add(self._chrome_button("[]", "Maximize or restore", self._on_maximize_restore), 0, wx.LEFT, 6)
-        controls.Add(self._chrome_button("X", "Close", self._on_close, close=True), 0, wx.LEFT, 6)
-
-        root = wx.BoxSizer(wx.HORIZONTAL)
-        root.Add(title_stack, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
-        root.AddStretchSpacer(1)
-        root.Add(controls, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-        self.SetSizer(root)
-
-        for target in (self, self._title, self._subtitle):
-            target.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
-            target.Bind(wx.EVT_LEFT_UP, self._on_left_up)
-            target.Bind(wx.EVT_MOTION, self._on_motion)
-            target.Bind(wx.EVT_LEFT_DCLICK, self._on_double_click)
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_ERASE_BACKGROUND, lambda event: None)
+        self.Bind(wx.EVT_SIZE, self._on_size)
+        self.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
+        self.Bind(wx.EVT_LEFT_UP, self._on_left_up)
+        self.Bind(wx.EVT_MOTION, self._on_motion)
+        self.Bind(wx.EVT_LEFT_DCLICK, self._on_double_click)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave_window)
 
     def SetPageTitle(self, page_title: str) -> None:
-        self._title.SetLabel(f"Modern UI - {page_title}")
+        self._page_title = f"Modern UI - {page_title}"
+        self.Refresh(False)
 
-    def _chrome_button(self, label: str, tooltip: str, handler, close: bool = False) -> wx.Button:
-        button = wx.Button(self, label=label, size=(38, 28), style=wx.BORDER_NONE)
-        button.SetToolTip(tooltip)
-        button.SetForegroundColour(_colour(CHROME_TEXT))
-        button.SetBackgroundColour(_colour(BUTTON_BACKGROUND))
-        button.Bind(wx.EVT_BUTTON, handler)
-        button.Bind(wx.EVT_ENTER_WINDOW, lambda event: self._set_button_hover(button, close, True, event))
-        button.Bind(wx.EVT_LEAVE_WINDOW, lambda event: self._set_button_hover(button, close, False, event))
-        return button
+    def _on_paint(self, event: wx.PaintEvent) -> None:
+        dc = wx.AutoBufferedPaintDC(self)
+        dc.SetBackground(wx.Brush(_colour(CHROME_BACKGROUND)))
+        dc.Clear()
 
-    def _set_button_hover(self, button: wx.Button, close: bool, active: bool, event: wx.Event) -> None:
-        button.SetBackgroundColour(_colour(CLOSE_HOVER if close and active else BUTTON_HOVER if active else BUTTON_BACKGROUND))
-        button.Refresh()
+        dc.SetTextForeground(_colour(CHROME_TEXT))
+        dc.SetFont(self._title_font)
+        dc.DrawText(self._page_title, 16, 5)
+        dc.SetTextForeground(_colour(CHROME_MUTED))
+        dc.SetFont(self._subtitle_font)
+        dc.DrawText(f"PixelFlasher {VERSION}", 16, 23)
+
+        for action, rect in self._button_rects().items():
+            active = action == self._hover_button or action == self._pressed_button
+            fill = CLOSE_HOVER if action == "close" and active else BUTTON_HOVER if active else BUTTON_BACKGROUND
+            dc.SetBrush(wx.Brush(_colour(fill)))
+            dc.SetPen(wx.Pen(_colour(fill)))
+            dc.DrawRoundedRectangle(rect.x, rect.y, rect.width, rect.height, 2)
+            dc.SetTextForeground(_colour(CHROME_TEXT))
+            dc.SetFont(self._button_font)
+            label = {"minimize": "_", "maximize": "[]", "close": "X"}[action]
+            text_width, text_height = dc.GetTextExtent(label)
+            dc.DrawText(
+                label,
+                rect.x + (rect.width - text_width) // 2,
+                rect.y + (rect.height - text_height) // 2,
+            )
+
+    def _on_size(self, event: wx.SizeEvent) -> None:
+        self.Refresh(False)
         event.Skip()
 
-    def _on_minimize(self, event: wx.Event) -> None:
+    def _button_rects(self) -> dict[str, wx.Rect]:
+        width, _height = self.GetClientSize()
+        button_width = 38
+        button_height = 28
+        gap = 6
+        top = 7
+        right = 10
+        close_x = width - right - button_width
+        maximize_x = close_x - gap - button_width
+        minimize_x = maximize_x - gap - button_width
+        return {
+            "minimize": wx.Rect(minimize_x, top, button_width, button_height),
+            "maximize": wx.Rect(maximize_x, top, button_width, button_height),
+            "close": wx.Rect(close_x, top, button_width, button_height),
+        }
+
+    def _button_at(self, point: wx.Point) -> str | None:
+        for action, rect in self._button_rects().items():
+            if rect.Contains(point):
+                return action
+        return None
+
+    def _run_button_action(self, action: str) -> None:
+        if action == "minimize":
+            self._on_minimize()
+        elif action == "maximize":
+            self._on_maximize_restore()
+        elif action == "close":
+            self._on_close()
+
+    def _on_minimize(self) -> None:
         self._frame.Iconize(True)
 
-    def _on_maximize_restore(self, event: wx.Event) -> None:
+    def _on_maximize_restore(self) -> None:
         self._frame.Maximize(not self._frame.IsMaximized())
 
-    def _on_close(self, event: wx.Event) -> None:
+    def _on_close(self) -> None:
         self._frame.Close(True)
 
     def _on_double_click(self, event: wx.MouseEvent) -> None:
+        if self._button_at(event.GetPosition()) is not None:
+            return
         self._frame.Maximize(not self._frame.IsMaximized())
 
     def _on_left_down(self, event: wx.MouseEvent) -> None:
+        button = self._button_at(event.GetPosition())
+        if button is not None:
+            self._pressed_button = button
+            if not self.HasCapture():
+                self.CaptureMouse()
+            self.Refresh(False)
+            return
         screen_pos = _event_screen_position(event, self)
         frame_pos = self._frame.GetPosition()
         self._drag_start = (screen_pos.x, screen_pos.y, frame_pos.x, frame_pos.y)
-        self.CaptureMouse()
+        if not self.HasCapture():
+            self.CaptureMouse()
 
     def _on_left_up(self, event: wx.MouseEvent) -> None:
+        pressed = self._pressed_button
+        released = self._button_at(event.GetPosition())
+        self._pressed_button = None
         self._drag_start = None
         if self.HasCapture():
             self.ReleaseMouse()
+        self.Refresh(False)
+        if pressed is not None and pressed == released:
+            self._run_button_action(pressed)
 
     def _on_motion(self, event: wx.MouseEvent) -> None:
+        button = self._button_at(event.GetPosition())
+        if button != self._hover_button:
+            self._hover_button = button
+            self.SetToolTip(
+                {
+                    "minimize": "Minimize",
+                    "maximize": "Maximize or restore",
+                    "close": "Close",
+                }.get(button, "")
+            )
+            self.Refresh(False)
         if self._drag_start is None or not event.Dragging() or not event.LeftIsDown():
             event.Skip()
             return
@@ -456,6 +521,12 @@ class ModernWindowChrome(wx.Panel):
         mouse_screen = _event_screen_position(event, self)
         start_x, start_y, frame_x, frame_y = self._drag_start
         self._frame.Move((frame_x + mouse_screen.x - start_x, frame_y + mouse_screen.y - start_y))
+
+    def _on_leave_window(self, event: wx.MouseEvent) -> None:
+        if self._hover_button is not None:
+            self._hover_button = None
+            self.Refresh(False)
+        event.Skip()
 
 
 def _event_screen_position(event: wx.MouseEvent, fallback: wx.Window) -> wx.Point:

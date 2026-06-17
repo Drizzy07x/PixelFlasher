@@ -87,6 +87,21 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.web_source)
 
+    def test_window_chrome_is_owner_drawn_to_reduce_flicker(self):
+        for expected in (
+            "wx.AutoBufferedPaintDC",
+            "wx.BG_STYLE_PAINT",
+            "EVT_PAINT",
+            "EVT_ERASE_BACKGROUND",
+            "_button_rects",
+            "_button_at",
+            "_run_button_action",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+        self.assertNotIn("wx.Button(self, label=", self.web_source)
+        self.assertNotIn("wx.StaticText(self, label=", self.web_source)
+
     def test_webview_uses_dark_borderless_edges(self):
         for expected in (
             "APP_BACKGROUND = \"#070b12\"",
