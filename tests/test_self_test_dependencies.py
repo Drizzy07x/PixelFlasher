@@ -5,7 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from self_test import CheckResult, _check_platform_tools, format_results, run_checks
+from self_test import CheckResult, _check_platform_tools, _write_frozen_self_test_log, format_results, run_checks
+
+
+WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
 
 
 class SelfTestDependencyTests(unittest.TestCase):
@@ -32,6 +35,25 @@ class SelfTestDependencyTests(unittest.TestCase):
                 self.assertIn(name, results)
                 self.assertTrue(results[name].ok)
 
+    def test_windows_build_packages_self_test_release_metadata(self):
+        source = WINDOWS_SPEC_SOURCE.read_text(encoding="utf-8")
+
+        for expected in (
+            "images/icon-dark-256.png",
+            "images/icon-dark-256.ico",
+            "images/icon-dark-256.icns",
+            "windows-version-info.txt",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, source)
+
+    def test_self_test_checks_current_modern_primary_entrypoint(self):
+        results = {result.name: result for result in run_checks()}
+
+        self.assertIn("entrypoint:modern_primary_app", results)
+        self.assertTrue(results["entrypoint:modern_primary_app"].ok)
+        self.assertNotIn("entrypoint:main_integration", results)
+
     def test_format_results_uses_ascii_markers_when_stdout_needs_them(self):
         results = [
             CheckResult("pass", True, "ok"),
@@ -43,6 +65,14 @@ class SelfTestDependencyTests(unittest.TestCase):
 
         self.assertIn("+ PASS", output)
         self.assertIn("x FAIL", output)
+
+    def test_frozen_self_test_writes_diagnostic_log(self):
+        with tempfile.TemporaryDirectory(prefix="pf-self-test-log-") as tmp:
+            with patch("self_test._is_frozen", return_value=True), patch("self_test.tempfile.gettempdir", return_value=tmp):
+                _write_frozen_self_test_log("self-test output")
+
+            log_path = Path(tmp) / "PixelFlasher-self-test.log"
+            self.assertEqual(log_path.read_text(encoding="utf-8").strip(), "self-test output")
 
     def test_platform_tools_check_uses_configured_path(self):
         with tempfile.TemporaryDirectory(prefix="pf-self-test-tools-") as tmp:

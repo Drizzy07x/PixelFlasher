@@ -343,8 +343,8 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             warnings=(),
         )
 
-        self.assertIn(("Slot changes", "disabled in preview"), _dashboard_slot_rows(state))
-        self.assertIn(("Partition writes", "disabled in preview"), _dashboard_partition_rows(state))
+        self.assertIn(("Slot changes", "requires confirmation"), _dashboard_slot_rows(state))
+        self.assertIn(("Partition writes", "requires confirmation"), _dashboard_partition_rows(state))
         self.assertIn(("Restore", "requires confirmation"), _dashboard_backup_rows())
 
 

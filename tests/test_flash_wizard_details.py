@@ -52,7 +52,7 @@ class FlashWizardDetailsTests(unittest.TestCase):
         self.assertTrue(lines)
         self.assertTrue(lines[0].startswith("Warning:"))
 
-    def test_flash_details_remain_disabled_by_default(self):
+    def test_flash_details_require_confirmation_by_default(self):
         session = WizardSession(
             device=WizardDevice(display_name="Pixel", serial="abc", adb_ready=True, bootloader_unlocked=True),
             firmware=WizardFirmware(path="ota.zip", verified=True),
@@ -63,8 +63,8 @@ class FlashWizardDetailsTests(unittest.TestCase):
         lines = step_detail_lines(session, WizardStepKey.FLASH)
         self.assertIn("Can flash: no", lines)
         self.assertIn("Flash execution connected: no", lines)
-        self.assertIn("Final action: disabled until all blocking warnings are resolved", lines)
-        self.assertIn("Execution target: future guarded legacy flash flow", lines)
+        self.assertIn("Final action: available after blocking warnings are resolved", lines)
+        self.assertIn("Execution target: guarded PixelFlasher flash flow", lines)
 
     def test_flash_details_do_not_claim_execution_when_preview_blocked(self):
         session = WizardSession(

@@ -64,7 +64,7 @@ def _patch_lines(session: WizardSession) -> tuple[str, ...]:
         f"boot.img available: {'yes' if firmware.has_boot_image else 'no'}",
         f"init_boot.img available: {'yes' if firmware.has_init_boot_image else 'no'}",
         f"Patchable image available: {'yes' if firmware.has_patchable_image else 'no'}",
-        "Patch execution: disabled in preview",
+        "Patch execution: requires PixelFlasher confirmation",
     )
 
 
@@ -95,8 +95,8 @@ def _flash_lines(session: WizardSession) -> tuple[str, ...]:
         f"Can flash: {'yes' if session.can_flash else 'no'}",
         f"Pre-flight checks: {'passed' if session.preflight_passed else 'not passed'}",
         f"Flash execution connected: {'yes' if session.flash_connected else 'no'}",
-        "Final action: disabled until all blocking warnings are resolved",
-        "Execution target: future guarded legacy flash flow",
+        "Final action: available after blocking warnings are resolved",
+        "Execution target: guarded PixelFlasher flash flow",
     )
 
 

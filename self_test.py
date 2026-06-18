@@ -239,7 +239,7 @@ def _check_modern_entrypoints() -> list[CheckResult]:
         "ui.pages.dashboard_app",
         "ui.pages.flash_wizard_app",
         "ui.pages.modern_shell_app",
-        "ui.pages.main_integration",
+        "ui.pages.modern_primary_app",
     )
     if importlib.util.find_spec("wx") is None:
         return [
@@ -303,6 +303,16 @@ def format_results(results: list[CheckResult]) -> str:
     return "\n".join(lines)
 
 
+def _write_frozen_self_test_log(output: str) -> None:
+    if not _is_frozen():
+        return
+    try:
+        path = Path(tempfile.gettempdir()) / "PixelFlasher-self-test.log"
+        path.write_text(output + "\n", encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def _result_markers() -> tuple[str, str]:
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     try:
@@ -319,9 +329,12 @@ def main(argv: list[str] | None = None) -> int:
 
     results = run_checks()
     if args.json:
-        print(json.dumps([result.__dict__ | {"status": result.status} for result in results], indent=2))
+        output = json.dumps([result.__dict__ | {"status": result.status} for result in results], indent=2)
     else:
-        print(format_results(results))
+        output = format_results(results)
+
+    print(output)
+    _write_frozen_self_test_log(output)
 
     return 1 if any(result.required and not result.ok for result in results) else 0
 

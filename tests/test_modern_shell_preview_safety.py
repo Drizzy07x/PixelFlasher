@@ -14,6 +14,7 @@ MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
 MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
 MAIN_SOURCE = Path("Main.py")
 PIXELFLASHER_SOURCE = Path("PixelFlasher.py")
+WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
 
 
 class ModernShellPreviewSafetyTests(unittest.TestCase):
@@ -27,6 +28,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
         cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
         cls.pixelflasher_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")
+        cls.windows_spec_source = WINDOWS_SPEC_SOURCE.read_text(encoding="utf-8")
 
     def require_wx(self):
         try:
@@ -51,6 +53,16 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
 
         self.assertTrue(callable(getattr(module, "create_modern_preview_frame", None)))
         self.assertTrue(callable(getattr(module, "is_webview_available", None)))
+
+    def test_windows_build_packages_webview_loader(self):
+        for expected in (
+            "import wx",
+            "wx_dir = Path(wx.__file__).resolve().parent",
+            "WebView2Loader.dll",
+            "'wx'",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.windows_spec_source)
 
     def test_webview_prefers_modern_windows_backend_when_available(self):
         self.assertIn("_preferred_webview_backend", self.web_source)

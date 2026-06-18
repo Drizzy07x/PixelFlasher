@@ -37,6 +37,8 @@ import os
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import sys
+import tempfile
+import traceback
 
 
 def _run_cli_command(argv):
@@ -115,9 +117,22 @@ def _run_modern_primary(argv):
         from ui.pages.modern_primary_app import launch_modern_primary
         result = launch_modern_primary(argv)
     except Exception as exc:
+        _log_startup_failure(exc)
         print(f"Modern UI startup unavailable: {exc}")
         raise SystemExit(1)
     raise SystemExit(result)
+
+
+def _log_startup_failure(exc: Exception) -> None:
+    try:
+        path = os.path.join(tempfile.gettempdir(), "PixelFlasher-startup-error.log")
+        with open(path, "a", encoding="utf-8", errors="replace") as log:
+            log.write("PixelFlasher startup failed\n")
+            log.write(f"{exc}\n")
+            log.write(traceback.format_exc())
+            log.write("\n")
+    except Exception:
+        pass
 
 
 _run_modern_primary(sys.argv)
