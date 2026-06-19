@@ -81,7 +81,34 @@ from cryptography.x509.oid import ExtensionOID
 from i18n import _, set_language
 import lz4.frame
 import requests
-import wx
+try:
+    import wx
+except ModuleNotFoundError:
+    class _HeadlessWxFallback:
+        OK = CANCEL = YES_NO = NO_DEFAULT = ICON_ERROR = ICON_QUESTION = ICON_EXCLAMATION = BOTH = 0
+        ID_OK = ID_YES = ID_NO = YES = 0
+
+        @staticmethod
+        def Yield():
+            return None
+
+        @staticmethod
+        def YieldIfNeeded():
+            return None
+
+        @staticmethod
+        def CallAfter(callback, *args, **kwargs):
+            return callback(*args, **kwargs)
+
+        @staticmethod
+        def MessageBox(*args, **kwargs):
+            raise RuntimeError("wxPython is required for this operation")
+
+        class MessageDialog:
+            def __init__(self, *args, **kwargs):
+                raise RuntimeError("wxPython is required for this operation")
+
+    wx = _HeadlessWxFallback()
 from typing import Any, TYPE_CHECKING, Optional, cast
 if TYPE_CHECKING:
     from config import Config
@@ -90,7 +117,15 @@ from platformdirs import user_data_dir
 
 from constants import *
 from payload_dumper import extract_payload
-from ksu_asset_selector import show_ksu_asset_selector
+try:
+    from ksu_asset_selector import show_ksu_asset_selector
+except ModuleNotFoundError as exc:
+    if exc.name != "wx":
+        raise
+
+    def show_ksu_asset_selector(*args, **kwargs):
+        raise RuntimeError("wxPython is required for this operation")
+
 import cProfile, pstats, io
 import avbtool
 

@@ -9,6 +9,18 @@ from self_test import CheckResult, _check_platform_tools, _write_frozen_self_tes
 
 
 WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
+DESKTOP_SPEC_SOURCES = (
+    WINDOWS_SPEC_SOURCE,
+    Path("build-on-linux.spec"),
+    Path("build-on-mac.spec"),
+    Path("build-on-mac-intel-only.spec"),
+)
+RELEASE_METADATA_PATHS = (
+    "images/icon-dark-256.png",
+    "images/icon-dark-256.ico",
+    "images/icon-dark-256.icns",
+    "windows-version-info.txt",
+)
 
 
 class SelfTestDependencyTests(unittest.TestCase):
@@ -35,17 +47,18 @@ class SelfTestDependencyTests(unittest.TestCase):
                 self.assertIn(name, results)
                 self.assertTrue(results[name].ok)
 
-    def test_windows_build_packages_self_test_release_metadata(self):
-        source = WINDOWS_SPEC_SOURCE.read_text(encoding="utf-8")
+    def test_desktop_builds_package_self_test_release_metadata(self):
+        for spec_path in DESKTOP_SPEC_SOURCES:
+            source = spec_path.read_text(encoding="utf-8")
+            for expected in RELEASE_METADATA_PATHS:
+                with self.subTest(spec=str(spec_path), expected=expected):
+                    self.assertIn(expected, source)
 
-        for expected in (
-            "images/icon-dark-256.png",
-            "images/icon-dark-256.ico",
-            "images/icon-dark-256.icns",
-            "windows-version-info.txt",
-        ):
-            with self.subTest(expected=expected):
-                self.assertIn(expected, source)
+    def test_build_script_uses_current_release_version(self):
+        source = Path("build.sh").read_text(encoding="utf-8")
+
+        self.assertIn("from constants import VERSION", source)
+        self.assertNotIn("VERSION=9.1.1.1", source)
 
     def test_self_test_checks_current_modern_primary_entrypoint(self):
         results = {result.name: result for result in run_checks()}
@@ -81,8 +94,10 @@ class SelfTestDependencyTests(unittest.TestCase):
             tools = root / "platform-tools"
             config_dir.mkdir()
             tools.mkdir()
-            (tools / "adb.exe").write_text("adb", encoding="utf-8")
-            (tools / "fastboot.exe").write_text("fastboot", encoding="utf-8")
+            for name in ("adb.exe", "fastboot.exe", "adb", "fastboot"):
+                tool_path = tools / name
+                tool_path.write_text(name, encoding="utf-8")
+                tool_path.chmod(0o755)
             (config_dir / "PixelFlasher.json").write_text(
                 json.dumps({"platform_tools_path": str(tools)}),
                 encoding="utf-8",

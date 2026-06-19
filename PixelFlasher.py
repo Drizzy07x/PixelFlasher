@@ -59,6 +59,7 @@ def _run_cli_command(argv):
         "--modern-dashboard-preview",
         "--modern-shell-preview",
         "--flash-wizard-preview",
+        "--flash-wizard-demo",
         "--help",
         "-h",
     }
@@ -104,9 +105,9 @@ def _run_cli_command(argv):
         from ui.pages.modern_shell_app import main as modern_shell_preview_main
         raise SystemExit(modern_shell_preview_main())
 
-    if "--flash-wizard" in argv or "--flash-wizard-preview" in argv:
+    if "--flash-wizard" in argv or "--flash-wizard-preview" in argv or "--flash-wizard-demo" in argv:
         from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
-        raise SystemExit(flash_wizard_preview_main())
+        raise SystemExit(flash_wizard_preview_main(demo="--flash-wizard-demo" in argv))
 
 
 _run_cli_command(sys.argv)

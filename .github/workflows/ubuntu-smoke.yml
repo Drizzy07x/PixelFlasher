@@ -51,7 +51,7 @@ jobs:
             ui/pages/flash_wizard_details.py \
             ui/pages/flash_wizard_model.py \
             ui/pages/flash_wizard_state_adapter.py \
-            ui/pages/main_integration.py \
+            ui/pages/modern_primary_app.py \
             tools/create_beta_bundle.py
 
       - name: Run self-test
