@@ -81,7 +81,34 @@ from cryptography.x509.oid import ExtensionOID
 from i18n import _, set_language
 import lz4.frame
 import requests
-import wx
+try:
+    import wx
+except ModuleNotFoundError:
+    class _HeadlessWxFallback:
+        OK = CANCEL = YES_NO = NO_DEFAULT = ICON_ERROR = ICON_QUESTION = ICON_EXCLAMATION = BOTH = 0
+        ID_OK = ID_YES = ID_NO = YES = 0
+
+        @staticmethod
+        def Yield():
+            return None
+
+        @staticmethod
+        def YieldIfNeeded():
+            return None
+
+        @staticmethod
+        def CallAfter(callback, *args, **kwargs):
+            return callback(*args, **kwargs)
+
+        @staticmethod
+        def MessageBox(*args, **kwargs):
+            raise RuntimeError("wxPython is required for this operation")
+
+        class MessageDialog:
+            def __init__(self, *args, **kwargs):
+                raise RuntimeError("wxPython is required for this operation")
+
+    wx = _HeadlessWxFallback()
 from typing import Any, TYPE_CHECKING, Optional, cast
 if TYPE_CHECKING:
     from config import Config
@@ -90,7 +117,15 @@ from platformdirs import user_data_dir
 
 from constants import *
 from payload_dumper import extract_payload
-from ksu_asset_selector import show_ksu_asset_selector
+try:
+    from ksu_asset_selector import show_ksu_asset_selector
+except ModuleNotFoundError as exc:
+    if exc.name != "wx":
+        raise
+
+    def show_ksu_asset_selector(*args, **kwargs):
+        raise RuntimeError("wxPython is required for this operation")
+
 import cProfile, pstats, io
 import avbtool
 
@@ -110,6 +145,7 @@ _firmware_id = None
 _custom_rom_id = None
 _logfile = None
 _pumlfile = None
+_console_widget = None
 _sdk_version = None
 _image_mode = None
 _image_path = None
@@ -154,6 +190,15 @@ _window_shown = False
 _puml_enabled = True
 _rooting_app_apks = None
 _selected_boot_partition = None
+
+ROOT_APP_ASSET_PATTERNS = {
+    "magisk": r"(?i)^Magisk.*\.apk$",
+    "kernelsu": r"(?i)^KernelSU(?!.*spoofed).*\.apk$",
+    "kernelsu_next": r"(?i)^KernelSU_Next(?!.*spoofed).*\.apk$",
+    "sukisu": r"(?i)^SukiSU(?!.*spoofed).*\.apk$",
+    "wild_ksu": r"(?i)^Wild_KSU(?!.*spoofed).*\.apk$",
+    "apatch": r"(?i)^APatch_.*\.apk$",
+}
 
 
 # ============================================================================
@@ -4515,11 +4560,10 @@ def get_latest_android_version(force_version=None):
                         beta_links[ver] = full_url
 
         # Look for version links
-        href = link.get('href')
-        if href and re.match(r'https:\/\/developer\.android\.com\/about\/versions\/\d+', href):
-            # capture the d+ part
-            match = re.search(r'\d+', href)
-            link_version = int(match.group()) if match else 0
+        href = _normalize_android_developer_url(link.get('href'))
+        if href and re.match(r'https:\/\/developer\.android\.com\/about\/versions\/\d+(?:[\/?#]|$)', href):
+            match = re.search(r'about\/versions\/(\d+)', href)
+            link_version = int(match.group(1)) if match else 0
             if force_version and not str(force_version).startswith('CANARY'):
                 if link_version == force_version:
                     version = link_version
@@ -4576,6 +4620,16 @@ def get_latest_android_version(force_version=None):
         beta_link_url = resolve_url_redirects(beta_link_url)
 
     return version, beta_link_url
+
+
+def _normalize_android_developer_url(href):
+    if not href:
+        return ''
+    if href.startswith('/'):
+        return f"https://developer.android.com{href}"
+    if href.startswith('https://developer.android.com/'):
+        return href
+    return ''
 
 
 # ============================================================================
@@ -9914,7 +9968,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^Magisk.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["magisk"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -9950,7 +10004,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^Magisk.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["magisk"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -9986,7 +10040,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^KernelSU.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["kernelsu"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10022,7 +10076,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'(?i)^KernelSU_Next(?!.*spoofed).*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["kernelsu_next"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10058,7 +10112,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^SukiSU.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["sukisu"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10094,7 +10148,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'(?i)^Wild_KSU(?!.*spoofed).*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["wild_ksu"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:
@@ -10130,7 +10184,7 @@ def get_rooting_app_details(channel) -> MagiskApk | None:
             if release:
                 release_version = release['tag_name']
                 release_notes = release['body']
-                release_url = gh_asset_utility(release_object=release, asset_name_pattern=r'^APatch_.*\.apk$', download=False)
+                release_url = gh_asset_utility(release_object=release, asset_name_pattern=ROOT_APP_ASSET_PATTERNS["apatch"], download=False)
                 if release_notes is None:
                     release_version = "No release notes available"
                 if release_url is None:

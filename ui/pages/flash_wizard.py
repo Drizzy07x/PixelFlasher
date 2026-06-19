@@ -1,4 +1,4 @@
-"""Safe Flash Wizard preview for the modern PixelFlasher UI rollout.
+"""Flash Wizard surface for the modern PixelFlasher UI.
 
 This is UI-only scaffolding. It does not run flash, patch, ADB, Fastboot, or
 file-processing operations. Real operations must stay in the existing guarded
@@ -23,7 +23,7 @@ from ui.pages import modern_preview_style as preview_style
 from ui.pages.modern_preview_web import create_modern_preview_frame
 from ui.theme import get_theme
 
-FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard – Preview & Plan Only"
+FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard"
 
 _STEP_NOTES: dict[str, tuple[str, ...]] = {
     "device": (
@@ -35,8 +35,8 @@ _STEP_NOTES: dict[str, tuple[str, ...]] = {
         "Mismatched packages should block the final flash step.",
     ),
     "patch": (
-        "Patching is disabled in this preview.",
-        "Patch choices will be wired after firmware checks are reliable.",
+        "Patching continues through PixelFlasher confirmation.",
+        "Patch choices depend on firmware checks.",
     ),
     "options": (
         "Dangerous options require explicit confirmation later.",
@@ -44,11 +44,11 @@ _STEP_NOTES: dict[str, tuple[str, ...]] = {
     ),
     "review": (
         "Review uses WizardSession summary and warnings.",
-        "Final action remains blocked while can_flash is false.",
+        "Final action requires PixelFlasher confirmation.",
     ),
     "flash": (
-        "Flash execution is disabled in this preview.",
-        "Future builds should delegate to the guarded legacy flash flow.",
+        "Flash execution requires PixelFlasher confirmation.",
+        "Final handoff uses the guarded PixelFlasher flash flow.",
     ),
 }
 
@@ -141,14 +141,14 @@ class FlashWizardPanel(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
         top = wx.BoxSizer(wx.HORIZONTAL)
         top.Add(self._text(card, "Summary", 12, True), 1, wx.ALIGN_CENTER_VERTICAL)
-        top.Add(self._badge(card, "Read-only", "info"), 0, wx.ALIGN_CENTER_VERTICAL)
+        top.Add(self._badge(card, "Protected", "info"), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(top, 0, wx.EXPAND | wx.BOTTOM, 8)
 
         alert = preview_style.notice_card(
             card,
             self.theme,
-            "Blocked Execution",
-            "Preview-only planning is visible. No flash, patch, reboot, or device changes are available here.",
+            "Confirmation Required",
+            "Flash continues through PixelFlasher's guarded confirmation flow.",
             "warning",
         )
         sizer.Add(alert, 0, wx.EXPAND | wx.BOTTOM, 12)
@@ -156,7 +156,7 @@ class FlashWizardPanel(wx.Panel):
         self._summary = self._muted(card, "")
         sizer.Add(self._summary, 1, wx.EXPAND | wx.BOTTOM, 8)
 
-        sizer.Add(self._text(card, "Blocked", 10, True), 0, wx.BOTTOM, 4)
+        sizer.Add(self._text(card, "Review", 10, True), 0, wx.BOTTOM, 4)
         self._warning = self._text(card, "", 9, True)
         self._warning.SetForegroundColour(wx.Colour(self.theme.palette.warning))
         sizer.Add(self._warning, 0, wx.EXPAND)
@@ -167,7 +167,7 @@ class FlashWizardPanel(wx.Panel):
         panel = wx.Panel(self)
         panel.SetBackgroundColour(wx.Colour(self.theme.palette.background))
         sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self._muted(panel, f"Preview mode: navigation only. {MODERN_PREVIEW_FOOTER}"), 1, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self._muted(panel, f"PixelFlasher workflow. {MODERN_PREVIEW_FOOTER}"), 1, wx.ALIGN_CENTER_VERTICAL)
         self._back = preview_style.button_panel(panel, self.theme, "Back", "info")
         self._next = preview_style.button_panel(panel, self.theme, "Next", "info")
         preview_style.bind_click_recursive(self._back, self._on_back)
@@ -188,7 +188,7 @@ class FlashWizardPanel(wx.Panel):
         if self._warning:
             self._warning.SetLabel(self._warning_text())
         if self._status_badge:
-            self._set_badge(self._status_badge, "Ready" if self.session.can_flash else "Blocked", "ready" if self.session.can_flash else "warning")
+            self._set_badge(self._status_badge, "Ready" if self.session.can_flash else "Needs Review", "ready" if self.session.can_flash else "warning")
         self._render_step_content(step.key.value)
 
         for index, label in enumerate(self._step_labels):
@@ -243,8 +243,8 @@ class FlashWizardPanel(wx.Panel):
 
         if step_key == "flash":
             self._content_sizer.AddSpacer(8)
-            notice = self._badge(self._content_panel, "Preview only · flash execution disabled", "muted")
-            notice.SetToolTip("Final flash action is intentionally unavailable in preview mode.")
+            notice = self._badge(self._content_panel, "Continue through PixelFlasher confirmation", "muted")
+            notice.SetToolTip("Final flash action uses PixelFlasher's guarded confirmation flow.")
             self._content_sizer.Add(notice, 0, wx.EXPAND)
         self._content_panel.Layout()
 
@@ -274,7 +274,7 @@ class FlashWizardPanel(wx.Panel):
     def _warning_text(self) -> str:
         if not self.session.warnings():
             return "None"
-        return "Flash execution is disabled."
+        return "Review warnings before continuing."
 
     def _on_back(self, event: wx.CommandEvent) -> None:
         if self.current_index > 0:
@@ -286,7 +286,7 @@ class FlashWizardPanel(wx.Panel):
             self.current_index += 1
             self._render()
         elif self.session.can_flash:
-            wx.MessageBox("Flash would run here in a future guarded build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox("Continue through PixelFlasher confirmation before flashing.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _card(self, parent: wx.Window) -> wx.Panel:
         return preview_style.card(parent, self.theme)
@@ -353,56 +353,56 @@ def _wx_static_label(label: str) -> str:
 
 def _step_preview_sections(step_key: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     common_blocked = (
-        "Flash action remains unavailable.",
-        "Patch and wipe operations stay disabled.",
-        "Device mutation is blocked in preview.",
+        "Flash action requires confirmation.",
+        "Patch and wipe operations require confirmation.",
+        "Device changes require explicit approval.",
     )
     sections = {
         "device": (
             ("Device Readiness Checklist", ("Device selection is read from the current session.", "ADB/Fastboot readiness is displayed only.", "No scan, reboot, or slot action runs here.")),
             ("Firmware Readiness Checklist", ("Firmware status is shown from loaded state.", "Verification remains a future guarded step.", "No archive parsing or file access starts here.")),
-            ("Execution Blocked Checklist", common_blocked),
-            ("Preview Limitations", ("Navigation updates this preview only.", "Warnings are informational planning copy.", "Legacy flows remain the source of truth.")),
+            ("Confirmation Checklist", common_blocked),
+            ("Workflow Notes", ("Navigation updates this workspace.", "Warnings explain required review.", "PixelFlasher confirmations remain the source of truth.")),
         ),
         "firmware": (
-            ("Firmware Context", ("Selected package is read-only.", "Package validation is displayed as planning copy.", "No archive extraction or parsing starts here.")),
-            ("Target Match", ("Device and build labels are informational.", "Mismatch warnings remain non-executing.", "Legacy review stays the source of truth.")),
-            ("Execution Blocked Checklist", common_blocked),
-            ("Preview Limitations", ("File pickers are not opened by this wizard.", "No firmware files are modified.", "Navigation only.")),
+            ("Firmware Context", ("Selected package is loaded from current state.", "Package validation is shown before confirmation.", "Archive handling stays in PixelFlasher.")),
+            ("Target Match", ("Device and build labels guide review.", "Mismatch warnings require confirmation.", "PixelFlasher review stays the source of truth.")),
+            ("Confirmation Checklist", common_blocked),
+            ("Workflow Notes", ("File selection uses PixelFlasher controls.", "Firmware files are not changed by navigation.", "Continue after review.")),
         ),
         "patch": (
-            ("Patch Plan", ("Patch choices are visual placeholders.", "No boot image is read or written.", "No Magisk patching starts here.")),
-            ("Image Readiness", ("Patchable image status is display-only.", "Output path is not created.", "Existing guarded patch flow remains separate.")),
-            ("Execution Blocked Checklist", common_blocked),
-            ("Preview Limitations", ("No file mutation occurs.", "No package parsing occurs.", "Planning copy only.")),
+            ("Patch Plan", ("Patch choices summarize the selected workflow.", "Boot image handling stays in PixelFlasher.", "Magisk patching requires confirmation.")),
+            ("Image Readiness", ("Patchable image status is shown.", "Output path is chosen during confirmation.", "Guarded patch flow remains separate.")),
+            ("Confirmation Checklist", common_blocked),
+            ("Workflow Notes", ("File changes require confirmation.", "Package parsing stays in PixelFlasher.", "Review before continuing.")),
         ),
         "options": (
-            ("Safe Defaults", ("Keep data remains the preview default.", "Dangerous toggles are not actionable.", "Slot choices are read-only.")),
-            ("Guarded Options", ("Force options require future review.", "No wipe or slot switching is available.", "No reboot path is exposed.")),
-            ("Execution Blocked Checklist", common_blocked),
-            ("Preview Limitations", ("Options update preview state only.", "No device command is issued.", "Legacy confirmations remain separate.")),
+            ("Safe Defaults", ("Keep data remains the default.", "Dangerous toggles require confirmation.", "Slot choices require confirmation.")),
+            ("Guarded Options", ("Force options require review.", "Wipe and slot switching require confirmation.", "Reboot paths stay guarded.")),
+            ("Confirmation Checklist", common_blocked),
+            ("Workflow Notes", ("Options update the plan.", "Device commands require confirmation.", "PixelFlasher confirmations remain separate.")),
         ),
         "review": (
-            ("Review Summary", ("WizardSession summary is read-only.", "Warnings are informational.", "Final action stays blocked.")),
-            ("Safety Gate", ("Can flash remains false in preview.", "Execution requires guarded legacy flow.", "No command preview is run.")),
-            ("Execution Blocked Checklist", common_blocked),
-            ("Preview Limitations", ("Review does not arm a flash.", "No files or devices are changed.", "Navigation only.")),
+            ("Review Summary", ("WizardSession summary is current.", "Warnings require review.", "Final action requires confirmation.")),
+            ("Safety Gate", ("Can flash depends on readiness.", "Execution requires guarded PixelFlasher flow.", "No command runs before confirmation.")),
+            ("Confirmation Checklist", common_blocked),
+            ("Workflow Notes", ("Review prepares the plan.", "Files and devices change only after confirmation.", "Continue when ready.")),
         ),
         "flash": (
-            ("Final Step", ("Flash execution is intentionally hidden.", "No dry-run command is executed.", "No device communication starts.")),
-            ("Blocked Execution", common_blocked),
-            ("Safety Boundary", ("No flash, patch, reboot, wipe, or slot switch.", "No ADB/Fastboot command execution.", "No firmware parsing or file mutation.")),
-            ("Preview Limitations", ("This screen is a planning end state.", "Use existing guarded legacy flow for real operations.", "Modern UI remains read-only.")),
+            ("Final Step", ("Flash execution requires final confirmation.", "Dry-run output stays informational.", "Device communication starts only after approval.")),
+            ("Confirmation", common_blocked),
+            ("Safety Boundary", ("Flash, patch, reboot, wipe, and slot switching require confirmation.", "ADB/Fastboot commands stay behind PixelFlasher safeguards.", "Firmware handling uses PixelFlasher flows.")),
+            ("Workflow Notes", ("This screen is the review end state.", "Use guarded PixelFlasher flow for device operations.", "Modern UI stays inside the app workflow.")),
         ),
     }
     return sections.get(step_key, sections["device"])
 
 
 class FlashWizardPreviewFrame(wx.Frame):
-    """Standalone frame for the read-only Flash Wizard preview."""
+    """Standalone frame for the Flash Wizard surface."""
 
     def __init__(self) -> None:
-        super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard Preview", size=(1120, 760))
+        super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard", size=(1120, 760))
         panel = FlashWizardPanel(self, session=WizardSession())
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(panel, 1, wx.EXPAND)

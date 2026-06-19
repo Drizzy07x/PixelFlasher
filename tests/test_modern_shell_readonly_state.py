@@ -59,7 +59,7 @@ class ModernShellReadonlyStateTests(unittest.TestCase):
         self.assertIn(("Selected device", "none"), _shell_device_info_rows(state))
         self.assertIn(("Type", "not selected"), _shell_firmware_rows(state))
         self.assertEqual("Select Firmware", _shell_recommended_title(state))
-        self.assertIn(("Flash", "disabled"), _shell_flash_summary_rows(state))
+        self.assertIn(("Flash", "requires confirmation"), _shell_flash_summary_rows(state))
 
     @unittest.skipIf(_shell_device_title is None, "wxPython is not available")
     def test_device_state_maps_to_shell_labels(self):
@@ -110,16 +110,16 @@ class ModernShellReadonlyStateTests(unittest.TestCase):
         state = _state(tools=ModernToolState(adb_path="/tools/adb", fastboot_path="/tools/fastboot"))
 
         self.assertIn(("Platform Tools", "ADB/Fastboot available"), _shell_tool_rows(state))
-        self.assertIn(("ADB shell", "disabled"), _shell_tool_rows(state))
-        self.assertIn(("Fastboot commands", "disabled"), _shell_tool_rows(state))
+        self.assertIn(("ADB shell", "requires confirmation"), _shell_tool_rows(state))
+        self.assertIn(("Fastboot commands", "requires confirmation"), _shell_tool_rows(state))
 
     @unittest.skipIf(_shell_preview_action_rows is None, "wxPython is not available")
     def test_preview_actions_are_plan_and_readonly_copy(self):
         text = "\n".join(f"{title}: {body}" for title, body in _shell_preview_action_rows())
 
-        self.assertIn("Flash Wizard (Preview)", text)
-        self.assertIn("Modern Shell (Read-Only)", text)
-        self.assertIn("No device changes", text)
+        self.assertIn("Flash Wizard", text)
+        self.assertIn("Modern Shell", text)
+        self.assertIn("confirmation", text)
         self.assertNotIn("Flash Device", text)
 
 

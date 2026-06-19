@@ -1,4 +1,4 @@
-"""Small wx helpers for Modern UI preview-only surfaces."""
+"""Small wx helpers for Modern UI surfaces."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def page_header(parent: wx.Window, theme: object, title: str, subtitle: str, bad
     return panel
 
 
-def sidebar_brand(parent: wx.Window, theme: object, title: str, subtitle: str, badge_text: str = "BETA") -> wx.Panel:
+def sidebar_brand(parent: wx.Window, theme: object, title: str, subtitle: str, badge_text: str = "Ready") -> wx.Panel:
     panel = card(parent, theme, raised=True)
     row = wx.BoxSizer(wx.HORIZONTAL)
     mark = text(panel, "▰", 24, True, theme.palette.accent)
@@ -154,7 +154,7 @@ def device_glyph_panel(parent: wx.Window, theme: object, label: str = "▯") -> 
     stack = wx.BoxSizer(wx.VERTICAL)
     stack.AddStretchSpacer(1)
     stack.Add(text(panel, label, 38, True, theme.palette.accent), 0, wx.ALIGN_CENTER)
-    stack.Add(muted(panel, theme, "Read-only device state", 8), 0, wx.ALIGN_CENTER | wx.TOP, 6)
+    stack.Add(muted(panel, theme, "Device state", 8), 0, wx.ALIGN_CENTER | wx.TOP, 6)
     stack.AddStretchSpacer(1)
     panel.SetSizer(pad(stack, 12))
     return panel
@@ -180,7 +180,7 @@ def info_column(parent: wx.Window, theme: object, title: str, value: str, tone: 
     return panel
 
 
-def action_tile(parent: wx.Window, theme: object, title: str, body: str, footer: str = "Preview only") -> wx.Panel:
+def action_tile(parent: wx.Window, theme: object, title: str, body: str, footer: str = "Open") -> wx.Panel:
     panel = card(parent, theme, raised=True)
     panel.SetMinSize((-1, 116))
     stack = wx.BoxSizer(wx.VERTICAL)
@@ -191,7 +191,7 @@ def action_tile(parent: wx.Window, theme: object, title: str, body: str, footer:
     return panel
 
 
-def icon_action_tile(parent: wx.Window, theme: object, icon: str, title: str, body: str, footer: str = "Preview only") -> wx.Panel:
+def icon_action_tile(parent: wx.Window, theme: object, icon: str, title: str, body: str, footer: str = "Open") -> wx.Panel:
     panel = card(parent, theme, raised=True)
     panel.SetMinSize((-1, 78))
     row = wx.BoxSizer(wx.HORIZONTAL)
@@ -226,7 +226,7 @@ def info_strip(parent: wx.Window, theme: object, label: str, tone: str = "info")
 def safety_boundary_card(parent: wx.Window, theme: object, lines: tuple[str, ...]) -> wx.Panel:
     panel = card(parent, theme)
     stack = wx.BoxSizer(wx.VERTICAL)
-    stack.Add(section_header(panel, theme, "Safety Boundary", "Preview-only"), 0, wx.EXPAND | wx.BOTTOM, 10)
+    stack.Add(section_header(panel, theme, "Safety Boundary", "Protected"), 0, wx.EXPAND | wx.BOTTOM, 10)
     for line in lines:
         stack.Add(text(panel, f"✓ {line}", 9, False, theme.palette.success), 0, wx.BOTTOM, 5)
     panel.SetSizer(pad(stack, 16))

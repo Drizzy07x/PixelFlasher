@@ -32,7 +32,6 @@
 # <https://www.gnu.org/licenses/>.
 
 rm -rf build dist
-VERSION=9.1.1.1
 NAME="PixelFlasher"
 DIST_NAME="PixelFlasher"
 
@@ -57,6 +56,11 @@ then
 else
     PYTHON=python3
 fi
+VERSION=$($PYTHON - <<'PY'
+from constants import VERSION
+print(VERSION)
+PY
+)
 $PYTHON ./compile_po.py
 
 pyinstaller --log-level=DEBUG \
@@ -71,7 +75,11 @@ if [[ $OSTYPE == 'darwin'* ]]; then
     create-dmg "dist/$NAME.app"
     echo "List after creating DMG"
     ls -l ./ dist/
-    mv "$NAME $VERSION.dmg" "dist/$DIST_NAME.dmg"
+    dmg_source="$NAME $VERSION.dmg"
+    if [[ ! -f "$dmg_source" ]]; then
+        dmg_source=$(find . -maxdepth 1 -name "$NAME*.dmg" -print -quit)
+    fi
+    mv "$dmg_source" "dist/$DIST_NAME.dmg"
 fi
 
 popd

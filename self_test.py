@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """PixelFlasher self-test helpers.
 
-This module performs low-risk startup checks that are useful for beta builds and
-CI. It deliberately avoids importing the main wxPython UI or talking to a real
-phone unless an adb/fastboot executable is already discoverable.
+This module performs low-risk startup checks that are useful for release builds
+and CI. It deliberately avoids importing the main wxPython UI or talking to a
+real phone unless an adb/fastboot executable is already discoverable.
 """
 
 from __future__ import annotations
@@ -24,10 +24,16 @@ from typing import Iterable
 from platform_utils import current_platform, repo_root, resolve_executable
 
 try:
-    from constants import APPNAME, VERSION
+    from constants import APPNAME, CONFIG_FILE_NAME, VERSION
 except Exception:  # pragma: no cover - defensive fallback for broken imports
     APPNAME = "PixelFlasher"
+    CONFIG_FILE_NAME = "PixelFlasher.json"
     VERSION = "unknown"
+
+try:
+    from platformdirs import user_data_dir
+except Exception:  # pragma: no cover - optional diagnostic fallback
+    user_data_dir = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +67,31 @@ def _is_executable(path: Path) -> bool:
 def _find_binary(names: Iterable[str]) -> str | None:
     found = resolve_executable(names)
     return str(found) if found else None
+
+
+def _find_configured_platform_tool(names: Iterable[str]) -> str | None:
+    root = _configured_platform_tools_path()
+    if root is None:
+        return None
+    for name in names:
+        candidate = root / name
+        if _is_executable(candidate):
+            return str(candidate)
+    return None
+
+
+def _configured_platform_tools_path() -> Path | None:
+    if user_data_dir is None:
+        return None
+    try:
+        config_path = Path(user_data_dir(APPNAME, appauthor=False, roaming=True)) / CONFIG_FILE_NAME
+        if not config_path.is_file():
+            return None
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        configured = str(data.get("platform_tools_path") or "").strip()
+        return Path(configured) if configured else None
+    except Exception:
+        return None
 
 
 def _check_python_version() -> CheckResult:
@@ -118,6 +149,20 @@ def _check_source_layout(root: Path) -> list[CheckResult]:
     ]
 
 
+def _check_release_metadata(root: Path) -> list[CheckResult]:
+    version_is_stable = "beta" not in VERSION.lower()
+    icon_paths = (
+        root / "images" / "icon-dark-256.png",
+        root / "images" / "icon-dark-256.ico",
+        root / "images" / "icon-dark-256.icns",
+        root / "windows-version-info.txt",
+    )
+    return [
+        CheckResult("release_version", version_is_stable, VERSION if version_is_stable else f"pre-release version: {VERSION}"),
+        *(_check_required_file(path) for path in icon_paths),
+    ]
+
+
 def _check_config_writable() -> CheckResult:
     try:
         with tempfile.TemporaryDirectory(prefix="pf-self-test-") as tmp:
@@ -130,11 +175,11 @@ def _check_config_writable() -> CheckResult:
 
 
 def _check_platform_tools() -> list[CheckResult]:
-    adb = _find_binary(["adb.exe", "adb"])
-    fastboot = _find_binary(["fastboot.exe", "fastboot"])
+    adb = _find_binary(["adb.exe", "adb"]) or _find_configured_platform_tool(["adb.exe", "adb"])
+    fastboot = _find_binary(["fastboot.exe", "fastboot"]) or _find_configured_platform_tool(["fastboot.exe", "fastboot"])
     return [
-        CheckResult("platform_tool:adb", adb is not None, adb or "not found in PATH", required=False),
-        CheckResult("platform_tool:fastboot", fastboot is not None, fastboot or "not found in PATH", required=False),
+        CheckResult("platform_tool:adb", adb is not None, adb or "not found in PATH or configured Platform Tools path", required=False),
+        CheckResult("platform_tool:fastboot", fastboot is not None, fastboot or "not found in PATH or configured Platform Tools path", required=False),
     ]
 
 
@@ -194,7 +239,7 @@ def _check_modern_entrypoints() -> list[CheckResult]:
         "ui.pages.dashboard_app",
         "ui.pages.flash_wizard_app",
         "ui.pages.modern_shell_app",
-        "ui.pages.main_integration",
+        "ui.pages.modern_primary_app",
     )
     if importlib.util.find_spec("wx") is None:
         return [
@@ -223,6 +268,7 @@ def run_checks() -> list[CheckResult]:
         _check_python_version(),
     ]
     checks.extend(_check_source_layout(root))
+    checks.extend(_check_release_metadata(root))
     checks.extend([
         _check_platform_layer(),
         _check_required_dir(root / "images"),
@@ -257,6 +303,16 @@ def format_results(results: list[CheckResult]) -> str:
     return "\n".join(lines)
 
 
+def _write_frozen_self_test_log(output: str) -> None:
+    if not _is_frozen():
+        return
+    try:
+        path = Path(tempfile.gettempdir()) / "PixelFlasher-self-test.log"
+        path.write_text(output + "\n", encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def _result_markers() -> tuple[str, str]:
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     try:
@@ -273,9 +329,12 @@ def main(argv: list[str] | None = None) -> int:
 
     results = run_checks()
     if args.json:
-        print(json.dumps([result.__dict__ | {"status": result.status} for result in results], indent=2))
+        output = json.dumps([result.__dict__ | {"status": result.status} for result in results], indent=2)
     else:
-        print(format_results(results))
+        output = format_results(results)
+
+    print(output)
+    _write_frozen_self_test_log(output)
 
     return 1 if any(result.required and not result.ok for result in results) else 0
 

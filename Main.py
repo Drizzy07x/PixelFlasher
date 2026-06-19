@@ -139,8 +139,8 @@ LINKS_MENU_DATA = [
     (_("Factory Images for Pixel Watches"), "google_24", 'https://developers.google.com/android/images-watch'),
     None,  # Separator
     # Beta images
-    (_("Full OTA Images for Pixel Beta 16"), "android_24", 'https://developer.android.com/about/versions/16/download-ota'),
-    (_("Factory Images for Pixel Beta 16"), "android_24", 'https://developer.android.com/about/versions/16/download'),
+    (_("Full OTA Images for Pixel Beta 17"), "android_24", 'https://developer.android.com/about/versions/17/download-ota'),
+    (_("Factory Images for Pixel Beta 17"), "android_24", 'https://developer.android.com/about/versions/17/download'),
 ]
 
 # Help menu URLs and descriptions
@@ -733,10 +733,15 @@ class PixelFlasher(wx.Frame):
             self.SetPosition((self.config.pos_x, self.config.pos_y))
 
         self.resizing = False
+        self._modern_engine_mode = os.environ.get("PIXELFLASHER_MODERN_ENGINE") == "1"
+
         if not dont_initialize:
             self.initialize()
-        set_window_shown(True)
-        self.Show(True)
+        set_window_shown(not self._modern_engine_mode)
+        if self._modern_engine_mode:
+            self.Hide()
+        else:
+            self.Show(True)
 
     def get_progress_window(self):
         if not hasattr(self, 'download_progress_window') or self.download_progress_window is None:
@@ -1938,8 +1943,8 @@ class PixelFlasher(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_support_zip, support_zip_item)
         # separator
         help_menu.AppendSeparator()
-        # Modern UI preview
-        self.modern_ui_preview_item = help_menu.Append(wx.ID_ANY, _("Modern UI Preview"), _("Preview-only · Read-only · No device changes"))
+        # Modern UI
+        self.modern_ui_preview_item = help_menu.Append(wx.ID_ANY, _("Modern UI"), _("Open the modern PixelFlasher workspace"))
         self.Bind(wx.EVT_MENU, self._on_modern_ui_preview, self.modern_ui_preview_item)
         # separator
         help_menu.AppendSeparator()
@@ -1974,12 +1979,12 @@ class PixelFlasher(wx.Frame):
         self.menuBar.Append(lang_menu, _("&Language"))
         # Add the Help menu to the menu bar
         self.menuBar.Append(help_menu, _('&Help'))
-        # Add the Test menu to the menu bar
+        # Add the developer menu to the menu bar
         if self.config.dev_mode:
             test_menu = wx.Menu()
-            test1_item = test_menu.Append(wx.ID_ANY, "Test1", "Test1")
+            test1_item = test_menu.Append(wx.ID_ANY, "Diagnostics", "Open developer diagnostics")
             self.Bind(wx.EVT_MENU, self.Test, test1_item)
-            self.menuBar.Append(test_menu, 'Test')
+            self.menuBar.Append(test_menu, 'Developer')
 
         self.SetMenuBar(self.menuBar)
 
@@ -2666,9 +2671,9 @@ class PixelFlasher(wx.Frame):
     # -----------------------------------------------
     def Test(self, event):
         print("\n==============================================================================")
-        print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Test Function")
+        print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated developer diagnostics")
         print("==============================================================================")
-        print("Entering Test function (used during development only) ...")
+        print("Opening developer diagnostics ...")
         # print("Error: ❌ (U+274C, Cross Mark)")
         # print("Warning: ⚠️ (U+26A0, Warning)")
         # print("Info: ℹ️ (U+2139, Information Source)")
@@ -4158,9 +4163,14 @@ class PixelFlasher(wx.Frame):
                 self._on_spin('stop')
 
                 if self.device_choice.StringSelection == '':
-                    # Popup the devices dropdown
-                    self.device_choice.Popup()
-                    self.toast(_("Scan"), _("✅ Select your device from the list of %s found devices.") % self.device_choice.Count)
+                    if self._modern_engine_mode:
+                        if self.device_choice.Count == 1:
+                            self.device_choice.SetSelection(0)
+                            self._select_configured_device()
+                    else:
+                        # Popup the devices dropdown
+                        self.device_choice.Popup()
+                        self.toast(_("Scan"), _("✅ Select your device from the list of %s found devices.") % self.device_choice.Count)
 
                 # Refresh the devices menu to show updated connection status
                 wx.CallAfter(self._build_devices_menu)

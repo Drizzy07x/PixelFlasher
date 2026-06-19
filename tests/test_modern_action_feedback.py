@@ -5,55 +5,45 @@ from ui.pages.modern_action_feedback import (
     BLOCKED,
     SAFE,
     WARNING,
+    action_completed_feedback,
+    action_unavailable_feedback,
     blocked_navigation_feedback,
-    classic_handoff_feedback,
     disabled_action_feedback,
     guarded_action_canceled_feedback,
-    guarded_action_opening_feedback,
-    preview_action_feedback,
+    navigation_action_feedback,
 )
 
 
 class ModernActionFeedbackTests(unittest.TestCase):
-    def test_navigation_and_classic_handoff_feedback_are_safe_copy(self):
+    def test_navigation_feedback_is_short_and_product_ready(self):
         blocked = blocked_navigation_feedback()
-        classic = classic_handoff_feedback()
+        action = action_by_id("open_modern_shell")
+        opened = navigation_action_feedback(action)
 
         self.assertEqual(BLOCKED, blocked.tone)
-        self.assertIn("Blocked unknown or external navigation", blocked.message)
-        self.assertIn("No action was run", blocked.message)
-        self.assertEqual(WARNING, classic.tone)
-        self.assertIn("guarded legacy flow", classic.message)
+        self.assertEqual("Navigation stayed inside the PixelFlasher workspace.", blocked.message)
+        self.assertEqual(SAFE, opened.tone)
+        self.assertEqual("Open Modern Shell: opened.", opened.message)
 
-    def test_preview_feedback_describes_no_device_changes(self):
-        action = action_by_id("open_modern_shell")
+    def test_unavailable_and_disabled_feedback_stay_blocked(self):
+        disabled = disabled_action_feedback(action_by_id("disabled_wipe"))
+        unavailable = action_unavailable_feedback(action_by_id("scan_devices"))
 
-        self.assertIsNotNone(action)
-        feedback = preview_action_feedback(action)
-        self.assertEqual(SAFE, feedback.tone)
-        self.assertIn("Open Modern Shell", feedback.message)
-        self.assertIn("No device changes", feedback.message)
+        self.assertEqual(BLOCKED, disabled.tone)
+        self.assertIn("select the required device or firmware first", disabled.message)
+        self.assertEqual(BLOCKED, unavailable.tone)
+        self.assertIn("connect the required state", unavailable.message)
 
-    def test_disabled_feedback_stays_blocked(self):
-        action = action_by_id("disabled_wipe")
+    def test_guarded_feedback_distinguishes_cancel_and_completion(self):
+        action = action_by_id("flash_device")
 
-        self.assertIsNotNone(action)
-        feedback = disabled_action_feedback(action)
-        self.assertEqual(BLOCKED, feedback.tone)
-        self.assertIn("disabled in Modern UI", feedback.message)
-        self.assertIn("No device changes", feedback.message)
-
-    def test_guarded_feedback_distinguishes_cancel_and_opening(self):
-        action = action_by_id("guarded_legacy_flash_flow")
-
-        self.assertIsNotNone(action)
         canceled = guarded_action_canceled_feedback(action)
-        opening = guarded_action_opening_feedback(action)
+        completed = action_completed_feedback(action)
+
         self.assertEqual(WARNING, canceled.tone)
-        self.assertEqual(WARNING, opening.tone)
-        self.assertIn("canceled", canceled.message)
-        self.assertIn("No legacy flow opened", canceled.message)
-        self.assertIn("opening existing guarded legacy flow", opening.message)
+        self.assertEqual("Flash Device: canceled.", canceled.message)
+        self.assertEqual(SAFE, completed.tone)
+        self.assertEqual("Flash Device: complete.", completed.message)
 
 
 if __name__ == "__main__":

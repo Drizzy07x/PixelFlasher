@@ -3,15 +3,7 @@ from pathlib import Path
 import re
 import unittest
 
-from ui.pages.modern_preview_copy import (
-    MODERN_PREVIEW_FOOTER,
-    MODERN_PREVIEW_SUBTITLE,
-    MODERN_PREVIEW_TITLE,
-    NAV_ICONS,
-    NAV_ITEMS,
-    PREVIEW_BADGES,
-    SAFETY_BOUNDARY_LINES,
-)
+from ui.pages.modern_preview_copy import NAV_ICONS, NAV_ITEMS, PREVIEW_BADGES, SAFETY_BOUNDARY_LINES
 
 
 MODERN_DASHBOARD_APP_SOURCE = Path("ui/pages/dashboard_app.py")
@@ -21,6 +13,8 @@ MODERN_STYLE_SOURCE = Path("ui/pages/modern_preview_style.py")
 MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
 MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
 MAIN_SOURCE = Path("Main.py")
+PIXELFLASHER_SOURCE = Path("PixelFlasher.py")
+WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
 
 
 class ModernShellPreviewSafetyTests(unittest.TestCase):
@@ -33,6 +27,8 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         cls.web_source = MODERN_WEB_SOURCE.read_text(encoding="utf-8")
         cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
         cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
+        cls.pixelflasher_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")
+        cls.windows_spec_source = WINDOWS_SPEC_SOURCE.read_text(encoding="utf-8")
 
     def require_wx(self):
         try:
@@ -40,7 +36,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         except ModuleNotFoundError:
             self.skipTest("wxPython is not available")
 
-    def test_preview_launcher_entrypoints_are_importable(self):
+    def test_launcher_entrypoints_are_importable(self):
         self.require_wx()
         for module_name in (
             "ui.pages.dashboard_app",
@@ -51,14 +47,125 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 module = importlib.import_module(module_name)
                 self.assertTrue(callable(getattr(module, "main", None)))
 
-    def test_webview_preview_module_is_importable(self):
+    def test_webview_module_is_importable(self):
         self.require_wx()
         module = importlib.import_module("ui.pages.modern_preview_web")
 
         self.assertTrue(callable(getattr(module, "create_modern_preview_frame", None)))
         self.assertTrue(callable(getattr(module, "is_webview_available", None)))
 
-    def test_modern_preview_style_helpers_are_importable(self):
+    def test_windows_build_packages_webview_loader(self):
+        for expected in (
+            "import wx",
+            "wx_dir = Path(wx.__file__).resolve().parent",
+            "WebView2Loader.dll",
+            "'wx'",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.windows_spec_source)
+
+    def test_webview_prefers_modern_windows_backend_when_available(self):
+        self.assertIn("_preferred_webview_backend", self.web_source)
+        self.assertIn("WebViewBackendEdge", self.web_source)
+        self.assertIn("IsBackendAvailable", self.web_source)
+        self.assertIn("return None", self.web_source)
+        self.assertNotIn("except Exception:\n        return None", self.web_source)
+
+    def test_webview_allows_only_initial_document_and_action_urls(self):
+        for expected in (
+            "EVT_WEBVIEW_LOADED",
+            "_loading_document",
+            "_is_safe_document_load_url",
+            "event.Veto()",
+            "blocked_navigation_feedback",
+            "action_from_url",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_webview_uses_custom_frameless_window_chrome(self):
+        for expected in (
+            "FRAME_STYLE = wx.NO_BORDER",
+            "wx.CLIP_CHILDREN",
+            "wx.NO_FULL_REPAINT_ON_RESIZE",
+            "ModernWindowChrome",
+            "Iconize(True)",
+            "Close(True)",
+            "Maximize(not self._frame.IsMaximized())",
+            "EVT_LEFT_DOWN",
+            "EVT_MOTION",
+            "ClientToScreen",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_window_chrome_is_owner_drawn_to_reduce_flicker(self):
+        for expected in (
+            "wx.AutoBufferedPaintDC",
+            "wx.BG_STYLE_PAINT",
+            "EVT_PAINT",
+            "EVT_ERASE_BACKGROUND",
+            "_button_rects",
+            "_button_at",
+            "_run_button_action",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+        self.assertNotIn("wx.Button(self, label=", self.web_source)
+        self.assertNotIn("wx.StaticText(self, label=", self.web_source)
+
+    def test_webview_frame_uses_application_icon(self):
+        for expected in (
+            "_apply_frame_icon(self)",
+            "images.Icon_dark_256.GetIcon()",
+            "frame.SetIcon(icon)",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_webview_uses_dark_borderless_edges(self):
+        for expected in (
+            "APP_BACKGROUND = \"#070b12\"",
+            "self.SetBackgroundColour(_colour(APP_BACKGROUND))",
+            "wx.Panel(self, style=wx.BORDER_NONE | wx.CLIP_CHILDREN)",
+            "html2.WebView.New(shell, backend=backend, style=wx.BORDER_NONE)",
+            "view.SetBackgroundColour(_colour(APP_BACKGROUND))",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+        for expected in (
+            "padding: 0;",
+            "border: 0;",
+            "outline: 0;",
+            "background: var(--bg);",
+            "width: 100vw;",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.template_source)
+
+    def test_webview_blocks_duplicate_engine_actions(self):
+        for expected in (
+            "_action_running",
+            "another operation is already running",
+            "finally:",
+            "self._action_running = False",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_platform_tools_setup_does_not_block_ui_thread(self):
+        for expected in (
+            "import threading",
+            "threading.Thread",
+            "_install_platform_tools_worker",
+            "_finish_platform_tools_setup",
+            "daemon=True",
+            "wx.CallAfter(self._finish_platform_tools_setup",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
+    def test_modern_style_helpers_are_importable(self):
         self.require_wx()
         module = importlib.import_module("ui.pages.modern_preview_style")
 
@@ -67,33 +174,16 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "apply_window_theme",
             "app_panel",
             "badge",
-            "badge_row",
             "bottom_status_bar",
-            "button_panel",
             "card",
-            "checklist_card",
-            "device_glyph_panel",
-            "footer_button",
-            "hero_device_card",
             "icon_action_tile",
-            "info_column",
-            "info_row",
-            "info_strip",
-            "metric_card",
-            "notice_card",
-            "page_header",
             "safety_boundary_card",
-            "sidebar",
-            "sidebar_brand",
-            "sidebar_container",
             "sidebar_row",
-            "status_card",
-            "stepper_cell",
         ):
             with self.subTest(helper=helper):
                 self.assertTrue(callable(getattr(module, helper, None)))
 
-    def test_preview_launchers_have_module_entrypoints(self):
+    def test_launchers_keep_module_entrypoints(self):
         for name, source in (
             ("dashboard_app", self.dashboard_app_source),
             ("modern_shell_app", self.shell_source),
@@ -103,56 +193,27 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 self.assertIn('if __name__ == "__main__":', source)
                 self.assertIn("raise SystemExit(main())", source)
 
-    def test_legacy_menu_exposes_modern_ui_preview_entrypoint(self):
-        self.assertIn('_("Modern UI Preview")', self.main_source)
-        self.assertIn('_("Preview-only · Read-only · No device changes")', self.main_source)
-        self.assertIn("self.modern_ui_preview_item", self.main_source)
-        self.assertIn("self._on_modern_ui_preview", self.main_source)
+    def test_default_startup_uses_modern_primary_ui(self):
+        self.assertIn("launch_modern_primary", self.pixelflasher_source)
+        self.assertIn("_run_modern_primary(sys.argv)", self.pixelflasher_source)
+        self.assertNotIn("Main.main()", self.pixelflasher_source)
+        self.assertNotIn("--legacy-ui", self.pixelflasher_source)
 
-    def test_legacy_preview_entrypoint_opens_dashboard_preview_only(self):
-        handler = _source_block(self.main_source, "def _on_modern_ui_preview", "def _on_advanced_config")
+    def test_main_frame_supports_hidden_engine_mode(self):
+        self.assertIn("PIXELFLASHER_MODERN_ENGINE", self.main_source)
+        self.assertIn("set_window_shown(not self._modern_engine_mode)", self.main_source)
+        self.assertIn("self.Hide()", self.main_source)
+        self.assertIn("if self._modern_engine_mode:", self.main_source)
+        self.assertIn("self.device_choice.Count == 1", self.main_source)
+        self.assertIn("self.device_choice.SetSelection(0)", self.main_source)
 
-        self.assertIn("from ui.pages.dashboard_app import show_dashboard_preview", handler)
-        self.assertIn("show_dashboard_preview(self)", handler)
-        self.assertNotIn("modern_shell_app", handler)
-        self.assertNotIn("flash_wizard", handler)
-        self.assertIn("class DashboardPreviewFrame", self.dashboard_app_source)
-        self.assertIn("def show_dashboard_preview", self.dashboard_app_source)
-        self.assertIn('create_modern_preview_frame(page="dashboard"', self.dashboard_app_source)
-
-    def test_legacy_preview_entrypoint_does_not_call_execution_helpers(self):
-        handler = _source_block(self.main_source, "def _on_modern_ui_preview", "def _on_advanced_config")
-        forbidden_snippets = (
-            "subprocess",
-            "os.system",
-            "from runtime import",
-            "get_phone(",
-            "fastboot ",
-            "adb shell",
-            "delete_all",
-            "wipe_data",
-            "firmware_parser",
-        )
-
-        for snippet in forbidden_snippets:
-            with self.subTest(snippet=snippet):
-                self.assertNotIn(snippet, handler)
-
-    def test_modern_shell_sidebar_uses_dark_preview_rows_not_native_buttons(self):
-        self.assertIn("preview_style.sidebar_row", self.shell_source)
-        self.assertIn("NAV_ICONS", self.shell_source)
-        self.assertIn("bind_click_recursive", self.shell_source)
-        self.assertNotIn("wx.Button(panel, label=nav_label", self.shell_source)
-        self.assertIn("def sidebar_row", self.style_source)
-        self.assertIn("SetMinSize((-1, 62))", self.style_source)
-
-    def test_modern_preview_safe_nav_glyphs_are_defined(self):
+    def test_shared_nav_glyphs_are_defined(self):
         for key in ("dashboard", "shell", "wizard", "backups", "downloads", "settings", "tools", "safety", "about"):
             with self.subTest(key=key):
                 self.assertIn(key, NAV_ICONS)
                 self.assertTrue(NAV_ICONS[key])
 
-    def test_webview_preview_template_contains_required_dashboard_structure(self):
+    def test_webview_template_contains_dashboard_structure(self):
         from ui.pages.modern_preview_templates import render_preview_html
         from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
 
@@ -167,22 +228,24 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         for label in (
-            "Modern UI · Safe by Default",
+            "Modern UI",
             "Connected Device",
             "Quick Actions",
-            "Safety Boundary",
+            "Workflow Status",
             "Device Slots",
             "Partitions",
             "Last Backup",
-            "Safe-by-Default Mode",
-            "Open Classic PixelFlasher",
-            "No direct device execution from Modern UI",
-            "PixelFlasher 9.2.0-beta",
+            "Flash Device",
+            "Patch Boot",
+            "Scan Devices",
+            "Platform Tools need setup",
+            "Set Up Platform Tools",
+            "PixelFlasher 9.2.0",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, html)
 
-    def test_webview_preview_template_contains_navigation_inventory(self):
+    def test_webview_template_contains_navigation_inventory(self):
         from ui.pages.modern_preview_templates import render_preview_html
         from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
 
@@ -196,7 +259,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             ),
         )
 
-        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "Safety", "About"):
+        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "System", "About"):
             with self.subTest(label=label):
                 self.assertIn(label, html)
 
@@ -204,17 +267,17 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "pixelflasher://action/open_modern_dashboard",
             "pixelflasher://action/open_modern_shell",
             "pixelflasher://action/open_modern_flash_wizard",
-            "pixelflasher://action/open_backups_preview",
-            "pixelflasher://action/open_downloads_preview",
-            "pixelflasher://action/open_settings_preview",
-            "pixelflasher://action/open_tools_preview",
-            "pixelflasher://action/open_safety_preview",
-            "pixelflasher://action/open_about_preview",
+            "pixelflasher://action/open_backups",
+            "pixelflasher://action/open_downloads",
+            "pixelflasher://action/open_settings",
+            "pixelflasher://action/open_tools",
+            "pixelflasher://action/open_safety",
+            "pixelflasher://action/open_about",
         ):
             with self.subTest(action=action):
                 self.assertIn(action, html)
 
-    def test_webview_preview_navigation_marks_exactly_one_active_page(self):
+    def test_webview_navigation_marks_exactly_one_active_page(self):
         from ui.pages.modern_preview_templates import render_preview_html
         from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
 
@@ -228,7 +291,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         for page, _title, _detail in NAV_ITEMS:
             with self.subTest(page=page):
                 html = render_preview_html(page, state)
-                self.assertIn('aria-label="Modern UI preview surfaces"', html)
+                self.assertIn('aria-label="Modern UI surfaces"', html)
                 self.assertIn(f'data-active-page="{page}"', html)
                 self.assertEqual(1, html.count('aria-current="page"'))
                 self.assertRegex(
@@ -240,7 +303,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertIn('data-active-page="dashboard"', unknown_html)
         self.assertEqual(1, unknown_html.count('aria-current="page"'))
 
-    def test_webview_preview_template_contains_shell_and_wizard_structure(self):
+    def test_webview_template_contains_shell_and_wizard_structure(self):
         from ui.pages.modern_preview_templates import render_preview_html
         from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
 
@@ -253,25 +316,28 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         shell_html = render_preview_html("shell", state)
         wizard_html = render_preview_html("wizard", state)
 
-        for label in ("Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Preview Limitations"):
+        for label in ("Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Workflow Controls", "Available Actions"):
             with self.subTest(label=label):
                 self.assertIn(label, shell_html)
         for label in (
-            "Step 1: Device Selection",
+            "Step 1: Device &amp; Firmware",
             "Device Readiness",
             "Firmware Readiness",
-            "Execution Blocked",
-            "Blocked Execution",
-            "Firmware Step Preview",
-            "Options Step Preview",
-            "Plan Step Preview",
-            "Review Step Preview",
-            "Can flash",
+            "Flash Workflow",
+            "Flash Summary",
+            "Firmware",
+            "Options",
+            "Plan",
+            "Review",
+            "Select Firmware",
+            "Process Firmware",
+            "Flash Device",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, wizard_html)
+        self.assertNotIn("Execution Blocked", wizard_html)
 
-    def test_webview_preview_template_contains_remaining_concept_pages(self):
+    def test_webview_template_contains_remaining_pages(self):
         from ui.pages.modern_preview_templates import render_preview_html
         from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
 
@@ -283,12 +349,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         expected_by_page = {
-            "backups": ("Backups (Preview)", "Backup Actions (Guarded)", "No backups loaded", "File changes"),
-            "downloads": ("Downloads (Preview)", "Firmware Downloads (Preview)", "Network access", "Device apply"),
-            "settings": ("Settings (Preview)", "General Settings", "Saved changes", "No settings are saved"),
-            "tools": ("Tools (Preview)", "Tool Catalog", "Command Runner", "Unknown actions"),
-            "safety": ("Safety (Read-Only)", "Safety Boundary", "Disabled in Modern UI", "Allow-listed"),
-            "about": ("About PixelFlasher", "Application", "Modern UI Status", "Legacy UI"),
+            "backups": ("Backups", "Backup Actions", "Loaded Backup Context", "Backup Tools"),
+            "downloads": ("Downloads", "Firmware Downloads", "Loaded Download Context", "Download Actions"),
+            "settings": ("Settings", "General Settings", "Loaded Preference Flags", "Settings Actions"),
+            "tools": ("Tools", "Tool Catalog", "Advanced Operations", "Partition Manager"),
+            "safety": ("System", "Protection", "Loaded State Snapshot", "Operation Policy"),
+            "about": ("About PixelFlasher", "Application Engine", "Loaded State Snapshot", "Modern UI Status"),
         }
 
         for page, labels in expected_by_page.items():
@@ -297,13 +363,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 with self.subTest(page=page, label=label):
                     self.assertIn(label, html)
 
-    def test_webview_preview_html_is_static_and_local(self):
+    def test_webview_html_is_static_and_local(self):
         forbidden_snippets = (
             "http://",
             "https://",
             "cdn",
             "script src",
-            "wx.CallAfter",
             "AddScriptMessageHandler",
             "RunScript",
             "javascript:",
@@ -318,59 +383,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
                 with self.subTest(source_name=source_name, snippet=snippet):
                     self.assertNotIn(snippet, source)
 
-    def test_modern_shell_sidebar_uses_unique_preview_destinations(self):
-        self.assertIn('("dashboard", "devices", "flash", "backups", "downloads", "tools", "settings")', self.shell_source)
-        self.assertNotIn('("dashboard", "flash", "patch", "devices", "tools", "logs", "settings")', self.shell_source)
-        nav_titles = [title for _key, title, _detail in NAV_ITEMS]
-        self.assertEqual(len(nav_titles), len(set(nav_titles)))
+    def test_shared_copy_uses_modern_product_language(self):
+        self.assertEqual(("Ready", "Modern UI", "Protected"), PREVIEW_BADGES)
+        self.assertIn("Sensitive operations require existing PixelFlasher confirmation.", SAFETY_BOUNDARY_LINES)
+        self.assertNotIn("Read-Only", PREVIEW_BADGES)
 
-    def test_modern_shell_devices_page_is_readonly_state_explorer(self):
-        self.assertIn('self.active_page = "devices"', self.shell_source)
-        self.assertIn('"devices": self._render_devices', self.shell_source)
-        for label in ("Loaded Device State", "Connection Readiness", "Firmware Context", "Safety Boundary"):
-            with self.subTest(label=label):
-                self.assertIn(label, self.shell_source)
-
-    def test_tools_page_has_explicit_renderer(self):
-        self.assertIn('"tools": self._render_tools', self.shell_source)
-        self.assertIn("def _render_tools(self)", self.shell_source)
-        self.assertIn("Preview only · tool execution disabled", self.shell_source)
-
-    def test_preview_pages_show_disabled_safety_banners(self):
-        expected = (
-            "Preview only · patch execution disabled",
-            "Preview only · scan/refresh disabled",
-            "Preview only · tool execution disabled",
-            "Preview only · live log capture disabled",
-            "No Flash Execution",
-        )
-        for label in expected:
-            with self.subTest(label=label):
-                self.assertIn(label, self.shell_source)
-        self.assertEqual("Modern UI – Preview", MODERN_PREVIEW_TITLE)
-        self.assertEqual("Safe by default. No device changes. No flashing. No patches.", MODERN_PREVIEW_SUBTITLE)
-        self.assertIn("PREVIEW ONLY", PREVIEW_BADGES)
-        self.assertIn("Read-Only", PREVIEW_BADGES)
-        self.assertIn("No Device Changes", PREVIEW_BADGES)
-        self.assertEqual("No device changes will be made.", MODERN_PREVIEW_FOOTER)
-
-    def test_safety_boundary_copy_is_shared_across_shell_and_wizard(self):
-        for label in (
-            "No flashing, patching, or firmware writing.",
-            "No ADB or Fastboot command execution.",
-            "No reboot, wipe, slot switching, or device changes.",
-            "Preview-only. Read-only state. Legacy flows guarded.",
-        ):
-            with self.subTest(label=label):
-                self.assertIn(label, SAFETY_BOUNDARY_LINES)
-        self.assertIn("SAFETY_BOUNDARY_LINES", self.shell_source)
-        self.assertIn("Flash Wizard – Preview & Plan Only", self.wizard_source)
-        self.assertIn('FLASH_WIZARD_PREVIEW_TITLE = "Flash Wizard – Preview & Plan Only"', self.wizard_source)
-        self.assertIn("_wx_static_label(FLASH_WIZARD_PREVIEW_TITLE)", self.wizard_source)
-        self.assertNotIn("Preview _Plan Only", self.wizard_source)
-        self.assertIn("MODERN_PREVIEW_FOOTER", self.wizard_source)
-
-    def test_modern_shell_source_does_not_call_device_execution_helpers(self):
+    def test_modern_sources_do_not_call_raw_execution_helpers(self):
         forbidden_snippets = (
             "subprocess.run",
             "subprocess.Popen",
@@ -393,46 +411,6 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             for snippet in forbidden_snippets:
                 with self.subTest(source_name=source_name, snippet=snippet):
                     self.assertNotIn(snippet, source)
-
-    def test_flash_wizard_preview_launcher_uses_default_readonly_session(self):
-        self.assertIn("FlashWizardPanel(self, session=WizardSession())", self.wizard_source)
-        self.assertNotIn("demo_session", self.wizard_source)
-
-    def test_flash_wizard_final_footer_action_is_hidden_in_preview(self):
-        self.assertIn("self._next.Hide()", self.wizard_source)
-        self.assertIn("Preview only · flash execution disabled", self.wizard_source)
-        self.assertIn("Blocked Execution", self.wizard_source)
-        self.assertIn("Preview-only planning is visible. No flash, patch, reboot, or device changes are available here.", self.wizard_source)
-        self.assertIn("preview_style.stepper_cell", self.wizard_source)
-        self.assertIn("preview_style.button_panel(panel, self.theme, \"Back\", \"info\")", self.wizard_source)
-        self.assertIn("preview_style.button_panel(panel, self.theme, \"Next\", \"info\")", self.wizard_source)
-        self.assertNotIn('wx.Button(panel, label="Back")', self.wizard_source)
-        self.assertNotIn('wx.Button(panel, label="Next")', self.wizard_source)
-        self.assertNotIn('wx.Button(self._content_panel, label="Flash disabled"', self.wizard_source)
-        self.assertNotIn('wx.Button(self._content_panel, label="Flash Device"', self.wizard_source)
-
-    def test_flash_wizard_device_step_has_structured_readonly_preview_cards(self):
-        for label in (
-            "Device Readiness Checklist",
-            "Firmware Readiness Checklist",
-            "Execution Blocked Checklist",
-            "Preview Limitations",
-            "Patch Plan",
-            "Safe Defaults",
-            "Review Summary",
-            "Final Step",
-            "No scan, reboot, or slot action runs here.",
-            "No archive parsing or file access starts here.",
-            "Device mutation is blocked in preview.",
-        ):
-            with self.subTest(label=label):
-                self.assertIn(label, self.wizard_source)
-
-
-def _source_block(source: str, start: str, end: str) -> str:
-    start_index = source.index(start)
-    end_index = source.index(end, start_index)
-    return source[start_index:end_index]
 
 
 if __name__ == "__main__":

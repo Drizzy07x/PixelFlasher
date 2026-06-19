@@ -1,4 +1,4 @@
-"""Safe Modern UI action metadata for guarded legacy handoffs."""
+"""Allow-listed Modern UI action metadata."""
 
 from __future__ import annotations
 
@@ -6,13 +6,12 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 
-PREVIEW_ONLY = "preview_only"
-OPEN_LEGACY = "open_legacy"
-GUARDED_LEGACY_FLOW = "guarded_legacy_flow"
+NAVIGATION = "navigation"
+INTERNAL_FLOW = "internal_flow"
+GUARDED_FLOW = "guarded_flow"
 DISABLED = "disabled"
 ACTION_SCHEME = "pixelflasher"
 ACTION_HOST = "action"
-LEGACY_UI_DELEGATE = "open_legacy_ui"
 
 
 @dataclass(frozen=True)
@@ -31,143 +30,223 @@ class ModernAction:
 
 MODERN_ACTIONS: tuple[ModernAction, ...] = (
     ModernAction(
-        "open_legacy_ui",
-        "Open Classic PixelFlasher",
-        "Open the existing guarded legacy UI. Real device operations remain guarded.",
-        OPEN_LEGACY,
-        True,
-        delegate=LEGACY_UI_DELEGATE,
-    ),
-    ModernAction(
         "open_modern_dashboard",
         "Open Dashboard",
-        "Return to the Modern UI overview without executing commands.",
-        PREVIEW_ONLY,
+        "Return to the Modern UI overview.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
         "open_modern_flash_wizard",
-        "Open Flash Wizard planning preview",
-        "Plan safely in Modern UI. Execution is delegated to the guarded legacy flow.",
-        PREVIEW_ONLY,
+        "Open Flash Wizard",
+        "Plan and run the selected flash workflow.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
         "open_modern_shell",
         "Open Modern Shell",
-        "Review loaded state in a read-only explorer.",
-        PREVIEW_ONLY,
+        "Review device and firmware state.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_backups_preview",
-        "Open Backups preview",
-        "Review backup state without creating, restoring, or modifying files.",
-        PREVIEW_ONLY,
+        "open_backups",
+        "Open Backups",
+        "Review and manage available backup tools.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_downloads_preview",
-        "Open Downloads preview",
-        "Browse update context without applying files to a device.",
-        PREVIEW_ONLY,
+        "open_downloads",
+        "Open Downloads",
+        "Browse firmware and rooting app downloads.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_settings_preview",
-        "Open Settings preview",
-        "Review preference categories without saving changes.",
-        PREVIEW_ONLY,
+        "open_settings",
+        "Open Settings",
+        "Open PixelFlasher settings.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_tools_preview",
-        "Open Tools preview",
-        "View tool categories. Command execution remains disabled in Modern UI.",
-        PREVIEW_ONLY,
+        "open_tools",
+        "Open Tools",
+        "Open PixelFlasher tools.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_safety_preview",
-        "Open Safety preview",
-        "Review Modern UI safety boundaries and guarded legacy handoffs.",
-        PREVIEW_ONLY,
+        "open_safety",
+        "Open Safety",
+        "Review operation boundaries and confirmations.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "open_about_preview",
-        "Open About preview",
-        "View local application information without network access.",
-        PREVIEW_ONLY,
+        "open_about",
+        "Open About",
+        "View application information.",
+        NAVIGATION,
         True,
     ),
     ModernAction(
-        "guarded_legacy_flash_flow",
-        "Continue to Guarded Legacy Flash Flow",
-        "Modern UI prepares the plan; execution is delegated to existing guarded PixelFlasher flow.",
-        GUARDED_LEGACY_FLOW,
+        "scan_devices",
+        "Scan Devices",
+        "Refresh connected devices using the existing PixelFlasher scanner.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_scan",
+    ),
+    ModernAction(
+        "setup_platform_tools",
+        "Set Up Platform Tools",
+        "Download and configure Android Platform Tools for USB device detection.",
+        INTERNAL_FLOW,
         True,
         requires_confirmation=True,
-        delegate=LEGACY_UI_DELEGATE,
-        dangerous=True,
-        confirmation_title="Continue to Guarded Legacy Flash Flow?",
+        delegate="_setup_platform_tools",
+        confirmation_title="Set Up Platform Tools?",
         confirmation_body=(
-            "Existing guarded legacy flow\n\n"
-            "Modern UI does not execute device commands directly.\n"
-            "No flash command is run from Modern UI.\n"
-            "Review all prompts before continuing."
+            "PixelFlasher will download Android Platform Tools from Google, install them in your user profile, "
+            "and update the configured Platform Tools folder.\n"
+            "No flash, patch, reboot, wipe, or device operation will be run."
         ),
     ),
     ModernAction(
-        "guarded_legacy_patch_flow",
-        "Guarded legacy patch flow",
-        "Boot image patching remains delegated to existing guarded PixelFlasher flow.",
-        GUARDED_LEGACY_FLOW,
+        "select_firmware",
+        "Select Firmware",
+        "Choose a firmware, OTA, or ROM package.",
+        INTERNAL_FLOW,
+        True,
+        delegate="select_firmware_file",
+    ),
+    ModernAction(
+        "process_firmware",
+        "Process Firmware",
+        "Extract and prepare firmware using PixelFlasher's existing processor.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_process_firmware",
+    ),
+    ModernAction(
+        "flash_device",
+        "Flash Device",
+        "Run the configured flash workflow using PixelFlasher's existing flash engine.",
+        GUARDED_FLOW,
         True,
         requires_confirmation=True,
-        delegate=LEGACY_UI_DELEGATE,
+        delegate="_on_flash",
         dangerous=True,
-        confirmation_title="Continue to Guarded Legacy Patch Flow?",
+        confirmation_title="Flash Device?",
         confirmation_body=(
-            "Existing guarded legacy flow\n\n"
-            "Modern UI does not execute device commands directly.\n"
-            "Review all prompts before continuing."
+            "PixelFlasher will run the configured flash workflow.\n"
+            "Review every prompt before continuing."
         ),
     ),
     ModernAction(
-        "guarded_legacy_support_zip",
-        "Guarded legacy diagnostics flow",
-        "Support package creation remains in the guarded legacy UI.",
-        GUARDED_LEGACY_FLOW,
+        "patch_boot",
+        "Patch Boot",
+        "Patch the selected boot image using the configured root solution.",
+        GUARDED_FLOW,
         True,
         requires_confirmation=True,
-        delegate=LEGACY_UI_DELEGATE,
+        delegate="_on_magisk_patch_boot",
         dangerous=True,
-        confirmation_title="Continue to Guarded Legacy Diagnostics Flow?",
+        confirmation_title="Patch Boot Image?",
         confirmation_body=(
-            "Existing guarded legacy flow\n\n"
-            "Modern UI does not execute device commands directly.\n"
-            "Review all prompts before continuing."
+            "PixelFlasher will use the selected boot image and connected device.\n"
+            "Review every prompt before continuing."
         ),
+    ),
+    ModernAction(
+        "create_support_package",
+        "Create Support Package",
+        "Create a sanitized support package.",
+        GUARDED_FLOW,
+        True,
+        requires_confirmation=True,
+        delegate="_on_support_zip",
+        dangerous=True,
+        confirmation_title="Create Support Package?",
+        confirmation_body=(
+            "PixelFlasher will create and save a support package.\n"
+            "Choose the destination in the next dialog.\n"
+            "Review every prompt before continuing."
+        ),
+    ),
+    ModernAction(
+        "backup_manager",
+        "Backup Manager",
+        "Open the Magisk backup manager.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_backup_manager",
+    ),
+    ModernAction(
+        "firmware_downloads",
+        "Firmware Downloads",
+        "Show available firmware downloads for the selected device.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_show_device_download",
+    ),
+    ModernAction(
+        "settings_dialog",
+        "Settings",
+        "Open PixelFlasher settings.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_advanced_config",
+    ),
+    ModernAction(
+        "rooting_app",
+        "Rooting App",
+        "Download or install Magisk, KernelSU, APatch, or related tools.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_rooting_app",
+    ),
+    ModernAction(
+        "magisk_modules",
+        "Magisk Modules",
+        "Manage installed Magisk modules.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_magisk",
+    ),
+    ModernAction(
+        "partition_manager",
+        "Partition Manager",
+        "Open the partition manager.",
+        GUARDED_FLOW,
+        True,
+        requires_confirmation=True,
+        delegate="_on_partition_manager",
+        dangerous=True,
+        confirmation_title="Open Partition Manager?",
+        confirmation_body="Partition tools can modify device data. Review every prompt before continuing.",
     ),
     ModernAction(
         "disabled_reboot",
-        "Reboot disabled in Modern UI",
-        "Use guarded legacy flows for any real device operation.",
+        "Reboot",
+        "Use the dedicated reboot controls after selecting a device.",
         DISABLED,
         False,
     ),
     ModernAction(
         "disabled_wipe",
-        "Wipe disabled in Modern UI",
-        "Modern UI does not expose destructive device operations.",
+        "Wipe",
+        "Wipe operations require a configured flash flow.",
         DISABLED,
         False,
     ),
     ModernAction(
         "disabled_slot_switch",
-        "Slot switch disabled in Modern UI",
-        "Slot changes remain unavailable from Modern UI.",
+        "Switch Slot",
+        "Slot switching requires a selected device.",
         DISABLED,
         False,
     ),
@@ -191,7 +270,9 @@ def action_url(action_id: str) -> str:
 
 def action_from_url(url: str) -> ModernAction | None:
     parsed = urlparse(str(url or ""))
-    if parsed.scheme != ACTION_SCHEME or parsed.netloc != ACTION_HOST:
+    if parsed.scheme.lower() != ACTION_SCHEME or parsed.netloc.lower() != ACTION_HOST:
+        return None
+    if parsed.params or parsed.query or parsed.fragment:
         return None
     action_id = parsed.path.strip("/")
     if not action_id or "/" in action_id:
@@ -199,8 +280,8 @@ def action_from_url(url: str) -> ModernAction | None:
     return action_by_id(action_id)
 
 
-def is_legacy_handoff(action: ModernAction) -> bool:
-    return action.enabled and action.delegate == LEGACY_UI_DELEGATE and action.safety_level in {
-        OPEN_LEGACY,
-        GUARDED_LEGACY_FLOW,
+def is_engine_action(action: ModernAction) -> bool:
+    return action.enabled and bool(action.delegate) and action.safety_level in {
+        INTERNAL_FLOW,
+        GUARDED_FLOW,
     }

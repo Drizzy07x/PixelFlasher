@@ -8,6 +8,10 @@ a = Analysis(['PixelFlasher.py'],
             datas=[
                 ("images/icon-64.png", "images"),
                 ("images/icon-dark-64.png", "images"),
+                ("images/icon-dark-256.png", "images"),
+                ("images/icon-dark-256.ico", "images"),
+                ("images/icon-dark-256.icns", "images"),
+                ("windows-version-info.txt", "."),
                 ('bin/busybox_arm64-v8a', 'bin'),
                 ('bin/busybox_armeabi-v7a', 'bin'),
                 ('bin/busybox_x86', 'bin'),
@@ -60,6 +64,6 @@ exe = EXE(pyz,
           icon='images/icon-dark-256.icns')
 app = BUNDLE(exe,
              name='PixelFlasher.app',
-             version='9.1.1.1',
+             version='9.2.0',
              icon='./images/icon-dark-256.icns',
              bundle_identifier='com.badabing.pixelflasher')

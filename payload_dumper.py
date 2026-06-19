@@ -8,13 +8,23 @@ import sys
 import bsdiff4
 import io
 import os
+import warnings
+
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+
 try:
     import lzma
 except ImportError as e:
     print(f"Error importing lzma: {e}")
     from backports import lzma # type: ignore
 
-import update_metadata_pb2 as um
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message="Call to deprecated create function .*",
+        category=DeprecationWarning,
+    )
+    import update_metadata_pb2 as um
 
 
 def extract_payload(payload_file_path, out='output', diff=False, old='old', images=''):

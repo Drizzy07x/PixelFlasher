@@ -1,4 +1,4 @@
-"""Standalone launcher for the safe Flash Wizard preview."""
+"""Standalone launcher for the Flash Wizard."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from ui.pages.modern_preview_web import create_modern_preview_frame
 
 class _FlashWizardPreviewFrame(wx.Frame):
     def __init__(self, demo: bool = False):
-        title_suffix = "Demo" if demo else "Preview"
+        title_suffix = "Demo" if demo else "Workflow"
         super().__init__(None, title=f"PixelFlasher {VERSION} - Flash Wizard {title_suffix}", size=(980, 640))
         session = None
         if demo:

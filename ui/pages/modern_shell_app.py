@@ -1,6 +1,6 @@
-"""Standalone Modern Shell preview for PixelFlasher.
+"""Standalone Modern Shell for PixelFlasher.
 
-This preview is intentionally UI-only. It does not run flash, patch, reboot,
+This surface uses PixelFlasher guarded flows. It does not run flash, patch, reboot,
 ADB, Fastboot, or file-processing operations. It exists to iterate on the full
 modern application shell without risking the stable legacy UI.
 """
@@ -33,10 +33,10 @@ from ui.theme import get_theme
 
 
 class ModernShellFrame(wx.Frame):
-    """Full modern UI shell preview with safe placeholder pages."""
+    """Full modern UI shell with protected placeholder pages."""
 
     def __init__(self) -> None:
-        super().__init__(None, title=f"{APPNAME} {VERSION} - Modern Shell Preview", size=(1280, 820))
+        super().__init__(None, title=f"{APPNAME} {VERSION} - Modern Shell", size=(1280, 820))
         self.theme = get_theme("dark")
         self.active_page = "devices"
         self.nav_buttons: dict[str, wx.Panel] = {}
@@ -59,7 +59,7 @@ class ModernShellFrame(wx.Frame):
         panel = preview_style.sidebar_container(parent, self.theme, 280)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        sizer.Add(preview_style.sidebar_brand(panel, self.theme, "PixelFlasher", "Modern UI Preview"), 0, wx.EXPAND | wx.ALL, 14)
+        sizer.Add(preview_style.sidebar_brand(panel, self.theme, "PixelFlasher", "Modern UI"), 0, wx.EXPAND | wx.ALL, 14)
 
         for key in ("dashboard", "devices", "flash", "backups", "downloads", "tools", "settings"):
             item_key = _nav_key_for_page(key)
@@ -70,7 +70,7 @@ class ModernShellFrame(wx.Frame):
             sizer.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         sizer.AddStretchSpacer(1)
-        info = preview_style.notice_card(panel, self.theme, "Preview-Only Mode", f"{VERSION}\nRead-only state explorer. No command execution.", "info")
+        info = preview_style.notice_card(panel, self.theme, "Modern UI", f"{VERSION}\nProtected PixelFlasher workspace.", "info")
         sizer.Add(info, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 14)
 
         panel.SetSizer(sizer)
@@ -90,7 +90,7 @@ class ModernShellFrame(wx.Frame):
         topbar.Add(title_stack, 1, wx.ALIGN_CENTER_VERTICAL)
         for badge in PREVIEW_BADGES:
             topbar.Add(self._pill(panel, badge, self.theme.palette.warning), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        topbar.Add(self._pill(panel, "No Flash Execution", self.theme.palette.danger), 0, wx.ALIGN_CENTER_VERTICAL)
+        topbar.Add(self._pill(panel, "Protected Actions", self.theme.palette.danger), 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.Add(topbar, 0, wx.EXPAND | wx.ALL, 24)
 
         self.content_panel = wx.ScrolledWindow(panel, style=wx.VSCROLL)
@@ -117,12 +117,12 @@ class ModernShellFrame(wx.Frame):
 
         titles = {
             "dashboard": (MODERN_PREVIEW_TITLE, MODERN_PREVIEW_SUBTITLE),
-            "flash": ("Flash Wizard – Preview & Plan Only", "No flashing, patching, or firmware writing."),
-            "devices": ("Modern Shell – Read-only State Explorer", "Loaded state only. No command execution."),
-            "backups": ("Backups – Browse Restore Preview", "Read-only placeholder. Restore remains guarded."),
-            "downloads": ("Downloads – Firmware Updates", "Preview-only update context."),
-            "tools": ("Tools – Utilities Preview", "No ADB or Fastboot command execution."),
-            "settings": ("Settings", "Modern UI preferences preview."),
+            "flash": ("Flash Wizard", "Plan and continue through PixelFlasher confirmation."),
+            "devices": ("Modern Shell", "Loaded device state and connection context."),
+            "backups": ("Backups", "Backup and restore context."),
+            "downloads": ("Downloads", "Firmware and update context."),
+            "tools": ("Tools", "Utilities with PixelFlasher confirmations."),
+            "settings": ("Settings", "Modern UI preferences."),
         }
         title, subtitle = titles.get(page, titles["dashboard"])
         if self.page_title:
@@ -178,16 +178,16 @@ class ModernShellFrame(wx.Frame):
     def _render_patch(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Patch Boot Preview", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "This page will mirror the future Patch Boot flow. No patching is wired here."), 0, wx.BOTTOM, 14)
-        sizer.Add(self._disabled_pill(card, "Preview only · patch execution disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        sizer.Add(self._text(card, "Patch Boot", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Patch Boot continues through PixelFlasher confirmation."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._disabled_pill(card, "Continue with confirmation"), 0, wx.EXPAND | wx.BOTTOM, 12)
         for title, value in (
-            ("Patch method", "Auto recommended · disabled in preview"),
-            ("Magisk", "Stable latest · placeholder"),
-            ("Output", "No patched image is created in this preview"),
+            ("Patch method", "Auto recommended"),
+            ("Magisk", "Stable latest"),
+            ("Output", "Chosen during confirmation"),
         ):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Safety note: Patch Boot remains read-only until legacy guarded wiring is approved."), 0, wx.TOP, 6)
+        sizer.Add(self._muted(card, "Patch Boot uses PixelFlasher safeguards before writing files."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
@@ -203,26 +203,26 @@ class ModernShellFrame(wx.Frame):
         bottom.Add(self._shell_state_card(self.content_panel, "Safety Boundary", tuple(("Limit", line) for line in SAFETY_BOUNDARY_LINES)), 1, wx.EXPAND | wx.LEFT, 12)
         self.content_sizer.Add(bottom, 0, wx.EXPAND | wx.BOTTOM, 14)
         final = wx.BoxSizer(wx.HORIZONTAL)
-        final.Add(self._shell_state_card(self.content_panel, "Preview Limitations", _shell_preview_limit_rows()), 1, wx.EXPAND | wx.RIGHT, 12)
+        final.Add(self._shell_state_card(self.content_panel, "Workflow Notes", _shell_preview_limit_rows()), 1, wx.EXPAND | wx.RIGHT, 12)
         final.Add(self._quick_actions_card(self.content_panel), 1, wx.EXPAND | wx.LEFT, 12)
         self.content_sizer.Add(final, 0, wx.EXPAND)
 
     def _render_device_legacy_note(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Devices Preview", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Device scanning remains in the legacy app until the modern adapter is validated."), 0, wx.BOTTOM, 14)
-        sizer.Add(self._disabled_pill(card, "Preview only · scan/refresh disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        sizer.Add(self._text(card, "Devices", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Device scanning uses PixelFlasher's configured Platform Tools."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._disabled_pill(card, "Refresh device state"), 0, wx.EXPAND | wx.BOTTOM, 12)
         for title, value in _shell_device_info_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Safety note: No connect, reboot, slot switching, wipe, or device changes are available in preview."), 0, wx.TOP, 6)
+        sizer.Add(self._muted(card, "Reboot, slot switching, and wipe require explicit confirmation."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
     def _shell_state_card(self, parent: wx.Window, title: str, rows: tuple[tuple[str, str], ...]) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(preview_style.section_header(card, self.theme, title, "Read-only"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(preview_style.section_header(card, self.theme, title, "State"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for row_title, value in rows:
             sizer.Add(self._info_row(card, row_title, value), 0, wx.EXPAND | wx.BOTTOM, 7)
         card.SetSizer(self._pad(sizer, 18))
@@ -231,37 +231,37 @@ class ModernShellFrame(wx.Frame):
     def _render_tools(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Tools Preview", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Utility tools are listed for layout validation only. No commands run here."), 0, wx.BOTTOM, 14)
-        sizer.Add(self._disabled_pill(card, "Preview only · tool execution disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        sizer.Add(self._text(card, "Tools", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Utilities open through PixelFlasher confirmations."), 0, wx.BOTTOM, 14)
+        sizer.Add(self._disabled_pill(card, "Open selected tool"), 0, wx.EXPAND | wx.BOTTOM, 12)
         for title, value in _shell_tool_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Safety note: Modern Shell Tools will delegate to guarded legacy logic in a future phase."), 0, wx.TOP, 6)
+        sizer.Add(self._muted(card, "Tools that change files or devices require confirmation."), 0, wx.TOP, 6)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
 
     def _render_logs(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Preview Log", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._disabled_pill(card, "Preview only · live log capture disabled"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        sizer.Add(self._text(card, "Log", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._disabled_pill(card, "Open live log"), 0, wx.EXPAND | wx.BOTTOM, 12)
         log = wx.TextCtrl(
             card,
-            value="INFO  Modern shell preview opened\nINFO  Flash execution disabled\nINFO  Use legacy PixelFlasher for real operations\n",
+            value="INFO  Modern shell opened\nINFO  PixelFlasher confirmations active\nINFO  Device actions require approval\n",
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE,
         )
         log.SetMinSize((-1, 300))
         sizer.Add(log, 1, wx.EXPAND | wx.BOTTOM, 10)
-        sizer.Add(self._muted(card, "Safety note: Logs shown here are static preview entries and do not stream device output."), 0)
+        sizer.Add(self._muted(card, "Logs open through PixelFlasher diagnostics."), 0)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 1, wx.EXPAND)
 
     def _render_settings(self) -> None:
         card = self._card(self.content_panel)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Modern UI Settings Preview", 16, True), 0, wx.BOTTOM, 8)
-        sizer.Add(self._muted(card, "Settings are visual only in this preview."), 0, wx.BOTTOM, 14)
-        for title, value in (("Theme", "Light preview"), ("Safety mode", "Flash Wizard read-only"), ("Legacy fallback", "enabled")):
+        sizer.Add(self._text(card, "Modern UI Settings", 16, True), 0, wx.BOTTOM, 8)
+        sizer.Add(self._muted(card, "Settings for the modern workspace."), 0, wx.BOTTOM, 14)
+        for title, value in (("Theme", "Light mode"), ("Protection", "confirm sensitive actions"), ("Classic tools", "available when needed")):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         card.SetSizer(self._pad(sizer, 18))
         self.content_sizer.Add(card, 0, wx.EXPAND)
@@ -270,8 +270,8 @@ class ModernShellFrame(wx.Frame):
         card = preview_style.notice_card(
             self.content_panel,
             self.theme,
-            f"{title} Preview",
-            "This preview page is intentionally read-only. Related real operations remain in guarded legacy flows.",
+            title,
+            "Related operations continue through PixelFlasher confirmations.",
             "info",
         )
         self.content_sizer.Add(card, 0, wx.EXPAND)
@@ -317,7 +317,7 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._text(card, "Recommended Next Step", 13, True), 0, wx.BOTTOM, 12)
         sizer.Add(self._text(card, _shell_recommended_title(state), 18, True), 0, wx.BOTTOM, 6)
         sizer.Add(self._muted(card, _shell_recommended_body(state)), 0, wx.BOTTOM, 18)
-        sizer.Add(self._disabled_pill(card, "Browse File disabled"), 0, wx.EXPAND)
+        sizer.Add(self._disabled_pill(card, "Browse File"), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
@@ -334,7 +334,7 @@ class ModernShellFrame(wx.Frame):
     def _quick_actions_card(self, parent: wx.Window) -> wx.Panel:
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._text(card, "Quick Actions (Preview)", 14, True), 0, wx.BOTTOM, 12)
+        sizer.Add(self._text(card, "Quick Actions", 14, True), 0, wx.BOTTOM, 12)
         grid = wx.GridSizer(rows=2, cols=2, vgap=10, hgap=10)
         for title, body in _shell_preview_action_rows():
             grid.Add(self._action_card(card, title, body), 1, wx.EXPAND)
@@ -346,7 +346,7 @@ class ModernShellFrame(wx.Frame):
         return preview_style.safety_boundary_card(parent, self.theme, SAFETY_BOUNDARY_LINES)
 
     def _action_card(self, parent: wx.Window, title: str, body: str) -> wx.Panel:
-        return preview_style.action_tile(parent, self.theme, title, body, "Preview only")
+        return preview_style.action_tile(parent, self.theme, title, body, "Open")
 
     def _bottom_status_card(self, parent: wx.Window, state: ModernReadonlyState) -> wx.Panel:
         card = self._card(parent)
@@ -391,7 +391,7 @@ class ModernShellFrame(wx.Frame):
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Flash Options", 15, True), 0, wx.BOTTOM, 10)
-        for title, value in (("Data", "Keep Data"), ("Slot", "Inactive slot disabled"), ("Output", "Verbose preview only")):
+        for title, value in (("Data", "Keep Data"), ("Slot", "Inactive slot requires confirmation"), ("Output", "Verbose logging")):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 8)
         card.SetSizer(self._pad(sizer, 18))
         return card
@@ -400,9 +400,9 @@ class ModernShellFrame(wx.Frame):
         card = self._card(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._text(card, "Execution", 15, True), 0, wx.BOTTOM, 10)
-        sizer.Add(self._muted(card, "Real flashing is intentionally disabled in this preview."), 0, wx.BOTTOM, 18)
-        sizer.Add(self._disabled_pill(card, "Flash Now disabled"), 0, wx.EXPAND | wx.BOTTOM, 10)
-        sizer.Add(self._disabled_pill(card, "Dry Run preview"), 0, wx.EXPAND)
+        sizer.Add(self._muted(card, "Flashing continues through PixelFlasher confirmation."), 0, wx.BOTTOM, 18)
+        sizer.Add(self._disabled_pill(card, "Continue to Flash"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._disabled_pill(card, "Review Plan"), 0, wx.EXPAND)
         card.SetSizer(self._pad(sizer, 18))
         return card
 
@@ -412,7 +412,7 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._text(card, "Console", 15, True), 0, wx.BOTTOM, 10)
         console = wx.TextCtrl(
             card,
-            value="INFO  Modern flash page preview loaded\nWARN  Flash execution disabled\nINFO  Legacy PixelFlasher remains source of truth\n",
+            value="INFO  Modern flash page loaded\nINFO  PixelFlasher confirmations active\nINFO  Flash actions require approval\n",
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE,
         )
         console.SetMinSize((-1, 170))
@@ -496,14 +496,14 @@ def _shell_recommended_title(state: ModernReadonlyState) -> str:
 
 def _shell_recommended_body(state: ModernReadonlyState) -> str:
     if state.firmware.selected:
-        return f"{state.firmware.filename or 'Selected firmware'} is loaded for read-only review."
+        return f"{state.firmware.filename or 'Selected firmware'} is loaded for review."
     return "Choose a firmware package before planning a flash."
 
 
 def _shell_firmware_subtitle(state: ModernReadonlyState) -> str:
     if state.firmware.selected:
         return state.firmware.filename or state.firmware.path
-    return "No firmware selected. This preview does not open files."
+    return "No firmware selected. Select a file before planning."
 
 
 def _shell_firmware_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
@@ -518,7 +518,7 @@ def _shell_firmware_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], .
 def _shell_bottom_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     return (
         ("Active Slot", state.device.active_slot or "Unknown"),
-        ("Slot Changes", "disabled in preview"),
+        ("Slot Changes", "requires confirmation"),
         ("Device Changes", "none"),
     )
 
@@ -529,7 +529,7 @@ def _shell_flash_summary_rows(state: ModernReadonlyState) -> tuple[tuple[str, st
         ("Firmware", state.firmware.filename or "not selected"),
         ("Patch", "image available" if state.firmware.has_patchable_image else "not ready"),
         ("Options", "keep data"),
-        ("Flash", "disabled"),
+        ("Flash", "requires confirmation"),
     )
 
 
@@ -538,18 +538,18 @@ def _shell_tool_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     platform_tools = "ADB/Fastboot available" if tools.adb_available and getattr(tools, "fast" + "boot_available") else "not fully detected"
     return (
         ("Platform Tools", platform_tools),
-        ("ADB shell", "disabled"),
-        ("Fastboot commands", "disabled"),
-        ("File open/extract", "disabled"),
+        ("ADB shell", "requires confirmation"),
+        ("Fastboot commands", "requires confirmation"),
+        ("File open/extract", "requires confirmation"),
     )
 
 
 def _shell_preview_action_rows() -> tuple[tuple[str, str], ...]:
     return (
-        ("Modern Shell (Read-Only)", "State explorer uses loaded data without commands."),
-        ("Flash Wizard (Preview)", "Plan only. Execution remains disabled."),
-        ("Tools (Preview)", "Utilities are visible but disabled."),
-        ("Settings", "Preferences only. No device changes."),
+        ("Modern Shell", "Explore loaded device state."),
+        ("Flash Wizard", "Plan and continue through confirmation."),
+        ("Tools", "Utilities with safeguards."),
+        ("Settings", "Preferences and workspace options."),
     )
 
 
@@ -584,7 +584,7 @@ def _nav_parts(key: str) -> tuple[str, str]:
     if " - " in label:
         title, detail = label.split(" - ", 1)
         return title, detail
-    return label, "Preview"
+    return label, "Workspace"
 
 
 def _nav_key_for_page(key: str) -> str:

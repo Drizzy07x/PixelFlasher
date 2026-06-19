@@ -1,13 +1,26 @@
 # -*- mode: python -*-
+from pathlib import Path
+
+import wx
+
+wx_dir = Path(wx.__file__).resolve().parent
 
 block_cipher = None
 
 a = Analysis(['PixelFlasher.py'],
             pathex=['.'],
-            binaries=[('bin/7z.exe', 'bin'), ('bin/7z.dll', 'bin')],
+            binaries=[
+                ('bin/7z.exe', 'bin'),
+                ('bin/7z.dll', 'bin'),
+                (str(wx_dir / 'WebView2Loader.dll'), 'wx'),
+            ],
             datas=[
                 ("images/icon-64.png", "images"),
                 ("images/icon-dark-64.png", "images"),
+                ("images/icon-dark-256.png", "images"),
+                ("images/icon-dark-256.ico", "images"),
+                ("images/icon-dark-256.icns", "images"),
+                ("windows-version-info.txt", "."),
                 ('assets/icons/symbolic', 'assets/icons/symbolic'),
                 ('bin/busybox_arm64-v8a', 'bin'),
                 ('bin/busybox_armeabi-v7a', 'bin'),

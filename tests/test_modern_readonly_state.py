@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from ui.pages.modern_readonly_state import build_readonly_state
 
@@ -151,6 +152,23 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertTrue(state.settings.advanced_options)
         self.assertEqual("/opt/platform-tools", state.tools.platform_tools_path)
 
+    def test_reads_platform_tools_from_configured_path(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="pf-readonly-tools-") as tmp:
+            root = Path(tmp)
+            (root / "adb.exe").write_text("adb", encoding="utf-8")
+            (root / "fastboot.exe").write_text("fastboot", encoding="utf-8")
+            config = SimpleNamespace(platform_tools_path=str(root))
+            frame = SimpleNamespace(config=config)
+
+            state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertTrue(state.tools.adb_available)
+        self.assertTrue(state.tools.fastboot_available)
+        self.assertTrue(state.tools.adb_path.endswith("adb.exe"))
+        self.assertTrue(state.tools.fastboot_path.endswith("fastboot.exe"))
+
     def test_fastboot_selection_preserves_connection_mode(self):
         config = SimpleNamespace(device="abc123456")
         frame = SimpleNamespace(
@@ -178,6 +196,73 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertFalse(state.device.adb_ready)
         self.assertTrue(state.device.fastboot_ready)
         self.assertEqual("Fastboot ready", state.device.connection_label)
+
+    def test_device_choice_text_is_humanized_for_modern_display(self):
+        config = SimpleNamespace(device="45241FDAS0097U")
+        frame = SimpleNamespace(
+            config=config,
+            device_choice=_Choice("X (adb) 45241FDAS0097U komodo CP1A.260505.005"),
+        )
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
+        self.assertEqual("45241FDAS0097U", state.device.serial)
+        self.assertEqual("komodo", state.device.codename)
+        self.assertEqual("ADB ready", state.device.connection_label)
+
+    def test_adb_model_text_is_humanized_for_modern_display(self):
+        config = SimpleNamespace(device="")
+        frame = SimpleNamespace(
+            config=config,
+            device_choice=_Choice("45241FDAS0097U device product:komodo model:Pixel_9_Pro_XL device:komodo"),
+        )
+
+        state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
+        self.assertEqual("45241FDAS0097U", state.device.serial)
+        self.assertEqual("komodo", state.device.codename)
+
+    def test_reads_cached_scan_phone_props_without_frame_phone(self):
+        cached_phone = SimpleNamespace(
+            id="45241FDAS0097U",
+            true_mode="adb",
+            _rooted=False,
+            props=SimpleNamespace(
+                property={
+                    "ro.product.model": "Pixel 9 Pro XL",
+                    "ro.product.device": "komodo",
+                    "ro.product.name": "komodo_beta",
+                    "ro.build.version.release": "16",
+                    "ro.build.id": "CP1A.260505.005",
+                    "ro.build.version.security_patch": "2026-05-05",
+                    "ro.boot.slot_suffix": "_a",
+                    "ro.boot.vbmeta.device_state": "locked",
+                }
+            ),
+        )
+        runtime = SimpleNamespace(
+            get_phones=lambda: [cached_phone],
+            get_phone_id=lambda: "45241FDAS0097U",
+        )
+        frame = SimpleNamespace(
+            config=SimpleNamespace(device="45241FDAS0097U"),
+            device_choice=_Choice("X (adb) 45241FDAS0097U komodo CP1A.260505.005"),
+        )
+
+        with patch("ui.pages.modern_readonly_state.importlib.import_module", return_value=runtime):
+            state = build_readonly_state(frame, tool_resolver=lambda name: None)
+
+        self.assertEqual("Pixel 9 Pro XL", state.device.display_name)
+        self.assertEqual("45241FDAS0097U", state.device.serial)
+        self.assertEqual("komodo", state.device.codename)
+        self.assertEqual("16", state.device.android_version)
+        self.assertEqual("CP1A.260505.005", state.device.build_id)
+        self.assertEqual("2026-05-05", state.device.security_patch)
+        self.assertEqual("locked", state.device.bootloader_state)
+        self.assertEqual("a", state.device.active_slot)
+        self.assertEqual("not rooted", state.device.root_status)
 
     def test_custom_rom_path_is_preferred_for_custom_rom_state(self):
         config = SimpleNamespace(
@@ -232,6 +317,38 @@ class ModernReadonlyStateTests(unittest.TestCase):
         self.assertFalse(state.firmware.verified)
         self.assertFalse(state.ready_for_review)
         self.assertIn("Firmware package has not been verified.", state.warnings)
+
+    def test_firmware_metadata_is_inferred_from_selected_file(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="pf-modern-fw-") as tmp:
+            ota_path = Path(tmp) / "komodo-ota-cp1a.zip"
+            ota_path.write_bytes(b"0" * 1536)
+            image_path = Path(tmp) / "init_boot.img"
+            image_path.write_bytes(b"1" * 2048)
+
+            ota_state = build_readonly_state(
+                SimpleNamespace(
+                    config=SimpleNamespace(firmware_path=str(ota_path), firmware_is_ota=False),
+                    firmware_picker=_Picker(""),
+                ),
+                tool_resolver=lambda name: None,
+            )
+            image_state = build_readonly_state(
+                SimpleNamespace(
+                    config=SimpleNamespace(firmware_path=str(image_path), firmware_is_ota=False),
+                    firmware_picker=_Picker(""),
+                ),
+                tool_resolver=lambda name: None,
+            )
+
+        self.assertEqual("ota", ota_state.firmware.package_type)
+        self.assertEqual(".zip", ota_state.firmware.extension)
+        self.assertEqual(1536, ota_state.firmware.file_size_bytes)
+        self.assertEqual("1.5 KB", ota_state.firmware.size_label)
+        self.assertEqual("image", image_state.firmware.package_type)
+        self.assertEqual(".img", image_state.firmware.extension)
+        self.assertEqual("2.0 KB", image_state.firmware.size_label)
 
     def test_reader_suppresses_bad_legacy_controls(self):
         class BadPicker:

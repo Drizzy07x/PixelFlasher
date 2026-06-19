@@ -1,4 +1,4 @@
-"""Modern dashboard preview panel for PixelFlasher.
+"""Modern dashboard panel for PixelFlasher.
 
 The panel is intentionally non-invasive: it reads available state from the
 existing ``PixelFlasher`` frame and delegates actions back to existing handlers.
@@ -81,7 +81,7 @@ class ModernDashboardPanel(wx.Panel):
         panel = preview_style.sidebar_container(self, self.theme, 270)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        sizer.Add(preview_style.sidebar_brand(panel, self.theme, "PixelFlasher", "Modern UI Preview"), 0, wx.EXPAND | wx.ALL, 14)
+        sizer.Add(preview_style.sidebar_brand(panel, self.theme, "PixelFlasher", "Modern UI"), 0, wx.EXPAND | wx.ALL, 14)
 
         sizer.Add(self._sidebar_divider(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
         for key, title, detail in NAV_ITEMS:
@@ -110,7 +110,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_device_card(self) -> wx.Panel:
         card = preview_style.hero_device_card(self, self.theme)
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(self._card_heading(card, "Connected Device (Read-Only)", "Loaded state only"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        root.Add(self._card_heading(card, "Connected Device", "Loaded device state"), 0, wx.EXPAND | wx.BOTTOM, 12)
 
         body = wx.BoxSizer(wx.HORIZONTAL)
         body.Add(preview_style.device_glyph_panel(card, self.theme), 0, wx.EXPAND | wx.RIGHT, 16)
@@ -152,7 +152,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_next_step_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._card_heading(card, "Preview Readiness", "Plan only"), 0, wx.EXPAND | wx.BOTTOM, 12)
+        sizer.Add(self._card_heading(card, "Workflow Readiness", "Planning"), 0, wx.EXPAND | wx.BOTTOM, 12)
         self._labels["next_step_title"] = self._text(card, "Select firmware", 15, bold=True)
         self._labels["next_step_body"] = self._muted(card, "Choose a factory image, OTA package, or custom ROM.")
         sizer.Add(self._labels["next_step_title"], 0, wx.BOTTOM, 4)
@@ -170,9 +170,9 @@ class ModernDashboardPanel(wx.Panel):
     def _build_firmware_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._card_heading(card, "Firmware / ROM File (Read-Only)", "Existing selector remains source of truth"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._card_heading(card, "Firmware / ROM File", "Current selection"), 0, wx.EXPAND | wx.BOTTOM, 10)
         self._labels["firmware_filename"] = self._text(card, "No firmware selected", 11, bold=True)
-        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the preview selector focus above.")
+        self._labels["firmware_details"] = self._muted(card, "Use the existing selector below, or the workflow selector focus above.")
         sizer.Add(self._labels["firmware_filename"], 0, wx.BOTTOM, 3)
         sizer.Add(self._labels["firmware_details"], 0)
         card.SetSizer(self._wrap(sizer, 16))
@@ -181,7 +181,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_quick_actions(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._card_heading(card, "Quick Actions (Preview)", "Guarded legacy flow labels"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._card_heading(card, "Quick Actions", "Guarded PixelFlasher flows"), 0, wx.EXPAND | wx.BOTTOM, 10)
         actions = wx.GridSizer(rows=2, cols=2, vgap=8, hgap=8)
         for action in self._quick_actions():
             actions.Add(self._action_button(card, action), 1, wx.EXPAND)
@@ -195,7 +195,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_device_slots_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._card_heading(card, "Device Slots (Read-Only)", "No slot switching"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._card_heading(card, "Device Slots", "Current slot state"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for title, value in _dashboard_slot_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
         card.SetSizer(self._wrap(sizer, 16))
@@ -204,7 +204,7 @@ class ModernDashboardPanel(wx.Panel):
     def _build_partitions_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._card_heading(card, "Partitions (Read-Only)", "No partition writes"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._card_heading(card, "Partitions", "Boot image context"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for title, value in _dashboard_partition_rows(self._readonly_state()):
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
         card.SetSizer(self._wrap(sizer, 16))
@@ -213,14 +213,14 @@ class ModernDashboardPanel(wx.Panel):
     def _build_last_backup_card(self) -> wx.Panel:
         card = self._card(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self._card_heading(card, "Last Backup (Read-Only)", "Restore stays guarded"), 0, wx.EXPAND | wx.BOTTOM, 10)
+        sizer.Add(self._card_heading(card, "Last Backup", "Restore requires confirmation"), 0, wx.EXPAND | wx.BOTTOM, 10)
         for title, value in _dashboard_backup_rows():
             sizer.Add(self._info_row(card, title, value), 0, wx.EXPAND | wx.BOTTOM, 5)
         card.SetSizer(self._wrap(sizer, 16))
         return card
 
     def _build_status_bar(self) -> wx.Panel:
-        return preview_style.bottom_status_bar(self, self.theme, MODERN_PREVIEW_STATUS, MODERN_PREVIEW_FOOTER, "Read-only")
+        return preview_style.bottom_status_bar(self, self.theme, MODERN_PREVIEW_STATUS, MODERN_PREVIEW_FOOTER, "Ready")
 
     def _quick_actions(self) -> tuple[QuickAction, ...]:
         return _dashboard_quick_actions()
@@ -259,7 +259,7 @@ class ModernDashboardPanel(wx.Panel):
             self._labels["next_step_body"].SetLabel("Firmware is selected. Keep dangerous options in the legacy controls below for now.")
         else:
             self._labels["firmware_filename"].SetLabel("No firmware selected")
-            self._labels["firmware_details"].SetLabel("Use the existing selector below, or the preview selector focus above.")
+            self._labels["firmware_details"].SetLabel("Use the existing selector below, or the workflow selector focus above.")
             self._labels["next_step_title"].SetLabel("Select firmware")
             self._labels["next_step_body"].SetLabel("Choose a factory image, OTA package, or custom ROM.")
         self.Layout()
@@ -269,7 +269,7 @@ class ModernDashboardPanel(wx.Panel):
         if picker is not None:
             with contextlib.suppress(Exception):
                 picker.SetFocus()
-        wx.MessageBox("Use the existing firmware selector below for this preview build.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
+        wx.MessageBox("Use the existing firmware selector below for this workflow.", "PixelFlasher", wx.OK | wx.ICON_INFORMATION)
 
     def _readonly_state(self) -> ModernReadonlyState:
         return build_readonly_state(self.frame)
@@ -335,7 +335,7 @@ class ModernDashboardPanel(wx.Panel):
         return panel
 
     def _sidebar_note(self, parent: wx.Window) -> wx.Panel:
-        return preview_style.notice_card(parent, self.theme, "Preview-Only Mode", "All Modern UI features are read-only. Actions that modify your device are disabled or delegate to guarded legacy flows.", "info")
+        return preview_style.notice_card(parent, self.theme, "Modern UI", "Sensitive actions continue through PixelFlasher confirmations.", "info")
 
     def _pill(self, parent: wx.Window, label: str, level: StatusLevel) -> wx.StaticText:
         tone = {
@@ -397,7 +397,7 @@ def _dashboard_action_icon(key: str) -> str:
 def _dashboard_slot_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
     return (
         ("Active slot", state.device.active_slot or "unknown"),
-        ("Slot changes", "disabled in preview"),
+        ("Slot changes", "requires confirmation"),
     )
 
 
@@ -405,20 +405,20 @@ def _dashboard_partition_rows(state: ModernReadonlyState) -> tuple[tuple[str, st
     patchable = "available" if state.firmware.has_patchable_image else "not detected"
     return (
         ("boot/init_boot", patchable),
-        ("Partition writes", "disabled in preview"),
+        ("Partition writes", "requires confirmation"),
     )
 
 
 def _dashboard_backup_rows() -> tuple[tuple[str, str], ...]:
     return (
-        ("Last backup", "not read in preview"),
-        ("Restore", "guarded legacy flow only"),
+        ("Last backup", "not selected"),
+        ("Restore", "requires confirmation"),
     )
 
 
 def _dashboard_preview_context_rows() -> tuple[tuple[str, str], ...]:
     return (
-        ("Preview source", "already-loaded state"),
+        ("State source", "already-loaded state"),
         ("State updates", "legacy UI remains source"),
         ("Actions", "guarded or disabled"),
     )

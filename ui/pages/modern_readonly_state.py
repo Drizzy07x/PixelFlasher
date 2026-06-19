@@ -1,4 +1,4 @@
-"""Shared read-only state adapter for Modern UI preview surfaces.
+"""Shared state adapter for Modern UI surfaces.
 
 This module only reads already-loaded frame/config values. It does not run adb,
 fastboot, patching, flashing, firmware parsing, reboot, slot, wipe, or file
@@ -8,6 +8,7 @@ mutation operations.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,29 @@ from typing import Any, Callable
 
 
 ToolResolver = Callable[[str], str | None]
+
+PIXEL_CODENAME_NAMES: dict[str, str] = {
+    "komodo": "Pixel 9 Pro XL",
+    "caiman": "Pixel 9 Pro",
+    "tokay": "Pixel 9",
+    "akita": "Pixel 8a",
+    "husky": "Pixel 8 Pro",
+    "shiba": "Pixel 8",
+    "felix": "Pixel Fold",
+    "tangorpro": "Pixel Tablet",
+    "cheetah": "Pixel 7 Pro",
+    "panther": "Pixel 7",
+    "lynx": "Pixel 7a",
+    "raven": "Pixel 6 Pro",
+    "oriole": "Pixel 6",
+    "bluejay": "Pixel 6a",
+    "redfin": "Pixel 5",
+    "barbet": "Pixel 5a",
+    "bramble": "Pixel 4a 5G",
+    "sunfish": "Pixel 4a",
+    "coral": "Pixel 4 XL",
+    "flame": "Pixel 4",
+}
 
 
 @dataclass(frozen=True)
@@ -57,6 +81,8 @@ class ModernFirmwareState:
     verified: bool = False
     has_boot_image: bool = False
     has_init_boot_image: bool = False
+    file_size_bytes: int = 0
+    extension: str = ""
 
     @property
     def selected(self) -> bool:
@@ -69,6 +95,10 @@ class ModernFirmwareState:
     @property
     def has_patchable_image(self) -> bool:
         return self.has_boot_image or self.has_init_boot_image
+
+    @property
+    def size_label(self) -> str:
+        return _size_label(self.file_size_bytes)
 
 
 @dataclass(frozen=True)
@@ -120,7 +150,7 @@ class ModernBackupState:
     total_count: int = 0
     latest_label: str = "not loaded"
     location: str = "not selected"
-    restore_mode: str = "guarded legacy only"
+    restore_mode: str = "requires confirmation"
 
     @property
     def has_loaded_backups(self) -> bool:
@@ -176,11 +206,19 @@ def _read_device(frame: Any, config: Any) -> ModernDeviceState:
     configured = str(getattr(config, "device", "") or "")
     phone = _loaded_phone(frame, config)
     props = _loaded_props(phone)
-    serial = _raw_string(phone, "id") or configured
+    serial = _first_text(_raw_string(phone, "id"), _serial_from_device_text(selected), configured)
     model = _prop(props, "ro.product.model")
-    codename = _prop(props, "ro.product.device") or _prop(props, "ro.hardware")
+    codename = _first_text(_prop(props, "ro.product.device"), _prop(props, "ro.hardware"), _codename_from_device_text(selected), configured)
     product = _prop(props, "ro.product.name")
-    identifier = selected or model or configured or serial
+    identifier = _first_text(
+        _clean_device_model(model),
+        _friendly_name_for_codename(codename),
+        _device_model_from_text(selected),
+        _friendly_name_for_codename(configured),
+        _clean_device_label(selected),
+        configured,
+        serial,
+    )
     mode = _read_connection_mode(frame, config, selected)
     adb_ready = _is_adb_mode(mode)
     fastboot_ready = _is_fastboot_mode(mode)
@@ -190,7 +228,7 @@ def _read_device(frame: Any, config: Any) -> ModernDeviceState:
 
     return ModernDeviceState(
         display_name=identifier,
-        serial=serial or identifier,
+        serial=serial or _serial_from_device_text(selected) or identifier,
         codename=codename,
         product=product,
         adb_ready=adb_ready,
@@ -216,15 +254,8 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
     rom_path = str(getattr(config, "custom_rom_path", "") or getattr(config, "rom_path", "") or "")
     path = rom_path if custom_rom and rom_path else firmware_path
 
-    firmware_is_ota = bool(getattr(config, "firmware_is_ota", False))
-    if custom_rom:
-        package_type = "custom_rom"
-    elif firmware_is_ota:
-        package_type = "ota"
-    elif path:
-        package_type = "factory"
-    else:
-        package_type = "unknown"
+    extension = _file_extension(path)
+    package_type = _firmware_package_type(path, config, custom_rom, extension)
 
     firmware_sha256 = str(getattr(config, "firmware_sha256", "") or "")
     rom_sha256 = str(getattr(config, "rom_sha256", "") or "")
@@ -239,14 +270,68 @@ def _read_firmware(frame: Any, config: Any) -> ModernFirmwareState:
         verified=bool(path and sha256),
         has_boot_image=bool(getattr(config, "boot_id", None) or getattr(config, "selected_boot_md5", None)),
         has_init_boot_image=bool(getattr(config, "firmware_has_init_boot", False) or getattr(config, "rom_has_init_boot", False)),
+        file_size_bytes=_file_size(path),
+        extension=extension,
     )
 
 
 def _read_tools(config: Any, tool_resolver: ToolResolver) -> ModernToolState:
     configured_path = str(getattr(config, "platform_tools_path", "") or "")
-    adb = tool_resolver("adb") or tool_resolver("adb.exe") or ""
-    fastboot = tool_resolver("fastboot") or tool_resolver("fastboot.exe") or ""
+    adb = _configured_tool(configured_path, ("adb.exe", "adb")) or tool_resolver("adb") or tool_resolver("adb.exe") or ""
+    fastboot = _configured_tool(configured_path, ("fastboot.exe", "fastboot")) or tool_resolver("fastboot") or tool_resolver("fastboot.exe") or ""
     return ModernToolState(adb_path=str(adb or ""), fastboot_path=str(fastboot or ""), platform_tools_path=configured_path)
+
+
+def _configured_tool(configured_path: str, names: tuple[str, ...]) -> str:
+    if not configured_path:
+        return ""
+    root = Path(configured_path)
+    for name in names:
+        candidate = root / name
+        if candidate.is_file():
+            return str(candidate)
+    return ""
+
+
+def _firmware_package_type(path: str, config: Any, custom_rom: bool, extension: str) -> str:
+    if not path:
+        return "unknown"
+    filename = Path(path).name.lower()
+    firmware_is_ota = bool(getattr(config, "firmware_is_ota", False))
+    if custom_rom:
+        return "custom_rom"
+    if firmware_is_ota or "-ota-" in filename or filename.startswith("ota-"):
+        return "ota"
+    if extension == ".img":
+        return "image"
+    if extension in {".zip", ".tgz", ".tar"}:
+        return "factory"
+    return "unknown"
+
+
+def _file_extension(path: str) -> str:
+    return Path(path).suffix.lower() if path else ""
+
+
+def _file_size(path: str) -> int:
+    if not path:
+        return 0
+    with contextlib.suppress(OSError):
+        return Path(path).stat().st_size
+    return 0
+
+
+def _size_label(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return "unknown"
+    units = ("B", "KB", "MB", "GB")
+    value = float(size_bytes)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
 
 
 def _read_flash_options(config: Any) -> ModernFlashOptionsState:
@@ -324,6 +409,82 @@ def _connection_mode_from_text(value: str) -> str:
     return ""
 
 
+def _serial_from_device_text(value: str) -> str:
+    for token in _device_text_tokens(value):
+        if ":" in token:
+            continue
+        compact = token.strip("[]()")
+        if 6 <= len(compact) <= 32 and any(ch.isdigit() for ch in compact) and compact.isalnum():
+            return compact
+    return ""
+
+
+def _codename_from_device_text(value: str) -> str:
+    tokens = _device_text_tokens(value)
+    for index, token in enumerate(tokens):
+        compact = token.strip("[]()").lower()
+        for marker in ("device:", "device=", "product:", "product="):
+            if compact.startswith(marker):
+                candidate = compact[len(marker) :]
+                if candidate in PIXEL_CODENAME_NAMES:
+                    return candidate
+        if compact in PIXEL_CODENAME_NAMES:
+            return compact
+        if index > 0 and compact in {"adb", "device", "fastboot", "recovery"}:
+            continue
+    return ""
+
+
+def _device_model_from_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for marker in ("model:", "model="):
+        lower = text.lower()
+        if marker in lower:
+            start = lower.index(marker) + len(marker)
+            raw = text[start:].split()[0]
+            return _clean_device_model(raw)
+    if "pixel" in text.lower():
+        cleaned = text
+        for marker in ("[", "("):
+            cleaned = cleaned.split(marker, 1)[0]
+        return _clean_device_model(cleaned)
+    return ""
+
+
+def _clean_device_model(value: str) -> str:
+    text = str(value or "").strip().strip("[]()")
+    if not text:
+        return ""
+    text = text.replace("_", " ").replace("-", " ")
+    cleaned_parts = []
+    for part in text.split():
+        if part.upper() == part and (any(ch.isdigit() for ch in part) or len(part) <= 3):
+            cleaned_parts.append(part)
+        else:
+            cleaned_parts.append(part.capitalize())
+    return " ".join(cleaned_parts)
+
+
+def _friendly_name_for_codename(value: str) -> str:
+    key = str(value or "").strip().lower()
+    return PIXEL_CODENAME_NAMES.get(key, "")
+
+
+def _clean_device_label(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.lower().startswith("x (") or text.lower().startswith("device "):
+        return ""
+    return text
+
+
+def _device_text_tokens(value: str) -> tuple[str, ...]:
+    return tuple(part.strip(",;") for part in str(value or "").replace("\t", " ").split() if part.strip(",;"))
+
+
 def _normalize_connection_mode(value: str) -> str:
     mode = str(value or "").strip().lower()
     if mode in {"adb", "device"}:
@@ -366,7 +527,28 @@ def _call_string(obj: Any, method_name: str) -> str:
 
 
 def _loaded_phone(frame: Any, config: Any) -> Any:
-    return _raw_attr(frame, "phone") or _raw_attr(config, "phone")
+    return _raw_attr(frame, "phone") or _raw_attr(config, "phone") or _cached_phone(frame, config)
+
+
+def _cached_phone(frame: Any, config: Any) -> Any:
+    with contextlib.suppress(Exception):
+        runtime = importlib.import_module("runtime")
+        phones = runtime.get_phones()
+        if not phones:
+            return None
+        selected = _call_string(getattr(frame, "device_choice", None), "GetStringSelection")
+        selected_id = _first_text(
+            str(getattr(config, "device", "") or ""),
+            _serial_from_device_text(selected),
+            str(runtime.get_phone_id() or ""),
+        )
+        if selected_id:
+            for phone in phones:
+                if _raw_string(phone, "id") == selected_id:
+                    return phone
+        if len(phones) == 1:
+            return phones[0]
+    return None
 
 
 def _loaded_props(phone: Any) -> dict[str, Any]:
