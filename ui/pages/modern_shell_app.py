@@ -1,4 +1,4 @@
-"""Standalone Modern Shell for PixelFlasher.
+"""Standalone Device workspace for PixelFlasher.
 
 This surface uses PixelFlasher guarded flows. It does not run flash, patch, reboot,
 ADB, Fastboot, or file-processing operations. It exists to iterate on the full
@@ -36,7 +36,7 @@ class ModernShellFrame(wx.Frame):
     """Full modern UI shell with protected placeholder pages."""
 
     def __init__(self) -> None:
-        super().__init__(None, title=f"{APPNAME} {VERSION} - Modern Shell", size=(1280, 820))
+        super().__init__(None, title=f"{APPNAME} {VERSION} - Device", size=(1280, 820))
         self.theme = get_theme("dark")
         self.active_page = "devices"
         self.nav_buttons: dict[str, wx.Panel] = {}
@@ -118,7 +118,7 @@ class ModernShellFrame(wx.Frame):
         titles = {
             "dashboard": (MODERN_PREVIEW_TITLE, MODERN_PREVIEW_SUBTITLE),
             "flash": ("Flash Wizard", "Plan and continue through PixelFlasher confirmation."),
-            "devices": ("Modern Shell", "Loaded device state and connection context."),
+            "devices": ("Device", "Loaded device state and connection context."),
             "backups": ("Backups", "Backup and restore context."),
             "downloads": ("Downloads", "Firmware and update context."),
             "tools": ("Tools", "Utilities with PixelFlasher confirmations."),
@@ -247,7 +247,7 @@ class ModernShellFrame(wx.Frame):
         sizer.Add(self._disabled_pill(card, "Open live log"), 0, wx.EXPAND | wx.BOTTOM, 12)
         log = wx.TextCtrl(
             card,
-            value="INFO  Modern shell opened\nINFO  PixelFlasher confirmations active\nINFO  Device actions require approval\n",
+            value="INFO  Device workspace opened\nINFO  PixelFlasher confirmations active\nINFO  Device actions require approval\n",
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE,
         )
         log.SetMinSize((-1, 300))
@@ -546,7 +546,7 @@ def _shell_tool_rows(state: ModernReadonlyState) -> tuple[tuple[str, str], ...]:
 
 def _shell_preview_action_rows() -> tuple[tuple[str, str], ...]:
     return (
-        ("Modern Shell", "Explore loaded device state."),
+        ("Device", "Explore loaded device state."),
         ("Flash Wizard", "Plan and continue through confirmation."),
         ("Tools", "Utilities with safeguards."),
         ("Settings", "Preferences and workspace options."),

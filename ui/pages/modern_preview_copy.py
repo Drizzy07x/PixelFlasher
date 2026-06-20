@@ -28,13 +28,13 @@ NAV_ICONS: dict[str, str] = {
 
 NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("dashboard", "Dashboard", "Overview & device summary"),
-    ("shell", "Modern Shell", "Device state explorer"),
-    ("wizard", "Flash Wizard", "Plan and continue safely"),
+    ("shell", "Device", "State & connection"),
+    ("wizard", "Flash Wizard", "Plan and flash"),
     ("backups", "Backups", "Backup context"),
-    ("downloads", "Downloads", "Firmware updates"),
+    ("downloads", "Downloads", "Firmware"),
     ("settings", "Settings", "Preferences"),
     ("tools", "Tools", "Utilities"),
-    ("safety", "System", "Protection & confirmations"),
+    ("safety", "Safety", "Confirmations"),
     ("about", "About", "Version & info"),
 )
 
@@ -47,7 +47,7 @@ SAFETY_BOUNDARY_LINES: tuple[str, ...] = (
 
 DASHBOARD_PREVIEW_ACTIONS: tuple[tuple[str, str], ...] = (
     ("Flash Wizard", "Plan and continue through confirmation."),
-    ("Modern Shell", "Review loaded device state."),
+    ("Device", "Review loaded device state."),
     ("Downloads", "Browse update information."),
 )
 

@@ -749,6 +749,48 @@ class PixelFlasher(wx.Frame):
             self.download_progress_window = DownloadProgressWindow(self)
         return self.download_progress_window
 
+    def _dialog_parent(self):
+        return getattr(self, "_modern_dialog_parent", self) or self
+
+    def _ensure_runtime_device_loaded(self):
+        if get_phone(True):
+            return True
+
+        device_id = str(getattr(self.config, "device", "") or "")
+        if not device_id:
+            selection = str(self.device_choice.GetStringSelection() or "")
+            device_id = selection.split()[0] if selection else ""
+
+        if device_id:
+            update_phones(device_id)
+            if self._select_runtime_phone(device_id):
+                return True
+
+        if get_adb() or get_fastboot():
+            connected_devices = get_connected_devices()
+            self.device_choice.SetItems(connected_devices)
+            phones = get_phones()
+            if len(phones) == 1 and self._select_runtime_phone(phones[0].id):
+                return True
+            if device_id and self._select_runtime_phone(device_id):
+                return True
+
+        return False
+
+    def _select_runtime_phone(self, device_id):
+        for phone in get_phones():
+            if phone.id == device_id:
+                set_phone_id(phone.id)
+                self.config.device = phone.id
+                self._select_device_choice_by_id(phone.id)
+                return get_phone(True) is not None
+        return False
+
+    def _select_device_choice_by_id(self, device_id):
+        for index, label in enumerate(self.device_choice.GetItems()):
+            if str(label).split()[0] == device_id:
+                self.device_choice.SetSelection(index)
+                return
 
     # -----------------------------------------------
     #                  initialize
@@ -2523,7 +2565,7 @@ class PixelFlasher(wx.Frame):
     # -----------------------------------------------
     def _on_support_zip(self, event):
         timestr = time.strftime('%Y-%m-%d_%H-%M-%S')
-        with wx.FileDialog(self, _("Save support file"), '', f"support_{timestr}.zip", wildcard="Support files (*.zip)|*.zip",
+        with wx.FileDialog(self._dialog_parent(), _("Save support file"), '', f"support_{timestr}.zip", wildcard="Support files (*.zip)|*.zip",
                         style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as fileDialog:
 
             if fileDialog.ShowModal() == wx.ID_CANCEL:
@@ -4244,6 +4286,54 @@ class PixelFlasher(wx.Frame):
             traceback.print_exc()
 
     # -----------------------------------------------
+    #            update_custom_rom_selection
+    # -----------------------------------------------
+    def update_custom_rom_selection(self, path):
+        try:
+            print("\n==============================================================================")
+            print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated custom ROM selection")
+            print("==============================================================================")
+            if not os.path.exists(path):
+                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: file {path} does not exist")
+                return -1
+            custom_rom_path = path.replace("'", "")
+            filename, extension = os.path.splitext(custom_rom_path)
+            extension = extension.lower()
+            puml(":Select ROM File;\n", True)
+            if extension not in ['.zip', '.tgz', '.tar']:
+                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: The selected file {custom_rom_path} is not a valid archive.")
+                puml("#red:The selected ROM file is not valid;\n")
+                if hasattr(self, "custom_rom"):
+                    self.custom_rom.SetPath('')
+                return -1
+
+            self.config.custom_rom = True
+            self.config.custom_rom_path = custom_rom_path
+            if hasattr(self, "custom_rom_checkbox"):
+                self.custom_rom_checkbox.SetValue(True)
+            if hasattr(self, "custom_rom"):
+                with contextlib.suppress(Exception):
+                    self.custom_rom.SetPath(custom_rom_path)
+
+            rom_file = ntpath.basename(custom_rom_path)
+            set_custom_rom_id(os.path.splitext(rom_file)[0])
+            rom_hash = sha256(self.config.custom_rom_path)
+
+            if len(rom_hash) == 64:
+                self.config.rom_sha256 = rom_hash
+            else:
+                self.config.rom_sha256 = None
+            if hasattr(self, "custom_rom"):
+                self.custom_rom.SetToolTip(f"SHA-256: {rom_hash}")
+            print(f"Selected ROM {rom_file} SHA-256: {rom_hash}")
+            puml(f"note right\n{rom_file}\nSHA-256: {rom_hash}\nend note\n")
+            populate_boot_list(self)
+            self.update_widget_states()
+        except Exception as e:
+            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while selecting rom")
+            traceback.print_exc()
+
+    # -----------------------------------------------
     #                  _on_select_firmware
     # -----------------------------------------------
     def _on_select_firmware(self, event):
@@ -4339,29 +4429,7 @@ class PixelFlasher(wx.Frame):
     def _on_select_custom_rom(self, event):
         try:
             self._on_spin('start')
-            custom_rom_path = event.GetPath().replace("'", "")
-            filename, extension = os.path.splitext(custom_rom_path)
-            extension = extension.lower()
-            puml(":Select ROM File;\n", True)
-            if extension in ['.zip', '.tgz', '.tar']:
-                self.config.custom_rom_path = custom_rom_path
-                rom_file = ntpath.basename(custom_rom_path)
-                set_custom_rom_id(os.path.splitext(rom_file)[0])
-                rom_hash = sha256(self.config.custom_rom_path)
-
-                if len(rom_hash) == 64:
-                    self.config.rom_sha256 = rom_hash
-                else:
-                    self.config.rom_sha256 = None
-                self.custom_rom.SetToolTip(f"SHA-256: {rom_hash}")
-                print(f"Selected ROM {rom_file} SHA-256: {rom_hash}")
-                puml(f"note right\n{rom_file}\nSHA-256: {rom_hash}\nend note\n")
-                populate_boot_list(self)
-                self.update_widget_states()
-            else:
-                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: The selected file {custom_rom_path} is not a valid archive.")
-                puml("#red:The selected ROM file is not valid;\n")
-                self.custom_rom.SetPath('')
+            self.update_custom_rom_selection(event.GetPath())
         except Exception as e:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while selecting rom")
             traceback.print_exc()
@@ -5223,10 +5291,11 @@ class PixelFlasher(wx.Frame):
         print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Magisk Manager")
         print("==============================================================================")
         self._on_spin('start')
+        self._ensure_runtime_device_loaded()
         dlg = None
         try:
             try:
-                dlg = MagiskModules(parent=self, config=self.config)
+                dlg = MagiskModules(parent=self._dialog_parent(), config=self.config)
             except Exception:
                 traceback.print_exc()
                 return
@@ -5282,10 +5351,11 @@ class PixelFlasher(wx.Frame):
         print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Rooting App")
         print("==============================================================================")
         self._on_spin('start')
+        self._ensure_runtime_device_loaded()
         dlg = None
         try:
             try:
-                dlg = MagiskDownloads(self)
+                dlg = MagiskDownloads(self._dialog_parent())
             except Exception:
                 traceback.print_exc()
                 return
@@ -5315,10 +5385,11 @@ class PixelFlasher(wx.Frame):
         # device = get_phone(True)
         # device.get_magisk_backups()
         self._on_spin('start')
+        self._ensure_runtime_device_loaded()
         dlg = None
         try:
             try:
-                dlg = BackupManager(self)
+                dlg = BackupManager(self._dialog_parent())
             except Exception:
                 traceback.print_exc()
                 return
@@ -5486,10 +5557,11 @@ class PixelFlasher(wx.Frame):
         print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Partition Manager")
         print("==============================================================================")
         self._on_spin('start')
+        self._ensure_runtime_device_loaded()
         dlg = None
         try:
             try:
-                dlg = PartitionManager(self)
+                dlg = PartitionManager(self._dialog_parent())
             except Exception:
                 traceback.print_exc()
                 return
@@ -6369,6 +6441,7 @@ class PixelFlasher(wx.Frame):
             print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Magisk Patch boot")
             print("==============================================================================")
             self._on_spin('start')
+            self._ensure_runtime_device_loaded()
             patch_boot_img(self, 'Magisk')
             self.update_widget_states()
         except Exception as e:
@@ -6714,11 +6787,20 @@ class PixelFlasher(wx.Frame):
     #                  _on_show_device_download
     # -----------------------------------------------
     def _on_show_device_download(self, event):
+        if not get_phone() and not self._ensure_runtime_device_loaded():
+            wx.MessageBox(
+                _("Connect and scan a device first."),
+                _("Firmware Downloads"),
+                wx.OK | wx.ICON_INFORMATION,
+                self._dialog_parent(),
+            )
+            return
         device = get_phone()
         if not device:
             return
-        menu = GoogleImagesPopupMenu(self, device=device.hardware, date_filter=device.firmware_date)
-        self.PopupMenu(menu)
+        parent = self._dialog_parent()
+        menu = GoogleImagesPopupMenu(parent, device=device.hardware, date_filter=device.firmware_date)
+        parent.PopupMenu(menu)
 
     #-----------------------------------------------------------------------------
     #                                   _init_ui

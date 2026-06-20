@@ -45,8 +45,8 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
     ),
     ModernAction(
         "open_modern_shell",
-        "Open Modern Shell",
-        "Review device and firmware state.",
+        "Open Device",
+        "View device, firmware, and connection state.",
         NAVIGATION,
         True,
     ),
@@ -124,12 +124,28 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         delegate="select_firmware_file",
     ),
     ModernAction(
+        "select_custom_rom",
+        "Select Custom ROM",
+        "Choose a custom ROM archive.",
+        INTERNAL_FLOW,
+        True,
+        delegate="select_custom_rom_file",
+    ),
+    ModernAction(
         "process_firmware",
         "Process Firmware",
         "Extract and prepare firmware using PixelFlasher's existing processor.",
         INTERNAL_FLOW,
         True,
         delegate="_on_process_firmware",
+    ),
+    ModernAction(
+        "process_custom_rom",
+        "Process ROM",
+        "Extract and prepare the selected custom ROM using PixelFlasher's existing processor.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_on_process_rom",
     ),
     ModernAction(
         "flash_device",
@@ -143,7 +159,7 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         confirmation_title="Flash Device?",
         confirmation_body=(
             "PixelFlasher will run the configured flash workflow.\n"
-            "Review every prompt before continuing."
+            "Review every confirmation before continuing."
         ),
     ),
     ModernAction(
@@ -158,7 +174,7 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         confirmation_title="Patch Boot Image?",
         confirmation_body=(
             "PixelFlasher will use the selected boot image and connected device.\n"
-            "Review every prompt before continuing."
+            "Review every confirmation before continuing."
         ),
     ),
     ModernAction(
@@ -174,7 +190,7 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         confirmation_body=(
             "PixelFlasher will create and save a support package.\n"
             "Choose the destination in the next dialog.\n"
-            "Review every prompt before continuing."
+            "Review every confirmation before continuing."
         ),
     ),
     ModernAction(
@@ -227,7 +243,7 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         delegate="_on_partition_manager",
         dangerous=True,
         confirmation_title="Open Partition Manager?",
-        confirmation_body="Partition tools can modify device data. Review every prompt before continuing.",
+        confirmation_body="Partition tools can modify device data. Review every confirmation before continuing.",
     ),
     ModernAction(
         "disabled_reboot",

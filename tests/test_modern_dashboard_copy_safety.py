@@ -76,12 +76,12 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         labels = {key: f"{title} {detail}" for key, title, detail in NAV_ITEMS}
 
         self.assertIn("Overview & device summary", labels["dashboard"])
-        self.assertIn("Device state explorer", labels["shell"])
-        self.assertIn("Plan and continue safely", labels["wizard"])
+        self.assertIn("State & connection", labels["shell"])
+        self.assertIn("Plan and flash", labels["wizard"])
         self.assertIn("Backup context", labels["backups"])
-        self.assertIn("Firmware updates", labels["downloads"])
+        self.assertIn("Firmware", labels["downloads"])
         self.assertIn("Utilities", labels["tools"])
-        self.assertIn("Protection & confirmations", labels["safety"])
+        self.assertIn("Confirmations", labels["safety"])
         self.assertIn("Version & info", labels["about"])
         for key in labels:
             with self.subTest(key=key):
@@ -91,7 +91,7 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         text = "\n".join(f"{title}: {body}" for title, body in DASHBOARD_PREVIEW_ACTIONS)
 
         self.assertIn("Flash Wizard", text)
-        self.assertIn("Modern Shell", text)
+        self.assertIn("Device", text)
         self.assertIn("Downloads", text)
         self.assertNotIn("Read-Only", text)
         self.assertNotIn("Preview-only", text)
@@ -118,7 +118,6 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             "Scan Devices",
             "Platform Tools need setup",
             "Set Up Platform Tools",
-            "Workflow Status",
             "Device Slots",
             "Partitions",
             "Last Backup",
@@ -131,6 +130,7 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
                 self.assertIn(expected, html)
         self.assertNotIn("Open Classic PixelFlasher", html)
         self.assertNotIn("Execution Blocked", html)
+        self.assertNotIn("Workflow Status", html)
         self.assertNotIn(">BETA<", html)
 
     def test_webview_visible_copy_avoids_unfinished_preview_language(self):
@@ -284,7 +284,7 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
         )
 
         for expected in (
-            "Plan Snapshot",
+            "Flash Plan",
             "Target Device",
             "Firmware Package",
             "Flash Options",

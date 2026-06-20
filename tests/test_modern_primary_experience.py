@@ -21,6 +21,7 @@ MODERN_BRIDGE_SOURCE = Path("ui/pages/modern_action_bridge.py")
 MODERN_FEEDBACK_SOURCE = Path("ui/pages/modern_action_feedback.py")
 MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
 MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
+RELEASE_WORKFLOW_SOURCE = Path(".github/workflows/main.yml")
 
 
 class ModernPrimaryExperienceTests(unittest.TestCase):
@@ -33,6 +34,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         cls.feedback_source = MODERN_FEEDBACK_SOURCE.read_text(encoding="utf-8")
         cls.web_source = MODERN_WEB_SOURCE.read_text(encoding="utf-8")
         cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
+        cls.release_workflow_source = RELEASE_WORKFLOW_SOURCE.read_text(encoding="utf-8")
 
     def test_startup_uses_modern_ui_as_primary_experience(self):
         self.assertIn("launch_modern_primary", self.pixelflasher_source)
@@ -78,7 +80,9 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
             "scan_devices",
             "setup_platform_tools",
             "select_firmware",
+            "select_custom_rom",
             "process_firmware",
+            "process_custom_rom",
             "flash_device",
             "patch_boot",
             "create_support_package",
@@ -122,7 +126,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
                 self.assertTrue(action.dangerous)
                 self.assertEqual(delegate, action.delegate)
                 self.assertTrue(is_engine_action(action))
-                self.assertIn("Review every prompt", action.confirmation_body)
+                self.assertIn("Review every confirmation", action.confirmation_body)
 
         for action_id in ("disabled_reboot", "disabled_wipe", "disabled_slot_switch"):
             with self.subTest(action_id=action_id):
@@ -132,7 +136,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
                 self.assertFalse(action.delegate)
 
     def test_engine_action_delegates_exist_on_primary_engine(self):
-        web_frame_delegates = {"_setup_platform_tools", "select_firmware_file"}
+        web_frame_delegates = {"_setup_platform_tools", "select_firmware_file", "select_custom_rom_file"}
 
         for action in modern_actions():
             if not is_engine_action(action):
@@ -184,13 +188,21 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
             "Modern UI",
             "Flash Device",
             "Patch Boot",
-            "Select Firmware",
-            "Process Firmware",
+            "Official / OTA",
+            "Custom ROM",
+            "Process Package",
+            "Process ROM",
             "action_url(\"flash_device\")",
             "patch_boot",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, self.template_source)
+
+    def test_release_notes_describe_current_modern_ui(self):
+        self.assertIn("Modern Dashboard as the primary workspace", self.release_workflow_source)
+        self.assertIn("Custom ROM archive selection and processing", self.release_workflow_source)
+        self.assertNotIn("Modern UI beta preview includes", self.release_workflow_source)
+        self.assertNotIn("legacy PixelFlasher controls", self.release_workflow_source)
 
 
 if __name__ == "__main__":

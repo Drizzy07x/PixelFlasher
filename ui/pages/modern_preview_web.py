@@ -30,6 +30,7 @@ from ui.pages.modern_action_feedback import (
     blocked_navigation_feedback,
     disabled_action_feedback,
     guarded_action_canceled_feedback,
+    action_started_feedback,
     action_completed_feedback,
     action_unavailable_feedback,
     navigation_action_feedback,
@@ -47,6 +48,12 @@ CHROME_MUTED = "#94a3b8"
 BUTTON_BACKGROUND = "#101b2d"
 BUTTON_HOVER = "#1a2a44"
 CLOSE_HOVER = "#b4232d"
+DEFERRED_ACTION_DELAY_MS = 40
+DEVICE_REQUIRED_ACTIONS = frozenset({"backup_manager", "magisk_modules", "partition_manager", "patch_boot"})
+FIRMWARE_REQUIRED_ACTIONS = frozenset({"process_firmware", "flash_device"})
+CUSTOM_ROM_REQUIRED_ACTIONS = frozenset({"process_custom_rom"})
+BOOT_IMAGE_REQUIRED_ACTIONS = frozenset({"patch_boot"})
+PLATFORM_TOOLS_REQUIRED_ACTIONS = frozenset({"scan_devices", "patch_boot", "flash_device"})
 
 
 def is_webview_available() -> bool:
@@ -168,6 +175,8 @@ class ModernPreviewWebFrame(wx.Frame):
             self._handle_navigation_action(action)
             return
         if action.safety_level in {INTERNAL_FLOW, GUARDED_FLOW}:
+            if not self._preflight_action(action):
+                return
             if action.requires_confirmation and not self._confirm_guarded_action(action):
                 self._set_feedback(guarded_action_canceled_feedback(action))
                 return
@@ -201,7 +210,14 @@ class ModernPreviewWebFrame(wx.Frame):
             self._setup_platform_tools(action)
             return
         if action.delegate == "select_firmware_file":
-            self._select_firmware_file(action)
+            self._action_running = True
+            self._set_feedback(action_started_feedback(action))
+            wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._select_firmware_file, action)
+            return
+        if action.delegate == "select_custom_rom_file":
+            self._action_running = True
+            self._set_feedback(action_started_feedback(action))
+            wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._select_custom_rom_file, action)
             return
         method = getattr(self._state_host, action.delegate, None)
         if not callable(method):
@@ -213,15 +229,105 @@ class ModernPreviewWebFrame(wx.Frame):
             )
             return
         self._action_running = True
+        self._set_feedback(action_started_feedback(action))
+        wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._invoke_engine_action, action, method)
+
+    def _invoke_engine_action(self, action: ModernAction, method) -> None:
+        dialog_parent_state = self._align_state_host_for_dialogs()
         try:
             method(None)
             self._set_feedback(action_completed_feedback(action))
-            wx.CallAfter(self._show_page, self._page)
         except Exception as exc:
             self._set_status(f"{action.label}: {exc}", "blocked")
-            raise
+            wx.MessageBox(
+                f"{action.label} could not complete.\n\n{exc}",
+                "PixelFlasher",
+                wx.OK | wx.ICON_ERROR,
+            )
         finally:
+            self._restore_state_host_dialog_parent(dialog_parent_state)
             self._action_running = False
+            with contextlib.suppress(Exception):
+                self.Raise()
+
+    def _preflight_action(self, action: ModernAction) -> bool:
+        self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
+        if action.id in DEVICE_REQUIRED_ACTIONS and not self._state.device.selected:
+            self._show_action_blocked(action, "Connect and scan a device first.")
+            return False
+        if action.id in PLATFORM_TOOLS_REQUIRED_ACTIONS and not (
+            self._state.tools.adb_available and self._state.tools.fastboot_available
+        ):
+            self._show_action_blocked(action, "Set up Android Platform Tools first.")
+            return False
+        if action.id in FIRMWARE_REQUIRED_ACTIONS and not self._state.firmware.selected:
+            self._show_action_blocked(action, "Select and process a firmware or boot image first.")
+            return False
+        if action.id in CUSTOM_ROM_REQUIRED_ACTIONS and self._state.firmware.package_type != "custom_rom":
+            self._show_action_blocked(action, "Select a custom ROM archive first.")
+            return False
+        if action.id in BOOT_IMAGE_REQUIRED_ACTIONS and not self._state.firmware.has_patchable_image:
+            self._show_action_blocked(action, "Select a boot image first.")
+            return False
+        return True
+
+    def _show_action_blocked(self, action: ModernAction, reason: str) -> None:
+        message = f"{action.label}: {reason}"
+        self._set_status(message, "blocked")
+        wx.MessageBox(
+            f"{action.label}\n\n{reason}",
+            "PixelFlasher",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+
+    def _align_state_host_for_dialogs(self) -> tuple[bool, object | None]:
+        previous = (False, None)
+        if hasattr(self._state_host, "_modern_dialog_parent"):
+            previous = (True, getattr(self._state_host, "_modern_dialog_parent", None))
+        with contextlib.suppress(Exception):
+            setattr(self._state_host, "_modern_dialog_parent", self)
+        if not isinstance(self._state_host, wx.Frame):
+            return previous
+        with contextlib.suppress(Exception):
+            self._state_host.SetPosition(self.GetPosition())
+            self._state_host.SetSize(self.GetSize())
+        return previous
+
+    def _restore_state_host_dialog_parent(self, previous: tuple[bool, object | None]) -> None:
+        had_previous, previous_value = previous
+        with contextlib.suppress(Exception):
+            if had_previous:
+                setattr(self._state_host, "_modern_dialog_parent", previous_value)
+            else:
+                delattr(self._state_host, "_modern_dialog_parent")
+
+    @property
+    def config(self):
+        return getattr(self._state_host, "config", None)
+
+    def clear_device_selection(self) -> None:
+        clearer = getattr(self._state_host, "clear_device_selection", None)
+        if callable(clearer):
+            clearer()
+
+    def get_progress_window(self):
+        getter = getattr(self._state_host, "get_progress_window", None)
+        if callable(getter):
+            return getter()
+        raise RuntimeError("Download progress is not available in the current session.")
+
+    def toast(self, title: str, message: str) -> None:
+        toaster = getattr(self._state_host, "toast", None)
+        if callable(toaster):
+            toaster(title, message)
+            return
+        self._set_status(f"{title}: {message}", "safe")
+
+    def _on_spin(self, state: str) -> None:
+        if state == "start":
+            self._set_status("Working...", "warning")
+        else:
+            self._set_status(DEFAULT_STATUS_MESSAGE, "safe")
 
     def _select_firmware_file(self, action: ModernAction) -> None:
         self._action_running = True
@@ -252,7 +358,39 @@ class ModernPreviewWebFrame(wx.Frame):
             if callable(refresh):
                 refresh()
             self._set_feedback(action_completed_feedback(action))
-            wx.CallAfter(self._show_page, self._page)
+        finally:
+            self._action_running = False
+
+    def _select_custom_rom_file(self, action: ModernAction) -> None:
+        self._action_running = True
+        wildcard = "ROM archives (*.zip;*.tgz;*.tar)|*.zip;*.tgz;*.tar|All files (*.*)|*.*"
+        try:
+            with wx.FileDialog(
+                self,
+                "Select custom ROM archive",
+                wildcard=wildcard,
+                style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+            ) as dialog:
+                if dialog.ShowModal() == wx.ID_CANCEL:
+                    self._set_feedback(guarded_action_canceled_feedback(action))
+                    return
+                path = dialog.GetPath()
+            picker = getattr(self._state_host, "custom_rom", None)
+            if picker is not None:
+                with contextlib.suppress(Exception):
+                    picker.SetPath(path)
+            updater = getattr(self._state_host, "update_custom_rom_selection", None)
+            if callable(updater):
+                updater(path)
+            else:
+                config = getattr(self._state_host, "config", None)
+                if config is not None:
+                    setattr(config, "custom_rom", True)
+                    setattr(config, "custom_rom_path", path)
+            refresh = getattr(self._state_host, "update_widget_states", None)
+            if callable(refresh):
+                refresh()
+            self._set_feedback(action_completed_feedback(action))
         finally:
             self._action_running = False
 
@@ -317,7 +455,6 @@ class ModernPreviewWebFrame(wx.Frame):
             "PixelFlasher",
             wx.OK | wx.ICON_INFORMATION,
         )
-        wx.CallAfter(self._show_page, self._page)
 
     def _save_config(self, config: object) -> None:
         save = getattr(config, "save", None)
@@ -354,7 +491,7 @@ class ModernPreviewWebFrame(wx.Frame):
     def _confirm_guarded_action(self, action: ModernAction) -> bool:
         body = action.confirmation_body or (
             "PixelFlasher will run this action.\n"
-            "Review all prompts before continuing."
+            "Review all confirmations before continuing."
         )
         message = f"{action.label}\n\n{action.description}\n\n{body}"
         dialog = wx.MessageDialog(
@@ -590,7 +727,7 @@ def _preferred_webview_backend():
 def _frame_title(page: str) -> str:
     return {
         "dashboard": "Modern Dashboard",
-        "shell": "Modern Shell",
+        "shell": "Device",
         "wizard": "Flash Wizard",
         "backups": "Backups",
         "downloads": "Downloads",
