@@ -250,7 +250,7 @@ body {
 }
 .lower-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-top: 12px;
 }
@@ -697,9 +697,10 @@ body {
 .tile span { color: var(--muted); font-size: 13px; line-height: 1.4; }
 .tile.action-tile {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr) 24px;
   align-items: center;
   gap: 12px;
+  cursor: pointer;
   transition: transform .14s ease, border-color .14s ease, background .14s ease;
 }
 .tile.action-tile:hover {
@@ -707,6 +708,7 @@ body {
   border-color: rgba(47, 140, 255, .38);
   background: rgba(47, 140, 255, .075);
 }
+.tile.action-tile:active { transform: translateY(0); background: rgba(47, 140, 255, .12); }
 .tile-icon {
   width: 38px;
   height: 38px;
@@ -717,62 +719,14 @@ body {
   background: linear-gradient(135deg, var(--blue), var(--purple));
 }
 .tile-icon svg { width: 22px; height: 22px; stroke-width: 2.25; }
-.metric-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
+.tile-chevron {
+  justify-self: end;
+  color: var(--cyan);
+  font-size: 26px;
+  line-height: 1;
+  opacity: .78;
 }
-.metric {
-  min-height: 78px;
-  padding: 13px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(145deg, rgba(47, 140, 255, .10), rgba(255, 255, 255, .035));
-  border: 1px solid var(--border-soft);
-}
-.metric span {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-}
-.metric strong {
-  display: block;
-  margin-top: 8px;
-  color: white;
-  font-size: 20px;
-}
-.context-ribbon {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.context-item {
-  min-height: 66px;
-  padding: 12px 13px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(145deg, rgba(255, 255, 255, .045), rgba(47, 140, 255, .055));
-  border: 1px solid var(--border-soft);
-}
-.context-item span {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-}
-.context-item strong {
-  display: block;
-  margin-top: 7px;
-  color: white;
-  font-size: 14px;
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.context-item.safe { border-color: rgba(66, 223, 91, .24); background: linear-gradient(145deg, rgba(66, 223, 91, .08), rgba(255, 255, 255, .035)); }
-.context-item.warn { border-color: rgba(255, 201, 40, .28); background: linear-gradient(145deg, rgba(255, 201, 40, .10), rgba(255, 255, 255, .035)); }
+.tile.action-tile:hover .tile-chevron { opacity: 1; }
 .empty-state {
   min-height: 168px;
   display: grid;
@@ -949,7 +903,7 @@ body {
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
-  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .metric-strip, .context-ribbon, .state-overview, .plan-brief { grid-template-columns: 1fr; }
+  .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .state-overview, .plan-brief { grid-template-columns: 1fr; }
   .dashboard-actions { grid-template-columns: 1fr; }
   .setup-notice { grid-template-columns: auto minmax(0, 1fr); }
   .setup-button { grid-column: 1 / -1; text-align: center; }
@@ -971,10 +925,6 @@ def _sidebar(active: str, version: str) -> str:
         </div>
       </div>
       <nav class="nav" aria-label="Modern UI surfaces">{nav}</nav>
-      <div class="mode-card">
-        <h3>Workspace</h3>
-        <p>Modern dashboard, guided workflows, connected state, and confirmations in one place.</p>
-      </div>
     </aside>
     """
 
@@ -999,10 +949,6 @@ def _topbar(page: str) -> str:
       <div class="title">
         <h1>{escape(_headline(page))}</h1>
         <p>{escape(_subtitle(page))}</p>
-      </div>
-      <div class="top-actions">
-        {_badge_markup(page)}
-        <div class="toggle"><span>Light</span><span class="on">Dark</span></div>
       </div>
     </header>
     """
@@ -1039,7 +985,6 @@ def _dashboard_page(state: ModernReadonlyState) -> str:
         </div>
       </div>
       <div class="lower-grid">
-        {_workflow_status_card(state)}
         {_device_slots_card(state)}
         {_partitions_card(state)}
         {_last_backup_card(state)}
@@ -1146,7 +1091,7 @@ def _quick_actions_card(state: ModernReadonlyState) -> str:
         ("blue", "wizard", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
         ("yellow", "flash", "Flash Device", "Start the configured PixelFlasher workflow.", "flash_device"),
         ("purple", "patch", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
-        ("green", "shell", "Device Explorer", "Review device, firmware, and tools.", "open_modern_shell"),
+        ("green", "shell", "Device", "View device, firmware, and connection state.", "open_modern_shell"),
         ("yellow", "scan", "Scan Devices", "Refresh connected devices.", "scan_devices"),
     ))
     return f"""
@@ -1159,29 +1104,6 @@ def _quick_actions_card(state: ModernReadonlyState) -> str:
       </div>
       <div class="action-list dashboard-actions">
         {"".join(_action_row(*row) for row in rows)}
-      </div>
-    </article>
-    """
-
-
-def _workflow_status_card(state: ModernReadonlyState) -> str:
-    rows = (
-        ("Device", state.device.display_name or state.device.serial or "Choose device"),
-        ("Firmware", state.firmware.filename or "Choose firmware"),
-        ("Package", f"{_package_type(state)} - {state.firmware.size_label}"),
-        ("Plan", state.flash.flash_mode),
-    )
-    return f"""
-    <article class="card">
-      <div class="card-header">
-        <div>
-          <h2>Workflow Status</h2>
-          <div class="card-subtitle">What PixelFlasher has loaded right now</div>
-        </div>
-        <span class="badge">Ready</span>
-      </div>
-      <div class="stack-list">
-        {"".join(_mini_row(label, value) for label, value in rows)}
       </div>
     </article>
     """
@@ -1218,9 +1140,9 @@ def _device_slots_card(state: ModernReadonlyState) -> str:
 def _partitions_card(state: ModernReadonlyState) -> str:
     patchable = "available" if state.firmware.has_patchable_image else "not detected"
     return _mini_card(
-        "Partitions",
+        "Firmware & Partitions",
         "Images",
-        (("boot/init_boot", patchable), ("Verity", state.flash.verity), ("Verification", state.flash.verification), ("Partition manager", "Available in Tools")),
+        (("Firmware", state.firmware.filename or "Choose firmware"), ("Type", _package_type(state)), ("Size", state.firmware.size_label), ("Patchable image", patchable)),
     )
 
 
@@ -1235,27 +1157,17 @@ def _last_backup_card(state: ModernReadonlyState) -> str:
 def _shell_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      <div class="chip-row">
-        <span class="chip"><span class="dot safe"></span>Device state</span>
-        <span class="chip"><span class="dot warn"></span>Firmware context</span>
-        <span class="chip"><span class="dot"></span>Actions</span>
-      </div>
       {_platform_tools_notice(state)}
-      {_context_ribbon(state, "Modern Shell")}
       <div class="state-overview">
         {_state_card("shell", "Device", state.device.display_name or state.device.serial or "Choose device")}
         {_state_card("connection", "Connection", state.device.connection_label)}
         {_state_card("downloads", "Firmware", state.firmware.filename or "Choose firmware")}
         {_state_card("tools", "Tools", _platform_tools_label(state))}
       </div>
-      <div class="shell-grid">
-        {_explorer_card("Device State Overview", (("Selected device", state.device.display_name or state.device.serial or "Choose device"), ("Android", state.device.android_version or "Waiting for scan"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "Waiting for scan")))}
-        {_explorer_card("Connection Readiness", (("ADB", "ready" if state.device.adb_ready else "Scan device"), ("Fastboot", _bootloader_tool_mode(state)), ("Platform tools", _platform_tools_label(state)), ("Selected device", state.device.display_name or "Choose device")))}
-        {_explorer_card("Device Information", (("Model", state.device.display_name or "Waiting for scan"), ("Codename", state.device.codename or "Waiting for scan"), ("Serial", state.device.serial or "Waiting for scan"), ("Product", state.device.product or "Waiting for scan")))}
-        {_explorer_card("Firmware Context", (("Type", _package_type(state)), ("Build", state.firmware.build_id or "unknown"), ("Size", state.firmware.size_label), ("Validation", "verified" if state.firmware.verified else "waiting"), ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected")))}
-        {_explorer_card("Loaded Flash Options", (("Mode", state.flash.flash_mode), ("Data", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("No reboot", _on_off(state.flash.no_reboot))))}
-        {_explorer_card("Workflow Controls", (("Flash", "configured from Flash Wizard"), ("Patch", "available from Dashboard"), ("Firmware", "select and process"), ("Tools", "available from sidebar")))}
-        {_explorer_card("Available Actions", (("Scan", "available"), ("Firmware", "select and process"), ("Patch", "available when ready"), ("Flash", "available when ready")))}
+      <div class="page-grid two">
+        {_mini_card("Device", "State", (("Model", state.device.display_name or "Choose device"), ("Android", state.device.android_version or "Waiting for scan"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "Waiting for scan")))}
+        {_mini_card("Firmware", "Package", (("Selected", state.firmware.filename or "Choose firmware"), ("Type", _package_type(state)), ("Size", state.firmware.size_label), ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected")))}
+        {_warnings_card(state)}
       </div>
     </section>
     """
@@ -1272,7 +1184,6 @@ def _wizard_page(state: ModernReadonlyState) -> str:
         {_step("5", "Review", False)}
       </div>
       {_platform_tools_notice(state)}
-      {_context_ribbon(state, "Flash workflow")}
       <div class="wizard-grid">
         <article class="card">
           <div class="card-header">
@@ -1285,19 +1196,19 @@ def _wizard_page(state: ModernReadonlyState) -> str:
           <div class="readiness-grid">
             {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected"), state.device.connection_label, f"Active slot: {state.device.active_slot or 'unknown'}", f"Root: {state.device.root_status}"))}
             {_wizard_readiness("Firmware Readiness", (("No firmware selected" if not state.firmware.selected else state.firmware.filename), _package_type(state), "Size: " + state.firmware.size_label, "Process firmware when ready", "Patchable image: " + ("available" if state.firmware.has_patchable_image else "not detected")))}
-            {_wizard_readiness("Flash Workflow", ("Review flash mode", "Confirm options", "Run PixelFlasher flash", "Follow prompts"))}
+            {_wizard_readiness("Final Flash", ("Review flash mode", "Confirm options", "Start PixelFlasher flash", "Follow confirmation steps"))}
           </div>
           {_wizard_plan_brief(state)}
-          {_explorer_card("Loaded Plan Inputs", (("Flash mode", state.flash.flash_mode), ("Data behavior", state.flash.data_behavior), ("Slot target", state.flash.slot_behavior), ("Firmware", state.firmware.filename or "Choose firmware"), ("Package type", _package_type(state))))}
           <div class="footer-controls">
-            <a class="button" href="{escape(action_url("select_firmware"))}">Select Firmware</a>
-            <a class="button" href="{escape(action_url("process_firmware"))}">Process Firmware</a>
+            <a class="button" href="{escape(action_url("select_firmware"))}">Official / OTA</a>
+            <a class="button" href="{escape(action_url("select_custom_rom"))}">Custom ROM</a>
+            <a class="button" href="{escape(action_url(_process_action_id(state)))}">{escape(_process_action_label(state))}</a>
             <a class="button primary guarded-action" href="{escape(action_url("flash_device"))}">Flash Device</a>
           </div>
         </article>
         <aside class="card guarded">
           <div class="card-header"><h3>Flash Summary</h3><span class="badge yellow">Review</span></div>
-          <p class="muted">Review the current plan before starting the configured PixelFlasher flash workflow.</p>
+          <p class="muted">Current device, firmware, and flash options.</p>
           <div class="stack-list">
             {_mini_row("Status", _plan_status_label(state))}
             {_mini_row("Review notes", _plan_review_label(state))}
@@ -1310,7 +1221,6 @@ def _wizard_page(state: ModernReadonlyState) -> str:
             {_mini_row("Slot target", state.flash.slot_behavior)}
             {_mini_row("Final action", "Flash Device")}
           </div>
-          <div class="notice">Sensitive operations still use PixelFlasher confirmations.</div>
         </aside>
       </div>
     </section>
@@ -1346,10 +1256,10 @@ def _wizard_plan_brief(state: ModernReadonlyState) -> str:
     )
     return f"""
     <div class="plan-brief-header">
-      <h3>Plan Snapshot</h3>
-      <span>Current flash workflow setup</span>
+      <h3>Flash Plan</h3>
+      <span>Current setup</span>
     </div>
-    <div class="plan-brief" aria-label="Flash plan snapshot">{"".join(_plan_card(*row) for row in rows)}</div>
+    <div class="plan-brief" aria-label="Flash plan">{"".join(_plan_card(*row) for row in rows)}</div>
     """
 
 
@@ -1378,16 +1288,10 @@ def _backups_page(state: ModernReadonlyState) -> str:
         empty = '<article class="card wide-card">' + _empty_state("No backups loaded", "Connect and scan a rooted device to load backup details.") + "</article>"
     return f"""
     <section class="content">
-      {_metric_strip((("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Restore mode", "Confirmed flow"), ("Backup tools", "Available")))}
-      {_context_ribbon(state, "Backup workspace")}
-      <div class="page-grid">
-        {_hero_card("backups", "Backups", "Review backup context and open the backup manager for connected devices.")}
-        {_mini_card("Backup Summary", "Backups", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location)))}
-        {_action_tile_card("Backup Actions", (("Backup Manager", "Open the available backup tools.", "backup_manager", "backups"), ("Support Package", "Create a support archive.", "create_support_package", "tools"), ("Scan Device", "Refresh connected device state.", "scan_devices", "scan"), ("Settings", "Review backup paths and preferences.", "settings_dialog", "settings")))}
-        {_explorer_card("Loaded Backup Context", (("Device", state.device.display_name or state.device.serial or "Choose device"), ("Backup index", "loaded" if state.backups.has_loaded_backups else "Ready after scan"), ("Backup location", state.backups.location), ("Restore mode", state.backups.restore_mode)))}
-        {_explorer_card("Backup Details", (("Selected backup", state.backups.latest_label if state.backups.has_loaded_backups else "Choose backup"), ("Archive state", "Ready to open"), ("Restore target", "Choose backup"), ("Compatibility", "Review before restore")))}
-        {_explorer_card("Warnings", _warning_rows(state))}
-        {_explorer_card("Backup Tools", (("Backup Manager", "available"), ("Support package", "available"), ("Device required", "yes"), ("Root required", "for Magisk backups")))}
+      <div class="page-grid two">
+        {_action_tile_card("Backup Actions", (("Backup Manager", "Open backup tools.", "backup_manager", "backups"),))}
+        {_mini_card("Backup State", "Backups", (("Total backups", str(state.backups.total_count)), ("Latest backup", state.backups.latest_label), ("Location", state.backups.location), ("Restore mode", state.backups.restore_mode)))}
+        {_warnings_card(state)}
         {empty}
       </div>
     </section>
@@ -1397,32 +1301,50 @@ def _backups_page(state: ModernReadonlyState) -> str:
 def _downloads_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Firmware", state.firmware.filename or "None"), ("Type", _package_type(state)), ("Size", state.firmware.size_label), ("Next step", "Flash Wizard")))}
-      {_context_ribbon(state, "Download center")}
       <div class="page-grid two">
-        {_hero_card("downloads", "Downloads", "Browse firmware resources and rooting app downloads.")}
-        {_action_tile_card("Firmware Downloads", (("Firmware Downloads", "Find firmware for the selected device.", "firmware_downloads", "downloads"), ("Rooting App", "Open rooting app downloads.", "rooting_app", "android"), ("Select Firmware", state.firmware.filename or "Choose a local package.", "select_firmware", "build"), ("Flash Wizard", "Continue with firmware planning.", "open_modern_flash_wizard", "wizard")))}
-        {_explorer_card("Loaded Download Context", (("Update checks", "enabled" if state.downloads.update_check else "Manual"), ("Module updates", "enabled" if state.downloads.module_update_check else "Manual"), ("Package type", _package_type(state)), ("Selected firmware", state.firmware.filename or "Choose firmware"), ("File size", state.firmware.size_label)))}
-        {_explorer_card("Download Details", (("Selected item", state.firmware.filename or "Choose item"), ("Validation", "verified" if state.firmware.verified else "Ready to verify"), ("Last catalog check", state.downloads.last_checked), ("Frequency", state.downloads.update_frequency)))}
-        {_explorer_card("Warnings", _warning_rows(state))}
-        {_explorer_card("Download Actions", (("Firmware downloads", "available for selected device"), ("Rooting App", "available"), ("Process package", "available after selection"), ("Flash package", "use Flash Wizard")))}
+        {_firmware_source_card(state)}
+        {_firmware_compatibility_card(state)}
+        {_warnings_card(state)}
       </div>
     </section>
     """
 
 
+def _firmware_source_card(state: ModernReadonlyState) -> str:
+    local_copy = state.firmware.filename if state.firmware.selected and state.firmware.package_type != "custom_rom" else "Choose OTA, factory, or image file."
+    rom_copy = state.firmware.filename if state.firmware.package_type == "custom_rom" else "Choose a ROM archive."
+    return _action_tile_card(
+        "Firmware Source",
+        (
+            ("Official Android Release", "Find factory and OTA packages for the selected Pixel.", "firmware_downloads", "downloads"),
+            ("Local OTA / Factory", local_copy, "select_firmware", "build"),
+            ("Custom ROM", rom_copy, "select_custom_rom", "android"),
+        ),
+    )
+
+
+def _firmware_compatibility_card(state: ModernReadonlyState) -> str:
+    return _mini_card(
+        "Firmware Compatibility",
+        "Package",
+        (
+            ("Selected source", _firmware_source_label(state)),
+            ("Package type", _package_type(state)),
+            ("File type", state.firmware.extension or ".zip, .tgz, .tar, .img"),
+            ("Size", state.firmware.size_label),
+            ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected"),
+            ("Validation", "verified" if state.firmware.verified else "Ready to verify"),
+        ),
+    )
+
+
 def _settings_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Mode", "Modern"), ("Language", state.settings.language), ("Advanced", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
-      {_context_ribbon(state, "Preferences")}
       <div class="page-grid two">
-        {_hero_card("settings", "Settings", "Review configured preferences and open the full settings dialog.")}
-        {_action_tile_card("General Settings", (("Open Settings", "Configure PixelFlasher preferences.", "settings_dialog", "settings"), ("Scan Devices", "Refresh connected device state.", "scan_devices", "scan"), ("Select Firmware", "Choose a firmware package.", "select_firmware", "build"), ("Flash Wizard", "Review flash workflow setup.", "open_modern_flash_wizard", "wizard")))}
-        {_tile_card("Paths & Environment", (("Platform tools", state.tools.platform_tools_path or "Set up tools"), ("Firmware", state.firmware.filename or "Choose firmware"), ("Phone path", state.settings.phone_path or "Set phone path"), ("Low memory", _on_off(state.settings.low_memory))))}
-        {_explorer_card("Loaded Preference Flags", (("Language", state.settings.language), ("Custom ROM options", _on_off(state.settings.custom_rom_options)), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
-        {_explorer_card("Warnings", _warning_rows(state))}
-        {_explorer_card("Settings Actions", (("Open Settings", "available"), ("Language", state.settings.language), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
+        {_action_tile_card("Settings", (("Open Settings", "Configure PixelFlasher preferences.", "settings_dialog", "settings"),))}
+        {_mini_card("Preferences", "App", (("Language", state.settings.language), ("Custom ROM options", _on_off(state.settings.custom_rom_options)), ("Advanced options", _on_off(state.settings.advanced_options)), ("Notifications", _on_off(state.settings.notifications))))}
+        {_warnings_card(state)}
       </div>
     </section>
     """
@@ -1432,16 +1354,9 @@ def _tools_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
       {_platform_tools_notice(state)}
-      {_metric_strip((("Tool groups", "6"), ("Actions", "Ready"), ("Platform tools", _platform_tools_label(state)), ("Navigation", "Protected")))}
-      {_context_ribbon(state, "Tools")}
-      <div class="page-grid">
-        {_hero_card("tools", "Tools", "Open PixelFlasher tools from the modern workspace.")}
-        {_action_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image.", "patch_boot", "patch"), ("Support Package", "Create support archive.", "create_support_package", "tools"), ("Rooting App", "Download or install root tools.", "rooting_app", "android"), ("Magisk Modules", "Manage modules.", "magisk_modules", "settings"), ("Partition Manager", "Open partition tools.", "partition_manager", "backups"), ("Device Scan", "Refresh devices.", "scan_devices", "scan")))}
-        {_explorer_card("Loaded Tool State", (("ADB", "available" if state.tools.adb_available else "Set up tools"), ("Fastboot", _bootloader_tool_status(state)), ("Configured path", state.tools.platform_tools_path or "Set up tools"), ("Selected device", state.device.display_name or "Choose device")))}
-        {_explorer_card("Tool Availability Summary", (("ADB path", "loaded" if state.tools.adb_path else "Set up tools"), ("Bootloader tool path", "loaded" if _bootloader_tool_available(state) else "Set up tools"), ("Configured path", state.tools.platform_tools_path or "Set up tools"), ("Root status", state.device.root_status)))}
-        {_explorer_card("Operation Policy", (("Flash", "PixelFlasher prompts"), ("Patch", "PixelFlasher prompts"), ("Partition tools", "PixelFlasher prompts"), ("Navigation", "Workspace only")))}
-        {_explorer_card("Warnings", _warning_rows(state))}
-        {_explorer_card("Advanced Operations", (("Reboot", "requires device"), ("Wipe", "requires flash workflow"), ("Slot switching", "requires device"), ("Live command output", "available in tools")))}
+      <div class="page-grid two">
+        {_action_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image.", "patch_boot", "patch"), ("Support Package", "Create support archive.", "create_support_package", "tools"), ("Rooting App", "Download or install root tools.", "rooting_app", "android"), ("Magisk Modules", "Manage modules.", "magisk_modules", "settings"), ("Partition Manager", "Open partition tools.", "partition_manager", "backups")))}
+        {_warnings_card(state)}
       </div>
     </section>
     """
@@ -1450,16 +1365,9 @@ def _tools_page(state: ModernReadonlyState) -> str:
 def _safety_page(state: ModernReadonlyState) -> str:
     return f"""
     <section class="content">
-      {_metric_strip((("Actions", "Curated"), ("Confirmations", "Required"), ("Navigation", "Workspace"), ("Engine", "PixelFlasher")))}
-      {_context_ribbon(state, "System controls")}
       <div class="page-grid two">
-        {_hero_card("safety", "System", "PixelFlasher keeps confirmations close to the workflows that need them.")}
-        {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
-        {_explorer_card("Warnings", _warning_rows(state))}
-        {_explorer_card("Protection", tuple(("Rule", line) for line in SAFETY_BOUNDARY_LINES))}
-        {_explorer_card("Operation Policy", (("Flash device", "requires confirmation"), ("Patch boot", "requires confirmation"), ("Support package", "asks for destination"), ("Partition tools", "requires confirmation")))}
-        {_explorer_card("Confirmations", (("Flash device", "required"), ("Patch boot", "required when prompted"), ("Support package", "file destination required"), ("Partition tools", "required")))}
-        {_explorer_card("Workspace Rules", (("Navigation", "PixelFlasher workspace"), ("External links", "kept out of workflow"), ("Action IDs", "curated list"), ("Command routing", "PixelFlasher actions")))}
+        {_mini_card("Confirmations", "Safety", (("Flash device", "required"), ("Patch boot", "requires confirmation"), ("Support package", "choose destination"), ("Partition tools", "requires confirmation")))}
+        {_warnings_card(state)}
       </div>
     </section>
     """
@@ -1469,14 +1377,10 @@ def _about_page(version: str, state: ModernReadonlyState) -> str:
     about_copy = f"PixelFlasher {version} with Modern UI as the primary workspace."
     return f"""
     <section class="content">
-      {_metric_strip((("Version", version), ("Modern UI", "Primary"), ("Engine", "PixelFlasher"), ("Loaded warnings", str(len(state.warnings)))))}
-      {_context_ribbon(state, "Local info only")}
       <div class="page-grid two">
-        {_hero_card("PF", "About PixelFlasher", about_copy)}
-        {_explorer_card("Application Engine", (("Version", version), ("Modern UI", "primary"), ("Engine", "PixelFlasher"), ("Workspace", "modern")))}
-        {_explorer_card("Loaded State Snapshot", _loaded_context_rows(state))}
-        {_tile_card("Modern UI Status", (("Dashboard", "Available"), ("Shell", "Device state"), ("Flash Wizard", "Functional workflow"), ("Remaining pages", "Modern workspace")))}
-        {_explorer_card("System", (("Assets", "local"), ("Interface", "static HTML/CSS"), ("Command routing", "PixelFlasher actions"), ("Navigation", "workspace only")))}
+        {_hero_card("PF", "PixelFlasher", about_copy)}
+        {_mini_card("Application", "Info", (("Version", version), ("Interface", "Modern"), ("Device", state.device.display_name or state.device.serial or "Choose device"), ("Firmware", state.firmware.filename or "Choose firmware")))}
+        {_warnings_card(state)}
       </div>
     </section>
     """
@@ -1532,7 +1436,7 @@ def _hero_card(icon: str, title: str, copy: str) -> str:
 def _tile_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
     return f"""
     <article class="card wide-card">
-      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Open</span></div>
+      <div class="card-header"><h2>{escape(title)}</h2></div>
       <div class="tile-grid">{"".join(_tile(label, copy) for label, copy in rows)}</div>
     </article>
     """
@@ -1541,7 +1445,7 @@ def _tile_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
 def _action_tile_card(title: str, rows: tuple[tuple[str, str, str, str], ...]) -> str:
     return f"""
     <article class="card wide-card">
-      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Open</span></div>
+      <div class="card-header"><h2>{escape(title)}</h2></div>
       <div class="tile-grid">{"".join(_action_tile(label, copy, action_id, icon_key) for label, copy, action_id, icon_key in rows)}</div>
     </article>
     """
@@ -1568,6 +1472,7 @@ def _action_tile(label: str, copy: str, action_id: str, icon_key: str) -> str:
     <a class="tile action-tile" href="{escape(action_url(action_id))}">
       <div class="tile-icon">{_svg_icon(icon_key)}</div>
       <div><strong>{escape(label)}</strong><span>{escape(copy)}</span></div>
+      <div class="tile-chevron">›</div>
     </a>
     """
 
@@ -1582,32 +1487,10 @@ def _state_card(icon_key: str, label: str, value: str) -> str:
     """
 
 
-def _metric_strip(rows: tuple[tuple[str, str], ...]) -> str:
-    return f"""<div class="metric-strip">{"".join(_metric(label, value) for label, value in rows)}</div>"""
-
-
-def _metric(label: str, value: str) -> str:
-    return f"""<div class="metric"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>"""
-
-
-def _context_ribbon(state: ModernReadonlyState, boundary: str) -> str:
-    warning_tone = "warn" if state.warnings else "safe"
-    rows = (
-        ("Device", state.device.display_name or state.device.serial or "not selected", ""),
-        ("Firmware", state.firmware.filename or "not selected", ""),
-        ("Review", str(len(state.warnings)) if state.warnings else "clear", warning_tone),
-        ("Workspace", boundary, "safe"),
-    )
-    return f"""
-    <div class="context-ribbon" aria-label="Loaded app context">
-      {"".join(_context_item(*row) for row in rows)}
-    </div>
-    """
-
-
-def _context_item(label: str, value: str, tone: str) -> str:
-    tone_class = f" {tone}" if tone in {"safe", "warn"} else ""
-    return f"""<div class="context-item{tone_class}"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>"""
+def _warnings_card(state: ModernReadonlyState) -> str:
+    if not state.warnings:
+        return ""
+    return _explorer_card("Warnings", _warning_rows(state))
 
 
 def _empty_state(title: str, copy: str) -> str:
@@ -1634,7 +1517,7 @@ def _mini_card(title: str, badge: str, rows: tuple[tuple[str, str], ...]) -> str
 def _explorer_card(title: str, rows: tuple[tuple[str, str], ...]) -> str:
     return f"""
     <article class="card explorer-card">
-      <div class="card-header"><h2>{escape(title)}</h2><span class="badge">Details</span></div>
+      <div class="card-header"><h2>{escape(title)}</h2></div>
       <div class="stack-list">{"".join(_mini_row(label, value) for label, value in rows)}</div>
     </article>
     """
@@ -1725,56 +1608,41 @@ def _svg_icon(key: str) -> str:
 def _headline(page: str) -> str:
     return {
         "dashboard": "Modern UI",
-        "shell": "Modern Shell",
+        "shell": "Device",
         "wizard": "Flash Wizard",
         "backups": "Backups",
         "downloads": "Downloads",
         "settings": "Settings",
         "tools": "Tools",
-        "safety": "System",
+        "safety": "Safety",
         "about": "About PixelFlasher",
     }.get(page, "Modern UI")
 
 
 def _subtitle(page: str) -> str:
     return {
-        "dashboard": "Manage PixelFlasher from the modern workspace.",
-        "shell": "Device, firmware, and tool state in one place.",
-        "wizard": "Plan firmware, options, patching, and flash execution.",
-        "backups": "Browse backup context without creating, restoring, or deleting files.",
-        "downloads": "Browse download context without network or device changes.",
-        "settings": "Review preferences without saving changes.",
-        "tools": "Open PixelFlasher tools from one workspace.",
-        "safety": "Review confirmations and workspace controls.",
-        "about": "Application information and Modern UI status.",
+        "dashboard": "Start common PixelFlasher workflows.",
+        "shell": "Current device, firmware, and connection state.",
+        "wizard": "Plan firmware options and start the flash workflow.",
+        "backups": "Backup state and backup manager.",
+        "downloads": "Firmware downloads and local package selection.",
+        "settings": "Application preferences.",
+        "tools": "Root, support, and partition utilities.",
+        "safety": "Confirmation requirements for sensitive actions.",
+        "about": "Version and application information.",
     }.get(page, "Ready.")
-
-
-def _badge_markup(page: str) -> str:
-    labels = {
-        "dashboard": (("READY", "yellow"), ("MODERN UI", ""), ("PROTECTED", "yellow")),
-        "shell": (("DEVICE STATE", ""), ("FIRMWARE", "yellow"), ("TOOLS", "yellow")),
-        "wizard": (("FLASH WORKFLOW", "yellow"), ("OPTIONS", ""), ("REVIEW", "yellow")),
-        "backups": (("BACKUPS", "yellow"), ("RESTORE", ""), ("SUPPORT", "yellow")),
-        "downloads": (("FIRMWARE", "yellow"), ("ROOTING APP", ""), ("TOOLS", "yellow")),
-        "settings": (("SETTINGS", ""), ("PREFERENCES", "yellow"), ("PROFILE", "yellow")),
-        "tools": (("TOOLS", "yellow"), ("DEVICE", ""), ("ADVANCED", "yellow")),
-        "safety": (("SYSTEM", ""), ("CONFIRM", "yellow"), ("LOCAL", "yellow")),
-        "about": (("PIXELFLASHER", ""), ("LOCAL INFO", "yellow"), ("MODERN UI", "yellow")),
-    }.get(page, (("READY", "yellow"), ("MODERN UI", "yellow")))
-    return "".join(f'<span class="badge {tone}">{escape(label)}</span>' for label, tone in labels)
 
 
 def _page_title(page: str) -> str:
     return {
         "dashboard": "Modern Dashboard",
-        "shell": "Modern Shell",
+        "shell": "Device",
         "wizard": "Flash Wizard",
         "backups": "Backups",
         "downloads": "Downloads",
         "settings": "Settings",
         "tools": "Tools",
-        "safety": "System",
+        "safety": "Safety",
         "about": "About",
     }.get(page, "Modern UI")
 
@@ -1801,6 +1669,26 @@ def _package_type(state: ModernReadonlyState) -> str:
         "image": "Image file",
         "unknown": "unknown",
     }.get(str(state.firmware.package_type or "unknown"), str(state.firmware.package_type or "unknown"))
+
+
+def _firmware_source_label(state: ModernReadonlyState) -> str:
+    if not state.firmware.selected:
+        return "Choose source"
+    if state.firmware.package_type == "custom_rom":
+        return "Custom ROM"
+    if state.firmware.package_type in {"factory", "ota"}:
+        return "Official Android"
+    if state.firmware.package_type == "image":
+        return "Image file"
+    return "Local package"
+
+
+def _process_action_id(state: ModernReadonlyState) -> str:
+    return "process_custom_rom" if state.firmware.package_type == "custom_rom" else "process_firmware"
+
+
+def _process_action_label(state: ModernReadonlyState) -> str:
+    return "Process ROM" if state.firmware.package_type == "custom_rom" else "Process Package"
 
 
 def _on_off(value: bool) -> str:

@@ -34,6 +34,10 @@ def guarded_action_canceled_feedback(action: ModernAction) -> ModernActionFeedba
     return ModernActionFeedback(f"{action.label}: canceled.", WARNING)
 
 
+def action_started_feedback(action: ModernAction) -> ModernActionFeedback:
+    return ModernActionFeedback(f"{action.label}: working...", WARNING)
+
+
 def action_completed_feedback(action: ModernAction) -> ModernActionFeedback:
     return ModernActionFeedback(f"{action.label}: complete.", SAFE)
 

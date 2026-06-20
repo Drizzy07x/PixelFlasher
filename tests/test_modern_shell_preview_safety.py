@@ -231,7 +231,6 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Modern UI",
             "Connected Device",
             "Quick Actions",
-            "Workflow Status",
             "Device Slots",
             "Partitions",
             "Last Backup",
@@ -259,7 +258,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             ),
         )
 
-        for label in ("Dashboard", "Modern Shell", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "System", "About"):
+        for label in ("Dashboard", "Device", "Flash Wizard", "Backups", "Downloads", "Settings", "Tools", "Safety", "About"):
             with self.subTest(label=label):
                 self.assertIn(label, html)
 
@@ -316,21 +315,27 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         shell_html = render_preview_html("shell", state)
         wizard_html = render_preview_html("wizard", state)
 
-        for label in ("Device State Overview", "Connection Readiness", "Device Information", "Firmware Context", "Workflow Controls", "Available Actions"):
+        for label in ("Device", "Firmware"):
             with self.subTest(label=label):
                 self.assertIn(label, shell_html)
+        for removed in ("Device Actions", "Scan Devices", "Patch Boot"):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, shell_html)
         for label in (
             "Step 1: Device &amp; Firmware",
             "Device Readiness",
             "Firmware Readiness",
-            "Flash Workflow",
+            "Final Flash",
+            "Flash Plan",
             "Flash Summary",
             "Firmware",
             "Options",
             "Plan",
             "Review",
-            "Select Firmware",
-            "Process Firmware",
+            "Official / OTA",
+            "Process Package",
+            "Official / OTA",
+            "Custom ROM",
             "Flash Device",
         ):
             with self.subTest(label=label):
@@ -349,12 +354,12 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         )
 
         expected_by_page = {
-            "backups": ("Backups", "Backup Actions", "Loaded Backup Context", "Backup Tools"),
-            "downloads": ("Downloads", "Firmware Downloads", "Loaded Download Context", "Download Actions"),
-            "settings": ("Settings", "General Settings", "Loaded Preference Flags", "Settings Actions"),
-            "tools": ("Tools", "Tool Catalog", "Advanced Operations", "Partition Manager"),
-            "safety": ("System", "Protection", "Loaded State Snapshot", "Operation Policy"),
-            "about": ("About PixelFlasher", "Application Engine", "Loaded State Snapshot", "Modern UI Status"),
+            "backups": ("Backups", "Backup Actions", "Backup State", "No backups loaded"),
+            "downloads": ("Downloads", "Firmware Source", "Official Android Release", "Custom ROM"),
+            "settings": ("Settings", "Preferences", "Open Settings"),
+            "tools": ("Tools", "Tool Catalog", "Partition Manager"),
+            "safety": ("Safety", "Confirmations"),
+            "about": ("PixelFlasher", "Application"),
         }
 
         for page, labels in expected_by_page.items():
@@ -362,6 +367,14 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             for label in labels:
                 with self.subTest(page=page, label=label):
                     self.assertIn(label, html)
+
+        downloads_html = render_preview_html("downloads", state)
+        for removed in ("Rooting App", "Process Firmware"):
+            with self.subTest(page="downloads", removed=removed):
+                self.assertNotIn(removed, downloads_html)
+
+        tools_html = render_preview_html("tools", state)
+        self.assertNotIn("Device Scan", tools_html)
 
     def test_webview_html_is_static_and_local(self):
         forbidden_snippets = (

@@ -118,7 +118,7 @@ class ModernShellReadonlyStateTests(unittest.TestCase):
         text = "\n".join(f"{title}: {body}" for title, body in _shell_preview_action_rows())
 
         self.assertIn("Flash Wizard", text)
-        self.assertIn("Modern Shell", text)
+        self.assertIn("Device", text)
         self.assertIn("confirmation", text)
         self.assertNotIn("Flash Device", text)
 

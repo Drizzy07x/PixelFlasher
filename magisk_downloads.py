@@ -113,7 +113,6 @@ class MagiskDownloads(wx.Dialog):
         if not device:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: You must first select a valid device to be able to install.")
             print("You can still download the rooting app, but you will not be able to install it.")
-            self.Parent.clear_device_selection()
 
         apks = get_rooting_app_apks()
 
@@ -214,6 +213,8 @@ class MagiskDownloads(wx.Dialog):
         self.SetSizerAndFit(vSizer)
         a = self.list.GetViewRect()
         self.SetSize(vSizer.MinSize.Width + 80, vSizer.MinSize.Height + 420)
+        if self.list.ItemCount:
+            self._select_apk_row(0)
 
         print("\nOpening Root App Installer / Downloader ...")
         puml(f":Open Root App Installer / Downloader;\n", True)
@@ -315,6 +316,9 @@ class MagiskDownloads(wx.Dialog):
     def _on_apk_selected(self, e):
         x,y = e.GetPosition()
         row,flags = self.list.HitTest((x,y))
+        self._select_apk_row(row)
+
+    def _select_apk_row(self, row):
         for i in range (0, self.list.ItemCount):
             # deselect all items
             self.list.Select(i, 0)
@@ -326,6 +330,7 @@ class MagiskDownloads(wx.Dialog):
                 item.SetTextColour(wx.WHITE)
             self.list.SetItem(item)
         if row != -1:
+            self.currentItem = row
             self.list.Select(row)
             item = self.list.GetItem(row)
             if sys.platform == "win32":

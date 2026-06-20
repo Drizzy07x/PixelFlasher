@@ -276,25 +276,20 @@ jobs:
           body: |
             ## PixelFlasher v${{ steps.get_version.outputs.version }}
 
-            Modern UI beta preview includes:
-            - Compact Dashboard behind `--modern-dashboard`
-            - Standalone Dashboard preview via `--modern-dashboard-preview`
-            - Flash Wizard preview via `--flash-wizard-preview`
-            - Flash Wizard demo via `--flash-wizard-demo`
-            - Wizard model, adapter, detail formatter, and tests
+            PixelFlasher includes:
+            - Modern Dashboard as the primary workspace
+            - Guided Flash Wizard with firmware source selection
+            - Official Android factory and OTA package access
+            - Custom ROM archive selection and processing
+            - Android Platform Tools setup for ADB and Fastboot
+            - Rooting app, support package, module, backup, and partition tools
 
             Included release assets:
             - Windows: `PixelFlasher.exe`
             - Linux: `PixelFlasher_Ubuntu_24_04`
             - macOS: `PixelFlasher_MacOS.dmg`
 
-            Safety status:
-            - The Flash Wizard is read-only / preview-only.
-            - The Wizard does not execute ADB, Fastboot, patch, or flash operations.
-            - Use the legacy PixelFlasher controls for real device operations.
-
-            Testing guide:
-            - See `docs/MODERN_UI_BETA_TESTING.md`.
+            Sensitive operations continue to use PixelFlasher confirmations before device changes are made.
           draft: false
           prerelease: ${{ steps.release_type.outputs.prerelease }}
           files: |
