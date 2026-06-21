@@ -6,11 +6,18 @@ from html import escape
 
 from constants import VERSION
 from ui.pages.modern_action_bridge import action_url
+from ui.pages.modern_action_feedback import ModernProgressState
 from ui.pages.modern_preview_copy import NAV_ITEMS, SAFETY_BOUNDARY_LINES
 from ui.pages.modern_readonly_state import ModernReadonlyState
 
 
 DEFAULT_STATUS_MESSAGE = "Ready"
+FLASH_MODE_CHOICES = (
+    ("keepData", "Keep Data", "set_flash_mode_keep_data", "Keep data"),
+    ("wipeData", "Wipe Data", "set_flash_mode_wipe", "Wipe data"),
+    ("dryRun", "Dry Run", "set_flash_mode_dry_run", "Test only"),
+    ("OTA", "Full OTA", "set_flash_mode_ota", "OTA sideload"),
+)
 
 
 def render_preview_html(
@@ -19,6 +26,7 @@ def render_preview_html(
     version: str = VERSION,
     status_message: str = DEFAULT_STATUS_MESSAGE,
     status_tone: str = "safe",
+    progress: ModernProgressState | None = None,
 ) -> str:
     page_key = _normalize_page(page)
     return _document(
@@ -29,7 +37,7 @@ def render_preview_html(
           <main class="main">
             {_topbar(page_key)}
             {_page_body(page_key, state, version)}
-            {_status_bar(version, status_message, status_tone)}
+            {_status_bar(version, status_message, status_tone, progress)}
           </main>
         </div>
         """,
@@ -235,7 +243,7 @@ body {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 2px 4px 2px 0;
+  padding: 2px 4px 14px 0;
   scrollbar-width: none;
 }
 .content::-webkit-scrollbar { width: 0; height: 0; }
@@ -627,21 +635,87 @@ body {
 .state-card .state-icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
 .statusbar {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(160px, 1fr) minmax(280px, 1.4fr) minmax(150px, 1fr);
   align-items: center;
   gap: 12px;
-  min-height: 42px;
+  min-height: 54px;
   color: var(--muted);
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding-top: 10px;
   font-size: 13px;
   overflow: hidden;
 }
-.statusbar div:nth-child(2) { text-align: center; color: var(--soft); }
-.statusbar div:nth-child(3) { text-align: right; }
+.status-left,
+.status-right {
+  min-width: 0;
+  white-space: nowrap;
+}
+.status-center {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  text-align: center;
+  color: var(--soft);
+}
+.status-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-right { text-align: right; }
 .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); margin-right: 8px; }
 .statusbar.warning .status-dot { background: var(--yellow); }
 .statusbar.blocked .status-dot { background: var(--red); }
+.progress-wrap {
+  display: none;
+  gap: 4px;
+  min-width: 0;
+}
+.statusbar.has-progress .progress-wrap { display: grid; }
+.progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(118, 153, 197, .22);
+  background: rgba(255, 255, 255, .055);
+}
+.progress-fill {
+  height: 100%;
+  width: var(--progress, 0%);
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--cyan), var(--green));
+  transition: width .22s ease;
+}
+.statusbar.warning .progress-fill { background: linear-gradient(90deg, var(--purple), var(--blue), var(--yellow)); }
+.statusbar.blocked .progress-fill { background: linear-gradient(90deg, #9b1c1c, var(--red)); }
+.progress-fill.indeterminate {
+  width: 36%;
+  animation: progress-slide 1.15s ease-in-out infinite;
+}
+.progress-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.1;
+}
+.progress-caption span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-caption strong {
+  color: var(--soft);
+  white-space: nowrap;
+}
+@keyframes progress-slide {
+  0% { transform: translateX(-115%); }
+  55% { transform: translateX(125%); }
+  100% { transform: translateX(125%); }
+}
 .shell-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -773,22 +847,22 @@ body {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .step {
   display: grid;
   place-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--muted);
-  padding: 12px 8px;
+  padding: 9px 8px;
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, .035);
   border: 1px solid var(--border-soft);
 }
 .step.active { color: white; border-color: rgba(122, 77, 255, .55); background: linear-gradient(135deg, rgba(122, 77, 255, .26), rgba(47, 140, 255, .10)); }
 .step-circle {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -803,20 +877,20 @@ body {
 }
 .readiness-grid .card {
   box-shadow: var(--shadow-soft);
-  padding: 15px;
+  padding: 12px;
 }
 .plan-brief {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
+  gap: 10px;
+  margin-top: 10px;
 }
 .plan-brief-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin: 16px 0 10px;
+  margin: 12px 0 8px;
 }
 .plan-brief-header h3 {
   margin: 0;
@@ -827,8 +901,8 @@ body {
   font-size: 12px;
 }
 .plan-card {
-  min-height: 116px;
-  padding: 13px;
+  min-height: 96px;
+  padding: 12px;
   border-radius: var(--radius-lg);
   background: linear-gradient(145deg, rgba(47, 140, 255, .11), rgba(255, 255, 255, .035));
   border: 1px solid var(--border-soft);
@@ -855,6 +929,61 @@ body {
   font-size: 12px;
   line-height: 1.38;
 }
+.mode-controls {
+  margin-top: 12px;
+  padding: 11px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(118, 153, 197, .18);
+  background: rgba(255, 255, 255, .035);
+}
+.mode-control-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.mode-control-header h3 { margin: 0; font-size: 14px; }
+.mode-control-header span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.mode-button {
+  min-height: 44px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(118, 153, 197, .18);
+  background: rgba(255, 255, 255, .04);
+  color: var(--soft);
+  text-decoration: none;
+}
+.mode-button strong { color: white; font-size: 13px; }
+.mode-button span { color: var(--muted); font-size: 11px; }
+.mode-button:hover { border-color: rgba(47, 140, 255, .38); background: rgba(47, 140, 255, .08); }
+.mode-button.active {
+  border-color: rgba(66, 223, 91, .34);
+  background: linear-gradient(135deg, rgba(66, 223, 91, .13), rgba(47, 140, 255, .07));
+}
+.mode-button.danger.active {
+  border-color: rgba(255, 104, 104, .44);
+  background: linear-gradient(135deg, rgba(255, 104, 104, .15), rgba(255, 255, 255, .035));
+}
+.mode-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.mode-note.warning { color: #ffe08a; }
 .wizard-grid > .card:first-child,
 .wizard-grid > .blocked,
 .wizard-grid > .guarded {
@@ -883,7 +1012,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 .button {
   min-width: 110px;
@@ -904,6 +1033,7 @@ body {
   .app-shell { grid-template-columns: 230px minmax(0, 1fr); }
   .dashboard-grid, .wizard-grid { grid-template-columns: 1fr; }
   .lower-grid, .shell-grid, .page-grid, .page-grid.two, .readiness-grid, .tile-grid, .state-overview, .plan-brief { grid-template-columns: 1fr; }
+  .mode-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-actions { grid-template-columns: 1fr; }
   .setup-notice { grid-template-columns: auto minmax(0, 1fr); }
   .setup-button { grid-column: 1 / -1; text-align: center; }
@@ -1026,6 +1156,7 @@ def _connected_device_card(state: ModernReadonlyState) -> str:
             {_spec("build", "Build Number", build_id)}
             {_spec("shield", "Security Patch", security_patch)}
             {_spec("lock", "Bootloader", bootloader)}
+            {_spec("root", "Root", _known(device.root_status))}
             {_spec("connection", "Connection", connection)}
             {_spec("source", "State Source", "Loaded from last scan")}
           </div>
@@ -1091,6 +1222,7 @@ def _quick_actions_card(state: ModernReadonlyState) -> str:
         ("blue", "wizard", "Flash Wizard", "Plan firmware, options, and final flash.", "open_modern_flash_wizard"),
         ("yellow", "flash", "Flash Device", "Start the configured PixelFlasher workflow.", "flash_device"),
         ("purple", "patch", "Patch Boot", "Patch the selected boot image.", "patch_boot"),
+        ("blue", "flash", "Flash Boot", "Flash only the selected boot image.", "flash_boot"),
         ("green", "shell", "Device", "View device, firmware, and connection state.", "open_modern_shell"),
         ("yellow", "scan", "Scan Devices", "Refresh connected devices.", "scan_devices"),
     ))
@@ -1165,7 +1297,7 @@ def _shell_page(state: ModernReadonlyState) -> str:
         {_state_card("tools", "Tools", _platform_tools_label(state))}
       </div>
       <div class="page-grid two">
-        {_mini_card("Device", "State", (("Model", state.device.display_name or "Choose device"), ("Android", state.device.android_version or "Waiting for scan"), ("Bootloader", _known(state.device.bootloader_state)), ("Current slot", state.device.active_slot or "Waiting for scan")))}
+        {_mini_card("Device", "State", (("Model", state.device.display_name or "Choose device"), ("Android", state.device.android_version or "Waiting for scan"), ("Bootloader", _known(state.device.bootloader_state)), ("Root", _known(state.device.root_status)), ("Current slot", state.device.active_slot or "Waiting for scan")))}
         {_mini_card("Firmware", "Package", (("Selected", state.firmware.filename or "Choose firmware"), ("Type", _package_type(state)), ("Size", state.firmware.size_label), ("Patchable image", "available" if state.firmware.has_patchable_image else "not detected")))}
         {_warnings_card(state)}
       </div>
@@ -1191,19 +1323,20 @@ def _wizard_page(state: ModernReadonlyState) -> str:
               <h2>Step 1: Device &amp; Firmware</h2>
               <div class="card-subtitle">Choose the target, confirm firmware, then review the final flash plan.</div>
             </div>
-            <span class="badge yellow">Confirmed workflow</span>
+            <span class="badge yellow">{escape(_wizard_mode_badge_label(state))}</span>
           </div>
           <div class="readiness-grid">
             {_wizard_readiness("Device Readiness", (("No device connected" if not state.device.selected else "Device selected"), state.device.connection_label, f"Active slot: {state.device.active_slot or 'unknown'}", f"Root: {state.device.root_status}"))}
             {_wizard_readiness("Firmware Readiness", (("No firmware selected" if not state.firmware.selected else state.firmware.filename), _package_type(state), "Size: " + state.firmware.size_label, "Process firmware when ready", "Patchable image: " + ("available" if state.firmware.has_patchable_image else "not detected")))}
-            {_wizard_readiness("Final Flash", ("Review flash mode", "Confirm options", "Start PixelFlasher flash", "Follow confirmation steps"))}
+            {_wizard_readiness("Final Flash", _final_flash_lines(state))}
           </div>
           {_wizard_plan_brief(state)}
+          {_wizard_flash_mode_controls(state)}
           <div class="footer-controls">
             <a class="button" href="{escape(action_url("select_firmware"))}">Official / OTA</a>
             <a class="button" href="{escape(action_url("select_custom_rom"))}">Custom ROM</a>
             <a class="button" href="{escape(action_url(_process_action_id(state)))}">{escape(_process_action_label(state))}</a>
-            <a class="button primary guarded-action" href="{escape(action_url("flash_device"))}">Flash Device</a>
+            <a class="button primary guarded-action" href="{escape(action_url("flash_device"))}">{escape(_final_action_label(state))}</a>
           </div>
         </article>
         <aside class="card guarded">
@@ -1219,12 +1352,84 @@ def _wizard_page(state: ModernReadonlyState) -> str:
             {_mini_row("Mode", state.flash.flash_mode)}
             {_mini_row("Data", state.flash.data_behavior)}
             {_mini_row("Slot target", state.flash.slot_behavior)}
-            {_mini_row("Final action", "Flash Device")}
+            {_mini_row("Final action", _final_action_label(state))}
           </div>
         </aside>
       </div>
     </section>
     """
+
+
+def _wizard_flash_mode_controls(state: ModernReadonlyState) -> str:
+    current = str(state.flash.flash_mode or "dryRun")
+    buttons = "".join(_flash_mode_button(current, mode, label, action_id, detail) for mode, label, action_id, detail in FLASH_MODE_CHOICES)
+    note_tone = " warning" if current == "dryRun" else ""
+    return f"""
+    <div class="mode-controls" aria-label="Flash mode">
+      <div class="mode-control-header">
+        <h3>Flash Mode</h3>
+        <span>{escape(_flash_mode_label(current))}</span>
+      </div>
+      <div class="mode-buttons">{buttons}</div>
+      <p class="mode-note{note_tone}">{escape(_flash_mode_note(current))}</p>
+    </div>
+    """
+
+
+def _flash_mode_button(current: str, mode: str, label: str, action_id: str, detail: str) -> str:
+    active = " active" if current == mode else ""
+    danger = " danger" if mode == "wipeData" else ""
+    return f"""
+    <a class="mode-button{active}{danger}" href="{escape(action_url(action_id))}">
+      <strong>{escape(label)}</strong>
+      <span>{escape(detail)}</span>
+    </a>
+    """
+
+
+def _wizard_mode_badge_label(state: ModernReadonlyState) -> str:
+    return "Dry run selected" if state.flash.flash_mode == "dryRun" else "Confirmed workflow"
+
+
+def _final_flash_lines(state: ModernReadonlyState) -> tuple[str, ...]:
+    if state.flash.flash_mode == "dryRun":
+        return (
+            "Dry Run selected",
+            "No partition flashing",
+            "Device may reboot for testing",
+            "Choose a flash mode for real flashing",
+        )
+    if state.flash.flash_mode == "OTA":
+        return ("Review OTA mode", "Confirm options", "Start OTA sideload", "Follow confirmation steps")
+    return ("Review flash mode", "Confirm options", "Start PixelFlasher flash", "Follow confirmation steps")
+
+
+def _final_action_label(state: ModernReadonlyState) -> str:
+    if state.flash.flash_mode == "dryRun":
+        return "Run Dry Run"
+    if state.flash.flash_mode == "OTA":
+        return "Sideload OTA"
+    return "Flash Device"
+
+
+def _flash_mode_label(mode: str) -> str:
+    return {
+        "keepData": "Keep Data",
+        "wipeData": "Wipe Data",
+        "dryRun": "Dry Run",
+        "OTA": "Full OTA",
+        "customFlash": "Custom Flash",
+    }.get(str(mode or ""), str(mode or "unknown"))
+
+
+def _flash_mode_note(mode: str) -> str:
+    if mode == "dryRun":
+        return "Dry Run does not flash partitions; choose Keep Data, Wipe Data, or Full OTA for a real flash workflow."
+    if mode == "wipeData":
+        return "Wipe Data is selected; PixelFlasher will ask again before any flashing starts."
+    if mode == "OTA":
+        return "Full OTA sideload is selected; firmware must be an OTA package."
+    return "Keep Data is selected; PixelFlasher confirmations remain in place."
 
 
 def _wizard_plan_brief(state: ModernReadonlyState) -> str:
@@ -1275,11 +1480,21 @@ def _plan_card(label: str, title: str, copy: str, tone: str) -> str:
 
 
 def _plan_status_label(state: ModernReadonlyState) -> str:
-    return "Ready to start" if state.ready_for_review else "Needs attention"
+    if not state.ready_for_review:
+        return "Needs attention"
+    if state.flash.flash_mode == "dryRun":
+        return "Ready for dry run"
+    if state.flash.flash_mode == "OTA":
+        return "Ready to sideload"
+    return "Ready to flash"
 
 
 def _plan_review_label(state: ModernReadonlyState) -> str:
-    return str(len(state.warnings)) if state.warnings else "clear"
+    if state.warnings:
+        return str(len(state.warnings))
+    if state.flash.flash_mode == "dryRun":
+        return "dry run"
+    return "clear"
 
 
 def _backups_page(state: ModernReadonlyState) -> str:
@@ -1355,7 +1570,7 @@ def _tools_page(state: ModernReadonlyState) -> str:
     <section class="content">
       {_platform_tools_notice(state)}
       <div class="page-grid two">
-        {_action_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image.", "patch_boot", "patch"), ("Support Package", "Create support archive.", "create_support_package", "tools"), ("Rooting App", "Download or install root tools.", "rooting_app", "android"), ("Magisk Modules", "Manage modules.", "magisk_modules", "settings"), ("Partition Manager", "Open partition tools.", "partition_manager", "backups")))}
+        {_action_tile_card("Tool Catalog", (("Boot Image Patcher", "Patch selected boot image.", "patch_boot", "patch"), ("Flash Boot", "Flash selected boot image.", "flash_boot", "flash"), ("Support Package", "Create support archive.", "create_support_package", "tools"), ("Rooting App", "Download or install root tools.", "rooting_app", "android"), ("Magisk Modules", "Manage modules.", "magisk_modules", "settings"), ("Partition Manager", "Open partition tools.", "partition_manager", "backups")))}
         {_warnings_card(state)}
       </div>
     </section>
@@ -1386,16 +1601,55 @@ def _about_page(version: str, state: ModernReadonlyState) -> str:
     """
 
 
-def _status_bar(version: str, status_message: str, status_tone: str) -> str:
+def _status_bar(version: str, status_message: str, status_tone: str, progress: ModernProgressState | None = None) -> str:
     tone = _status_tone(status_tone)
     message = status_message or DEFAULT_STATUS_MESSAGE
+    progress_state = _normalize_progress(progress)
+    progress_class = " has-progress" if progress_state.active else ""
     return f"""
-    <footer class="statusbar {escape(tone)}">
-      <div><span class="status-dot"></span>Modern UI</div>
-      <div>{escape(message)}</div>
-      <div>PixelFlasher {escape(version)}</div>
+    <footer class="statusbar {escape(tone)}{progress_class}">
+      <div class="status-left"><span class="status-dot"></span>Modern UI</div>
+      <div class="status-center">
+        <span class="status-message">{escape(message)}</span>
+        {_progress_bar(progress_state)}
+      </div>
+      <div class="status-right">PixelFlasher {escape(version)}</div>
     </footer>
     """
+
+
+def _progress_bar(progress: ModernProgressState) -> str:
+    if not progress.active:
+        return ""
+    percent = _progress_percent(progress.percent)
+    fill_class = "progress-fill indeterminate" if progress.indeterminate else "progress-fill"
+    percent_label = "working" if progress.indeterminate else f"{percent}%"
+    label = progress.label or "Working"
+    detail = progress.detail or percent_label
+    return f"""
+        <div class="progress-wrap" aria-label="Action progress">
+          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{percent}">
+            <div class="{fill_class}" style="--progress: {percent}%"></div>
+          </div>
+          <div class="progress-caption"><span>{escape(label)}</span><strong>{escape(detail)}</strong></div>
+        </div>
+    """
+
+
+def _normalize_progress(progress: ModernProgressState | None) -> ModernProgressState:
+    if isinstance(progress, ModernProgressState):
+        return progress
+    return ModernProgressState()
+
+
+def _progress_percent(percent: int | None) -> int:
+    if percent is None:
+        return 0
+    try:
+        value = int(percent)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, value))
 
 
 def _spec(icon_key: str, label: str, value: str) -> str:
@@ -1593,6 +1847,7 @@ _SVG_ICONS: dict[str, str] = {
     "build": '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/>',
     "shield": '<path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/>',
     "lock": '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    "root": '<path d="M12 3 20 7v5c0 4.8-3.2 7.6-8 9-4.8-1.4-8-4.2-8-9V7l8-4z"/><path d="M9 12h6"/><path d="M12 9v6"/>',
     "connection": '<path d="M7 7h10"/><path d="m14 4 3 3-3 3"/><path d="M17 17H7"/><path d="m10 14-3 3 3 3"/>',
     "source": '<circle cx="12" cy="12" r="3"/><path d="M12 3v3"/><path d="M12 18v3"/><path d="M3 12h3"/><path d="M18 12h3"/>',
 }

@@ -5,7 +5,9 @@ from ui.pages.modern_action_feedback import (
     BLOCKED,
     SAFE,
     WARNING,
+    ModernProgressState,
     action_completed_feedback,
+    action_failed_feedback,
     action_started_feedback,
     action_unavailable_feedback,
     blocked_navigation_feedback,
@@ -41,6 +43,7 @@ class ModernActionFeedbackTests(unittest.TestCase):
         canceled = guarded_action_canceled_feedback(action)
         started = action_started_feedback(action)
         completed = action_completed_feedback(action)
+        failed = action_failed_feedback(action)
 
         self.assertEqual(WARNING, canceled.tone)
         self.assertEqual("Flash Device: canceled.", canceled.message)
@@ -48,6 +51,16 @@ class ModernActionFeedbackTests(unittest.TestCase):
         self.assertEqual("Flash Device: working...", started.message)
         self.assertEqual(SAFE, completed.tone)
         self.assertEqual("Flash Device: complete.", completed.message)
+        self.assertEqual(BLOCKED, failed.tone)
+        self.assertEqual("Flash Device: failed or aborted.", failed.message)
+
+    def test_progress_state_defaults_to_inactive(self):
+        progress = ModernProgressState()
+
+        self.assertFalse(progress.active)
+        self.assertIsNone(progress.percent)
+        self.assertEqual("", progress.label)
+        self.assertFalse(progress.indeterminate)
 
 
 if __name__ == "__main__":

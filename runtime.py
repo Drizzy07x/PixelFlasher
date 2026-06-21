@@ -47,6 +47,7 @@ import logging
 import math
 import ntpath
 import os
+import queue
 import re
 import shutil
 import signal
@@ -68,7 +69,6 @@ import warnings
 from datetime import datetime, timezone, timedelta
 from os import path
 from urllib.parse import urlparse
-import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from cryptography import x509
 from cryptography.fernet import Fernet
@@ -126,7 +126,6 @@ except ModuleNotFoundError as exc:
     def show_ksu_asset_selector(*args, **kwargs):
         raise RuntimeError("wxPython is required for this operation")
 
-import cProfile, pstats, io
 import avbtool
 
 app_language = 'en'  # Default language is English
@@ -6770,29 +6769,6 @@ def get_pif_from_image(image_file):
             sparse_chunks = check_file_pattern_in_zip_file(file_to_process, sparse_chunk_pattern, return_all_matches=True)
             if sparse_chunks:
                 print("Detected a Motorola firmware")
-                # # Extract sparse chunks
-                # for chunk in sparse_chunks:
-                #     print(f"Extracting {chunk} from {file_to_process} ...")
-                #     theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{temp_dir_path}\" \"{file_to_process}\" \"{chunk}\""
-                #     debug(theCmd)
-                #     res = run_shell2(theCmd)
-                #     if res.returncode != 0:
-                #         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {chunk}.")
-                #         print(f"Return Code: {res.returncode}")
-                #         print(f"Stdout: {res.stdout}")
-                #         print(f"Stderr: {res.stderr}")
-                #         print("Aborting ...\n")
-                #         return
-                # # Combine sparse chunks
-                # combined_sparse_path = os.path.join(temp_dir_path, "combined_system.img")
-                # with open(combined_sparse_path, 'wb') as combined_file:
-                #     for chunk in sparse_chunks:
-                #         chunk_path = os.path.join(temp_dir_path, chunk)
-                #         with open(chunk_path, 'rb') as chunk_file:
-                #             combined_file.write(chunk_file.read())
-                # # converting to raw image
-                # raw_image_path = os.path.join(temp_dir_path, "system.img")
-                # subprocess.run(["simg2img", combined_sparse_path, raw_image_path], check=True)
 
         elif check_zip_contains_file(file_to_process, "system.img", config.low_mem):
             check_for_system_vendor_product_imgs(file_to_process)
@@ -10696,12 +10672,14 @@ def run_shell(cmd, timeout=None, encoding='ISO-8859-1'):
 
     except subprocess.TimeoutExpired as e:
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Command {cmd} timed out after {timeout} seconds")
-        puml("#red:Command {cmd} timed out;\n", True)
+        puml(f"#red:Command {cmd} timed out;\n", True)
         puml(f"note right\n{e}\nend note\n")
         # Send CTRL + C signal to the process
         if process is not None:
-            process.send_signal(signal.SIGTERM)
-            process.terminate()
+            _terminate_process_tree(process)
+            with contextlib.suppress(Exception):
+                process.wait(timeout=5)
+            _close_process_pipes(process)
         return subprocess.CompletedProcess(args=cmd, returncode=-1, stdout='', stderr='')
 
     except Exception as e:
@@ -10711,6 +10689,37 @@ def run_shell(cmd, timeout=None, encoding='ISO-8859-1'):
         puml(f"note right\n{e}\nend note\n")
         raise e
         # return subprocess.CompletedProcess(args=cmd, returncode=-2, stdout='', stderr='')
+
+
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    with contextlib.suppress(Exception):
+        parent = psutil.Process(proc.pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            with contextlib.suppress(Exception):
+                child.terminate()
+        with contextlib.suppress(Exception):
+            parent.terminate()
+        gone, alive = psutil.wait_procs([*children, parent], timeout=5)
+        _ = gone
+        for process in alive:
+            with contextlib.suppress(Exception):
+                process.kill()
+        return
+    with contextlib.suppress(Exception):
+        proc.terminate()
+
+
+def _yield_if_wx_app_ready() -> None:
+    with contextlib.suppress(Exception):
+        wx.YieldIfNeeded()
+
+
+def _close_process_pipes(proc: subprocess.Popen) -> None:
+    for pipe in (getattr(proc, "stdin", None), getattr(proc, "stdout", None), getattr(proc, "stderr", None)):
+        with contextlib.suppress(Exception):
+            if pipe:
+                pipe.close()
 
 
 # ============================================================================
@@ -10752,26 +10761,61 @@ def run_shell2(cmd, timeout=None, detached=False, directory=None, encoding='utf-
                 env=env
             )
 
+        with contextlib.suppress(Exception):
+            if proc.stdin:
+                proc.stdin.close()
+
         print()
+        output_queue: queue.Queue[str | None] = queue.Queue()
+        output_lines: list[str] = []
+
+        def read_stdout():
+            try:
+                if proc.stdout is None:
+                    return
+                for line in iter(proc.stdout.readline, ''):
+                    output_queue.put(line)
+            finally:
+                output_queue.put(None)
+
+        reader = threading.Thread(target=read_stdout, name="PixelFlasherRunShell2Reader", daemon=True)
+        reader.start()
+        start_time = time.time()
+        stdout_closed = False
+
         while True:
-            if proc.stdout is None:
-                break
-            line = proc.stdout.readline()
-            wx.YieldIfNeeded()
+            try:
+                line = output_queue.get(timeout=0.1)
+            except queue.Empty:
+                _yield_if_wx_app_ready()
+                if timeout is not None and time.time() - start_time > timeout:
+                    _terminate_process_tree(proc)
+                    with contextlib.suppress(Exception):
+                        proc.wait(timeout=5)
+                    _close_process_pipes(proc)
+                    reader.join(timeout=1)
+                    print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Command {cmd} timed out after {timeout} seconds")
+                    puml("#red:Command timed out;\n", True)
+                    puml(f"note right\nCommand {cmd} timed out after {timeout} seconds\nend note\n")
+                    return subprocess.CompletedProcess(args=cmd, returncode=-1, stdout=''.join(output_lines), stderr='')
+                if stdout_closed and proc.poll() is not None:
+                    break
+                continue
+
+            _yield_if_wx_app_ready()
+            if line is None:
+                stdout_closed = True
+                if proc.poll() is not None:
+                    break
+                continue
+            output_lines.append(line)
             if line.strip() != "":
                 print(line.strip())
-            if not line:
-                break
-            if timeout is not None and time.time() > timeout:
-                proc.terminate()
-                print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Command {cmd} timed out after {timeout} seconds")
-                puml("#red:Command timed out;\n", True)
-                puml(f"note right\nCommand {cmd} timed out after {timeout} seconds\nend note\n")
-                return subprocess.CompletedProcess(args=cmd, returncode=-1, stdout='', stderr='')
+
         proc.wait()
-        # Wait for the process to complete and capture the output
-        stdout, stderr = proc.communicate()
-        return subprocess.CompletedProcess(args=cmd, returncode=proc.returncode, stdout=stdout, stderr=stderr)
+        reader.join(timeout=1)
+        _close_process_pipes(proc)
+        return subprocess.CompletedProcess(args=cmd, returncode=proc.returncode, stdout=''.join(output_lines), stderr='')
     except Exception as e:
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while executing run_shell2 {cmd}")
         traceback.print_exc()
@@ -10815,7 +10859,7 @@ def run_shell3(cmd, timeout=None, detached=False, directory=None, encoding='ISO-
                 if proc.stdout is None:
                     break
                 line = proc.stdout.readline()
-                wx.YieldIfNeeded()
+                _yield_if_wx_app_ready()
                 if line.strip() != "":
                     print(line.strip())
                     output.append(line.strip())
@@ -10840,22 +10884,4 @@ def run_shell3(cmd, timeout=None, detached=False, directory=None, encoding='ISO-
         puml(f"note right\n{e}\nend note\n")
         raise e
         # return subprocess.CompletedProcess(args=cmd, returncode=-2, stdout='', stderr='')
-
-
-# def run_shell(*args, **kwargs):
-#     pr = cProfile.Profile()
-#     pr.enable()
-#     result = run_shell1(*args, **kwargs)  # Call your function here
-#     pr.disable()
-#     s = io.StringIO()
-#     ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
-#     ps.print_stats()
-
-#     # Get the calling function and line number
-#     stack = traceback.extract_stack()
-#     filename, lineno, function_name, unused = stack[-3]  # -3 because -1 is current function, -2 is the function that called this function
-#     print(f"Called from {function_name} at {filename}:{lineno}")
-
-#     print(s.getvalue())
-#     return result
 

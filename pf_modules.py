@@ -62,6 +62,36 @@ from runtime import *
 
 console_widget = None
 
+
+def _sdk_major_version(sdk_version):
+    version = str(sdk_version or '').strip()
+    if not version:
+        return None
+    major = version.split('.', 1)[0]
+    with contextlib.suppress(ValueError):
+        return int(major)
+    return None
+
+
+def _modern_progress(self, label, percent=None, detail='', active=True, indeterminate=False, tone='warning'):
+    targets = (getattr(self, "_modern_dialog_parent", None), self)
+    seen = set()
+    for target in targets:
+        if target is None or id(target) in seen:
+            continue
+        seen.add(id(target))
+        updater = getattr(target, "set_modern_progress", None)
+        if callable(updater):
+            updater(label, percent, detail, active, indeterminate, tone)
+            wait_for_render = getattr(target, "wait_for_modern_progress_render", None)
+            if callable(wait_for_render):
+                wait_for_render()
+            with contextlib.suppress(Exception):
+                wx.Yield()
+            return True
+    return False
+
+
 # ============================================================================
 #                               Class FlashFile
 # ============================================================================
@@ -158,12 +188,12 @@ def set_android_product_out(sdk_path):
 # ============================================================================
 #                               Function populate_boot_list
 # ============================================================================
-def populate_boot_list(self, sortColumn=None, sorting_direction='ASC', select_first_item=False):
+def populate_boot_list(self, sortColumn=None, sorting_direction='ASC', select_first_item=False, select_boot_id=None):
     try:
         self.list.DeleteAllItems()
         con = get_db_con()
         if con is None:
-            return None
+            return -1
         sql = """
             SELECT
                 BOOT.id as boot_id,
@@ -259,6 +289,7 @@ def populate_boot_list(self, sortColumn=None, sorting_direction='ASC', select_fi
             full_ota = None
             paths_to_update = []  # Store boot_id and new paths for updating after loop
             selected_unpatched_index = None
+            selected_boot_index = None
 
             for row in data:
                 boot_id = row[0]
@@ -277,6 +308,8 @@ def populate_boot_list(self, sortColumn=None, sorting_direction='ASC', select_fi
 
                 if select_first_item and selected_unpatched_index is None and row[3] == 0:
                     selected_unpatched_index = i
+                if select_boot_id is not None and boot_id == select_boot_id:
+                    selected_boot_index = i
 
                 # Path verification logic to handle modified pf_home
                 if not os.path.exists(boot_path) and "boot_images4" in boot_path:
@@ -336,8 +369,14 @@ def populate_boot_list(self, sortColumn=None, sorting_direction='ASC', select_fi
 
         auto_resize_boot_list(self)
 
-        if select_first_item and selected_unpatched_index is not None:
-            rect = self.list.GetItemRect(selected_unpatched_index)
+        row_to_select = None
+        if selected_boot_index is not None:
+            row_to_select = selected_boot_index
+        elif select_first_item and selected_unpatched_index is not None:
+            row_to_select = selected_unpatched_index
+
+        if row_to_select is not None:
+            rect = self.list.GetItemRect(row_to_select)
             class _FakeEvent:
                 def __init__(self, pos):
                     self._pos = pos
@@ -614,7 +653,7 @@ def select_firmware(self):
                 puml(f"note right\n{firmware}\nSHA-256: {firmware_hash}\nend note\n")
 
                 # Check to see if the first 8 characters of the checksum is in the filename, Google published firmwares do have this.
-                if firmware_hash and firmware_hash[:8] in firmware:
+                if firmware_hash and firmware_hash[:8].lower() in firmware.lower():
                     print(f"✅ Expected to match {firmware_hash[:8]} in the filename and did. This is good!")
                     puml(f"#CDFFC8:Checksum matches portion of the filename {firmware};\n")
                     self.toast("_(✅ Firmware SHA256 Match", _("SHA256 of %s%s matches the segment in the filename.") % (filename, extension))
@@ -647,7 +686,7 @@ def select_firmware(self):
                 set_flash_button_state(self)
             else:
                 self.flash_button.Disable()
-            populate_boot_list(self)
+            populate_boot_list(self, select_first_item=getattr(self, "_modern_engine_mode", False))
             self.update_widget_states()
             if self.config.check_for_firmware_hash_validity:
                 return firmware_hash
@@ -670,6 +709,8 @@ def select_firmware(self):
 # ============================================================================
 def process_file(self, file_type):
     try:
+        progress_label = "Process ROM" if file_type == 'rom' else "Process Package"
+        _modern_progress(self, progress_label, 5, "Preparing")
         print("")
         print("==============================================================================")
         print(f" {datetime.now():%Y-%m-%d %H:%M:%S} PixelFlasher {VERSION}         Processing {file_type} file ...")
@@ -683,7 +724,7 @@ def process_file(self, file_type):
         tmp_dir_full = os.path.join(config_path, 'tmp')
         con = get_db_con()
         if con is None:
-            return None
+            return -1
         cursor = con.cursor()
         start_1 = time.time()
         checksum = ''
@@ -698,6 +739,7 @@ def process_file(self, file_type):
             is_stock_boot = True
             file_to_process = self.config.firmware_path
             file_ext = os.path.splitext(file_to_process)[1].lower()
+            _modern_progress(self, progress_label, 12, "Reading firmware")
             print(f"Factory File:          {file_to_process}")
             file_size = os.path.getsize(file_to_process)
             file_size_gb = file_size / (1024 * 1024 * 1024)
@@ -714,6 +756,7 @@ def process_file(self, file_type):
             package_sig = get_firmware_id()
             package_dir_full = os.path.join(factory_images, package_sig or '')
             wx.Yield()
+            _modern_progress(self, progress_label, 20, "Inspecting archive")
             found_flash_all_bat = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="flash-all.bat", nested=False)
             wx.Yield()
             found_flash_all_sh = check_archive_contains_file(archive_file_path=file_to_process, file_to_check="flash-all.sh", nested=False)
@@ -738,6 +781,7 @@ def process_file(self, file_type):
                 # assume Pixel factory file
                 if self.config.check_for_firmware_hash_validity:
                     print("Detected Pixel firmware")
+                _modern_progress(self, progress_label, 35, "Extracting factory image", indeterminate=True)
                 package_sig = str(found_flash_all_bat).split('/')[0]
                 package_dir_full = os.path.join(factory_images, package_sig)
                 image_file_path = os.path.join(package_dir_full, f"image-{package_sig}.zip")
@@ -756,14 +800,15 @@ def process_file(self, file_type):
                         puml("#red:ERROR: Could not extract image;\n")
                         print("Aborting ...\n")
                         self.toast(_("Process action"), _("❌ Could not extract %s") % file_to_process)
-                        return
+                        return -1
                 else:
                     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {file_to_process}")
                     puml("#red:ERROR: Could not extract image;\n")
                     print("Aborting ...\n")
                     self.toast(_("Process action"), "❌ Could not extract %s" % file_to_process)
-                    return
+                    return -1
                 if os.path.exists(image_file_path):
+                    _modern_progress(self, progress_label, 52, "Factory image ready")
                     print("Possibly the selected image is an official Pixel factory image.")
                 else:
                     print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -776,6 +821,7 @@ def process_file(self, file_type):
                     image_file_path = None
                 wx.Yield()
             elif found_boot_img or found_init_boot_img:
+                _modern_progress(self, progress_label, 34, "Preparing image archive")
                 print(f"Detected Non Pixel firmware, with: {found_boot_img} {found_init_boot_img}")
                 # Check if the firmware file starts with image-* and warn the user or abort
                 firmware_file_name = os.path.basename(file_to_process)
@@ -802,13 +848,14 @@ def process_file(self, file_type):
                         print("User pressed cancel.")
                         puml("#pink:User Pressed Cancel to abort;\n")
                         print("Aborting ...\n")
-                        return
+                        return -1
                     print("User pressed ok.")
                     puml(":User Pressed OK to continue;\n")
                 image_file_path = file_to_process
             elif check_zip_contains_file(file_to_process, "payload.bin", self.config.low_mem):
                 is_payload_bin = True
                 set_ota(self, True)
+                _modern_progress(self, progress_label, 32, "Payload package detected")
                 if get_ota() and (get_firmware_hash_validity() or not self.config.check_for_firmware_hash_validity):
                     print("Detected OTA file")
                 else:
@@ -831,7 +878,7 @@ def process_file(self, file_type):
                 found_csc = ''
                 found_home_csc = ''
                 # see if we find AP_*.tar.md5, if yes set is_samsung flag
-                if not file_list: return
+                if not file_list: return -1
                 for file in file_list:
                     wx.Yield()
                     if not found_ap and fnmatch.fnmatch(file, patterns['AP']):
@@ -890,7 +937,7 @@ def process_file(self, file_type):
                                 puml(f"#red:ERROR: Could not extract {boot_image_file};\n")
                                 print("Aborting ...\n")
                                 self.toast(_("Process action"), "❌ Could not extract %s." % boot_image_file)
-                                return
+                                return -1
                             else:
                                 if boot_image_file == "boot.img.lz4":
                                     # unpack boot.img.lz4
@@ -905,27 +952,28 @@ def process_file(self, file_type):
                                     puml("#red:ERROR: Could not unpack {boot_image_file};\n")
                                     print("Aborting ...\n")
                                     self.toast(_("Process action"), _("❌ Could not unpack %s.") % boot_image_file)
-                                    return
+                                    return -1
                         else:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_image_file}")
                             puml(f"#red:ERROR: Could not extract {boot_image_file};\n")
                             print("Aborting ...\n")
                             self.toast(_("Process action"), _("❌ Could not extract %s.") % boot_image_file)
-                            return
+                            return -1
                     else:
                         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not find {boot_image_file}")
                         puml(f"#red:ERROR: Could not find {boot_image_file};\n")
                         print("Aborting ...\n")
                         self.toast(_("Process action"), _("❌ Could not find %s.") % boot_image_file)
-                        return
+                        return -1
                 else:
                     print("Detected Unsupported firmware file.")
                     print("Aborting ...")
                     self.toast(_("Process action"), _("⚠️ Detected unsupported firmware."))
-                    return
+                    return -1
         else:
             file_to_process = self.config.custom_rom_path
             file_ext = os.path.splitext(file_to_process)[1].lower()
+            _modern_progress(self, progress_label, 12, "Reading ROM")
             print(f"ROM File:              {file_to_process}")
             file_size = os.path.getsize(file_to_process)
             file_size_gb = file_size / (1024 * 1024 * 1024)
@@ -955,6 +1003,7 @@ def process_file(self, file_type):
             elif check_zip_contains_file(file_to_process, "payload.bin", self.config.low_mem):
                 print("Detected a ROM, with payload.bin")
                 is_payload_bin = True
+                _modern_progress(self, progress_label, 32, "Payload package detected")
             package_sig = get_custom_rom_id()
             package_dir_full = os.path.join(factory_images, package_sig or '')
             image_file_path = file_to_process
@@ -971,6 +1020,7 @@ def process_file(self, file_type):
             temp_dir = tempfile.TemporaryDirectory()
             temp_dir_path = temp_dir.name
             try:
+                _modern_progress(self, progress_label, 42, "Extracting payload", indeterminate=True)
                 print(f"Extracting payload.bin from {file_to_process} ...")
                 puml(":Extract payload.bin;\n")
                 theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{temp_dir_path}\" \"{file_to_process}\" payload.bin"
@@ -988,13 +1038,13 @@ def process_file(self, file_type):
                         puml("#red:ERROR: Could not extract payload.bin;\n")
                         print("Aborting ...\n")
                         self.toast(_("Process action"), _("❌ Could not extract payload.bin."))
-                        return
+                        return -1
                 else:
                     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract payload.bin.")
                     puml("#red:ERROR: Could not extract payload.bin;\n")
                     print("Aborting ...\n")
                     self.toast(_("Process action"), _("❌ Could not extract payload.bin."))
-                    return
+                    return -1
                 # extract boot.img, init_boot.img, vbmeta.img from payload.bin, ...
                 payload_file_path = os.path.join(temp_dir_path, "payload.bin")
                 if not os.path.exists(package_dir_full):
@@ -1002,6 +1052,7 @@ def process_file(self, file_type):
                 if self.config.extra_img_extracts:
                     print("Option to copy extra img files is enabled.")
                     wx.Yield()
+                    _modern_progress(self, progress_label, 58, "Extracting images", indeterminate=True)
                     extract_payload(payload_file_path, out=package_dir_full, diff=False, old='old', images='boot,vbmeta,init_boot,dtbo,super_empty,vendor_boot,vendor_kernel_boot')
                     wx.Yield()
                     if os.path.exists(os.path.join(package_dir_full, 'dtbo.img')):
@@ -1023,6 +1074,7 @@ def process_file(self, file_type):
                 else:
                     print("Extracting files from payload.bin ...")
                     wx.Yield()
+                    _modern_progress(self, progress_label, 58, "Extracting images", indeterminate=True)
                     extract_payload(payload_file_path, out=package_dir_full, diff=False, old='old', images='boot,vbmeta,init_boot,vendor_boot')
                     wx.Yield()
                 if os.path.exists(os.path.join(package_dir_full, 'boot.img')):
@@ -1060,7 +1112,7 @@ def process_file(self, file_type):
                     puml("#red:The selected firmware is not valid;\n")
                 print("Aborting ...\n")
                 self.toast(_("Process action"), _("❌ The selected firmware is not valid."))
-                return
+                return -1
 
             files_to_extract = ''
             boot_file_name = ''
@@ -1085,9 +1137,10 @@ def process_file(self, file_type):
                     print("Aborting ...")
                     puml("#red:Nothing to extract from {file_type};\n")
                     self.toast(_("Process action"), _("⚠️ Nothing to extract from %s") % file_type)
-                    return
+                    return -1
 
                 if image_file_path:
+                    _modern_progress(self, progress_label, 58, "Extracting boot images", indeterminate=True)
                     print(f"Extracting {files_to_extract} from {image_file_path} ...")
                     print("This could take some more time, please wait ...")
                     puml(f":Extract {files_to_extract};\n")
@@ -1099,7 +1152,7 @@ def process_file(self, file_type):
                             puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
                             self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
                             print("Aborting ...\n")
-                            return
+                            return -1
                     else:
                         theCmd = f"\"{path_to_7z}\" x -bd -y -o\"{tmp_dir_full}\" \"{image_file_path}\" {files_to_extract}"
                         debug(f"{theCmd}")
@@ -1115,13 +1168,13 @@ def process_file(self, file_type):
                                 puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
                                 self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
                                 print("Aborting ...\n")
-                                return
+                                return -1
                         else:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract {boot_file_name}.")
                             puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
                             self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
                             print("Aborting ...\n")
-                            return
+                            return -1
 
         # sometimes the return code is 0 but no file to extract, handle that case.
         # also handle the case of extraction from payload.bin
@@ -1135,10 +1188,11 @@ def process_file(self, file_type):
             puml(f"#red:ERROR: Could not extract {boot_file_name};\n")
             print("Aborting ...\n")
             self.toast(_("Process action"), _("❌ Could not extract %s") % boot_file_name)
-            return
+            return -1
 
         # get the checksum of the boot_file_name
         wx.Yield()
+        _modern_progress(self, progress_label, 76, "Hashing boot image")
         checksum = sha1(os.path.join(boot_img_file))
         print(f"sha1 of {boot_file_name}: {checksum}")
         puml(f"note right:sha1 of {boot_file_name}: {checksum}\n")
@@ -1178,6 +1232,7 @@ def process_file(self, file_type):
                 shutil.copy(os.path.join(package_dir_full, 'vendor_kernel_boot.img'), cached_boot_img_dir_full, follow_symlinks=True)
 
         # Let's see if we have a record for the firmware/rom being processed
+        _modern_progress(self, progress_label, 86, "Updating catalog")
         print(f"Checking DB entry for PACKAGE: {file_to_process}")
         package_id = 0
         cursor.execute(f"SELECT ID, boot_hash FROM PACKAGE WHERE package_sig = '{package_sig}' AND file_path = '{file_to_process}'")
@@ -1247,14 +1302,19 @@ def process_file(self, file_type):
                 traceback.print_exc()
 
         set_db(con)
-        populate_boot_list(self)
+        _modern_progress(self, progress_label, 94, "Refreshing UI")
+        populate_boot_list(self, select_first_item=True)
         end_1 = time.time()
         print(f"Process {file_type} time: {math.ceil(end_1 - start_1)} seconds")
         print("------------------------------------------------------------------------------\n")
         self.toast(_("Process action"), _("✅ Process %s time: %s seconds") % (file_type, math.ceil(end_1 - start_1)))
+        _modern_progress(self, progress_label, 100, "Complete", tone='safe')
+        return 0
     except Exception as e:
+        _modern_progress(self, "Process ROM" if file_type == 'rom' else "Process Package", None, "Failed", indeterminate=True, tone='blocked')
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while processing ota/firmware file:")
         traceback.print_exc()
+        return -1
 
 
 # ============================================================================
@@ -1386,7 +1446,7 @@ def setup_for_downgrade(self):
         if not device:
             print("\nNo device is selected!")
             self.clear_device_selection()
-            return
+            return -1
         config_path = get_config_path()
         tmp_dir_full = os.path.join(config_path, 'tmp')
         current_boot_img = os.path.join(tmp_dir_full, 'current_boot.img')
@@ -1720,15 +1780,6 @@ def setup_for_downgrade(self):
 
 
 # ============================================================================
-#                               Function avbtool_get_info (TODO)
-# ============================================================================
-def avbtool_get_info(self, boot_file_path):
-    # perform avbtool info on the boot_file_path
-    # convert to object and return object
-    return
-
-
-# ============================================================================
 #                               Function kb_stats_ui
 # ============================================================================
 def kb_stats_ui(self):
@@ -1793,351 +1844,11 @@ def kb_stats_ui(self):
 
 
 # ============================================================================
-#                               Function drive_magisk (TODO)
+#                               Function drive_magisk (disabled)
 # ============================================================================
 def drive_magisk(self, boot_file_name):
     print("UI Automator is broken, until Google fixes it, this feature is disabled.")
     return -1
-    # start = time.time()
-    # print("")
-    # print("==============================================================================")
-    # print(f" {datetime.now():%Y-%m-%d %H:%M:%S} PixelFlasher {VERSION}              Driving Magisk ")
-    # print("==============================================================================")
-
-    # device = get_phone(True)
-    # config_path = get_config_path()
-
-    # if not device:
-    #     print("\nNo device is selected!\n Aborting ...\n")
-    #     return -1
-
-    # # Wake up the touch screen
-    # print("Waking up the touch screen")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input keyevent 26"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # if not device.is_display_unlocked():
-    #     title = "Display is Locked!"
-    #     message =  "ERROR: Your phone display is Locked.\n\n"
-    #     message += "Make sure you unlock your display\n"
-    #     message += "And set the display timeout to at least 1 minute.\n\n"
-    #     message += "After doing so, Click OK to accept and continue.\n"
-    #     message += "or Hit CANCEL to abort."
-    #     print(f"\n*** Dialog ***\n{message}\n______________\n")
-    #     dlg = wx.MessageDialog(None, message, title, wx.CANCEL | wx.OK | wx.ICON_EXCLAMATION)
-    #     result = dlg.ShowModal()
-    #     if result == wx.ID_OK:
-    #         print("User pressed ok.")
-    #         if not device.is_display_unlocked():
-    #             print("ERROR: The device display is still Locked!\nAborting ...\n")
-    #             return -1
-    #     else:
-    #         print("User pressed cancel.")
-    #         print("Aborting ...\n")
-    #         return -1
-
-    # # First stop magisk in case it is running
-    # device.stop_magisk()
-
-    # # Launch Magisk
-    # device.perform_package_action(get_magisk_package(), 'launch', False)
-
-    # res = device.ui_action(f"{self.config.phone_path}/view1.xml", os.path.join(config_path, 'tmp', 'view1.xml'), "Install")
-    # if res == -1:
-    #     return -1
-
-    # res = device.ui_action(f"{self.config.phone_path}/view2.xml", os.path.join(config_path, 'tmp', 'view2.xml'), "Select and Patch a File")
-    # if res == -1:
-    #     return -1
-
-    # res = device.ui_action(f"{self.config.phone_path}/view3.xml", os.path.join(config_path, 'tmp', 'view3.xml'), "Search this phone")
-    # if res == -1:
-    #     return -1
-
-    # res = device.ui_action(f"{self.config.phone_path}/view4.xml", os.path.join(config_path, 'tmp', 'view4.xml'), "LET'S GO")
-    # if res == -1:
-    #     return -1
-
-    # res = device.ui_action(f"{self.config.phone_path}/view5.xml", os.path.join(config_path, 'tmp', 'view5.xml'), "{MAGISK_PKG_NAME}:id/action_save")
-    # if res == -1:
-    #     return -1
-
-    # # TODO
-    # return -1
-    # # # Get uiautomator dump of view1
-    # # the_view = "view1.xml"
-    # # dump_file = f"{self.config.phone_path}/{the_view}"
-    # # res = device.uiautomator_dump(dump_file)
-    # # if res == -1:
-    # #     print("Aborting ...\n")
-    # #     puml("#red:Failed to uiautomator dump;\n}\n")
-    # #     return -1
-
-    # # # Pull view1.xml
-    # # view_file = os.path.join(config_path, 'tmp', the_view)
-    # # print(f"Pulling {dump_file} from the phone to: {view_file} ...")
-    # # res = device.pull_file(dump_file, view_file)
-    # # if res != 0:
-    # #     print("Aborting ...\n")
-    # #     puml("#red:Failed to pull uiautomator dump from the phone;\n}\n")
-    # #     return
-
-    # # # get view1 bounds / click coordinates
-    # # coords = get_ui_coordinates(view_file, "Install")
-
-    # # # Check for Display being locked again
-    # # if not device.is_display_unlocked():
-    # #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    # #     return -1
-
-    # # # # Click on coordinates of `Install`
-    # # # # For Pixel 6 this would be: adb shell input tap 830 417
-    # # # theCmd = f"\"{get_adb()}\" -s {device.id} shell input tap {coords}"
-    # # # debug(theCmd)
-    # # # res = run_shell(theCmd)
-
-    # # # Click on coordinates of `Install`
-    # # # For Pixel 6 this would be: adb shell input tap 830 417
-    # # res = device.click(coords)
-    # # if res == -1:
-    # #     print("Aborting ...\n")
-    # #     puml("#red:Failed to click;\n}\n")
-    # #     return -1
-
-    # # # Sleep 2 seconds
-    # # print("Sleeping 2 seconds to make sure the view is loaded ...")
-    # # time.sleep(2)
-
-    # # # Check for Display being locked again
-    # # if not device.is_display_unlocked():
-    # #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    # #     return -1
-
-    # # Get uiautomator dump of view2
-    # dump_file = f"{self.config.phone_path}/view2.xml"
-    # res = device.uiautomator_dump(dump_file)
-    # if res == -1:
-    #     print("Aborting ...\n")
-    #     puml("#red:Failed to uiautomator dump;\n}\n")
-    #     return -1
-
-    # # Pull view2.xml
-    # view2 = os.path.join(config_path, 'tmp', 'view2.xml')
-    # print(f"Pulling {dump_file} from the phone to: {view2} ...")
-    # res = device.pull_file(dump_file, view2)
-    # if res != 0:
-    #     print("Aborting ...\n")
-    #     puml("#red:Failed to pull uiautomator dump from the phone;\n}\n")
-    #     return
-
-    # # Pull view2.xml
-    # view2 = os.path.join(config_path, 'tmp', 'view2.xml')
-    # print(f"Pulling {self.config.phone_path}/view2.xml from the phone ...")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} pull {self.config.phone_path}/view2.xml \"{view2}\""
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # # expect ret 0
-    # if res.returncode == 1:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Unable to pull {view2} from phone.")
-    #     print(res.stderr)
-    #     print("Aborting ...\n")
-    #     return -1
-
-    # # get view2 bounds / click coordinates
-    # coords = get_ui_coordinates(view2, "Select and Patch a File")
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Click on coordinates of `Select and Patch a File`
-    # # For Pixel 6 this would be: adb shell input tap 540 555
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input tap {coords}"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # Sleep 2 seconds
-    # print("Sleeping 2 seconds to make sure the view is loaded ...")
-    # time.sleep(2)
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Get uiautomator dump of view3
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell uiautomator dump {self.config.phone_path}/view3.xml"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # if res.returncode != 0:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: uiautomator dump failed.")
-    #     print(res.stderr)
-    #     return -1
-
-    # # Pull view3.xml
-    # view3 = os.path.join(config_path, 'tmp', 'view3.xml')
-    # print(f"Pulling {self.config.phone_path}/view3.xml from the phone ...")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} pull {self.config.phone_path}/view3.xml \"{view3}\""
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # # expect ret 0
-    # if res.returncode == 1:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Unable to pull {view3} from phone.")
-    #     print(res.stderr)
-    #     print("Aborting ...\n")
-    #     return -1
-
-    # # get view3 bounds / click coordinates
-    # coords = get_ui_coordinates(view3, "Search this phone")
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Click on coordinates of `Search this phone`
-    # # For Pixel 6 this would be: adb shell input tap 574 210
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input tap {coords}"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # Sleep 2 seconds
-    # print("Sleeping 2 seconds to make sure the view is loaded ...")
-    # time.sleep(2)
-
-    # # Type the boot_file_name to search for it
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input text {boot_file_name}"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # Sleep 1 seconds
-    # print("Sleeping 1 seconds to make sure the view is loaded ...")
-    # time.sleep(1)
-
-    # # Hit Enter to search
-    # print("Hitting Enter to search")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input keyevent 66"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # Sleep 1 seconds
-    # print("Sleeping 1 seconds to make sure the view is loaded ...")
-    # time.sleep(1)
-
-    # # Hit Enter to Select it
-    # print("Hitting Enter to select")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input keyevent 66"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # Sleep 2 seconds
-    # print("Sleeping 2 seconds to make sure the view is loaded ...")
-    # time.sleep(2)
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Get uiautomator dump of view4
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell uiautomator dump {self.config.phone_path}/view4.xml"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # if res.returncode != 0:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: uiautomator dump failed.")
-    #     print(res.stderr)
-    #     return -1
-
-    # # Pull view4.xml
-    # view4 = os.path.join(config_path, 'tmp', 'view4.xml')
-    # print(f"Pulling {self.config.phone_path}/view4.xml from the phone ...")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} pull {self.config.phone_path}/view4.xml \"{view4}\""
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # # expect ret 0
-    # if res.returncode == 1:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Unable to pull {view4} from phone.")
-    #     print(res.stderr)
-    #     print("Aborting ...\n")
-    #     return -1
-
-    # # get view4 bounds / click coordinates
-    # coords = get_ui_coordinate(view4, "LET'S GO")
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Click on coordinates of `LET'S GO`
-    # # For Pixel 6 this would be: adb shell input tap 839 417
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input tap {coords}"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # Sleep 2 seconds
-    # print("Sleeping 2 seconds to make sure the view is loaded ...")
-    # time.sleep(2)
-
-    # # Sleep 10 seconds
-    # print("Sleeping 10 seconds to make sure Patching is completed ...")
-    # time.sleep(10)
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Get uiautomator dump of view5
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell uiautomator dump {self.config.phone_path}/view5.xml"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # if res.returncode != 0:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: uiautomator dump failed.")
-    #     print(res.stderr)
-    #     return -1
-
-    # # Pull view5.xml
-    # view5 = os.path.join(config_path, 'tmp', 'view5.xml')
-    # print(f"Pulling {self.config.phone_path}/view5.xml from the phone ...")
-    # theCmd = f"\"{get_adb()}\" -s {device.id} pull {self.config.phone_path}/view5.xml \"{view5}\""
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-    # # expect ret 0
-    # if res.returncode == 1:
-    #     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Unable to pull {view5} from phone.")
-    #     print(res.stderr)
-    #     print("Aborting ...\n")
-    #     return -1
-
-    # # get view5 bounds / click coordinates (Save button)
-    # coords = get_ui_coordinates(view5, f"{MAGISK_PKG_NAME}:id/action_save")
-
-    # # Check for Display being locked again
-    # if not device.is_display_unlocked():
-    #     print("ERROR: The device display is Locked!\nAborting ...\n")
-    #     return -1
-
-    # # Click on coordinates of `{MAGISK_PKG_NAME}:id/action_save`
-    # # For Pixel 6 this would be: adb shell input tap 1010 198
-    # theCmd = f"\"{get_adb()}\" -s {device.id} shell input tap {coords}"
-    # debug(theCmd)
-    # res = run_shell(theCmd)
-
-    # # get view5 bounds / click coordinates (All Done)
-    # coords = None
-    # coords = get_ui_coordinates(view5, "- All done!")
-    # if coords:
-    #     print("\nIt looks like Patching was successful.")
-    # else:
-    #     print("\nIt looks like Patching was not successful.")
-
-    # end = time.time()
-    # print(f"Magisk Version: {device.magisk_version}")
-    # print(f"Driven Patch time: {math.ceil(end - start)} seconds")
-    # print("------------------------------------------------------------------------------\n")
 
 
 # ============================================================================
@@ -2730,7 +2441,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
                 print(f"\nSelected {other_magisk} for patch use.")
                 puml(f"note right\nSelected {other_magisk} for patch use.\nend note\n")
             # Transfer user Magisk app to the phone
-            res = device.push_file(f"\"{other_magisk}\"", f"{self.config.phone_path}/Magisk-Uploaded.apk", with_su=perform_as_root)
+            res = device.push_file(f"\"{other_magisk}\"", f"{phone_path}/Magisk-Uploaded.apk", with_su=perform_as_root)
             if res != 0:
                 print("Aborting ...\n")
                 puml("#red:Failed to transfer Magisk Application to the phone;\n")
@@ -2755,11 +2466,11 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += f"STOCK_SHA1={stock_sha1}\n"
             data += f"RECOVERYMODE={recovery}\n"
             if patch_method == "other":
-                magisk_path = f"{self.config.phone_path}/Magisk-Uploaded.apk"
+                magisk_path = f"{phone_path}/Magisk-Uploaded.apk"
             else:
                 magisk_path = device.magisk_path
             data += f"MAGISK_PATH={magisk_path}\n"
-            data += f"if [ -f\"/data/local/tmp/pf_patch.log\" ]; then\n"
+            data += f"if [ -f \"/data/local/tmp/pf_patch.log\" ]; then\n"
             data += f"    rm -f \"/data/local/tmp/pf_patch.log\"\n"
             data += "fi\n"
 
@@ -2829,22 +2540,22 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += "echo -------------------------\n"
             data += "echo \"Creating a patch ...\"\n"
             data += "./magiskboot cleanup\n"
-            data += f"./boot_patch.sh {self.config.phone_path}/{boot_img}\n"
+            data += f"./boot_patch.sh {phone_path}/{boot_img}\n"
             data += "PATCH_SHA1=$(./magiskboot sha1 new-boot.img | cut -c-8)\n"
             data += "echo \"PATCH_SHA1:     $PATCH_SHA1\"\n"
             data += f"PATCH_FILENAME={patch_name}_${{MAGISK_VERSION}}_${{STOCK_SHA1}}_${{PATCH_SHA1}}.img\n"
             data += "echo \"PATCH_FILENAME: $PATCH_FILENAME\"\n"
 
             if patch_method in ["app", "other"]:
-                data += f"cp -f /data/local/tmp/pf/assets/new-boot.img {self.config.phone_path}/${{PATCH_FILENAME}}\n"
+                data += f"cp -f /data/local/tmp/pf/assets/new-boot.img {phone_path}/${{PATCH_FILENAME}}\n"
                 # if we're rooted, copy the stock boot.img to /data/adb/magisk/stock_boot.img so that magisk can backup
                 if perform_as_root:
                     data += "cp -f /data/local/tmp/pf/assets/stock_boot.img /data/adb/magisk/stock_boot.img\n"
                     # TODO see if we need to update the config SHA1 (not needed)
             else:
-                data += f"mv new-boot.img {self.config.phone_path}/${{PATCH_FILENAME}}\n"
+                data += f"mv new-boot.img {phone_path}/${{PATCH_FILENAME}}\n"
 
-            data += f"if [[ -s {self.config.phone_path}/${{PATCH_FILENAME}} ]]; then\n"
+            data += f"if [[ -s {phone_path}/${{PATCH_FILENAME}} ]]; then\n"
             data += "	echo $PATCH_FILENAME > /data/local/tmp/pf_patch.log\n"
             data += "	if [[ -n \"$PATCHING_MAGISK_VERSION\" ]]; then echo $PATCHING_MAGISK_VERSION >> /data/local/tmp/pf_patch.log; fi\n"
             data += "else\n"
@@ -3005,7 +2716,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += f"STOCK_SHA1={stock_sha1}\n"
             data += f"ARCH={device.architecture}\n\n"
             data += "cd /data/local/tmp\n"
-            data += f"if [ -f\"/data/local/tmp/pf_patch.log\" ]; then\n"
+            data += f"if [ -f \"/data/local/tmp/pf_patch.log\" ]; then\n"
             data += f"    rm -f \"/data/local/tmp/pf_patch.log\"\n"
             data += "fi\n"
             data += "rm -rf pf || { echo 'ERROR: Failed to remove directory pf'; exit 1; }\n"
@@ -3014,7 +2725,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += "mv ../magiskboot .\n"
             data += "mv ../Image .\n"
             data += "chmod 755 magiskboot\n"
-            data += f"cp {self.config.phone_path}/{boot_img} ./boot.img\n\n"
+            data += f"cp {phone_path}/{boot_img} ./boot.img\n\n"
 
             data += "echo \"Unpacking boot.img ...\"\n"
             data += "./magiskboot unpack boot.img\n\n"
@@ -3030,9 +2741,9 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += f"PATCH_FILENAME={patch_name}_${{{VERSION_VAR}}}_${{STOCK_SHA1}}_${{PATCH_SHA1}}.img\n"
             data += "echo \"PATCH_FILENAME: $PATCH_FILENAME\"\n"
 
-            data += f"cp -f /data/local/tmp/pf/new-boot.img {self.config.phone_path}/${{PATCH_FILENAME}}\n"
+            data += f"cp -f /data/local/tmp/pf/new-boot.img {phone_path}/${{PATCH_FILENAME}}\n"
 
-            data += f"if [[ -s {self.config.phone_path}/${{PATCH_FILENAME}} ]]; then\n"
+            data += f"if [[ -s {phone_path}/${{PATCH_FILENAME}} ]]; then\n"
             data += "	echo $PATCH_FILENAME > /data/local/tmp/pf_patch.log\n"
             data += f"	if [[ -n \"${VERSION_VAR}\" ]]; then echo ${VERSION_VAR} >> /data/local/tmp/pf_patch.log; fi\n"
             data += "else\n"
@@ -3249,7 +2960,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += f"ARCH={device.architecture}\n"
             data += f"cp {flavor_path} /data/local/tmp/pf.zip\n"
             data += "cd /data/local/tmp\n"
-            data += f"if [ -f\"/data/local/tmp/pf_patch.log\" ]; then\n"
+            data += f"if [ -f \"/data/local/tmp/pf_patch.log\" ]; then\n"
             data += f"    rm -f \"/data/local/tmp/pf_patch.log\"\n"
             data += "fi\n"
             data += "rm -rf pf || { echo 'ERROR: Failed to remove directory pf'; exit 1; }\n"
@@ -3275,7 +2986,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
                 kmi_override = f" --kmi {self.config.override_kmi}"
                 data += "echo \"Overriding KMI ...\"\n"
             data += "NEWEST_FILE1=$(ls -t | head -n 1)\n"
-            data += f"./{ksud_mount} boot-patch -b {self.config.phone_path}/{boot_img} --magiskboot {magiskboot} {kmi_override} | tee temp_file\n"
+            data += f"./{ksud_mount} boot-patch -b {phone_path}/{boot_img} --magiskboot {magiskboot} --allow-shell{kmi_override} | tee temp_file\n"
 
             data += "OUTPUT_FILE=$(grep -o '/data/local/tmp/pf/assets/[^ ]*' \"temp_file\" | tail -n 1 | xargs basename)\n"
             data += "echo \"OUTPUT_FILE: [${OUTPUT_FILE}]\"\n"
@@ -3290,10 +3001,10 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += "    echo \"PATCH_SHA1:     $PATCH_SHA1\"\n"
             data += f"    PATCH_FILENAME={patch_name}_${{{VERSION_VAR}}}_${{STOCK_SHA1}}_${{PATCH_SHA1}}.img\n"
             data += "    echo \"PATCH_FILENAME: $PATCH_FILENAME\"\n"
-            data += f"    if [ -f\"${{NEWEST_FILE2}}\" ]; then\n"
-            data += f"        cp \"${{NEWEST_FILE2}}\" \"{self.config.phone_path}/${{PATCH_FILENAME}}\"\n"
+            data += f"    if [ -f \"${{NEWEST_FILE2}}\" ]; then\n"
+            data += f"        cp \"${{NEWEST_FILE2}}\" \"{phone_path}/${{PATCH_FILENAME}}\"\n"
             data += "    fi\n"
-            data += f"    if [[ -s \"{self.config.phone_path}/${{PATCH_FILENAME}}\" ]]; then\n"
+            data += f"    if [[ -s \"{phone_path}/${{PATCH_FILENAME}}\" ]]; then\n"
             data += "        echo $PATCH_FILENAME > /data/local/tmp/pf_patch.log\n"
             data += f"        if [[ -n \"$PATCHING_{VERSION_VAR}\" ]]; then\n"
             data += f"            echo \"$PATCHING_{VERSION_VAR}\" >> /data/local/tmp/pf_patch.log\n"
@@ -3458,7 +3169,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             data += f"STOCK_SHA1={stock_sha1}\n"
             apatch_path = device.apatch_path
             data += f"APATCH_PATH={apatch_path}\n"
-            data += f"if [ -f\"/data/local/tmp/pf_patch.log\" ]; then\n"
+            data += f"if [ -f \"/data/local/tmp/pf_patch.log\" ]; then\n"
             data += f"    rm -f \"/data/local/tmp/pf_patch.log\"\n"
             data += "fi\n"
 
@@ -3483,7 +3194,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
                 if init_boot_path is not None:
                     # unpack ramdisk.cpio from init_boot.img first and place it in the assets folder
                     data += "echo \"Extracting ramdisk from init_boot ...\"\n"
-                    data += f"cp {self.config.phone_path}/{init_boot_img} ./init_boot.img\n"
+                    data += f"cp {phone_path}/{init_boot_img} ./init_boot.img\n"
                     data += "./magiskboot unpack init_boot.img\n"
             elif patch_method == "manual":
                 data += "ARCH=$(uname -m)\n"
@@ -3497,7 +3208,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
                 data += "chmod 755 *\n"
                 if boot_path is not None:
                     # unpack boot.img
-                    data += f"cp {self.config.phone_path}/{boot_img} ./boot.img\n"
+                    data += f"cp {phone_path}/{boot_img} ./boot.img\n"
                     data += f"echo \"Unpacking boot.img [{boot_img}] ...\"\n"
                     data += "./magiskboot unpack boot.img\n"
                     data += "mv kernel kernel-b\n"
@@ -3514,18 +3225,18 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
 
             if patch_method != "manual":
                 data += "echo \"Creating a patch ...\"\n"
-                data += f"./boot_patch.sh {superkey} {self.config.phone_path}/{boot_img} -K kpatch\n"
+                data += f"./boot_patch.sh {superkey} {phone_path}/{boot_img} -K kpatch\n"
             data += "PATCH_SHA1=$(./magiskboot sha1 new-boot.img | cut -c-8)\n"
             data += "echo \"PATCH_SHA1:     $PATCH_SHA1\"\n"
             data += f"PATCH_FILENAME={patch_name}_${{APATCH_VERSION}}_${{STOCK_SHA1}}_${{PATCH_SHA1}}.img\n"
             data += "echo \"PATCH_FILENAME: $PATCH_FILENAME\"\n"
 
             if patch_method in ["app"]:
-                data += f"cp -f /data/local/tmp/pf/assets/new-boot.img {self.config.phone_path}/${{PATCH_FILENAME}}\n"
+                data += f"cp -f /data/local/tmp/pf/assets/new-boot.img {phone_path}/${{PATCH_FILENAME}}\n"
             else:
-                data += f"mv new-boot.img {self.config.phone_path}/${{PATCH_FILENAME}}\n"
+                data += f"mv new-boot.img {phone_path}/${{PATCH_FILENAME}}\n"
 
-            data += f"if [[ -s {self.config.phone_path}/${{PATCH_FILENAME}} ]]; then\n"
+            data += f"if [[ -s {phone_path}/${{PATCH_FILENAME}} ]]; then\n"
             data += "	echo $PATCH_FILENAME > /data/local/tmp/pf_patch.log\n"
             data += "	if [[ -n \"$PATCHING_APATCH_VERSION\" ]]; then echo $PATCHING_APATCH_VERSION >> /data/local/tmp/pf_patch.log; fi\n"
             data += "else\n"
@@ -3699,7 +3410,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: You must first select a valid device.")
         print("Aborting ...\n")
         puml("#red:Valid device is not selected;\n}\n")
-        return
+        return -1
     else:
         print(f"Patching on hardware: {device.hardware}")
 
@@ -3797,21 +3508,21 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
                 print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Unsupported Kernel KMI [{kmi}]")
                 print("Aborting ...\n")
                 puml("#red:Unsupported Kernel KMI [{kmi}];\n}\n")
-                return
+                return -1
         anykernel = False
         pixel_devices = get_android_devices()
         if not device.is_gki and patch_flavor != 'KernelSU-Legacy':
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Incompatible Kernel KMI")
             print("Aborting ...\n")
             puml("#red:Incompatible Kernel KMI;\n}\n")
-            return
+            return -1
         if device.hardware in pixel_devices:
             anykernel = True
         else:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: KernelSU (Next) / SukiSU / Wild_KSU patching in PixelFlasher is only supported on Pixel devices")
             print("Aborting ...\n")
             puml("#red:KernelSU (Next) / SukiSU / Wild_KSU is only supported on Pixel Devices;\n}\n")
-            return
+            return -1
 
     file_to_patch: str = ""
     file_sha1: str = ""
@@ -3822,7 +3533,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             if fileDialog.ShowModal() == wx.ID_CANCEL:
                 print("User cancelled boot selection.")
                 puml("#pink:User Cancelled;\n}\n")
-                return
+                return -1
             # save the current contents in the file
             file_to_patch = fileDialog.GetPath()
             file_sha1 = sha1(file_to_patch)
@@ -3834,14 +3545,14 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Select a boot image.")
             print("Aborting ...\n")
             puml("#red:Valid boot image is not selected;\n}\n")
-            return
+            return -1
 
     # Make sure platform-tools is set
     if not self.config.platform_tools_path:
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Select Android Platform Tools (ADB)")
         print("Aborting ...\n")
         puml("#red:Valid Android Platform Tools is not selected;\n}\n")
-        return
+        return -1
 
     # Make sure the phone is in adb mode.
     if device.mode != 'adb':
@@ -3849,7 +3560,7 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
         print("Perhaps a Scan is necessary?")
         print("Aborting ...\n")
         puml("#red:Device is not in ADB mode;\n}\n")
-        return
+        return -1
 
     start = time.time()
     init_boot_path = None
@@ -4127,7 +3838,22 @@ Unless you know what you're doing, it is recommended that you choose the default
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: You have selected the Patch option, however boot file is not found.")
         puml("#red:Cannot patch an already patched file;\n")
         print("Aborting ...\n}\n")
-        return
+        return -1
+
+    configured_phone_path = str(getattr(self.config, "phone_path", "") or "").strip() or "/storage/emulated/0/Download"
+    phone_path = configured_phone_path
+    res, unused = device.check_file(configured_phone_path, verbose=False)
+    if res != 1:
+        fallback_phone_path = "/data/local/tmp"
+        fallback_res, unused = device.check_file(fallback_phone_path, verbose=False)
+        if fallback_res != 1:
+            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Neither {configured_phone_path} nor {fallback_phone_path} is accessible on the phone.")
+            puml("#red:No accessible phone path for patching;\n}\n")
+            return -1
+        print(f"\n⚠️ {datetime.now():%Y-%m-%d %H:%M:%S} WARNING: {configured_phone_path} is not accessible on the phone.")
+        print(f"Using {fallback_phone_path} for this patch operation instead.")
+        puml(f"#orange:Phone path not accessible;\nnote right\n{configured_phone_path} is not accessible.\nUsing {fallback_phone_path} for this patch operation.\nend note\n")
+        phone_path = fallback_phone_path
 
     if patch_flavor != 'Custom':
         assert boot is not None
@@ -4164,70 +3890,70 @@ Unless you know what you're doing, it is recommended that you choose the default
                 print("User pressed cancel.")
                 puml("#pink:User Pressed Cancel to abort;\n}\n")
                 print("Aborting ...\n")
-                return
+                return -1
 
     # delete existing boot_img from phone
-    file = f"{self.config.phone_path}/{boot_img}"
+    file = f"{phone_path}/{boot_img}"
     print(f"\nDeleting {file} from the phone ...")
-    res = device.delete(f"{self.config.phone_path}/{boot_img}")
+    res = device.delete(f"{phone_path}/{boot_img}")
     if res != 0:
         print("Aborting ...\n")
         puml("#red:Failed to delete old boot image from the phone;\n}\n")
-        return
+        return -1
 
     # check if delete worked.
     print(f"\nMaking sure {file} is not on the phone ...")
-    res, unused = device.check_file(f"{self.config.phone_path}/{boot_img}")
+    res, unused = device.check_file(f"{phone_path}/{boot_img}")
     if res != 0:
         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Failed to delete old boot image from the phone\nAborting ...\n")
         puml("#red:Failed to delete old boot image from the phone;\n}\n")
-        return
+        return -1
 
     # delete existing {patch_name} from phone
-    file = f"{self.config.phone_path}/{patch_name}*.img"
+    file = f"{phone_path}/{patch_name}*.img"
     print(f"\nDeleting {patch_name} from the phone ...")
-    res = device.delete(f"{self.config.phone_path}/{patch_name}*.img")
+    res = device.delete(f"{phone_path}/{patch_name}*.img")
     if res != 0:
         puml(f"#red:Failed to delete old {patch_name}.img;\n")
         print("Aborting ...\n}\n")
-        return
+        return -1
 
     # check if delete worked.
     print(f"\nMaking sure {file} is not on the phone ...")
-    res, unused = device.check_file(f"{self.config.phone_path}/{patch_name}*.img")
+    res, unused = device.check_file(f"{phone_path}/{patch_name}*.img")
     if res != 0:
         puml(f"#red:Failed to delete old {patch_name}.img;\n")
         print("Aborting ...\n}\n")
-        return
+        return -1
 
     # Transfer boot image to the phone
     print(f"\nTransferring {boot_img} to the phone ...")
-    res = device.push_file(f"{boot_path}", f"{self.config.phone_path}/{boot_img}")
+    res = device.push_file(f"{boot_path}", f"{phone_path}/{boot_img}")
     if res != 0:
         puml("#red:Failed to transfer the boot file to the phone;\n")
         print("Aborting ...\n}\n")
-        return
+        return -1
     if patch_flavor == 'APatch' and init_boot_path is not None:
         # transfer init_boot.img to the phone as the RAMDISK is in the init_boot.img and is needed for patching
-        res = device.push_file(f"{init_boot_path}", f"{self.config.phone_path}/{init_boot_img}")
+        res = device.push_file(f"{init_boot_path}", f"{phone_path}/{init_boot_img}")
         if res != 0:
             puml("#red:Failed to transfer the init_boot file to the phone;\n")
             print("Aborting ...\n}\n")
-            return
+            return -1
         # check if transfer worked.
-        res, unused = device.check_file(f"{self.config.phone_path}/{init_boot_img}")
+        res, unused = device.check_file(f"{phone_path}/{init_boot_img}")
         if res != 1:
             print("Aborting ...\n")
             puml("#red:Failed to transfer the init_boot file to the phone;\n}\n")
-            return
+            return -1
 
     # check if transfer worked.
     print(f"\nMaking sure {boot_img} is on the phone ...")
-    res, unused = device.check_file(f"{self.config.phone_path}/{boot_img}")
+    res, unused = device.check_file(f"{phone_path}/{boot_img}")
     if res != 1:
         print("Aborting ...\n")
         puml("#red:Failed to transfer the boot file to the phone;\n}\n")
-        return
+        return -1
 
     is_rooted = device.rooted
     kernel_su_gz_file = None
@@ -4256,7 +3982,7 @@ Unless you know what you're doing, it is recommended that you choose the default
                 print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not find Magisk Stable version.")
                 puml("#red:Could not find Magisk Stable version;\n")
                 print("Aborting ...\n}\n")
-                return
+                return -1
             filename = f"magisk_{apk.version}_{apk.versionCode}.apk"
             download_file(apk.link, filename)
             magisk_apk = os.path.join(tmp_path, filename)
@@ -4269,7 +3995,7 @@ Unless you know what you're doing, it is recommended that you choose the default
             if res != 0:
                 print("Aborting ...\n")
                 puml("#red:Failed to transfer magiskboot to the phone;\n")
-                return
+                return -1
 
 
         kmi_parts = kmi.split('-')
@@ -4387,7 +4113,7 @@ Unless you know what you're doing, it is recommended that you choose the default
                 if fileDialog.ShowModal() == wx.ID_CANCEL:
                     print("User cancelled kernel image selection.")
                     puml("#pink:User Cancelled;\n}\n")
-                    return
+                    return -1
                 # save the current contents in the file
                 kernel_su_gz_file = fileDialog.GetPath()
                 print(f"\nSelected {kernel_su_gz_file} for KernelSU generic kernel image.")
@@ -4416,10 +4142,10 @@ Unless you know what you're doing, it is recommended that you choose the default
 
         if not kernel_su_gz_file:
             print("ERROR: Could not find matching generic kernel image\nAborting ...\n")
-            return
+            return -1
         if isinstance(kernel_su_gz_file, list):
             print("ERROR: Could not find matching generic kernel image\nAborting ...\n")
-            return
+            return -1
 
         # extract the kernelsu image
         if anykernel:
@@ -4435,7 +4161,7 @@ Unless you know what you're doing, it is recommended that you choose the default
                     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not extract Image or Image.lz4 from: {kernelsu_image}.")
                     puml("#red:Could not extract Image from: {kernelsu_image};\n")
                     print("Aborting ...\n}\n")
-                    return
+                    return -1
                 else:
                     print(f"Extracted Image.lz4 from: {kernelsu_image} version {kernelsu_version} into {tmp_path}")
                     # transfer Image to the phone
@@ -4443,7 +4169,7 @@ Unless you know what you're doing, it is recommended that you choose the default
                     if res != 0:
                         print("Aborting ...\n")
                         puml("#red:Failed to transfer Image to the phone;\n")
-                        return
+                        return -1
             else:
                 print(f"Extracted Image from: {kernelsu_image} version {kernelsu_version} into {tmp_path}")
                 # transfer Image to the phone
@@ -4451,7 +4177,7 @@ Unless you know what you're doing, it is recommended that you choose the default
                 if res != 0:
                     print("Aborting ...\n")
                     puml("#red:Failed to transfer Image to the phone;\n")
-                    return
+                    return -1
 
     # KernelSU_LKM
     elif patch_flavor == 'KernelSU_LKM':
@@ -4480,7 +4206,7 @@ Unless you know what you're doing, it is recommended that you choose the default
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: {error_msg}")
             puml(f"#red:{error_msg};\n")
             print("Aborting ...\n}\n")
-            return
+            return -1
 
     # APatch Alternate
     elif patch_flavor == 'APatch_manual':
@@ -4493,7 +4219,7 @@ Unless you know what you're doing, it is recommended that you choose the default
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: {error_msg}")
             puml(f"#red:{error_msg};\n")
             print("Aborting ...\n}\n")
-            return
+            return -1
         compatible = True
         # Check for CONFIG_KALLSYMS=y in the kernel config
         if device.config_kallsyms != 'CONFIG_KALLSYMS=y':
@@ -4545,7 +4271,7 @@ Unless you know what you're doing, it is recommended that you choose the default
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: {error_msg}")
             puml(f"#red:{error_msg};\n")
             print("Aborting ...\n}\n")
-            return
+            return -1
         magiskboot_created = False
         if is_rooted:
             res, unused = device.check_file("/data/adb/magisk/magiskboot", True)
@@ -4563,7 +4289,7 @@ Unless you know what you're doing, it is recommended that you choose the default
                 print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not find Magisk Stable version.")
                 puml("#red:Could not find Magisk Stable version;\n")
                 print("Aborting ...\n}\n")
-                return
+                return -1
             filename = f"magisk_{apk.version}_{apk.versionCode}.apk"
             download_file(apk.link, filename)
             magisk_apk = os.path.join(tmp_path, filename)
@@ -4576,7 +4302,7 @@ Unless you know what you're doing, it is recommended that you choose the default
             if res != 0:
                 print("Aborting ...\n")
                 puml("#red:Failed to transfer magiskboot to the phone;\n")
-                return
+                return -1
 
         kernel_patch_version_prerelease = get_gh_latest_release_version('bmax121', 'KernelPatch', True)
         kernel_patch_version_release = get_gh_latest_release_version('bmax121', 'KernelPatch', False)
@@ -4621,25 +4347,25 @@ Unless you know what you're doing, it is recommended that you choose the default
 
         if not kptools_android_file:
             print("ERROR: Could not find matching kptools-android file\nAborting ...\n")
-            return
+            return -1
 
         if not kpimg_android_file:
             print("ERROR: Could not find matching kpimg-android file\nAborting ...\n")
-            return
+            return -1
 
         # transfer kptools-android to the phone
         res = device.push_file(os.path.join(tmp_path, 'kptools-android'), '/data/local/tmp/kptools-android', False)
         if res != 0:
             print("Aborting ...\n")
             puml("#red:Failed to transfer kptools-android to the phone;\n")
-            return
+            return -1
 
         # transfer kpimg-android to the phone
         res = device.push_file(os.path.join(tmp_path, 'kpimg-android'), '/data/local/tmp/kpimg-android', False)
         if res != 0:
             print("Aborting ...\n")
             puml("#red:Failed to transfer kpimg-android to the phone;\n")
-            return
+            return -1
 
     # Magisk
     else:
@@ -4785,7 +4511,7 @@ Unless you know what you're doing, it is recommended that you take the default s
             if method == 6:
                 puml("}\n")
                 print("Aborting ...\n")
-                return
+                return -1
             checkbox_values = get_dlg_checkbox_values()
             if checkbox_values is not None:
                 if checkbox_values[0]:
@@ -4810,14 +4536,14 @@ Unless you know what you're doing, it is recommended that you take the default s
         if not m_app_version:
             res = magisk_not_found()
             if res == -1:
-                return
+                return -1
         patched_img = patch_magisk_script("app")
     elif method == 3:
         patch_method = 'ui-auto'
         if not m_app_version:
             res = magisk_not_found()
             if res == -1:
-                return
+                return -1
         set_patched_with(device.magisk_app_version)
         patched_img = drive_magisk(self, boot_file_name=boot_img)
     elif method == 4:
@@ -4825,7 +4551,7 @@ Unless you know what you're doing, it is recommended that you take the default s
         if not m_app_version:
             res = magisk_not_found()
             if res == -1:
-                return
+                return -1
         set_patched_with(device.magisk_app_version)
         patched_img = manual_magisk(self, boot_file_name=boot_img)
     elif method == 5:
@@ -4892,11 +4618,11 @@ Unless you know what you're doing, it is recommended that you take the default s
         print(f"{datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Unexpected patch method.")
         puml("#red:Unexpected patch method;\nnote right:Abort\n}\n", True)
         print("Aborting ...\n")
-        return
+        return -1
     if patched_img == -1:
         print("Aborting ...\n")
         puml("#red:Failed to patch\n}\n", True)
-        return
+        return -1
 
     # -------------------------------
     # Validation Checks
@@ -4904,15 +4630,15 @@ Unless you know what you're doing, it is recommended that you take the default s
     # abort if patching failed
     if patched_img == -1:
         puml("}\n")
-        return
+        return -1
 
     # check if patched_img got created.
-    print(f"\nLooking for {patched_img} in {self.config.phone_path} ...")
-    res, patched_file = device.check_file(f"{self.config.phone_path}/{patched_img}")
+    print(f"\nLooking for {patched_img} in {phone_path} ...")
+    res, patched_file = device.check_file(f"{phone_path}/{patched_img}")
     if res != 1:
         print("Aborting ...\n")
         puml(f"#red:Failed to find {patch_name} on the phone;\n}}\n")
-        return
+        return -1
 
     # Transfer back patched.img
     print(f"\nPulling {patched_file} from the phone to: {patched_img} ...")
@@ -4921,7 +4647,7 @@ Unless you know what you're doing, it is recommended that you take the default s
     if res != 0:
         print("Aborting ...\n")
         puml(f"#red:Failed to pull {patched_file} from the phone;\n}}\n")
-        return
+        return -1
 
     # get the checksum of the *_patched.img
     print(f"\nGetting SHA1 of {patched_img_file} ...")
@@ -4939,7 +4665,7 @@ Unless you know what you're doing, it is recommended that you take the default s
         print(f"{datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Patching failed, {patched_file} SHA1 is the same as the stock SHA1")
         puml(f"#red:Patching failed;\nnote right:{patched_file} SHA1 is the same as the stock SHA1\n}}\n", True)
         print("Aborting ...\n")
-        return
+        return -1
 
     if patch_flavor in ['Magisk', 'Custom']:
         # if rooted, get magisk's stored sha1 from it's config.
@@ -4976,7 +4702,7 @@ Unless you know what you're doing, it is recommended that you take the default s
                     # copy stock_boot from Downloads folder it already exists, and do it as su if rooted
                     stock_boot_path = '/data/adb/magisk/stock_boot.img'
                     print(f"Copying {boot_img} to {stock_boot_path} ...")
-                    res = device.su_cp_on_device(f"{self.config.phone_path}/{boot_img}", stock_boot_path)
+                    res = device.su_cp_on_device(f"{phone_path}/{boot_img}", stock_boot_path)
                     if res != 0:
                         print("Aborting Backup ...\n")
                     else:
@@ -5033,12 +4759,13 @@ Unless you know what you're doing, it is recommended that you take the default s
             puml("#orange:The patched image file does not contain source boot's SHA1;\n")
             puml(f"note right\nThis is normal for older devices, but newer devices should have it.\nend note\n")
 
+    patched_boot_id = None
     if patch_flavor == "Custom":
         # Display save as dialog to save the patched file
         with wx.FileDialog(self, "Save Patched Magisk File", '', f"{patched_img}", wildcard="Image files (*.img)|*.img", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as fileDialog:
             if fileDialog.ShowModal() == wx.ID_CANCEL:
                 print(f"User Cancelled saving: {patched_img}")
-                return     # the user changed their mind
+                return -1     # the user changed their mind
             shutil.copy(patched_img_file, fileDialog.GetPath(), follow_symlinks=True)
     else:
         # if a matching patched.img is not found, store it.
@@ -5061,7 +4788,7 @@ Unless you know what you're doing, it is recommended that you take the default s
         # create BOOT db record
         con = get_db_con()
         if con is None:
-            return None
+            return -1
         cursor = con.cursor()
         is_init_boot = 1 if boot.is_init_boot else 0
         if patch_flavor in ['KernelSU', 'KernelSU-Next', 'APatch', 'APatch_manual', 'SukiSU', 'Wild_KSU', 'KernelSU-Legacy']:
@@ -5101,6 +4828,8 @@ Unless you know what you're doing, it is recommended that you take the default s
                 package_boot_id = 0
 
         set_db(con)
+        patched_boot_id = boot_id
+        setattr(self, "_last_patch_boot_id", patched_boot_id)
 
     # if Samsung firmware, create boot.tar
     if is_odin == 1 or self.config.create_boot_tar:
@@ -5138,7 +4867,8 @@ Unless you know what you're doing, it is recommended that you take the default s
     puml(f"note right:Patch time: {math.ceil(end - start)} seconds\n")
     puml("}\n")
 
-    populate_boot_list(self)
+    populate_boot_list(self, select_boot_id=patched_boot_id)
+    return 0
 
 # ============================================================================
 #                               Function live_flash_boot_phone
@@ -6017,7 +5747,8 @@ def live_flash_boot_phone(self, option):  # sourcery skip: de-morgan
         theCmd = flash_pf_file
         theCmd = f"\"{theCmd}\""
         debug(theCmd)
-        res = run_shell2(theCmd, chcp=cp)
+        flash_boot_timeout = 15 * 60
+        res = run_shell2(theCmd, chcp=cp, timeout=flash_boot_timeout)
         if res and isinstance(res, subprocess.CompletedProcess):
             debug(f"Return Code: {res.returncode}")
             debug(f"Stdout: {res.stdout}")
@@ -6070,6 +5801,8 @@ def live_flash_boot_phone(self, option):  # sourcery skip: de-morgan
 def flash_phone(self):
     temp_dir = None
     try:
+        progress_label = "Run Dry Run" if getattr(self.config, "flash_mode", "") == 'dryRun' else "Flash Device"
+        _modern_progress(self, progress_label, 5, "Validating")
         # 1 Do the necessary validations
         # 2 Prepare the necessary script contents
         # 3 Put the device in the correct state (bootloader / sideload / fastbootd)
@@ -6108,6 +5841,7 @@ def flash_phone(self):
                 puml("#red:boot is not selected;\n}\n")
                 self.toast(_("Flash action"), _("❌ boot is not selected."))
                 return -1
+        _modern_progress(self, progress_label, 14, "Device ready")
 
         # Check if we're flashing older OTA
         if self.config.flash_mode == 'OTA':
@@ -6152,6 +5886,7 @@ def flash_phone(self):
                         print("User accepted to proceed.")
 
         # confirm for wipe data
+        _modern_progress(self, progress_label, 20, "Confirming options")
         wipe_flag = False
         if self.config.flash_mode == 'wipeData':
             print("Flash Mode: Wipe Data")
@@ -6320,6 +6055,7 @@ def flash_phone(self):
         # -------------------------------------------------------------------------
         # 2 Prepare the necessary script contents
         # -------------------------------------------------------------------------
+        _modern_progress(self, progress_label, 30, "Preparing script")
         # if advanced options is set, and we have flash options ...
         fastboot_options = ''
         fastboot_options2 = ''
@@ -6600,9 +6336,9 @@ def flash_phone(self):
                     warn = False
                     if device.rooted:
                         # Warn if current firmware is the same as the one being flashed and wipe is not selected.
-                        if device.build.lower() in package_sig and not self.config.flash_mode == 'Wipe':
+                        if device.build.lower() in package_sig and self.config.flash_mode != 'wipeData':
                             warn = True
-                    elif not self.config.flash_mode == 'Wipe':
+                    elif self.config.flash_mode != 'wipeData':
                         warn = True
                     if warn:
                         print(f"\n⚠️ {datetime.now():%Y-%m-%d %H:%M:%S} WARNING: Wipe is required.")
@@ -6766,12 +6502,10 @@ def flash_phone(self):
                             data_win += f"{add_echo}\"{get_fastboot()}\" -s {device_id} {fastboot_options2} {action} {arg1}\n"
                             data_linux += f"{add_echo}\"{get_fastboot()}\" -s {device_id} {fastboot_options2} {action} {arg1}\n"
                         # echo add testing of fastbootd mode if we are in dry run mode and sdk < 34
-                        sdk_version_components = (get_sdk_version() or '').split('.')
-                        sdk_major_version = int(sdk_version_components[0])
-                        if self.config.flash_mode == 'dryRun' and sdk_major_version < 34:
+                        sdk_major_version = _sdk_major_version(get_sdk_version())
+                        if self.config.flash_mode == 'dryRun' and sdk_major_version is not None and sdk_major_version < 34:
                             data_tmp = "\necho This is a test for fastbootd mode ...\n"
-                            data_tmp += "echo This process will wait for fastbootd indefinitely until it responds ...\n"
-                            data_tmp += "echo WARNING! if your device does not boot to fastbootd PixelFlasher will hang and you would have to kill it.. ...\n"
+                            data_tmp += "echo This process waits for fastbootd and PixelFlasher will time out if it does not respond ...\n"
                             data_tmp += "echo rebooting to fastbootd ...\n"
                             data_tmp += f"\"{get_fastboot()}\" -s {device_id} reboot fastboot\n"
                             data_tmp += "\necho It looks like fastbootd worked.\n"
@@ -6789,12 +6523,14 @@ def flash_phone(self):
 
             title = "Flash Options"
             message = "%s%s \n" % (get_flash_settings(self), message)
+        _modern_progress(self, progress_label, 42, "Script ready")
 
         # ============================================
         # Sub Function                refresh_and_done
         # ============================================
         def refresh_and_done(final_message=False):
             # nonlocal device
+            _modern_progress(self, progress_label, 96, "Refreshing device", indeterminate=True)
             print("Sleeping 10 seconds ...")
             puml(f":Sleeping 10 seconds;\n", True)
             time.sleep(10)
@@ -6829,6 +6565,7 @@ def flash_phone(self):
                     device.open_update_engine_logcat()
             if final_message:
                 message_after_flashing()
+                _modern_progress(self, progress_label, 100, "Complete", tone='safe')
 
 
         # ============================================
@@ -6867,6 +6604,7 @@ def flash_phone(self):
                 else:
                     print("✅ Bootloader is unlocked, continuing ...")
 
+                _modern_progress(self, progress_label, 88, "Rebooting bootloader", indeterminate=True)
                 res = device.reboot_bootloader(fastboot_included = True)
                 if res is None or res == -1:
                     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while rebooting to bootloader")
@@ -6968,6 +6706,7 @@ def flash_phone(self):
             print(f"{datetime.now():%Y-%m-%d %H:%M:%S} User Pressed Ok.")
             puml(":User Pressed OK;\n")
             # continue flashing
+            _modern_progress(self, progress_label, 48, "Starting")
         elif result == 2: # Edit
             print(f"{datetime.now():%Y-%m-%d %H:%M:%S} User Pressed Edit Script.")
             puml("#pink:User Pressed Edit Script;\n")
@@ -6985,6 +6724,7 @@ def flash_phone(self):
                 print("___________________________________________________\n")
                 puml(f"note right\nModified Script\n====\n{contents}\nend note\n")
                 # continue flashing
+                _modern_progress(self, progress_label, 48, "Starting")
             else:
                 print("User cancelled editing flash_phone file.")
                 puml(f"note right\nCancelled and Aborted\nend note\n")
@@ -7013,6 +6753,7 @@ def flash_phone(self):
 
         # If we're doing OTA or Sideload image flashing, be in sideload mode
         if self.config.flash_mode == 'OTA' or (self.config.advanced_options and self.config.flash_mode == 'customFlash' and image_mode == 'SIDELOAD'):
+            _modern_progress(self, progress_label, 56, "Rebooting to sideload", indeterminate=True)
             # Let's cancel previous OTA just to be safe.
             if device.true_mode == 'adb' and device.rooted:
                 print("Cancelling a previous OTA update for good measure ...")
@@ -7036,6 +6777,7 @@ def flash_phone(self):
         # note: system and vendor, typically get flashed to both slots. '--skip-secondary' will not flash secondary slots in flashall/update
         # TODO check which Pixels and newer support fastbootd, Probably Pixel 5 and newer.
         elif self.config.advanced_options and self.config.flash_mode == 'customFlash' and get_image_mode() in ['super','product','system','system_dlkm','system_ext','vendor','vendor_dlkm']:
+            _modern_progress(self, progress_label, 56, "Rebooting to fastbootd", indeterminate=True)
             res = device.reboot_fastboot()
             if res == -1:
                 print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while rebooting to fastbootd")
@@ -7046,6 +6788,7 @@ def flash_phone(self):
                 return -1
         # be in bootloader mode for flashing
         else:
+            _modern_progress(self, progress_label, 56, "Rebooting bootloader", indeterminate=True)
             res = device.reboot_bootloader()
             if res == -1:
                 refresh_and_done()
@@ -7058,10 +6801,11 @@ def flash_phone(self):
         print(f"\nℹ️ {datetime.now():%Y-%m-%d %H:%M:%S} Flashing device: {device_id} ...")
         puml(f":Flashing device: {device_id};\n", True)
         theCmd = flash_pf_file
-        os.chdir(package_dir_full)
         theCmd = f"\"{theCmd}\""
         debug(theCmd)
-        res = run_shell2(theCmd, chcp=cp)
+        flash_script_timeout = 5 * 60 if self.config.flash_mode == 'dryRun' else 60 * 60
+        _modern_progress(self, progress_label, 68, "Running flash script", indeterminate=True)
+        res = run_shell2(theCmd, chcp=cp, timeout=flash_script_timeout, directory=package_dir_full)
         if res and isinstance(res, subprocess.CompletedProcess):
             debug(f"Return Code: {res.returncode}")
             debug(f"Stdout: {res.stdout}")
@@ -7080,6 +6824,7 @@ def flash_phone(self):
             return -1
         print(f"{datetime.now():%Y-%m-%d %H:%M:%S} Done flash script execution!")
         puml(f":Done flash script execution;\n", True)
+        _modern_progress(self, progress_label, 82, "Flash script complete")
 
 
         # define sub functions to simplify code
@@ -7149,6 +6894,7 @@ def flash_phone(self):
                     print("\n======================================")
                     print(f"Flashing patched {partition} ...")
                     print("\n======================================")
+                    _modern_progress(self, progress_label, 88, f"Flashing {partition}", indeterminate=True)
                     theCmd = f"\"{get_fastboot()}\" -s {device_id} {fastboot_options} {flash} {partition} \"{boot.boot_path}\"\n"
                     debug(theCmd)
                     res = run_shell(theCmd)
@@ -7173,10 +6919,11 @@ def flash_phone(self):
         def flash_vbmeta_if_needed():
             # flash vbmeta if disabling verity / verification
             vbmeta_file = os.path.join(package_dir_full, "vbmeta.img")
-            if self.config.disable_verity or self.config.disable_verification and os.path.exists(vbmeta_file) and self.config.flash_mode != 'dryRun':
+            if (self.config.disable_verity or self.config.disable_verification) and os.path.exists(vbmeta_file) and self.config.flash_mode != 'dryRun':
                 print("\n====================")
                 print("  Flashing vbmeta ...")
                 print("\n====================")
+                _modern_progress(self, progress_label, 86, "Flashing vbmeta", indeterminate=True)
                 theCmd = f"\"{get_fastboot()}\" -s {device_id} {fastboot_options} flash vbmeta \"{vbmeta_file}\""
                 debug(theCmd)
                 res = run_shell(theCmd)
@@ -7207,6 +6954,7 @@ def flash_phone(self):
                 slot_after_flash = device.get_current_slot()
                 print(f"Current slot: [{slot_after_flash}]")
                 print("Comparing the current slot with the previous active slot ...")
+                _modern_progress(self, progress_label, 84, "Verifying slot")
                 if slot_after_flash == "UNKNOWN" or slot_after_flash == slot_before_flash:
                     print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: It appears that OTA flashing did not properly switch slots.")
                     print("Aborting ...")
@@ -7225,11 +6973,9 @@ def flash_phone(self):
             if not self.config.no_reboot:
                 device = get_phone()
                 if device:
-                    if wipe_flag:
-                        timeout = None
-                    else:
-                        timeout = 90
-                    res = device.reboot_system(timeout=timeout)
+                    _modern_progress(self, progress_label, 92, "Rebooting system", indeterminate=True)
+                    timeout = 90
+                    res = device.reboot_system(timeout=timeout, wait_for_device=not wipe_flag)
                     if res == -1:
                         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while rebooting to system")
                         print("Aborting ...\n")

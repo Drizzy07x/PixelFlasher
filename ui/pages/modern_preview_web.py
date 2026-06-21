@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import threading
+import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,14 +26,17 @@ from ui.pages.modern_action_bridge import (
     NAVIGATION,
     ModernAction,
     action_from_url,
+    flash_mode_from_action,
 )
 from ui.pages.modern_action_feedback import (
     ModernActionFeedback,
+    ModernProgressState,
     blocked_navigation_feedback,
     disabled_action_feedback,
     guarded_action_canceled_feedback,
     action_started_feedback,
     action_completed_feedback,
+    action_failed_feedback,
     action_unavailable_feedback,
     navigation_action_feedback,
 )
@@ -48,12 +53,19 @@ CHROME_MUTED = "#94a3b8"
 BUTTON_BACKGROUND = "#101b2d"
 BUTTON_HOVER = "#1a2a44"
 CLOSE_HOVER = "#b4232d"
-DEFERRED_ACTION_DELAY_MS = 40
-DEVICE_REQUIRED_ACTIONS = frozenset({"backup_manager", "magisk_modules", "partition_manager", "patch_boot"})
+DEFERRED_ACTION_DELAY_MS = 80
+DOCUMENT_RENDER_RETRY_MS = 80
+DOCUMENT_RENDER_MAX_WAIT_MS = 1200
+PROGRESS_RENDER_MAX_WAIT_MS = 700
+ACTION_CANCELED_RESULT = -2
+DEVICE_REQUIRED_ACTIONS = frozenset({"backup_manager", "magisk_modules", "partition_manager", "patch_boot", "flash_boot"})
 FIRMWARE_REQUIRED_ACTIONS = frozenset({"process_firmware", "flash_device"})
 CUSTOM_ROM_REQUIRED_ACTIONS = frozenset({"process_custom_rom"})
-BOOT_IMAGE_REQUIRED_ACTIONS = frozenset({"patch_boot"})
-PLATFORM_TOOLS_REQUIRED_ACTIONS = frozenset({"scan_devices", "patch_boot", "flash_device"})
+BOOT_IMAGE_REQUIRED_ACTIONS = frozenset({"patch_boot", "flash_boot"})
+PLATFORM_TOOLS_REQUIRED_ACTIONS = frozenset({"scan_devices", "patch_boot", "flash_boot", "flash_device"})
+FLASH_MODE_REQUIRED_ACTIONS = frozenset(
+    {"set_flash_mode_keep_data", "set_flash_mode_wipe", "set_flash_mode_dry_run", "set_flash_mode_ota"}
+)
 
 
 def is_webview_available() -> bool:
@@ -92,6 +104,7 @@ class ModernPreviewWebFrame(wx.Frame):
         self._page = str(page or "dashboard")
         self._status_message = DEFAULT_STATUS_MESSAGE
         self._status_tone = "safe"
+        self._progress = ModernProgressState()
         self._loading_document = False
         self._action_running = False
         backend = _preferred_webview_backend()
@@ -103,14 +116,21 @@ class ModernPreviewWebFrame(wx.Frame):
         shell.SetDoubleBuffered(True)
         chrome = ModernWindowChrome(shell, self, _frame_title(page))
         self._chrome = chrome
-        view = html2.WebView.New(shell, backend=backend, style=wx.BORDER_NONE)  # type: ignore[union-attr]
+        content = wx.Simplebook(shell, style=wx.BORDER_NONE)
+        content.SetBackgroundColour(_colour(APP_BACKGROUND))
+        self._content = content
+        loader = _loading_panel(content)
+        view = html2.WebView.New(content, backend=backend, style=wx.BORDER_NONE)  # type: ignore[union-attr]
         view.SetBackgroundColour(_colour(APP_BACKGROUND))
         self._view = view
         view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_webview_navigating)  # type: ignore[union-attr]
         view.Bind(html2.EVT_WEBVIEW_LOADED, self._on_webview_loaded)  # type: ignore[union-attr]
+        content.AddPage(loader, "Loading")
+        content.AddPage(view, "Preview")
+        content.SetSelection(0)
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(chrome, 0, wx.EXPAND)
-        root.Add(view, 1, wx.EXPAND)
+        root.Add(content, 1, wx.EXPAND)
         shell.SetSizer(root)
         frame_sizer = wx.BoxSizer(wx.VERTICAL)
         frame_sizer.Add(shell, 1, wx.EXPAND)
@@ -132,8 +152,11 @@ class ModernPreviewWebFrame(wx.Frame):
             version=VERSION,
             status_message=self._status_message,
             status_tone=self._status_tone,
+            progress=self._progress,
         )
         self._loading_document = True
+        with contextlib.suppress(Exception):
+            self._content.SetSelection(0)
         self._view.SetPage(html, "")
         self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(self._page)}")
         self._chrome.SetPageTitle(_frame_title(self._page))
@@ -143,6 +166,82 @@ class ModernPreviewWebFrame(wx.Frame):
 
     def _set_feedback(self, feedback: ModernActionFeedback) -> None:
         self._set_status(feedback.message, feedback.tone)
+
+    def _run_after_document_render(self, callback, *args) -> None:
+        wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._run_when_document_ready, callback, args, 0)
+
+    def _run_when_document_ready(self, callback, args: tuple, waited_ms: int) -> None:
+        if self._loading_document and waited_ms < DOCUMENT_RENDER_MAX_WAIT_MS:
+            wx.CallLater(
+                DOCUMENT_RENDER_RETRY_MS,
+                self._run_when_document_ready,
+                callback,
+                args,
+                waited_ms + DOCUMENT_RENDER_RETRY_MS,
+            )
+            return
+        callback(*args)
+
+    def _start_action_progress(self, action: ModernAction, detail: str = "Starting") -> None:
+        self._progress = ModernProgressState(
+            active=True,
+            percent=5,
+            label=action.label,
+            detail=detail,
+            tone="warning",
+        )
+        self._set_feedback(action_started_feedback(action))
+
+    def _finish_action_progress(self, action: ModernAction, success: bool) -> None:
+        detail = "Complete" if success else "Failed or aborted"
+        tone = "safe" if success else "blocked"
+        self._progress = ModernProgressState(
+            active=True,
+            percent=100 if success else None,
+            label=action.label,
+            detail=detail,
+            indeterminate=not success,
+            tone=tone,
+        )
+
+    def _cancel_action_progress(self, action: ModernAction) -> None:
+        self._progress = ModernProgressState(
+            active=True,
+            percent=0,
+            label=action.label,
+            detail="Canceled",
+            tone="warning",
+        )
+
+    def set_modern_progress(
+        self,
+        label: str,
+        percent: int | None = None,
+        detail: str = "",
+        active: bool = True,
+        indeterminate: bool = False,
+        tone: str = "warning",
+    ) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            wx.CallAfter(self.set_modern_progress, label, percent, detail, active, indeterminate, tone)
+            return
+        self._progress = ModernProgressState(
+            active=active,
+            percent=percent,
+            label=str(label or "Working"),
+            detail=str(detail or ""),
+            indeterminate=indeterminate,
+            tone=tone,
+        )
+        message = f"{label}: {detail}" if detail else str(label or DEFAULT_STATUS_MESSAGE)
+        self._set_status(message, tone)
+
+    def wait_for_modern_progress_render(self, timeout_ms: int = PROGRESS_RENDER_MAX_WAIT_MS) -> None:
+        deadline = time.monotonic() + max(0, timeout_ms) / 1000
+        while self._loading_document and time.monotonic() < deadline:
+            with contextlib.suppress(Exception):
+                wx.Yield()
+            time.sleep(0.02)
 
     def _on_webview_navigating(self, event) -> None:
         url = str(event.GetURL() or "")
@@ -158,13 +257,17 @@ class ModernPreviewWebFrame(wx.Frame):
 
     def _on_webview_loaded(self, event) -> None:
         self._loading_document = False
+        with contextlib.suppress(Exception):
+            self._content.SetSelection(1)
 
     def _handle_action(self, action: ModernAction) -> None:
+        action = self._contextual_action(action)
         if self._action_running and action.safety_level in {INTERNAL_FLOW, GUARDED_FLOW}:
             self._set_status(f"{action.label}: another operation is already running.", "warning")
             return
         if action.safety_level == DISABLED or not action.enabled:
             self._set_feedback(disabled_action_feedback(action))
+            self.wait_for_modern_progress_render()
             wx.MessageBox(
                 f"{action.label}\n\nThis Modern UI action is disabled.",
                 "Modern UI action unavailable",
@@ -206,18 +309,22 @@ class ModernPreviewWebFrame(wx.Frame):
         )
 
     def _run_engine_action(self, action: ModernAction) -> None:
+        flash_mode = flash_mode_from_action(action)
+        if flash_mode is not None:
+            self._set_flash_mode(action, flash_mode)
+            return
         if action.delegate == "_setup_platform_tools":
             self._setup_platform_tools(action)
             return
         if action.delegate == "select_firmware_file":
             self._action_running = True
-            self._set_feedback(action_started_feedback(action))
-            wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._select_firmware_file, action)
+            self._start_action_progress(action, "Waiting for selection")
+            self._run_after_document_render(self._select_firmware_file, action)
             return
         if action.delegate == "select_custom_rom_file":
             self._action_running = True
-            self._set_feedback(action_started_feedback(action))
-            wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._select_custom_rom_file, action)
+            self._start_action_progress(action, "Waiting for selection")
+            self._run_after_document_render(self._select_custom_rom_file, action)
             return
         method = getattr(self._state_host, action.delegate, None)
         if not callable(method):
@@ -229,15 +336,26 @@ class ModernPreviewWebFrame(wx.Frame):
             )
             return
         self._action_running = True
-        self._set_feedback(action_started_feedback(action))
-        wx.CallLater(DEFERRED_ACTION_DELAY_MS, self._invoke_engine_action, action, method)
+        self._start_action_progress(action)
+        self._run_after_document_render(self._invoke_engine_action, action, method)
 
     def _invoke_engine_action(self, action: ModernAction, method) -> None:
         dialog_parent_state = self._align_state_host_for_dialogs()
         try:
-            method(None)
+            result = method(None)
+            self._refresh_engine_state()
+            if result == ACTION_CANCELED_RESULT:
+                self._cancel_action_progress(action)
+                self._set_feedback(guarded_action_canceled_feedback(action))
+                return
+            if type(result) is int and result != 0:
+                self._finish_action_progress(action, False)
+                self._set_feedback(action_failed_feedback(action))
+                return
+            self._finish_action_progress(action, True)
             self._set_feedback(action_completed_feedback(action))
         except Exception as exc:
+            self._finish_action_progress(action, False)
             self._set_status(f"{action.label}: {exc}", "blocked")
             wx.MessageBox(
                 f"{action.label} could not complete.\n\n{exc}",
@@ -249,6 +367,38 @@ class ModernPreviewWebFrame(wx.Frame):
             self._action_running = False
             with contextlib.suppress(Exception):
                 self.Raise()
+
+    def _contextual_action(self, action: ModernAction) -> ModernAction:
+        if action.id != "flash_device":
+            return action
+        config = getattr(self._state_host, "config", None)
+        flash_mode = getattr(config, "flash_mode", "")
+        label = _flash_action_label(flash_mode)
+        if label == action.label:
+            return action
+        if flash_mode == "dryRun":
+            description = "Run the flash workflow as a test without partition flashing."
+            confirmation_body = (
+                "PixelFlasher will run the configured dry-run workflow.\n"
+                "No partitions are flashed, but the device may reboot while testing."
+            )
+        elif flash_mode == "OTA":
+            description = "Sideload the selected OTA package using PixelFlasher's existing flash engine."
+            confirmation_body = (
+                "PixelFlasher will sideload the configured OTA package.\n"
+                "Review every confirmation before continuing."
+            )
+        else:
+            description = action.description
+            confirmation_body = action.confirmation_body
+        return replace(
+            action,
+            label=label,
+            description=description,
+            confirmation_title=f"{label}?",
+            confirmation_body=confirmation_body,
+            dangerous=False if flash_mode == "dryRun" else action.dangerous,
+        )
 
     def _preflight_action(self, action: ModernAction) -> bool:
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
@@ -263,6 +413,15 @@ class ModernPreviewWebFrame(wx.Frame):
         if action.id in FIRMWARE_REQUIRED_ACTIONS and not self._state.firmware.selected:
             self._show_action_blocked(action, "Select and process a firmware or boot image first.")
             return False
+        if action.id in FLASH_MODE_REQUIRED_ACTIONS and not self._state.firmware.selected:
+            self._show_action_blocked(action, "Select firmware before choosing a flash mode.")
+            return False
+        if action.id == "set_flash_mode_ota" and self._state.firmware.package_type != "ota":
+            self._show_action_blocked(action, "Select an OTA package before choosing Full OTA.")
+            return False
+        if action.id in {"set_flash_mode_keep_data", "set_flash_mode_wipe", "set_flash_mode_dry_run"} and self._state.firmware.package_type == "ota":
+            self._show_action_blocked(action, "Select a factory image before choosing this flash mode.")
+            return False
         if action.id in CUSTOM_ROM_REQUIRED_ACTIONS and self._state.firmware.package_type != "custom_rom":
             self._show_action_blocked(action, "Select a custom ROM archive first.")
             return False
@@ -274,6 +433,7 @@ class ModernPreviewWebFrame(wx.Frame):
     def _show_action_blocked(self, action: ModernAction, reason: str) -> None:
         message = f"{action.label}: {reason}"
         self._set_status(message, "blocked")
+        self.wait_for_modern_progress_render()
         wx.MessageBox(
             f"{action.label}\n\n{reason}",
             "PixelFlasher",
@@ -340,6 +500,7 @@ class ModernPreviewWebFrame(wx.Frame):
                 style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
             ) as dialog:
                 if dialog.ShowModal() == wx.ID_CANCEL:
+                    self._cancel_action_progress(action)
                     self._set_feedback(guarded_action_canceled_feedback(action))
                     return
                 path = dialog.GetPath()
@@ -357,6 +518,7 @@ class ModernPreviewWebFrame(wx.Frame):
             refresh = getattr(self._state_host, "update_widget_states", None)
             if callable(refresh):
                 refresh()
+            self._finish_action_progress(action, True)
             self._set_feedback(action_completed_feedback(action))
         finally:
             self._action_running = False
@@ -372,6 +534,7 @@ class ModernPreviewWebFrame(wx.Frame):
                 style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
             ) as dialog:
                 if dialog.ShowModal() == wx.ID_CANCEL:
+                    self._cancel_action_progress(action)
                     self._set_feedback(guarded_action_canceled_feedback(action))
                     return
                 path = dialog.GetPath()
@@ -390,13 +553,45 @@ class ModernPreviewWebFrame(wx.Frame):
             refresh = getattr(self._state_host, "update_widget_states", None)
             if callable(refresh):
                 refresh()
+            self._finish_action_progress(action, True)
             self._set_feedback(action_completed_feedback(action))
+        finally:
+            self._action_running = False
+
+    def _set_flash_mode(self, action: ModernAction, flash_mode: str) -> None:
+        self._action_running = True
+        try:
+            config = getattr(self._state_host, "config", None)
+            if config is None:
+                self._set_feedback(action_unavailable_feedback(action))
+                return
+            setattr(config, "flash_mode", flash_mode)
+            selector = getattr(self._state_host, "enable_disable_radio_button", None)
+            if callable(selector):
+                with contextlib.suppress(Exception):
+                    selector(flash_mode, True, selected=True, just_select=True)
+            updater = getattr(self._state_host, "_update_custom_flash_options", None)
+            if callable(updater):
+                with contextlib.suppress(Exception):
+                    updater()
+            refresh = getattr(self._state_host, "update_widget_states", None)
+            if callable(refresh):
+                with contextlib.suppress(Exception):
+                    refresh()
+            tone = "warning" if flash_mode == "dryRun" else "safe"
+            self._set_status(f"Flash mode: {_flash_mode_label(flash_mode)} selected.", tone)
         finally:
             self._action_running = False
 
     def _setup_platform_tools(self, action: ModernAction) -> None:
         self._action_running = True
-        self._set_status("Platform Tools: downloading and configuring...", "warning")
+        self.set_modern_progress(
+            "Platform Tools",
+            10,
+            "Downloading and configuring",
+            indeterminate=True,
+            tone="warning",
+        )
         worker = threading.Thread(
             target=self._install_platform_tools_worker,
             args=(action,),
@@ -417,9 +612,11 @@ class ModernPreviewWebFrame(wx.Frame):
         try:
             if error is not None:
                 if isinstance(error, PlatformToolsSetupError):
+                    self._progress = ModernProgressState(active=True, label=action.label, detail="Failed", indeterminate=True, tone="blocked")
                     self._set_status(f"Platform Tools: {error}", "blocked")
                     title = "Platform Tools could not be configured."
                 else:
+                    self._progress = ModernProgressState(active=True, label=action.label, detail="Failed", indeterminate=True, tone="blocked")
                     self._set_status(f"Platform Tools setup failed: {error}", "blocked")
                     title = "Platform Tools setup failed."
                 wx.MessageBox(
@@ -439,6 +636,7 @@ class ModernPreviewWebFrame(wx.Frame):
             self._refresh_platform_tools()
             self._refresh_engine_state()
         except Exception as exc:
+            self._progress = ModernProgressState(active=True, label=action.label, detail="Failed", indeterminate=True, tone="blocked")
             self._set_status(f"Platform Tools setup failed: {exc}", "blocked")
             wx.MessageBox(
                 f"Platform Tools setup failed.\n\n{exc}",
@@ -449,6 +647,7 @@ class ModernPreviewWebFrame(wx.Frame):
         finally:
             self._action_running = False
 
+        self._finish_action_progress(action, True)
         self._set_feedback(action_completed_feedback(action))
         wx.MessageBox(
             "Android Platform Tools are configured.\n\nUse Scan Devices to refresh connected USB devices.",
@@ -679,6 +878,30 @@ def _event_screen_position(event: wx.MouseEvent, fallback: wx.Window) -> wx.Poin
     return fallback.ClientToScreen(event.GetPosition())
 
 
+def _loading_panel(parent: wx.Window) -> wx.Panel:
+    panel = wx.Panel(parent, style=wx.BORDER_NONE | wx.CLIP_CHILDREN)
+    panel.SetBackgroundColour(_colour(APP_BACKGROUND))
+    panel.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
+    panel.SetDoubleBuffered(True)
+
+    stack = wx.BoxSizer(wx.VERTICAL)
+    stack.AddStretchSpacer(1)
+    label = wx.StaticText(panel, label="Loading PixelFlasher...")
+    label.SetForegroundColour(_colour(CHROME_TEXT))
+    font = label.GetFont()
+    font.SetPointSize(14)
+    font.SetWeight(wx.FONTWEIGHT_BOLD)
+    label.SetFont(font)
+    stack.Add(label, 0, wx.ALIGN_CENTER | wx.BOTTOM, 12)
+
+    hint = wx.StaticText(panel, label="Preparing Modern UI")
+    hint.SetForegroundColour(_colour(CHROME_MUTED))
+    stack.Add(hint, 0, wx.ALIGN_CENTER)
+    stack.AddStretchSpacer(1)
+    panel.SetSizer(stack)
+    return panel
+
+
 def _colour(value: str) -> wx.Colour:
     return wx.Colour(value)
 
@@ -736,6 +959,24 @@ def _frame_title(page: str) -> str:
         "safety": "Safety",
         "about": "About",
     }.get(str(page or "dashboard"), "Modern UI")
+
+
+def _flash_mode_label(mode: str) -> str:
+    return {
+        "keepData": "Keep Data",
+        "wipeData": "Wipe Data",
+        "dryRun": "Dry Run",
+        "OTA": "Full OTA",
+        "customFlash": "Custom Flash",
+    }.get(str(mode or ""), str(mode or "unknown"))
+
+
+def _flash_action_label(mode: str) -> str:
+    if mode == "dryRun":
+        return "Run Dry Run"
+    if mode == "OTA":
+        return "Sideload OTA"
+    return "Flash Device"
 
 
 def _is_initial_webview_url(url: str) -> bool:

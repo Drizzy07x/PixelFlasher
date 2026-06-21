@@ -8,9 +8,11 @@ from ui.pages.modern_action_bridge import (
     action_by_id,
     action_from_url,
     action_url,
+    flash_mode_from_action,
     is_engine_action,
     modern_actions,
 )
+from ui.pages.modern_action_feedback import ModernProgressState
 from ui.pages.modern_preview_templates import render_preview_html
 from ui.pages.modern_readonly_state import (
     ModernBackupState,
@@ -29,6 +31,7 @@ MODERN_FEEDBACK_SOURCE = Path("ui/pages/modern_action_feedback.py")
 MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
 MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
 MAIN_SOURCE = Path("Main.py")
+PF_MODULES_SOURCE = Path("pf_modules.py")
 MAGISK_DOWNLOADS_SOURCE = Path("magisk_downloads.py")
 
 
@@ -40,6 +43,7 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         cls.web_source = MODERN_WEB_SOURCE.read_text(encoding="utf-8")
         cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
         cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
+        cls.pf_modules_source = PF_MODULES_SOURCE.read_text(encoding="utf-8")
         cls.magisk_downloads_source = MAGISK_DOWNLOADS_SOURCE.read_text(encoding="utf-8")
 
     def test_action_urls_use_local_custom_scheme_only(self):
@@ -81,8 +85,13 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
                 "select_custom_rom",
                 "process_firmware",
                 "process_custom_rom",
+                "set_flash_mode_keep_data",
+                "set_flash_mode_wipe",
+                "set_flash_mode_dry_run",
+                "set_flash_mode_ota",
                 "flash_device",
                 "patch_boot",
+                "flash_boot",
                 "create_support_package",
                 "backup_manager",
                 "firmware_downloads",
@@ -150,6 +159,21 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         self.assertIn("PixelFlasher will run", action.confirmation_body)
         self.assertIn("Review every confirmation", action.confirmation_body)
 
+    def test_flash_mode_actions_are_allow_listed_and_mapped(self):
+        expected = {
+            "set_flash_mode_keep_data": "keepData",
+            "set_flash_mode_wipe": "wipeData",
+            "set_flash_mode_dry_run": "dryRun",
+            "set_flash_mode_ota": "OTA",
+        }
+
+        for action_id, mode in expected.items():
+            with self.subTest(action_id=action_id):
+                action = action_by_id(action_id)
+                self.assertIsNotNone(action)
+                self.assertEqual(mode, flash_mode_from_action(action))
+                self.assertTrue(is_engine_action(action))
+
     def test_disabled_mutating_shortcuts_remain_disabled_until_state_exists(self):
         for action_id in ("disabled_reboot", "disabled_wipe", "disabled_slot_switch"):
             with self.subTest(action_id=action_id):
@@ -173,6 +197,9 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             "_invoke_engine_action",
             "_preflight_action",
             "_align_state_host_for_dialogs",
+            "action_failed_feedback",
+            "result = method(None)",
+            "type(result) is int and result != 0",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, self.web_source)
@@ -180,6 +207,20 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         for forbidden in ("AddScriptMessageHandler", "RunScript", "javascript:", "onclick="):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.web_source)
+
+    def test_modern_patch_boot_uses_kernel_su_aware_engine_delegate(self):
+        action = action_by_id("patch_boot")
+
+        self.assertEqual("_on_modern_patch_boot", action.delegate)
+        self.assertIn("def _on_modern_patch_boot", self.main_source)
+        self.assertIn("KernelSU_LKM", self.main_source)
+        self.assertIn("_patched_boot_records_signature", self.main_source)
+        self.assertIn("self._last_patch_boot_id = None", self.main_source)
+        self.assertIn("patched_boot_id = getattr(self, \"_last_patch_boot_id\", None)", self.main_source)
+        self.assertIn("if not patched_boot_id and after_records == before_records:", self.main_source)
+        self.assertNotIn("if after_records == before_records and not after_records:", self.main_source)
+        self.assertIn("setattr(self, \"_last_patch_boot_id\", patched_boot_id)", self.pf_modules_source)
+        self.assertIn("--allow-shell", self.pf_modules_source)
 
     def test_tools_catalog_exposes_actionable_allow_listed_tiles(self):
         state = ModernReadonlyState(
@@ -192,6 +233,7 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
 
         expected_actions = (
             "patch_boot",
+            "flash_boot",
             "create_support_package",
             "rooting_app",
             "magisk_modules",
@@ -306,11 +348,17 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
             "Official / OTA",
             "Custom ROM",
             "Process Package",
-            "Flash Device",
+            "Flash Mode",
+            "Run Dry Run",
+            "Dry Run does not flash partitions",
             "Set Up Platform Tools",
             "pixelflasher://action/select_firmware",
             "pixelflasher://action/select_custom_rom",
             "pixelflasher://action/process_firmware",
+            "pixelflasher://action/set_flash_mode_keep_data",
+            "pixelflasher://action/set_flash_mode_wipe",
+            "pixelflasher://action/set_flash_mode_dry_run",
+            "pixelflasher://action/set_flash_mode_ota",
             "pixelflasher://action/flash_device",
             "pixelflasher://action/setup_platform_tools",
         ):
@@ -326,6 +374,27 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         custom_html = render_preview_html("wizard", custom_state)
         self.assertIn("Process ROM", custom_html)
         self.assertIn("pixelflasher://action/process_custom_rom", custom_html)
+
+    def test_wizard_final_action_label_tracks_flash_mode(self):
+        expected_by_mode = {
+            "dryRun": "Run Dry Run",
+            "OTA": "Sideload OTA",
+            "keepData": "Flash Device",
+        }
+
+        for mode, label in expected_by_mode.items():
+            with self.subTest(mode=mode):
+                state = ModernReadonlyState(
+                    device=ModernDeviceState(display_name="Pixel 9 Pro XL"),
+                    firmware=ModernFirmwareState(path="komodo-factory.zip"),
+                    flash=ModernFlashOptionsState(flash_mode=mode),
+                    tools=ModernToolState(),
+                    warnings=(),
+                )
+                html = render_preview_html("wizard", state)
+
+                self.assertIn(f">{label}</a>", html)
+                self.assertIn(f"<strong>{label}</strong>", html)
 
     def test_rendered_action_urls_are_allow_listed(self):
         state = ModernReadonlyState(
@@ -403,6 +472,46 @@ class ModernGuardedActionBridgeTests(unittest.TestCase):
         self.assertIn("&lt;blocked action&gt;", escaped_html)
         self.assertNotIn("<blocked action>", escaped_html)
         self.assertIn('class="statusbar blocked"', escaped_html)
+
+    def test_template_status_bar_renders_progress_safely(self):
+        state = ModernReadonlyState(
+            device=ModernDeviceState(),
+            firmware=ModernFirmwareState(),
+            tools=ModernToolState(),
+            warnings=(),
+        )
+        html = render_preview_html(
+            "wizard",
+            state,
+            status_message="Flash Device: running",
+            status_tone="warning",
+            progress=ModernProgressState(
+                active=True,
+                percent=150,
+                label="<flash>",
+                detail="<working>",
+                indeterminate=True,
+            ),
+        )
+
+        self.assertIn('class="statusbar warning has-progress"', html)
+        self.assertIn('class="progress-fill indeterminate"', html)
+        self.assertIn('style="--progress: 100%"', html)
+        self.assertIn("&lt;flash&gt;", html)
+        self.assertIn("&lt;working&gt;", html)
+        self.assertNotIn("<flash>", html)
+
+    def test_engine_progress_hooks_are_modern_optional(self):
+        for expected in (
+            "def _modern_progress(",
+            "set_modern_progress",
+            "Process Package",
+            "Process ROM",
+            "Running flash script",
+            "Refreshing device",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.pf_modules_source)
 
     def test_modern_sources_avoid_raw_execution_patterns(self):
         forbidden = (

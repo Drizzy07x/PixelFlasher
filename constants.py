@@ -35,7 +35,7 @@
 
 APPNAME = 'PixelFlasher'
 CONFIG_FILE_NAME = 'PixelFlasher.json'
-VERSION = '9.2.0'
+VERSION = '9.2.1'
 SDKVERSION = '33.0.3'
 MAIN_WIDTH = 1400
 MAIN_HEIGHT = 1040
@@ -69,6 +69,10 @@ REZYGISK_UPDATE_URL = 'https://raw.githubusercontent.com/ThePedroo/RemoteFiles/r
 NEOZYGISK_UPDATE_URL = 'https://raw.githubusercontent.com/JingMatrix/NeoZygisk/master/module/zygisk.json'
 ANDROID_CANARY_VERSION = 'CANARY_r03'
 TARGETEDFIX_CONFIG_PATH = '/data/adb/modules/targetedfix/config'
+
+# Minimum safe bootloader versions for devices with known ARB constraints.
+# Keep empty unless a device-specific threshold is known.
+MIN_SAFE_BOOTLOADER_VERSIONS = {}
 
 # https://xdaforums.com/t/module-play-integrity-fix-safetynet-fix.4607985/page-518#post-89308909
 BANNED_KERNELS = [

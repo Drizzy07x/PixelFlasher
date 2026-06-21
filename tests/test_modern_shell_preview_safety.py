@@ -1,6 +1,7 @@
 import importlib
 from pathlib import Path
 import re
+from types import SimpleNamespace
 import unittest
 
 from ui.pages.modern_preview_copy import NAV_ICONS, NAV_ITEMS, PREVIEW_BADGES, SAFETY_BOUNDARY_LINES
@@ -53,6 +54,28 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
 
         self.assertTrue(callable(getattr(module, "create_modern_preview_frame", None)))
         self.assertTrue(callable(getattr(module, "is_webview_available", None)))
+
+    def test_flash_device_contextual_action_uses_current_mode_label(self):
+        self.require_wx()
+        module = importlib.import_module("ui.pages.modern_preview_web")
+        from ui.pages.modern_action_bridge import action_by_id
+
+        frame = module.ModernPreviewWebFrame.__new__(module.ModernPreviewWebFrame)
+        base_action = action_by_id("flash_device")
+        expected_by_mode = {
+            "dryRun": ("Run Dry Run", "Run Dry Run?", False),
+            "OTA": ("Sideload OTA", "Sideload OTA?", True),
+            "keepData": ("Flash Device", "Flash Device?", True),
+        }
+
+        for mode, (label, title, dangerous) in expected_by_mode.items():
+            with self.subTest(mode=mode):
+                frame._state_host = SimpleNamespace(config=SimpleNamespace(flash_mode=mode))
+                action = frame._contextual_action(base_action)
+
+                self.assertEqual(label, action.label)
+                self.assertEqual(title, action.confirmation_title)
+                self.assertEqual(dangerous, action.dangerous)
 
     def test_windows_build_packages_webview_loader(self):
         for expected in (
@@ -128,7 +151,8 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "APP_BACKGROUND = \"#070b12\"",
             "self.SetBackgroundColour(_colour(APP_BACKGROUND))",
             "wx.Panel(self, style=wx.BORDER_NONE | wx.CLIP_CHILDREN)",
-            "html2.WebView.New(shell, backend=backend, style=wx.BORDER_NONE)",
+            "wx.Simplebook(shell, style=wx.BORDER_NONE)",
+            "html2.WebView.New(content, backend=backend, style=wx.BORDER_NONE)",
             "view.SetBackgroundColour(_colour(APP_BACKGROUND))",
         ):
             with self.subTest(expected=expected):
@@ -239,7 +263,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Scan Devices",
             "Platform Tools need setup",
             "Set Up Platform Tools",
-            "PixelFlasher 9.2.0",
+            "PixelFlasher 9.2.1",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, html)
@@ -336,7 +360,8 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Process Package",
             "Official / OTA",
             "Custom ROM",
-            "Flash Device",
+            "Run Dry Run",
+            "Dry Run does not flash partitions",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, wizard_html)

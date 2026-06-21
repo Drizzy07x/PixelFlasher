@@ -3759,7 +3759,7 @@ add_hosts_module
     # ----------------------------------------------------------------------------
     #                               Method reboot_system
     # ----------------------------------------------------------------------------
-    def reboot_system(self, timeout=60, hint='None'):
+    def reboot_system(self, timeout=60, hint='None', wait_for_device=True):
         mode = None
         try:
             mode = self.get_device_state()
@@ -3771,9 +3771,9 @@ add_hosts_module
                 debug(theCmd)
                 res = run_shell(theCmd, timeout=timeout)
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
-                    if timeout:
+                    if timeout and wait_for_device:
                         res2 = self.adb_wait_for(timeout=timeout, wait_for='device')
-                        if res2 == 1:
+                        if res2 != 0:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during adb_wait_for in reboot_system")
                             # puml(f"note right:ERROR: during adb_wait_for in reboot_system;\n")
                             return -1
@@ -3794,8 +3794,11 @@ add_hosts_module
                 debug(theCmd)
                 res = run_shell(theCmd, timeout=timeout)
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
-                    if timeout:
+                    if timeout and wait_for_device:
                         res2 = self.adb_wait_for(timeout=timeout, wait_for='device')
+                        if res2 != 0:
+                            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during adb_wait_for in reboot_system")
+                            return -1
                         # puml(f"note right:Res [{res}];\n")
                     mode = 'adb'
                     return 0
@@ -3834,7 +3837,7 @@ add_hosts_module
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                     if timeout:
                         res2 = self.adb_wait_for(timeout=timeout, wait_for='recovery')
-                        if res2 == 1:
+                        if res2 != 0:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_recovery")
                             return -1
                     puml("note right:State recovery;\n")
@@ -3862,7 +3865,7 @@ add_hosts_module
                     res2 = run_shell(theCmd, timeout=timeout)
                     if res2 and isinstance(res2, subprocess.CompletedProcess) and res2.returncode == 0:
                         res2 = self.adb_wait_for(timeout=timeout, wait_for='recovery')
-                        if res2 == 1:
+                        if res2 != 0:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_recovery")
                             return -1
                         mode = 'recovery'
@@ -3906,6 +3909,9 @@ add_hosts_module
                 res = self.reboot_recovery(timeout=timeout, hint='fastbootd')
                 if res == 0:
                     res = self.adb_wait_for(timeout=timeout, wait_for='recovery')
+                    if res != 0:
+                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during adb_wait_for in reboot_recovery_interactive")
+                        return -1
                     mode = 'recovery_interactive'
                     return 0
 
@@ -4021,7 +4027,7 @@ add_hosts_module
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                     if timeout:
                         res2 = self.fastboot_wait_for_bootloader(timeout=timeout)
-                        if res2 == -1:
+                        if res2 != 0:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_bootloader")
                             # puml(f"note right:ERROR: during fastboot_wait_for_bootloader in reboot_bootloader;\n")
                             return -1
@@ -4044,6 +4050,9 @@ add_hosts_module
                 res = run_shell(theCmd, timeout=timeout)
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                     res2 = self.fastboot_wait_for_bootloader(timeout=timeout)
+                    if res2 != 0:
+                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_bootloader")
+                        return -1
                     mode = 'bootloader'
                     return 0
 
@@ -4072,8 +4081,8 @@ add_hosts_module
         try:
             mode = self.get_device_state()
             print(f"\nRebooting device: {self.id} to fastbootd ...")
-            print("This process will wait for fastbootd indefinitely.")
-            print("ℹ️ Info: If your device does not boot to fastbootd PixelFlasher will hang and you'd have to kill it.")
+            print(f"This process will wait up to {timeout} seconds for fastbootd.")
+            print("Info: If your device does not boot to fastbootd PixelFlasher will time out and abort this step.")
             puml(f":Rebooting device: {self.id} to fastbootd;\n", True)
 
             if mode in ['adb', 'recovery', 'sideload', 'rescue'] and get_adb():
@@ -4083,7 +4092,7 @@ add_hosts_module
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                     if timeout:
                         res2 = self.fastboot_wait_for_bootloader(timeout=timeout)
-                        if res2 == 1:
+                        if res2 != 0:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_fastboot")
                             # puml(f"note right:ERROR: during fastboot_wait_for_bootloader in reboot_fastboot;\n")
                             return -1
@@ -4106,6 +4115,9 @@ add_hosts_module
                 res = run_shell(theCmd, timeout=timeout)
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                     res2 = self.fastboot_wait_for_bootloader(timeout=timeout)
+                    if res2 != 0:
+                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_fastboot")
+                        return -1
                     mode = 'fastbootd'
                     return 0
 
@@ -4146,7 +4158,7 @@ add_hosts_module
                 if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                     if timeout:
                         res2 = self.adb_wait_for(timeout=timeout, wait_for='sideload')
-                        if res2 == 1:
+                        if res2 != 0:
                             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during reboot_sideload")
                             return -1
                         puml("note right:State sideload;\n")
@@ -4169,6 +4181,9 @@ add_hosts_module
                 res = self.reboot_recovery(timeout=timeout)
                 if res == 0:
                     res = self.adb_wait_for(timeout=timeout, wait_for='recovery')
+                    if res != 0:
+                        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during adb_wait_for in reboot_sideload")
+                        return -1
                     # next reboot to sideload
                     debug("Calling reboot_sideload ...")
                     res = self.reboot_sideload(timeout=timeout)
@@ -4190,6 +4205,9 @@ add_hosts_module
                     res = self.reboot_recovery(timeout=timeout, hint='fastbootd')
                     if res == 0:
                         res = self.adb_wait_for(timeout=timeout, wait_for='recovery')
+                        if res != 0:
+                            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: during adb_wait_for in reboot_sideload")
+                            return -1
                         # next reboot to sideload
                         debug("Calling reboot_sideload ...")
                         res = self.reboot_sideload(timeout=timeout, hint='recovery')
@@ -4236,13 +4254,14 @@ add_hosts_module
             retry_text = f"retry [{retry + 1}] times" if retry > 0 else ''
             print(f"\n{datetime.now():%Y-%m-%d %H:%M:%S} Getting device: {device_id} state {retry_text} ...")
             puml(f":Getting device: {device_id} state {retry_text};\n", True)
+            probe_timeout = min(timeout, 5) if timeout is not None else None
             for i in range(retry + 1):
                 if get_adb():
                     puml(f":[{i + 1}/{retry + 1}] using get-state;\n", True)
                     debug(f"[{i + 1}/{retry + 1}] using get-state")
                     theCmd = f"\"{get_adb()}\" -s {device_id} get-state"
                     debug(theCmd)
-                    res = run_shell(theCmd, timeout=timeout)
+                    res = run_shell(theCmd, timeout=probe_timeout)
                     if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0:
                         device_mode = res.stdout.strip('\n')
                         if device_mode == "device":
@@ -4256,7 +4275,7 @@ add_hosts_module
                     puml(f":[{i + 1}/{retry + 1}] using fastboot devices;\n", True)
                     debug(f"[{i + 1}/{retry + 1}] using fastboot devices")
                     theCmd = f"\"{get_fastboot()}\" devices"
-                    res = run_shell(theCmd, timeout=timeout)
+                    res = run_shell(theCmd, timeout=probe_timeout)
                     if res and isinstance(res, subprocess.CompletedProcess) and res.returncode == 0 and device_id in res.stdout:
                         mode = 'fastboot'
                         mode_text = 'bootloader or fastbootd'
@@ -4339,7 +4358,7 @@ add_hosts_module
                     puml(f":device: {device_id} is now in {wait_for} mode;\n", True)
                     return 0
                 else:
-                    mode = self.get_device_state()
+                    mode = self.get_device_state(timeout=min(timeout, 5) if timeout is not None else None, update=False)
                     if mode:
                         print(f"Device is now in {mode} mode.")
                         puml(f":device is now in {mode} mode;\n", True)
@@ -4363,16 +4382,28 @@ add_hosts_module
                 device_id = self.id
             print(f"Fastboot waiting for device: {device_id} ...")
             puml(f":Fastboot waiting for device: {device_id};\n", True)
-            start_time = time.time()
-            while time.time() - start_time < timeout:
+            deadline = time.time() + timeout if timeout is not None else None
+            while deadline is None or time.time() < deadline:
                 with contextlib.suppress(Exception):
                     theCmd = f"\"{get_fastboot()}\" devices"
-                    res = run_shell(theCmd, timeout=timeout)
+                    command_timeout = None
+                    if deadline is not None:
+                        remaining = deadline - time.time()
+                        if remaining <= 0:
+                            break
+                        command_timeout = max(0.1, min(5, remaining))
+                    res = run_shell(theCmd, timeout=command_timeout)
                     if res and isinstance(res, subprocess.CompletedProcess) and f"{device_id}\t" in res.stdout:
                         # sometimes fastboot devices returns the device in the list but it's not in bootloader mode
                         # so we need to check the state of the device again
                         time.sleep(1)
-                        mode = self.get_device_state(device_id, update=False)
+                        state_timeout = 5
+                        if deadline is not None:
+                            remaining = deadline - time.time()
+                            if remaining <= 0:
+                                break
+                            state_timeout = max(0.1, min(5, remaining))
+                        mode = self.get_device_state(device_id, timeout=state_timeout, update=False)
                         if mode == 'fastboot':
                             print(f"device: {device_id} is now in bootloader or fastbootd mode.")
                             puml(f":device: {device_id} is now in bootloader or fastbootd mode;\n", True)
@@ -4381,9 +4412,15 @@ add_hosts_module
                             print(f"device: {device_id} is in {mode} mode.")
                             puml(f":device: {device_id} is in {mode} mode;\n", True)
                             return -1
-                time.sleep(1)
-            print(f"Timeout: [{timeout}] Fastboot could not detect device: {device_id} in bootloader or fastbootd mode ")
-            puml(f":Timeout: [{timeout}] Fastboot could not detect device: {device_id} in bootloader or fastbootd mode;\n", True)
+                if deadline is None:
+                    time.sleep(1)
+                else:
+                    sleep_time = min(1, max(0, deadline - time.time()))
+                    if sleep_time:
+                        time.sleep(sleep_time)
+            timeout_text = "unbounded" if timeout is None else f"[{timeout}]"
+            print(f"Timeout: {timeout_text} Fastboot could not detect device: {device_id} in bootloader or fastbootd mode ")
+            puml(f":Timeout: {timeout_text} Fastboot could not detect device: {device_id} in bootloader or fastbootd mode;\n", True)
             return -1
         except Exception as e:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error in fastboot_wait_for_bootloader function")

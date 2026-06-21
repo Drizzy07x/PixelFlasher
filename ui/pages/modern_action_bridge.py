@@ -12,6 +12,12 @@ GUARDED_FLOW = "guarded_flow"
 DISABLED = "disabled"
 ACTION_SCHEME = "pixelflasher"
 ACTION_HOST = "action"
+FLASH_MODE_BY_ACTION_ID = {
+    "set_flash_mode_keep_data": "keepData",
+    "set_flash_mode_wipe": "wipeData",
+    "set_flash_mode_dry_run": "dryRun",
+    "set_flash_mode_ota": "OTA",
+}
 
 
 @dataclass(frozen=True)
@@ -133,7 +139,7 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
     ),
     ModernAction(
         "process_firmware",
-        "Process Firmware",
+        "Process Package",
         "Extract and prepare firmware using PixelFlasher's existing processor.",
         INTERNAL_FLOW,
         True,
@@ -146,6 +152,45 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
         INTERNAL_FLOW,
         True,
         delegate="_on_process_rom",
+    ),
+    ModernAction(
+        "set_flash_mode_keep_data",
+        "Keep Data",
+        "Flash the selected factory image while preserving user data.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_set_flash_mode",
+    ),
+    ModernAction(
+        "set_flash_mode_wipe",
+        "Wipe Data",
+        "Flash the selected factory image and wipe user data after confirmation.",
+        GUARDED_FLOW,
+        True,
+        requires_confirmation=True,
+        delegate="_set_flash_mode",
+        dangerous=True,
+        confirmation_title="Select Wipe Data?",
+        confirmation_body=(
+            "This only selects the flash mode. PixelFlasher will still ask for confirmation before flashing.\n"
+            "Wipe Data removes user data when the flash workflow runs."
+        ),
+    ),
+    ModernAction(
+        "set_flash_mode_dry_run",
+        "Dry Run",
+        "Run the flash workflow as a test without partition flashing.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_set_flash_mode",
+    ),
+    ModernAction(
+        "set_flash_mode_ota",
+        "Full OTA",
+        "Sideload the selected OTA package.",
+        INTERNAL_FLOW,
+        True,
+        delegate="_set_flash_mode",
     ),
     ModernAction(
         "flash_device",
@@ -165,15 +210,32 @@ MODERN_ACTIONS: tuple[ModernAction, ...] = (
     ModernAction(
         "patch_boot",
         "Patch Boot",
-        "Patch the selected boot image using the configured root solution.",
+        "Patch the selected boot image using the detected root solution.",
         GUARDED_FLOW,
         True,
         requires_confirmation=True,
-        delegate="_on_magisk_patch_boot",
+        delegate="_on_modern_patch_boot",
         dangerous=True,
         confirmation_title="Patch Boot Image?",
         confirmation_body=(
             "PixelFlasher will use the selected boot image and connected device.\n"
+            "KernelSU LKM is selected automatically when KernelSU is installed.\n"
+            "Review every confirmation before continuing."
+        ),
+    ),
+    ModernAction(
+        "flash_boot",
+        "Flash Boot",
+        "Flash only the selected boot or init_boot image using PixelFlasher's boot flash flow.",
+        GUARDED_FLOW,
+        True,
+        requires_confirmation=True,
+        delegate="_on_flash_boot",
+        dangerous=True,
+        confirmation_title="Flash Selected Boot Image?",
+        confirmation_body=(
+            "PixelFlasher will run the boot-only flash workflow.\n"
+            "This does not run the full firmware flash script.\n"
             "Review every confirmation before continuing."
         ),
     ),
@@ -301,3 +363,7 @@ def is_engine_action(action: ModernAction) -> bool:
         INTERNAL_FLOW,
         GUARDED_FLOW,
     }
+
+
+def flash_mode_from_action(action: ModernAction) -> str | None:
+    return FLASH_MODE_BY_ACTION_ID.get(action.id)

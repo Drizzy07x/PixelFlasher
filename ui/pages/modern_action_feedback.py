@@ -18,6 +18,16 @@ class ModernActionFeedback:
     tone: str = SAFE
 
 
+@dataclass(frozen=True)
+class ModernProgressState:
+    active: bool = False
+    percent: int | None = None
+    label: str = ""
+    detail: str = ""
+    indeterminate: bool = False
+    tone: str = WARNING
+
+
 def blocked_navigation_feedback() -> ModernActionFeedback:
     return ModernActionFeedback("Navigation stayed inside the PixelFlasher workspace.", BLOCKED)
 
@@ -40,6 +50,10 @@ def action_started_feedback(action: ModernAction) -> ModernActionFeedback:
 
 def action_completed_feedback(action: ModernAction) -> ModernActionFeedback:
     return ModernActionFeedback(f"{action.label}: complete.", SAFE)
+
+
+def action_failed_feedback(action: ModernAction) -> ModernActionFeedback:
+    return ModernActionFeedback(f"{action.label}: failed or aborted.", BLOCKED)
 
 
 def action_unavailable_feedback(action: ModernAction) -> ModernActionFeedback:

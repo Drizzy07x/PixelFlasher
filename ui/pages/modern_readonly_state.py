@@ -135,7 +135,7 @@ class ModernReadonlyState:
 @dataclass(frozen=True)
 class ModernFlashOptionsState:
     flash_mode: str = "dryRun"
-    data_behavior: str = "Dry run"
+    data_behavior: str = "No flashing (dry run)"
     slot_behavior: str = "Default"
     verification: str = "Default"
     verity: str = "Default"
@@ -605,7 +605,7 @@ def _data_behavior(mode: str) -> str:
     return {
         "wipeData": "Wipe selected in legacy config",
         "keepData": "Keep data",
-        "dryRun": "Dry run",
+        "dryRun": "No flashing (dry run)",
         "OTA": "Full OTA",
         "customFlash": "Custom flash",
     }.get(str(mode or ""), str(mode or "unknown"))

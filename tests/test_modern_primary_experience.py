@@ -83,8 +83,13 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
             "select_custom_rom",
             "process_firmware",
             "process_custom_rom",
+            "set_flash_mode_keep_data",
+            "set_flash_mode_wipe",
+            "set_flash_mode_dry_run",
+            "set_flash_mode_ota",
             "flash_device",
             "patch_boot",
+            "flash_boot",
             "create_support_package",
             "backup_manager",
             "firmware_downloads",
@@ -112,8 +117,10 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         actions = {action.id: action for action in modern_actions()}
 
         expected_delegates = {
+            "set_flash_mode_wipe": "_set_flash_mode",
             "flash_device": "_on_flash",
-            "patch_boot": "_on_magisk_patch_boot",
+            "patch_boot": "_on_modern_patch_boot",
+            "flash_boot": "_on_flash_boot",
             "create_support_package": "_on_support_zip",
             "partition_manager": "_on_partition_manager",
         }
@@ -126,7 +133,10 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
                 self.assertTrue(action.dangerous)
                 self.assertEqual(delegate, action.delegate)
                 self.assertTrue(is_engine_action(action))
-                self.assertIn("Review every confirmation", action.confirmation_body)
+                if action_id == "set_flash_mode_wipe":
+                    self.assertIn("before flashing", action.confirmation_body)
+                else:
+                    self.assertIn("Review every confirmation", action.confirmation_body)
 
         for action_id in ("disabled_reboot", "disabled_wipe", "disabled_slot_switch"):
             with self.subTest(action_id=action_id):
@@ -136,7 +146,7 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
                 self.assertFalse(action.delegate)
 
     def test_engine_action_delegates_exist_on_primary_engine(self):
-        web_frame_delegates = {"_setup_platform_tools", "select_firmware_file", "select_custom_rom_file"}
+        web_frame_delegates = {"_setup_platform_tools", "select_firmware_file", "select_custom_rom_file", "_set_flash_mode"}
 
         for action in modern_actions():
             if not is_engine_action(action):

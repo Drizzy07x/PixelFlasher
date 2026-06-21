@@ -276,8 +276,8 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
                 tools=ModernToolState(),
                 warnings=(),
                 flash=ModernFlashOptionsState(
-                    flash_mode="Full OTA",
-                    data_behavior="Keep data",
+                    flash_mode="OTA",
+                    data_behavior="Full OTA",
                     slot_behavior="Inactive slot",
                 ),
             ),
@@ -289,10 +289,10 @@ class ModernDashboardCopySafetyTests(unittest.TestCase):
             "Firmware Package",
             "Flash Options",
             "Final Review",
-            "Ready to start",
+            "Ready to sideload",
             "PixelFlasher confirmations remain in place.",
-            "Full OTA",
-            "Keep data - Slot Inactive slot",
+            "OTA",
+            "Full OTA - Slot Inactive slot",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, html)
