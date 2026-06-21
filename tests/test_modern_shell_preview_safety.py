@@ -137,6 +137,18 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
         self.assertNotIn("wx.Button(self, label=", self.web_source)
         self.assertNotIn("wx.StaticText(self, label=", self.web_source)
 
+    def test_webview_soft_refresh_keeps_current_document_visible(self):
+        for expected in (
+            "self._has_rendered_document = False",
+            "show_loader: bool | None = None",
+            "show_loader = not self._has_rendered_document",
+            "if show_loader:",
+            "self._show_page(self._page, message, tone, show_loader=False)",
+            "self._has_rendered_document = True",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self.web_source)
+
     def test_webview_frame_uses_application_icon(self):
         for expected in (
             "_apply_frame_icon(self)",
@@ -240,6 +252,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
     def test_webview_template_contains_dashboard_structure(self):
         from ui.pages.modern_preview_templates import render_preview_html
         from ui.pages.modern_readonly_state import ModernDeviceState, ModernFirmwareState, ModernReadonlyState, ModernToolState
+        from constants import VERSION
 
         html = render_preview_html(
             "dashboard",
@@ -263,7 +276,7 @@ class ModernShellPreviewSafetyTests(unittest.TestCase):
             "Scan Devices",
             "Platform Tools need setup",
             "Set Up Platform Tools",
-            "PixelFlasher 9.2.1",
+            f"PixelFlasher {VERSION}",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, html)

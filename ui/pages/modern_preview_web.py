@@ -106,6 +106,7 @@ class ModernPreviewWebFrame(wx.Frame):
         self._status_tone = "safe"
         self._progress = ModernProgressState()
         self._loading_document = False
+        self._has_rendered_document = False
         self._action_running = False
         backend = _preferred_webview_backend()
         if backend is None:
@@ -140,11 +141,19 @@ class ModernPreviewWebFrame(wx.Frame):
         self.Layout()
         self._show_page(page)
 
-    def _show_page(self, page: str, status_message: str | None = None, status_tone: str = "safe") -> None:
+    def _show_page(
+        self,
+        page: str,
+        status_message: str | None = None,
+        status_tone: str = "safe",
+        show_loader: bool | None = None,
+    ) -> None:
         self._page = str(page or "dashboard")
         if status_message is not None:
             self._status_message = status_message
             self._status_tone = status_tone
+        if show_loader is None:
+            show_loader = not self._has_rendered_document
         self._state = build_readonly_state(self._state_host, tool_resolver=lambda name: None)
         html = render_preview_html(
             page=self._page,
@@ -155,14 +164,15 @@ class ModernPreviewWebFrame(wx.Frame):
             progress=self._progress,
         )
         self._loading_document = True
-        with contextlib.suppress(Exception):
-            self._content.SetSelection(0)
+        if show_loader:
+            with contextlib.suppress(Exception):
+                self._content.SetSelection(0)
         self._view.SetPage(html, "")
         self.SetTitle(f"PixelFlasher {VERSION} - {_frame_title(self._page)}")
         self._chrome.SetPageTitle(_frame_title(self._page))
 
     def _set_status(self, message: str, tone: str = "safe") -> None:
-        self._show_page(self._page, message, tone)
+        self._show_page(self._page, message, tone, show_loader=False)
 
     def _set_feedback(self, feedback: ModernActionFeedback) -> None:
         self._set_status(feedback.message, feedback.tone)
@@ -257,6 +267,7 @@ class ModernPreviewWebFrame(wx.Frame):
 
     def _on_webview_loaded(self, event) -> None:
         self._loading_document = False
+        self._has_rendered_document = True
         with contextlib.suppress(Exception):
             self._content.SetSelection(1)
 
