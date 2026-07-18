@@ -31,11 +31,11 @@
 # information on this, and how to apply and follow the GNU AGPL, see
 # <https://www.gnu.org/licenses/>.
 
+pushd "$(dirname "$0")"
+
 rm -rf build dist
 NAME="PixelFlasher"
 DIST_NAME="PixelFlasher"
-
-pushd "$(dirname "$0")"
 
 if [[ $OSTYPE == 'darwin'* ]]; then
     if [[ $(arch) == 'arm64' ]]; then
@@ -62,6 +62,12 @@ print(VERSION)
 PY
 )
 $PYTHON ./compile_po.py
+
+if [[ ${PIXELFLASHER_FRONTEND_PREBUILT:-0} == "1" ]]; then
+    $PYTHON ./scripts/build_frontend.py --check-only
+else
+    $PYTHON ./scripts/build_frontend.py
+fi
 
 pyinstaller --log-level=DEBUG \
             --noconfirm \

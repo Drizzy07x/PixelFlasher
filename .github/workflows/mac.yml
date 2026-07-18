@@ -78,7 +78,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24.14.0'
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
 
       - name: Install ImageMagick
         run: brew install imagemagick
@@ -110,6 +116,10 @@ jobs:
 
       - name: List modules and their versions
         run: python3.13 -m pip freeze
+
+      - name: Build React UI and gettext assets
+        run: |
+          python3.13 scripts/build_frontend.py
 
       - name: Verify universal2 extension modules
         shell: bash
@@ -192,7 +202,27 @@ jobs:
 
       - name: Build application
         id: build_app
-        run: ./build.sh
+        run: PIXELFLASHER_FRONTEND_PREBUILT=1 ./build.sh
+
+      - name: Verify React and locale assets are inside the app
+        shell: bash
+        run: |
+          archive_listing="$(python3.13 -m PyInstaller.utils.cliutils.archive_viewer -b -l dist/PixelFlasher.app/Contents/MacOS/PixelFlasher | tr '\\' '/')"
+          for asset in \
+            ui/web/dist/index.html \
+            ui/web/dist/i18n/manifest.json \
+            ui/web/dist/i18n/en.json \
+            ui/web/dist/i18n/es.json \
+            ui/web/dist/i18n/fr.json \
+            ui/web/dist/i18n/it.json \
+            ui/web/dist/i18n/zh_CN.json \
+            ui/web/dist/i18n/zh_TW.json
+          do
+            if ! grep -Fq "$asset" <<<"$archive_listing"; then
+              echo "Packaged asset missing from PixelFlasher.app: $asset"
+              exit 1
+            fi
+          done
 
       - name: Upload PixelFlasher.app as artifact
         uses: actions/upload-artifact@v7

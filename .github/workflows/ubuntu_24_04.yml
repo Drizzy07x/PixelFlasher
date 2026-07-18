@@ -33,6 +33,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up the locked React toolchain
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.0'
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
+
       - name: Install system Python, wxPython, and build prerequisites
         run: |
           sudo apt-get update
@@ -42,6 +53,7 @@ jobs:
             python3-pip \
             python3-venv \
             python3-wxgtk4.0 \
+            python3-wxgtk-webview4.0 \
             build-essential \
             libgtk-3-dev \
             libwebkit2gtk-4.1-dev \
@@ -53,11 +65,26 @@ jobs:
             libsdl2-dev \
             libunwind-dev \
             libgstreamer1.0-dev \
-            gstreamer1.0-plugins-base
+            gstreamer1.0-plugins-base \
+            xvfb \
+            xauth \
+            xdotool
           python3 --version
-          python3 - <<'PY'
+          xvfb-run -a python3 - <<'PY'
           import wx
+          import wx.html2 as html2
+
+          app = wx.App(False)
+          backend = html2.WebViewBackendWebKit
+          if not html2.WebView.IsBackendAvailable(backend):
+              raise SystemExit(f"wx WebKit backend is unavailable: {backend}")
+          frame = wx.Frame(None)
+          view = html2.WebView.New(frame, backend=backend)
+          if view is None:
+              raise SystemExit("wx WebKit WebView could not be created")
           print(wx.version())
+          print(f"Verified wx WebView backend: {backend}")
+          frame.Destroy()
           PY
 
       - name: Create virtual environment, install dependencies, verify source, and build
@@ -68,13 +95,14 @@ jobs:
           pip install -U pip wheel setuptools
           grep -v -E '^\s*wxPython([<>= ].*)?$' requirements.txt > requirements_no_wx.txt
           pip install -r requirements_no_wx.txt
+          python scripts/build_frontend.py
           python - <<'PY'
           import wx
           print(wx.version())
           PY
           python -m compileall -q PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui
           python --version && pip freeze
-          ./build.sh
+          PIXELFLASHER_FRONTEND_PREBUILT=1 ./build.sh
           mv dist/PixelFlasher dist/PixelFlasher_Ubuntu_24_04
           chmod +x dist/PixelFlasher_Ubuntu_24_04
           dist/PixelFlasher_Ubuntu_24_04 --version
@@ -84,6 +112,53 @@ jobs:
           cat dist/PixelFlasher_Ubuntu_24_04.sha256
           ls dist
         shell: bash
+
+      - name: Verify React and locale assets are inside the executable
+        shell: bash
+        run: |
+          archive_listing="$(myenv/bin/pyi-archive-viewer -b -l dist/PixelFlasher_Ubuntu_24_04 | tr '\\' '/')"
+          for asset in \
+            ui/web/dist/index.html \
+            ui/web/dist/i18n/manifest.json \
+            ui/web/dist/i18n/en.json \
+            ui/web/dist/i18n/es.json \
+            ui/web/dist/i18n/fr.json \
+            ui/web/dist/i18n/it.json \
+            ui/web/dist/i18n/zh_CN.json \
+            ui/web/dist/i18n/zh_TW.json
+          do
+            if ! grep -Fq "$asset" <<<"$archive_listing"; then
+              echo "Packaged asset missing from PixelFlasher_Ubuntu_24_04: $asset"
+              exit 1
+            fi
+          done
+
+      - name: Launch packaged default entrypoint under Xvfb
+        run: |
+          set -euo pipefail
+          launch_log="$RUNNER_TEMP/pixelflasher-ubuntu24-default.log"
+          config_dir="$RUNNER_TEMP/pixelflasher-ubuntu24-config"
+          mkdir -p "$config_dir"
+
+          if ! xvfb-run -a bash -ceu '
+            export XDG_CONFIG_HOME="$1"
+            "$2" >"$3" 2>&1 &
+            app_pid=$!
+            cleanup() { kill "$app_pid" 2>/dev/null || true; }
+            trap cleanup EXIT
+            timeout 30s xdotool search --sync --onlyvisible --name "PixelFlasher" >/dev/null
+            kill -0 "$app_pid"
+          ' bash "$config_dir" "$GITHUB_WORKSPACE/dist/PixelFlasher_Ubuntu_24_04" "$launch_log"; then
+            cat "$launch_log"
+            echo "The packaged default PixelFlasher UI did not expose a live window."
+            exit 1
+          fi
+
+          cat "$launch_log"
+          if grep -F "Modern UI WebView is not available" "$launch_log"; then
+            echo "The packaged application started without its required WebView backend."
+            exit 1
+          fi
 
       - name: Upload Ubuntu 24.04 Artifact
         uses: actions/upload-artifact@v7

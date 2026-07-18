@@ -144,7 +144,8 @@ def _check_source_layout(root: Path) -> list[CheckResult]:
         return [CheckResult("source_layout", True, "skipped for packaged binary")]
     return [
         _check_required_file(root / "PixelFlasher.py"),
-        _check_required_file(root / "Main.py"),
+        _check_required_file(root / "pixelflasher_core" / "__init__.py"),
+        _check_required_file(root / "ui" / "web" / "package.json"),
         _check_required_file(root / "requirements.txt"),
     ]
 
@@ -216,48 +217,110 @@ def _check_platform_layer() -> CheckResult:
 
 
 def _check_ui_foundation() -> list[CheckResult]:
+    """Validate the product UI source without importing retired wx previews."""
+
+    web_root = _repo_root() / "ui" / "web" / "src"
+    styles = web_root / "styles.css"
+    assets = web_root / "assets.ts"
     results: list[CheckResult] = []
+
     try:
-        from ui.theme import get_theme
-        get_theme("light")
-        get_theme("dark")
-        results.append(CheckResult("ui_theme_tokens", True, "light/dark themes load"))
+        source = styles.read_text(encoding="utf-8")
+        required_tokens = (
+            ":root",
+            'data-theme="light"',
+            "forced-colors: active",
+            "prefers-reduced-motion: reduce",
+            ":focus-visible",
+        )
+        missing = [token for token in required_tokens if token not in source]
+        results.append(
+            CheckResult(
+                "ui_theme_tokens",
+                not missing,
+                "dark/light/contrast/motion/focus tokens present"
+                if not missing
+                else "missing: " + ", ".join(missing),
+            )
+        )
     except Exception as exc:
         results.append(CheckResult("ui_theme_tokens", False, str(exc)))
 
     try:
-        from ui.icons import ICON_REGISTRY, validate_icon_registry
-        errors = validate_icon_registry()
-        results.append(CheckResult("ui_icon_registry", not errors, f"{len(ICON_REGISTRY)} icons" if not errors else "; ".join(errors)))
+        source = assets.read_text(encoding="utf-8")
+        required_assets = ("appLogo", "phoneRender", "dashboard", "warningPng")
+        missing = [asset for asset in required_assets if asset not in source]
+        results.append(
+            CheckResult(
+                "ui_asset_registry",
+                not missing,
+                "React image/icon assets registered"
+                if not missing
+                else "missing: " + ", ".join(missing),
+            )
+        )
     except Exception as exc:
-        results.append(CheckResult("ui_icon_registry", False, str(exc)))
+        results.append(CheckResult("ui_asset_registry", False, str(exc)))
     return results
 
 
 def _check_modern_entrypoints() -> list[CheckResult]:
-    modules = (
-        "ui.pages.dashboard_app",
-        "ui.pages.flash_wizard_app",
-        "ui.pages.modern_shell_app",
-        "ui.pages.modern_primary_app",
-    )
+    headless_modules = ("pixelflasher_core", "ui.bridge_contract")
+    modules = ("ui.pages.modern_webview_host", "ui.pages.modern_primary_app")
+    results: list[CheckResult] = []
+    for module in headless_modules:
+        try:
+            __import__(module, fromlist=["*"])
+            results.append(CheckResult(f"entrypoint:{module.rsplit('.', 1)[-1]}", True, "importable"))
+        except Exception as exc:
+            results.append(CheckResult(f"entrypoint:{module.rsplit('.', 1)[-1]}", False, str(exc)))
+
     if importlib.util.find_spec("wx") is None:
-        return [
+        results.extend(
             CheckResult(
                 f"entrypoint:{module.rsplit('.', 1)[-1]}",
                 True,
                 "skipped; wx not importable in this environment",
             )
             for module in modules
-        ]
+        )
+        return results
 
-    results: list[CheckResult] = []
     for module in modules:
         try:
             __import__(module, fromlist=["*"])
             results.append(CheckResult(f"entrypoint:{module.rsplit('.', 1)[-1]}", True, "importable"))
         except Exception as exc:
             results.append(CheckResult(f"entrypoint:{module.rsplit('.', 1)[-1]}", False, str(exc)))
+    return results
+
+
+def _check_frontend_assets() -> list[CheckResult]:
+    dist = _repo_root() / "ui" / "web" / "dist"
+    index = dist / "index.html"
+    assets = dist / "assets"
+    results = [
+        CheckResult("frontend:index", index.is_file(), str(index) if index.exists() else "missing bundled React index"),
+        CheckResult("frontend:assets", assets.is_dir(), str(assets) if assets.exists() else "missing bundled React assets"),
+    ]
+    if index.is_file():
+        try:
+            source = index.read_text(encoding="utf-8")
+            classic = (
+                "<script src=" in source
+                and 'type="module"' not in source
+                and "http://" not in source
+                and "https://" not in source
+            )
+            results.append(
+                CheckResult(
+                    "frontend:webview_bundle",
+                    classic,
+                    "classic local bundle" if classic else "module or remote runtime dependency detected",
+                )
+            )
+        except Exception as exc:
+            results.append(CheckResult("frontend:webview_bundle", False, str(exc)))
     return results
 
 
@@ -285,6 +348,7 @@ def run_checks() -> list[CheckResult]:
     checks.extend(_check_platform_tools())
     checks.extend(_check_ui_foundation())
     checks.extend(_check_modern_entrypoints())
+    checks.extend(_check_frontend_assets())
     checks.extend(_check_packaged_bins())
     return checks
 

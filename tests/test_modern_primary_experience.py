@@ -1,218 +1,95 @@
-import unittest
+import ast
 from pathlib import Path
+import unittest
 
-from ui.pages.modern_action_bridge import (
-    DISABLED,
-    GUARDED_FLOW,
-    INTERNAL_FLOW,
-    NAVIGATION,
-    action_by_id,
-    action_from_url,
-    action_url,
-    is_engine_action,
-    modern_actions,
+from ui.bridge_contract import ALLOWED_COMMANDS, BRIDGE_CHANNEL, BRIDGE_VERSION
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PIXELFLASHER_SOURCE = ROOT / "PixelFlasher.py"
+PRIMARY_SOURCE = ROOT / "ui" / "pages" / "modern_primary_app.py"
+HOST_SOURCE = ROOT / "ui" / "pages" / "modern_webview_host.py"
+CORE_ROOT = ROOT / "pixelflasher_core"
+DESKTOP_SPECS = (
+    ROOT / "build-on-win.spec",
+    ROOT / "build-on-win-arm64.spec",
+    ROOT / "build-on-linux.spec",
+    ROOT / "build-on-mac.spec",
+    ROOT / "build-on-mac-intel-only.spec",
 )
-
-
-PIXELFLASHER_SOURCE = Path("PixelFlasher.py")
-MAIN_SOURCE = Path("Main.py")
-MODERN_PRIMARY_SOURCE = Path("ui/pages/modern_primary_app.py")
-MODERN_BRIDGE_SOURCE = Path("ui/pages/modern_action_bridge.py")
-MODERN_FEEDBACK_SOURCE = Path("ui/pages/modern_action_feedback.py")
-MODERN_WEB_SOURCE = Path("ui/pages/modern_preview_web.py")
-MODERN_TEMPLATE_SOURCE = Path("ui/pages/modern_preview_templates.py")
-RELEASE_WORKFLOW_SOURCE = Path(".github/workflows/main.yml")
 
 
 class ModernPrimaryExperienceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pixelflasher_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")
-        cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
-        cls.primary_source = MODERN_PRIMARY_SOURCE.read_text(encoding="utf-8")
-        cls.bridge_source = MODERN_BRIDGE_SOURCE.read_text(encoding="utf-8")
-        cls.feedback_source = MODERN_FEEDBACK_SOURCE.read_text(encoding="utf-8")
-        cls.web_source = MODERN_WEB_SOURCE.read_text(encoding="utf-8")
-        cls.template_source = MODERN_TEMPLATE_SOURCE.read_text(encoding="utf-8")
-        cls.release_workflow_source = RELEASE_WORKFLOW_SOURCE.read_text(encoding="utf-8")
+        cls.entry_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")
+        cls.primary_source = PRIMARY_SOURCE.read_text(encoding="utf-8")
+        cls.host_source = HOST_SOURCE.read_text(encoding="utf-8")
 
-    def test_startup_uses_modern_ui_as_primary_experience(self):
-        self.assertIn("launch_modern_primary", self.pixelflasher_source)
-        self.assertIn("_run_modern_primary(sys.argv)", self.pixelflasher_source)
-        self.assertNotIn("Main.main()", self.pixelflasher_source)
-        self.assertNotIn("--legacy-ui", self.pixelflasher_source)
-        self.assertNotIn("PIXELFLASHER_LEGACY_UI", self.pixelflasher_source)
+    def test_default_startup_uses_the_headless_modern_runtime(self):
+        self.assertIn("launch_modern_primary", self.entry_source)
+        self.assertIn("_run_modern_primary(sys.argv)", self.entry_source)
+        self.assertIn("ApplicationRuntime.open", self.primary_source)
+        self.assertIn("create_modern_webview_frame", self.primary_source)
 
-    def test_primary_wrapper_opens_dashboard_with_hidden_engine(self):
-        self.assertIn('create_modern_preview_frame(page="dashboard"', self.primary_source)
-        self.assertIn("state_host=engine", self.primary_source)
-        self.assertIn("PIXELFLASHER_MODERN_ENGINE", self.primary_source)
-        self.assertIn("Main.PixelFlasher", self.primary_source)
-        self.assertNotIn("OPEN_LEGACY_EXIT_CODE", self.primary_source)
-
-    def test_webview_has_no_classic_menu_or_script_bridge(self):
-        self.assertNotIn("Open Classic PixelFlasher", self.web_source)
-        self.assertNotIn("wx.EVT_MENU", self.web_source)
-        self.assertNotIn("on_open_legacy", self.web_source)
-        self.assertIn("EVT_WEBVIEW_NAVIGATING", self.web_source)
-        self.assertIn("action_from_url", self.web_source)
-        self.assertIn("wx.MessageDialog", self.web_source)
-        self.assertIn("wx.NO_DEFAULT", self.web_source)
-        self.assertNotIn("AddScriptMessageHandler", self.web_source)
-        self.assertNotIn("RunScript", self.web_source)
-
-    def test_action_bridge_classifies_navigation_and_engine_actions(self):
-        actions = {action.id: action for action in modern_actions()}
-        action_ids = [action.id for action in modern_actions()]
-
-        self.assertEqual(len(action_ids), len(set(action_ids)))
-
-        for action_id in (
-            "open_modern_dashboard",
-            "open_modern_flash_wizard",
-            "open_modern_shell",
-            "open_backups",
-            "open_downloads",
-            "open_settings",
-            "open_tools",
-            "open_safety",
-            "open_about",
-            "scan_devices",
-            "setup_platform_tools",
-            "select_firmware",
-            "select_custom_rom",
-            "process_firmware",
-            "process_custom_rom",
-            "set_flash_mode_keep_data",
-            "set_flash_mode_wipe",
-            "set_flash_mode_dry_run",
-            "set_flash_mode_ota",
-            "flash_device",
-            "patch_boot",
-            "flash_boot",
-            "create_support_package",
-            "backup_manager",
-            "firmware_downloads",
-            "settings_dialog",
-            "rooting_app",
-            "magisk_modules",
-            "partition_manager",
-            "disabled_reboot",
-            "disabled_wipe",
-            "disabled_slot_switch",
-        ):
-            with self.subTest(action_id=action_id):
-                self.assertIn(action_id, actions)
-                self.assertIs(action_by_id(action_id), actions[action_id])
-
-        levels = {action.safety_level for action in actions.values()}
-        self.assertEqual({NAVIGATION, INTERNAL_FLOW, GUARDED_FLOW, DISABLED}, levels)
-
-        setup = actions["setup_platform_tools"]
-        self.assertEqual(INTERNAL_FLOW, setup.safety_level)
-        self.assertTrue(setup.requires_confirmation)
-        self.assertEqual("_setup_platform_tools", setup.delegate)
-
-    def test_dangerous_actions_require_confirmation_and_delegate_to_engine(self):
-        actions = {action.id: action for action in modern_actions()}
-
-        expected_delegates = {
-            "set_flash_mode_wipe": "_set_flash_mode",
-            "flash_device": "_on_flash",
-            "patch_boot": "_on_modern_patch_boot",
-            "flash_boot": "_on_flash_boot",
-            "create_support_package": "_on_support_zip",
-            "partition_manager": "_on_partition_manager",
-        }
-        for action_id, delegate in expected_delegates.items():
-            with self.subTest(action_id=action_id):
-                action = actions[action_id]
-                self.assertEqual(GUARDED_FLOW, action.safety_level)
-                self.assertTrue(action.enabled)
-                self.assertTrue(action.requires_confirmation)
-                self.assertTrue(action.dangerous)
-                self.assertEqual(delegate, action.delegate)
-                self.assertTrue(is_engine_action(action))
-                if action_id == "set_flash_mode_wipe":
-                    self.assertIn("before flashing", action.confirmation_body)
-                else:
-                    self.assertIn("Review every confirmation", action.confirmation_body)
-
-        for action_id in ("disabled_reboot", "disabled_wipe", "disabled_slot_switch"):
-            with self.subTest(action_id=action_id):
-                action = actions[action_id]
-                self.assertEqual(DISABLED, action.safety_level)
-                self.assertFalse(action.enabled)
-                self.assertFalse(action.delegate)
-
-    def test_engine_action_delegates_exist_on_primary_engine(self):
-        web_frame_delegates = {"_setup_platform_tools", "select_firmware_file", "select_custom_rom_file", "_set_flash_mode"}
-
-        for action in modern_actions():
-            if not is_engine_action(action):
-                continue
-            if action.delegate in web_frame_delegates:
-                continue
-            with self.subTest(action_id=action.id, delegate=action.delegate):
-                self.assertIn(f"def {action.delegate}(", self.main_source)
-
-    def test_custom_action_urls_are_allow_listed(self):
-        action = action_from_url(action_url("flash_device"))
-
-        self.assertIsNotNone(action)
-        self.assertEqual("flash_device", action.id)
-        self.assertIsNone(action_from_url("pixelflasher://action/not_allowed"))
-        self.assertIsNone(action_from_url("file:///tmp/not_allowed"))
-        self.assertIsNone(action_from_url("mailto:test@example.invalid"))
-        self.assertIsNone(action_from_url("pixelflasher://action/flash_device?confirm=yes"))
-        self.assertIsNone(action_from_url("pixelflasher://action/flash_device#run"))
-
-    def test_modern_primary_sources_avoid_raw_execution_patterns(self):
         forbidden = (
-            "subprocess.run",
-            "subprocess.Popen",
-            "os.system",
-            "adb shell",
-            "fastboot ",
-            "flash_all",
-            "wipe_data",
-            "delete_all",
-            "reboot_",
-            "set_active_slot",
-            "get_phone(",
+            "import Main",
+            "Main.PixelFlasher",
+            "PIXELFLASHER_MODERN_ENGINE",
+            "state_host",
+            "_create_hidden_engine",
+            "SimpleNamespace",
         )
+        for snippet in forbidden:
+            with self.subTest(snippet=snippet):
+                self.assertNotIn(snippet, self.primary_source)
 
-        for source_name, source in (
-            ("modern_primary_app", self.primary_source),
-            ("modern_action_bridge", self.bridge_source),
-            ("modern_action_feedback", self.feedback_source),
-            ("modern_preview_web", self.web_source),
-            ("modern_preview_templates", self.template_source),
-        ):
-            for snippet in forbidden:
-                with self.subTest(source_name=source_name, snippet=snippet):
-                    self.assertNotIn(snippet, source)
+    def test_webview_keeps_one_persistent_local_document(self):
+        self.assertIn("wx.DEFAULT_FRAME_STYLE", self.host_source)
+        self.assertIn("LoadURL(self._index_path.as_uri())", self.host_source)
+        self.assertIn("AddScriptMessageHandler(BRIDGE_CHANNEL)", self.host_source)
+        self.assertIn("EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED", self.host_source)
+        self.assertIn("RunScriptAsync", self.host_source)
+        self.assertNotIn("SetPage(", self.host_source)
+        self.assertNotIn("wx.NO_BORDER", self.host_source)
+        self.assertNotIn("wx.MessageDialog", self.host_source)
 
-    def test_templates_expose_modern_product_actions(self):
-        for label in (
-            "Modern UI",
-            "Flash Device",
-            "Patch Boot",
-            "Official / OTA",
-            "Custom ROM",
-            "Process Package",
-            "Process ROM",
-            "action_url(\"flash_device\")",
-            "patch_boot",
-        ):
-            with self.subTest(label=label):
-                self.assertIn(label, self.template_source)
+    def test_bridge_is_versioned_single_channel_and_allow_listed(self):
+        self.assertEqual(1, BRIDGE_VERSION)
+        self.assertEqual("pixelflasher", BRIDGE_CHANNEL)
+        self.assertIn("snapshot.get", ALLOWED_COMMANDS)
+        self.assertIn("device.scan", ALLOWED_COMMANDS)
+        self.assertIn("flash.execute", ALLOWED_COMMANDS)
+        self.assertIn("interaction.respond", ALLOWED_COMMANDS)
+        self.assertNotIn("python.eval", ALLOWED_COMMANDS)
 
-    def test_release_notes_describe_current_modern_ui(self):
-        self.assertIn("Modern Dashboard as the primary workspace", self.release_workflow_source)
-        self.assertIn("Custom ROM archive selection and processing", self.release_workflow_source)
-        self.assertNotIn("Modern UI beta preview includes", self.release_workflow_source)
-        self.assertNotIn("legacy PixelFlasher controls", self.release_workflow_source)
+    def test_core_has_no_presentation_or_legacy_imports(self):
+        forbidden_roots = {"wx", "Main", "ui", "runtime", "pf_modules"}
+        violations = []
+        for path in CORE_ROOT.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    roots = {alias.name.split(".", 1)[0] for alias in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    roots = {node.module.split(".", 1)[0]}
+                else:
+                    continue
+                for root in roots & forbidden_roots:
+                    violations.append(f"{path.name}:{node.lineno}:{root}")
+        self.assertEqual([], violations)
+
+    def test_every_desktop_artifact_bundles_the_react_build(self):
+        for spec in DESKTOP_SPECS:
+            with self.subTest(spec=spec.name):
+                self.assertIn("ui/web/dist", spec.read_text(encoding="utf-8"))
+
+    def test_frontend_contract_is_buildable_without_a_runtime_server(self):
+        package = (ROOT / "ui" / "web" / "package.json").read_text(encoding="utf-8")
+        vite = (ROOT / "ui" / "web" / "vite.config.ts").read_text(encoding="utf-8")
+        self.assertIn('"build"', package)
+        self.assertIn("base: './'", vite)
+        self.assertIn("outDir: 'dist'", vite)
 
 
 if __name__ == "__main__":

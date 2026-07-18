@@ -151,3 +151,12 @@ desktop.ini
 tools/
 data/
 
+# React/Vite frontend dependencies and test output
+ui/web/node_modules/
+ui/web/public/i18n/
+ui/web/coverage/
+ui/web/.vite/
+ui/web/playwright-report/
+ui/web/test-results/
+ui/web/*.tsbuildinfo
+

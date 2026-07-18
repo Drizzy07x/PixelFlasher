@@ -22,6 +22,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      - name: Set up locked Node runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.0'
+
       - name: Show version
         run: python PixelFlasher.py --version
 
@@ -30,9 +35,16 @@ jobs:
           python -c "from pathlib import Path; lines = Path('requirements.txt').read_text().splitlines(True); Path('requirements-ci.txt').write_text(''.join(line for line in lines if not line.lstrip().startswith('wxPython')))"
           python -m pip install -r requirements-ci.txt
 
-      - name: Compile beta-safe modules
+      - name: Build the required React WebView bundle
         run: |
-          python -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui/theme.py ui/icons.py ui/components/models.py tools/create_beta_bundle.py
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          python scripts/build_frontend.py
+
+      - name: Compile core, bridge and modern host modules
+        run: |
+          python -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py config.py ui/bridge_contract.py ui/core_command_factory.py ui/pages/modern_primary_app.py ui/pages/modern_webview_host.py tools/create_beta_bundle.py
+          python -m compileall -q pixelflasher_core
 
       - name: Run self-test
         run: python PixelFlasher.py --self-test

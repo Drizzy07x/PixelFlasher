@@ -1,0 +1,552 @@
+"""Pure device parsers, typed scanning, and cancelable hotplug polling."""
+
+from __future__ import annotations
+
+import re
+import threading
+from dataclasses import dataclass, replace
+from typing import Callable
+
+from .contracts import DeviceInfo, ProcessRequest, ToolchainInfo
+from .executor import CancellationToken, ProcessTransport, SubprocessTransport, TransportOutcome
+
+
+_GETPROP_PATTERN = re.compile(r"^\[([^]]+)]\s*:\s*\[(.*)]$")
+_BATTERY_LEVEL_PATTERN = re.compile(r"^\s*level\s*:\s*(\d+)\s*$", re.IGNORECASE)
+_FASTBOOT_GETVAR_PATTERN = re.compile(
+    r"^(?:\(bootloader\)\s*)?([a-z0-9_.-]+)\s*:\s*(.*?)\s*$",
+    re.IGNORECASE,
+)
+_ADB_ONLINE_MODES = frozenset({"adb", "recovery", "sideload"})
+_PROPERTY_SAFE_MODES = frozenset({"adb", "recovery"})
+_FASTBOOT_GETVARS = ("current-slot", "unlocked", "is-userspace")
+
+
+def parse_adb_devices(output: str) -> tuple[DeviceInfo, ...]:
+    devices: dict[str, DeviceInfo] = {}
+    for raw_line in output.replace("\r", "").splitlines():
+        line = raw_line.strip()
+        if (
+            not line
+            or line.startswith("List of devices")
+            or line.startswith("*")
+            or line.lower().startswith("adb server")
+        ):
+            continue
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        serial, adb_state = fields[0], fields[1].lower()
+        if adb_state == "device":
+            mode = "adb"
+        elif adb_state in {"recovery", "sideload", "unauthorized", "offline"}:
+            mode = adb_state
+        else:
+            continue
+        attributes = _parse_attributes(fields[2:])
+        model = attributes.get("model", "").replace("_", " ")
+        codename = attributes.get("device", "") or attributes.get("product", "")
+        devices[serial] = DeviceInfo(
+            serial=serial,
+            model=model,
+            codename=codename,
+            mode=mode,
+            online=mode in _ADB_ONLINE_MODES,
+            name=model or codename or serial,
+            connection=_connection_for_adb(serial, attributes),
+        )
+    return tuple(devices[key] for key in sorted(devices, key=str.casefold))
+
+
+def parse_fastboot_devices(output: str) -> tuple[DeviceInfo, ...]:
+    devices: dict[str, DeviceInfo] = {}
+    for raw_line in output.replace("\r", "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("< waiting for") or line.startswith("fastboot:"):
+            continue
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        serial, state = fields[0], fields[1].lower()
+        if state not in {"fastboot", "offline"}:
+            continue
+        attributes = _parse_attributes(fields[2:])
+        devices[serial] = DeviceInfo(
+            serial=serial,
+            model=attributes.get("product", "").replace("_", " "),
+            codename=attributes.get("product", ""),
+            mode=state,
+            online=state == "fastboot",
+            name=(attributes.get("product", "").replace("_", " ") or serial),
+            connection="USB",
+        )
+    return tuple(devices[key] for key in sorted(devices, key=str.casefold))
+
+
+def parse_fastboot_getvar(output: str, variable: str) -> str | None:
+    """Extract one exact fastboot variable from stdout/stderr text."""
+
+    expected = variable.strip().casefold()
+    if not expected:
+        raise ValueError("variable must be a non-empty string")
+    for raw_line in output.replace("\r", "").splitlines():
+        match = _FASTBOOT_GETVAR_PATTERN.match(raw_line.strip())
+        if match and match.group(1).casefold() == expected:
+            value = match.group(2).strip()
+            return value or None
+    return None
+
+
+def parse_getprop(output: str) -> dict[str, str]:
+    properties: dict[str, str] = {}
+    for raw_line in output.replace("\r", "").splitlines():
+        match = _GETPROP_PATTERN.match(raw_line.strip())
+        if match:
+            properties[match.group(1)] = match.group(2)
+    return properties
+
+
+def parse_battery_level(output: str) -> int | None:
+    for raw_line in output.replace("\r", "").splitlines():
+        match = _BATTERY_LEVEL_PATTERN.match(raw_line)
+        if match:
+            level = int(match.group(1))
+            return level if 0 <= level <= 100 else None
+    return None
+
+
+def merge_device_inventories(
+    adb_devices: tuple[DeviceInfo, ...],
+    fastboot_devices: tuple[DeviceInfo, ...],
+) -> tuple[DeviceInfo, ...]:
+    merged = {device.serial: device for device in adb_devices}
+    for device in fastboot_devices:
+        previous = merged.get(device.serial)
+        if previous is not None:
+            device = replace(
+                device,
+                model=device.model or previous.model,
+                codename=device.codename or previous.codename,
+                slot=device.slot or previous.slot,
+                name=device.name or previous.name,
+                android_version=device.android_version or previous.android_version,
+                build=device.build or previous.build,
+                security_patch=device.security_patch or previous.security_patch,
+                bootloader=(
+                    device.bootloader
+                    if device.bootloader != "unknown"
+                    else previous.bootloader
+                ),
+                battery=device.battery if device.battery is not None else previous.battery,
+                connection=device.connection or previous.connection,
+            )
+        merged[device.serial] = device
+    return tuple(merged[key] for key in sorted(merged, key=str.casefold))
+
+
+def merge_device_history(
+    devices: tuple[DeviceInfo, ...],
+    previous_devices: tuple[DeviceInfo, ...],
+) -> tuple[DeviceInfo, ...]:
+    """Keep stable identity metadata while requiring fresh operational state.
+
+    Slot and bootloader state deliberately never fall back to history.  Those
+    fields gate destructive operations and stale values must not become proof
+    that a transition or lock-state change occurred.
+    """
+
+    previous_by_serial = {device.serial: device for device in previous_devices}
+    merged: list[DeviceInfo] = []
+    for device in devices:
+        previous = previous_by_serial.get(device.serial)
+        if previous is None:
+            merged.append(device)
+            continue
+        is_fastboot = device.mode in {"fastboot", "fastbootd"}
+        name = device.name
+        if not name or name == device.serial or (is_fastboot and previous.name):
+            name = previous.name or previous.model or previous.codename or name
+        merged.append(
+            replace(
+                device,
+                model=(previous.model if is_fastboot and previous.model else device.model)
+                or previous.model,
+                codename=device.codename or previous.codename,
+                name=name,
+                android_version=device.android_version or previous.android_version,
+                build=device.build or previous.build,
+                security_patch=device.security_patch or previous.security_patch,
+                battery=device.battery if device.battery is not None else previous.battery,
+                connection=device.connection or previous.connection,
+            )
+        )
+    return tuple(merged)
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceScanResult:
+    devices: tuple[DeviceInfo, ...]
+    successful_sources: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    cancelled: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.successful_sources) and not self.cancelled
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "devices": [device.to_dict() for device in self.devices],
+            "successful_sources": list(self.successful_sources),
+            "warnings": list(self.warnings),
+            "cancelled": self.cancelled,
+        }
+
+
+class DeviceService:
+    def __init__(
+        self,
+        transport: ProcessTransport | None = None,
+        *,
+        scan_timeout_seconds: float = 8.0,
+        property_timeout_seconds: float = 4.0,
+        fastboot_property_timeout_seconds: float = 4.0,
+        battery_timeout_seconds: float = 3.0,
+    ) -> None:
+        self.transport = transport or SubprocessTransport()
+        self.scan_timeout_seconds = scan_timeout_seconds
+        self.property_timeout_seconds = property_timeout_seconds
+        self.fastboot_property_timeout_seconds = fastboot_property_timeout_seconds
+        self.battery_timeout_seconds = battery_timeout_seconds
+
+    def scan(
+        self,
+        toolchain: ToolchainInfo,
+        *,
+        include_properties: bool = True,
+        include_battery: bool = True,
+        previous_devices: tuple[DeviceInfo, ...] = (),
+        cancellation: CancellationToken | None = None,
+    ) -> DeviceScanResult:
+        token = cancellation or CancellationToken()
+        if not toolchain.ready or not toolchain.adb or not toolchain.fastboot:
+            return DeviceScanResult((), warnings=("toolchain_not_ready",))
+
+        warnings: list[str] = []
+        successful: list[str] = []
+        adb_devices: tuple[DeviceInfo, ...] = ()
+        fastboot_devices: tuple[DeviceInfo, ...] = ()
+
+        adb_outcome = self._run(
+            ProcessRequest(
+                (toolchain.adb, "devices", "-l"),
+                timeout_seconds=self.scan_timeout_seconds,
+            ),
+            token,
+            "adb",
+            warnings,
+        )
+        if token.cancelled or (adb_outcome is not None and adb_outcome.cancelled):
+            return DeviceScanResult((), tuple(successful), tuple(warnings), True)
+        if adb_outcome is not None and adb_outcome.returncode == 0 and not adb_outcome.timed_out:
+            adb_devices = parse_adb_devices(adb_outcome.stdout)
+            successful.append("adb")
+
+        fastboot_outcome = self._run(
+            ProcessRequest(
+                (toolchain.fastboot, "devices", "-l"),
+                timeout_seconds=self.scan_timeout_seconds,
+            ),
+            token,
+            "fastboot",
+            warnings,
+        )
+        if token.cancelled or (fastboot_outcome is not None and fastboot_outcome.cancelled):
+            return DeviceScanResult(adb_devices, tuple(successful), tuple(warnings), True)
+        if (
+            fastboot_outcome is not None
+            and fastboot_outcome.returncode == 0
+            and not fastboot_outcome.timed_out
+        ):
+            fastboot_devices = parse_fastboot_devices(fastboot_outcome.stdout)
+            successful.append("fastboot")
+
+        devices = merge_device_inventories(adb_devices, fastboot_devices)
+        if "fastboot" in successful:
+            devices = self._enrich_fastboot(devices, toolchain, token, warnings)
+        if include_properties and "adb" in successful:
+            devices = self._enrich_properties(
+                devices,
+                toolchain,
+                token,
+                warnings,
+                include_battery=include_battery,
+            )
+        devices = merge_device_history(devices, previous_devices)
+        return DeviceScanResult(devices, tuple(successful), tuple(warnings), token.cancelled)
+
+    def _enrich_fastboot(
+        self,
+        devices: tuple[DeviceInfo, ...],
+        toolchain: ToolchainInfo,
+        token: CancellationToken,
+        warnings: list[str],
+    ) -> tuple[DeviceInfo, ...]:
+        enriched: list[DeviceInfo] = []
+        for device in devices:
+            if token.cancelled or not device.online or device.mode != "fastboot":
+                enriched.append(device)
+                continue
+            values: dict[str, str] = {}
+            for variable in _FASTBOOT_GETVARS:
+                outcome = self._run(
+                    ProcessRequest(
+                        (toolchain.fastboot, "-s", device.serial, "getvar", variable),
+                        timeout_seconds=self.fastboot_property_timeout_seconds,
+                    ),
+                    token,
+                    f"fastboot:{device.serial}:{variable}",
+                    warnings,
+                )
+                if token.cancelled:
+                    break
+                if (
+                    outcome is not None
+                    and outcome.returncode == 0
+                    and not outcome.timed_out
+                    and not outcome.cancelled
+                ):
+                    value = parse_fastboot_getvar(
+                        f"{outcome.stdout}\n{outcome.stderr}",
+                        variable,
+                    )
+                    if value is not None:
+                        values[variable] = value
+
+            slot_value = values.get("current-slot", "").strip().casefold()
+            slot = slot_value if slot_value in {"a", "b"} else ""
+            unlocked = _fastboot_bool(values.get("unlocked"))
+            userspace = _fastboot_bool(values.get("is-userspace"))
+            bootloader = (
+                "unlocked" if unlocked is True else "locked" if unlocked is False else "unknown"
+            )
+            enriched.append(
+                replace(
+                    device,
+                    mode="fastbootd" if userspace is True else "fastboot",
+                    slot=slot,
+                    bootloader=bootloader,
+                )
+            )
+        return tuple(enriched)
+
+    def _enrich_properties(
+        self,
+        devices: tuple[DeviceInfo, ...],
+        toolchain: ToolchainInfo,
+        token: CancellationToken,
+        warnings: list[str],
+        *,
+        include_battery: bool,
+    ) -> tuple[DeviceInfo, ...]:
+        enriched: list[DeviceInfo] = []
+        for device in devices:
+            if token.cancelled or not device.online or device.mode not in _PROPERTY_SAFE_MODES:
+                enriched.append(device)
+                continue
+            outcome = self._run(
+                ProcessRequest(
+                    (toolchain.adb, "-s", device.serial, "shell", "getprop"),
+                    timeout_seconds=self.property_timeout_seconds,
+                ),
+                token,
+                f"properties:{device.serial}",
+                warnings,
+            )
+            if outcome is None or outcome.returncode != 0 or outcome.timed_out or outcome.cancelled:
+                enriched.append(device)
+                continue
+            properties = parse_getprop(outcome.stdout)
+            model = properties.get("ro.product.model", "").strip() or device.model
+            codename = (
+                properties.get("ro.product.device", "").strip()
+                or properties.get("ro.build.product", "").strip()
+                or device.codename
+            )
+            slot = properties.get("ro.boot.slot_suffix", "").strip().lstrip("_") or device.slot
+            name = (
+                properties.get("ro.product.marketname", "").strip()
+                or model
+                or codename
+                or device.name
+                or device.serial
+            )
+            android_version = (
+                properties.get("ro.build.version.release", "").strip()
+                or device.android_version
+            )
+            build = properties.get("ro.build.id", "").strip() or device.build
+            security_patch = (
+                properties.get("ro.build.version.security_patch", "").strip()
+                or device.security_patch
+            )
+            bootloader = _bootloader_state(properties, device.bootloader)
+            battery = device.battery
+            if include_battery and device.mode == "adb" and not token.cancelled:
+                battery_outcome = self._run(
+                    ProcessRequest(
+                        (toolchain.adb, "-s", device.serial, "shell", "dumpsys", "battery"),
+                        timeout_seconds=self.battery_timeout_seconds,
+                    ),
+                    token,
+                    f"battery:{device.serial}",
+                    warnings,
+                )
+                if (
+                    battery_outcome is not None
+                    and battery_outcome.returncode == 0
+                    and not battery_outcome.timed_out
+                    and not battery_outcome.cancelled
+                ):
+                    battery = parse_battery_level(battery_outcome.stdout)
+            enriched.append(
+                replace(
+                    device,
+                    model=model,
+                    codename=codename,
+                    slot=slot,
+                    name=name,
+                    android_version=android_version,
+                    build=build,
+                    security_patch=security_patch,
+                    bootloader=bootloader,
+                    battery=battery,
+                )
+            )
+        return tuple(enriched)
+
+    def _run(
+        self,
+        request: ProcessRequest,
+        token: CancellationToken,
+        source: str,
+        warnings: list[str],
+    ) -> TransportOutcome | None:
+        try:
+            outcome = self.transport.run(request, token)
+        except Exception as error:
+            warnings.append(f"{source}:error:{error}")
+            return None
+        if outcome.timed_out:
+            warnings.append(f"{source}:timeout")
+        elif outcome.cancelled:
+            warnings.append(f"{source}:cancelled")
+        elif outcome.returncode != 0:
+            warnings.append(f"{source}:exit:{outcome.returncode}")
+        return outcome
+
+
+class DevicePoller:
+    """Poll device state on a worker thread until stopped; never imports wx."""
+
+    def __init__(
+        self,
+        service: DeviceService,
+        toolchain_provider: Callable[[], ToolchainInfo],
+        listener: Callable[[DeviceScanResult], None],
+        *,
+        interval_seconds: float = 2.0,
+        include_properties: bool = False,
+    ) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds must be positive")
+        self.service = service
+        self.toolchain_provider = toolchain_provider
+        self.listener = listener
+        self.interval_seconds = interval_seconds
+        self.include_properties = include_properties
+        self._cancellation = CancellationToken()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.RLock()
+
+    def start(self) -> bool:
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return False
+            if self._cancellation.cancelled:
+                self._cancellation = CancellationToken()
+            self._thread = threading.Thread(
+                target=self.run,
+                name="pixelflasher-device-poller",
+                daemon=True,
+            )
+            self._thread.start()
+            return True
+
+    def stop(self, timeout_seconds: float = 5.0) -> bool:
+        self._cancellation.cancel()
+        with self._lock:
+            thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout_seconds)
+        return thread is None or not thread.is_alive()
+
+    def run(self) -> None:
+        history: tuple[DeviceInfo, ...] = ()
+        previous_observation: tuple[DeviceInfo, ...] | None = None
+        while not self._cancellation.cancelled:
+            result = self.service.scan(
+                self.toolchain_provider(),
+                include_properties=self.include_properties,
+                previous_devices=history,
+                cancellation=self._cancellation,
+            )
+            if result.cancelled:
+                break
+            history = result.devices
+            if result.devices != previous_observation:
+                previous_observation = result.devices
+                try:
+                    self.listener(result)
+                except Exception:
+                    pass
+            if self._cancellation.wait(self.interval_seconds):
+                break
+
+
+def _parse_attributes(fields: list[str]) -> dict[str, str]:
+    attributes: dict[str, str] = {}
+    for field in fields:
+        key, separator, value = field.partition(":")
+        if separator and key and value:
+            attributes[key.lower()] = value
+    return attributes
+
+
+def _connection_for_adb(serial: str, attributes: dict[str, str]) -> str:
+    if "usb" in attributes:
+        return "USB"
+    if ":" in serial and not serial.startswith("emulator-"):
+        return "Wi-Fi"
+    return "USB"
+
+
+def _bootloader_state(properties: dict[str, str], fallback: str) -> str:
+    flash_locked = properties.get("ro.boot.flash.locked", "").strip().casefold()
+    if flash_locked in {"1", "true", "locked"}:
+        return "locked"
+    if flash_locked in {"0", "false", "unlocked"}:
+        return "unlocked"
+    vbmeta_state = properties.get("ro.boot.vbmeta.device_state", "").strip().casefold()
+    if vbmeta_state in {"locked", "unlocked"}:
+        return vbmeta_state
+    return fallback if fallback in {"locked", "unlocked"} else "unknown"
+
+
+def _fastboot_bool(value: str | None) -> bool | None:
+    normalized = value.strip().casefold() if value is not None else ""
+    if normalized in {"1", "true", "yes", "y", "unlocked"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "locked"}:
+        return False
+    return None

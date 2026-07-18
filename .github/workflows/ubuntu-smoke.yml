@@ -11,11 +11,18 @@ on:
 
 jobs:
   ubuntu_smoke:
+    needs: frontend_smoke
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Download the verified React WebView bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: react-webview-dist
+          path: ui/web/dist
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -31,7 +38,12 @@ jobs:
           python -c "from pathlib import Path; lines = Path('requirements.txt').read_text().splitlines(True); Path('requirements-ci.txt').write_text(''.join(line for line in lines if not line.lstrip().startswith('wxPython')))"
           python -m pip install -r requirements-ci.txt
 
-      - name: Compile beta-safe Python modules
+      - name: Export and verify React gettext catalogs
+        run: |
+          python scripts/export_gettext_json.py --output-dir build/react-i18n
+          python scripts/export_gettext_json.py --output-dir build/react-i18n --check
+
+      - name: Compile core, bridge and modern host modules
         run: |
           python -m py_compile \
             PixelFlasher.py \
@@ -39,20 +51,12 @@ jobs:
             diagnostics.py \
             platform_utils.py \
             config.py \
-            ui/theme.py \
-            ui/icons.py \
-            ui/components/models.py \
-            ui/pages/dashboard.py \
-            ui/pages/dashboard_app.py \
-            ui/pages/dashboard_compact.py \
-            ui/pages/flash_wizard.py \
-            ui/pages/flash_wizard_app.py \
-            ui/pages/flash_wizard_demo.py \
-            ui/pages/flash_wizard_details.py \
-            ui/pages/flash_wizard_model.py \
-            ui/pages/flash_wizard_state_adapter.py \
+            ui/bridge_contract.py \
+            ui/core_command_factory.py \
             ui/pages/modern_primary_app.py \
+            ui/pages/modern_webview_host.py \
             tools/create_beta_bundle.py
+          python -m compileall -q pixelflasher_core
 
       - name: Run self-test
         run: python PixelFlasher.py --self-test
@@ -61,73 +65,132 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   ubuntu_xvfb_dashboard:
-    runs-on: ubuntu-latest
+    needs: frontend_smoke
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Download the verified React WebView bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: react-webview-dist
+          path: ui/web/dist
 
       - name: Install system wxPython and xvfb
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3 \
+            python3-venv \
             python3-wxgtk4.0 \
+            python3-wxgtk-webview4.0 \
             xvfb \
-            xauth
+            xauth \
+            xdotool
 
-      - name: Show system Python and wx versions
+      - name: Install full default-entrypoint dependencies
         run: |
-          python3 --version
-          python3 - <<'PY'
+          python3 -m venv --system-site-packages myenv
+          grep -v -E '^\s*wxPython([<>= ].*)?$' requirements.txt > requirements-no-wx.txt
+          myenv/bin/python -m pip install -U pip wheel setuptools
+          myenv/bin/python -m pip install -r requirements-no-wx.txt
+
+      - name: Verify the WebKit WebView backend
+        run: |
+          myenv/bin/python --version
+          xvfb-run -a myenv/bin/python - <<'PY'
           import wx
+          import wx.html2 as html2
+
+          app = wx.App(False)
+          backend = html2.WebViewBackendWebKit
+          if not html2.WebView.IsBackendAvailable(backend):
+              raise SystemExit(f"wx WebKit backend is unavailable: {backend}")
+          frame = wx.Frame(None)
+          view = html2.WebView.New(frame, backend=backend)
+          if view is None:
+              raise SystemExit("wx WebKit WebView could not be created")
           print(wx.version())
+          print(f"Verified wx WebView backend: {backend}")
+          frame.Destroy()
           PY
 
-      - name: Launch modern dashboard preview under xvfb
+      - name: Launch the real default modern entrypoint under Xvfb
         run: |
-          set +e
-          xvfb-run -a timeout 12s python3 PixelFlasher.py --modern-dashboard-preview
-          status=$?
-          if [ "$status" -eq 124 ]; then
-            echo "Dashboard preview launched and stayed alive under xvfb."
-            exit 0
-          fi
-          if [ "$status" -eq 0 ]; then
-            echo "Dashboard preview launched and exited cleanly."
-            exit 0
-          fi
-          echo "Dashboard preview failed with exit code $status."
-          exit "$status"
+          set -euo pipefail
+          launch_log="$RUNNER_TEMP/pixelflasher-source-default.log"
+          config_dir="$RUNNER_TEMP/pixelflasher-source-config"
+          mkdir -p "$config_dir"
 
-      - name: Launch flash wizard preview under xvfb
-        run: |
-          set +e
-          xvfb-run -a timeout 12s python3 PixelFlasher.py --flash-wizard-preview
-          status=$?
-          if [ "$status" -eq 124 ]; then
-            echo "Flash wizard preview launched and stayed alive under xvfb."
-            exit 0
+          if ! xvfb-run -a bash -ceu '
+            export XDG_CONFIG_HOME="$1"
+            "$2" PixelFlasher.py >"$3" 2>&1 &
+            app_pid=$!
+            cleanup() { kill "$app_pid" 2>/dev/null || true; }
+            trap cleanup EXIT
+            timeout 30s xdotool search --sync --onlyvisible --name "PixelFlasher" >/dev/null
+            kill -0 "$app_pid"
+          ' bash "$config_dir" "$GITHUB_WORKSPACE/myenv/bin/python" "$launch_log"; then
+            cat "$launch_log"
+            echo "The default PixelFlasher entrypoint did not expose a live window."
+            exit 1
           fi
-          if [ "$status" -eq 0 ]; then
-            echo "Flash wizard preview launched and exited cleanly."
-            exit 0
-          fi
-          echo "Flash wizard preview failed with exit code $status."
-          exit "$status"
 
-      - name: Launch flash wizard demo under xvfb
+          cat "$launch_log"
+          if grep -F "Modern UI WebView is not available" "$launch_log"; then
+            exit 1
+          fi
+
+  frontend_smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python for catalog export
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: 'x64'
+
+      - name: Export gettext catalogs into Vite public assets
         run: |
-          set +e
-          xvfb-run -a timeout 12s python3 PixelFlasher.py --flash-wizard-demo
-          status=$?
-          if [ "$status" -eq 124 ]; then
-            echo "Flash wizard demo launched and stayed alive under xvfb."
-            exit 0
-          fi
-          if [ "$status" -eq 0 ]; then
-            echo "Flash wizard demo launched and exited cleanly."
-            exit 0
-          fi
-          echo "Flash wizard demo failed with exit code $status."
-          exit "$status"
+          python -m pip install polib==1.2.0
+          python scripts/verify_react_bridge_commands.py
+          python scripts/export_gettext_json.py --output-dir ui/web/public/i18n
+          python scripts/export_gettext_json.py --output-dir ui/web/public/i18n --check
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.0'
+
+      - name: Install the locked frontend toolchain
+        working-directory: ui/web
+        run: |
+          test -f pnpm-lock.yaml
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
+          pnpm install --frozen-lockfile
+
+      - name: Test and build the React UI
+        working-directory: ui/web
+        run: |
+          pnpm test
+          pnpm build
+
+      - name: Verify every gettext catalog is in the Vite build
+        run: |
+          python scripts/export_gettext_json.py --output-dir ui/web/dist/i18n --check
+          python scripts/verify_webview_bundle.py ui/web/dist
+
+      - name: Share the verified React WebView bundle with Python smoke jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: react-webview-dist
+          path: ui/web/dist
+          if-no-files-found: error

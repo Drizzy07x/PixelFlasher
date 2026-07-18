@@ -2632,7 +2632,7 @@ msgid "Enabling this will keep temporary files used for patching.\nThis is usefu
 msgstr ""
 
 msgid "Logcat"
-msgstr ""
+msgstr "Logcat"
 
 msgid "Logcat Viewer"
 msgstr ""
@@ -2930,7 +2930,7 @@ msgid "The selected path contains single quotes (').\n\nPlease rename the folder
 msgstr ""
 
 msgid "Options"
-msgstr ""
+msgstr "选项"
 
 msgid "Additional Options"
 msgstr ""
@@ -3051,7 +3051,7 @@ msgid "Asset Name"
 msgstr ""
 
 msgid "Size"
-msgstr ""
+msgstr "大小"
 
 msgid "Suggested: %s"
 msgstr ""
@@ -3125,3 +3125,1279 @@ msgstr ""
 msgid "Install Zygisk Module"
 msgstr "安装 Zygisk 模块"
 
+##############################################################################
+
+# React Web UI source messages 2026-07-18
+
+##############################################################################
+
+msgctxt "web.app.tagline"
+msgid "Android device management suite"
+msgstr "Android 设备管理套件"
+
+
+msgctxt "web.nav.tasks"
+msgid "Tasks"
+msgstr "任务"
+
+
+msgctxt "web.nav.dashboard"
+msgid "Dashboard"
+msgstr "仪表板"
+
+
+msgctxt "web.nav.device"
+msgid "Device"
+msgstr "设备"
+
+
+msgctxt "web.nav.firmware"
+msgid "Firmware"
+msgstr "固件"
+
+
+msgctxt "web.nav.root"
+msgid "Root"
+msgstr "Root"
+
+
+msgctxt "web.nav.apps"
+msgid "Apps"
+msgstr "应用"
+
+
+msgctxt "web.nav.backups"
+msgid "Backups"
+msgstr "备份"
+
+
+msgctxt "web.nav.tools"
+msgid "Tools"
+msgstr "工具"
+
+
+msgctxt "web.mode.expert"
+msgid "Expert Mode"
+msgstr "专家模式"
+
+
+msgctxt "web.status.ready"
+msgid "Ready"
+msgstr "就绪"
+
+
+msgctxt "web.status.connecting"
+msgid "Connecting"
+msgstr "正在连接"
+
+
+msgctxt "web.status.error"
+msgid "Bridge error"
+msgstr "桥接错误"
+
+
+msgctxt "web.status.host"
+msgid "Local bridge"
+msgstr "本地桥接"
+
+
+msgctxt "web.status.devices"
+msgid "{count} devices connected"
+msgstr "{count} 台设备已连接"
+
+
+msgctxt "web.status.targets"
+msgid "{count} target devices"
+msgstr "{count} 台目标设备"
+
+
+msgctxt "web.common.selected"
+msgid "Selected"
+msgstr "已选择"
+
+
+msgctxt "web.common.continue"
+msgid "Continue"
+msgstr "继续"
+
+
+msgctxt "web.common.back"
+msgid "Back"
+msgstr "返回"
+
+
+msgctxt "web.common.apply"
+msgid "Apply changes"
+msgstr "应用更改"
+
+
+msgctxt "web.common.search"
+msgid "Search"
+msgstr "搜索"
+
+
+msgctxt "web.common.stable"
+msgid "Stable"
+msgstr "稳定版"
+
+
+msgctxt "web.common.beta"
+msgid "Beta"
+msgstr "测试版"
+
+
+msgctxt "web.common.user"
+msgid "User"
+msgstr "用户"
+
+
+msgctxt "web.common.enabled"
+msgid "Enabled"
+msgstr "已启用"
+
+
+msgctxt "web.common.none"
+msgid "None"
+msgstr "无"
+
+
+msgctxt "web.common.minimize"
+msgid "Minimize"
+msgstr "最小化"
+
+
+msgctxt "web.common.maximize"
+msgid "Maximize"
+msgstr "最大化"
+
+
+msgctxt "web.common.targets"
+msgid "Targets"
+msgstr "目标设备"
+
+
+msgctxt "web.common.build"
+msgid "Build"
+msgstr "版本"
+
+
+msgctxt "web.common.date"
+msgid "Date"
+msgstr "日期"
+
+
+msgctxt "web.dashboard.title"
+msgid "Modern UI"
+msgstr "现代界面"
+
+
+msgctxt "web.dashboard.subtitle"
+msgid "Your Android device command center"
+msgstr "你的 Android 设备管理中心"
+
+
+msgctxt "web.dashboard.toolsReady"
+msgid "Platform Tools Ready"
+msgstr "Platform Tools 已就绪"
+
+
+msgctxt "web.dashboard.toolsDetail"
+msgid "ADB and Fastboot are configured and ready to use."
+msgstr "ADB 和 Fastboot 已配置并可使用。"
+
+
+msgctxt "web.dashboard.connected"
+msgid "Connected Device"
+msgstr "已连接设备"
+
+
+msgctxt "web.dashboard.quick"
+msgid "Quick Actions"
+msgstr "快捷操作"
+
+
+msgctxt "web.dashboard.scan"
+msgid "Scan Devices"
+msgstr "扫描设备"
+
+
+msgctxt "web.dashboard.scanDetail"
+msgid "Refresh ADB and Fastboot connections"
+msgstr "刷新 ADB 和 Fastboot 连接"
+
+
+msgctxt "web.dashboard.reboot"
+msgid "Reboot Device"
+msgstr "重启设备"
+
+
+msgctxt "web.dashboard.rebootDetail"
+msgid "Restart the primary selected device"
+msgstr "重启主要选中设备"
+
+
+msgctxt "web.dashboard.slotDetail"
+msgid "Change the active boot slot safely"
+msgstr "安全切换活动启动槽位"
+
+
+msgctxt "web.dashboard.patch"
+msgid "Patch Boot"
+msgstr "修补 Boot"
+
+
+msgctxt "web.dashboard.patchDetail"
+msgid "Prepare a boot image for root"
+msgstr "准备用于 Root 的启动镜像"
+
+
+msgctxt "web.dashboard.firmware"
+msgid "Loaded firmware"
+msgstr "已加载固件"
+
+
+msgctxt "web.dashboard.security"
+msgid "Security patch"
+msgstr "安全补丁"
+
+
+msgctxt "web.dashboard.deviceMode"
+msgid "Device mode"
+msgstr "设备模式"
+
+
+msgctxt "web.device.title"
+msgid "Device workspace"
+msgstr "设备工作区"
+
+
+msgctxt "web.device.subtitle"
+msgid "Select one or more devices and inspect their current state."
+msgstr "选择一个或多个设备并检查其当前状态。"
+
+
+msgctxt "web.device.choose"
+msgid "Connected devices"
+msgstr "已连接设备"
+
+
+msgctxt "web.device.details"
+msgid "Primary device details"
+msgstr "主要设备详情"
+
+
+msgctxt "web.device.multi"
+msgid "{count} selected for batch actions"
+msgstr "已选择 {count} 台设备进行批量操作"
+
+
+msgctxt "web.device.battery"
+msgid "Battery"
+msgstr "电池"
+
+
+msgctxt "web.device.connection"
+msgid "Connection"
+msgstr "连接"
+
+
+msgctxt "web.device.root"
+msgid "Root access"
+msgstr "Root 权限"
+
+
+msgctxt "web.device.rooted"
+msgid "Rooted"
+msgstr "已 Root"
+
+
+msgctxt "web.device.stock"
+msgid "Stock"
+msgstr "原厂"
+
+
+msgctxt "web.flash.title"
+msgid "Flash Wizard"
+msgstr "刷机向导"
+
+
+msgctxt "web.flash.subtitle"
+msgid "Build and verify a safe flash plan in five focused steps."
+msgstr "通过五个明确步骤创建并验证安全的刷机计划。"
+
+
+msgctxt "web.flash.step.devices"
+msgid "Devices"
+msgstr "设备"
+
+
+msgctxt "web.flash.step.firmware"
+msgid "Firmware"
+msgstr "固件"
+
+
+msgctxt "web.flash.step.plan"
+msgid "Plan"
+msgstr "计划"
+
+
+msgctxt "web.flash.step.review"
+msgid "Review"
+msgstr "审核"
+
+
+msgctxt "web.flash.devicesTitle"
+msgid "Choose target devices"
+msgstr "选择目标设备"
+
+
+msgctxt "web.flash.devicesDetail"
+msgid ""
+"Compatible devices can be flashed together. Each device is validated again "
+"before any write."
+msgstr "可同时刷写兼容设备。每台设备都会在任何写入操作前再次验证。"
+
+
+msgctxt "web.flash.firmwareTitle"
+msgid "Choose a firmware package"
+msgstr "选择固件包"
+
+
+msgctxt "web.flash.firmwareDetail"
+msgid "Select a local package that matches the target device family."
+msgstr "选择与目标设备系列匹配的本地固件包。"
+
+
+msgctxt "web.flash.optionsTitle"
+msgid "Configure flash behavior"
+msgstr "配置刷机行为"
+
+
+msgctxt "web.flash.mode.keep"
+msgid "Keep data"
+msgstr "保留数据"
+
+
+msgctxt "web.flash.mode.keepDetail"
+msgid "Update system partitions without wiping user data."
+msgstr "更新系统分区而不清除用户数据。"
+
+
+msgctxt "web.flash.mode.wipe"
+msgid "Clean install"
+msgstr "全新安装"
+
+
+msgctxt "web.flash.mode.wipeDetail"
+msgid "Erase user data before flashing for a clean baseline."
+msgstr "在刷机前清除用户数据，以获得干净的初始状态。"
+
+
+msgctxt "web.flash.mode.ota"
+msgid "OTA sideload"
+msgstr "OTA 侧载"
+
+
+msgctxt "web.flash.mode.otaDetail"
+msgid "Apply the package through recovery where supported."
+msgstr "在支持的情况下通过 Recovery 应用固件包。"
+
+
+msgctxt "web.flash.slot.title"
+msgid "Target slot"
+msgstr "目标槽位"
+
+
+msgctxt "web.flash.slot.default"
+msgid "Default"
+msgstr "默认"
+
+
+msgctxt "web.flash.slot.defaultDetail"
+msgid "Let the package and device choose the correct slot."
+msgstr "让固件包和设备选择正确的槽位。"
+
+
+msgctxt "web.flash.slot.inactive"
+msgid "Inactive slot"
+msgstr "非活动槽位"
+
+
+msgctxt "web.flash.slot.inactiveDetail"
+msgid "Write the currently inactive slot, then switch to it."
+msgstr "写入当前非活动槽位，然后切换到该槽位。"
+
+
+msgctxt "web.flash.slot.both"
+msgid "Both slots"
+msgstr "两个槽位"
+
+
+msgctxt "web.flash.slot.bothDetail"
+msgid "Write matching partitions to slot A and slot B."
+msgstr "将对应分区写入槽位 A 和槽位 B。"
+
+
+msgctxt "web.flash.option.verify"
+msgid "Verify package checksums before flashing"
+msgstr "刷机前验证固件包校验和"
+
+
+msgctxt "web.flash.option.disableVerity"
+msgid "Disable dm-verity"
+msgstr "禁用 dm-verity"
+
+
+msgctxt "web.flash.option.disableVerification"
+msgid "Disable Android Verified Boot verification"
+msgstr "禁用 Android Verified Boot 验证"
+
+
+msgctxt "web.flash.option.force"
+msgid "Force flash when host compatibility checks warn"
+msgstr "当主机兼容性检查发出警告时强制刷机"
+
+
+msgctxt "web.flash.option.noReboot"
+msgid "Do not reboot after flashing"
+msgstr "刷机后不重启"
+
+
+msgctxt "web.flash.option.downgrade"
+msgid "Allow firmware downgrade"
+msgstr "允许固件降级"
+
+
+msgctxt "web.flash.option.temporaryRoot"
+msgid "Boot a patched image for temporary root"
+msgstr "启动已修补的镜像以临时获取 Root"
+
+
+msgctxt "web.flash.option.dryRun"
+msgid "Dry run only — do not write partitions"
+msgstr "仅模拟 — 不写入分区"
+
+
+msgctxt "web.flash.option.otaDisabled"
+msgid "Unavailable for OTA sideload."
+msgstr "OTA 侧载不可用。"
+
+
+msgctxt "web.flash.planTitle"
+msgid "Generated flash plan"
+msgstr "已生成刷机计划"
+
+
+msgctxt "web.flash.planDetail"
+msgid "Review the exact sequence PixelFlasher will execute."
+msgstr "检查 PixelFlasher 将执行的确切顺序。"
+
+
+msgctxt "web.flash.plan.validate"
+msgid "Validate device connectivity and mode"
+msgstr "验证设备连接和模式"
+
+
+msgctxt "web.flash.plan.validateDetail"
+msgid "{count} target devices"
+msgstr "{count} 台目标设备"
+
+
+msgctxt "web.flash.plan.verify"
+msgid "Verify package signature and checksums"
+msgstr "验证固件包签名和校验和"
+
+
+msgctxt "web.flash.plan.verifyEnabled"
+msgid "Checksum verification is enabled"
+msgstr "已启用校验和验证"
+
+
+msgctxt "web.flash.plan.verifySkipped"
+msgid "Checksum verification was disabled"
+msgstr "已禁用校验和验证"
+
+
+msgctxt "web.flash.plan.simulate"
+msgid "Simulate partition writes"
+msgstr "模拟分区写入"
+
+
+msgctxt "web.flash.plan.write"
+msgid "Flash selected partitions"
+msgstr "刷写所选分区"
+
+
+msgctxt "web.flash.plan.slotDefault"
+msgid "Use package slot strategy"
+msgstr "使用固件包的槽位策略"
+
+
+msgctxt "web.flash.plan.slotInactive"
+msgid "Write inactive slot and switch"
+msgstr "写入非活动槽位并切换"
+
+
+msgctxt "web.flash.plan.slotBoth"
+msgid "Write slot A and slot B"
+msgstr "写入槽位 A 和槽位 B"
+
+
+msgctxt "web.flash.plan.finish"
+msgid "Verify result and finish operation"
+msgstr "验证结果并完成操作"
+
+
+msgctxt "web.flash.plan.reboot"
+msgid "Reboot after verification"
+msgstr "验证后重启"
+
+
+msgctxt "web.flash.plan.noReboot"
+msgid "Leave device in its resulting mode"
+msgstr "将设备保持在操作后的模式"
+
+
+msgctxt "web.flash.plan.safeNotice"
+msgid "PixelFlasher will stop before writing if any validation fails."
+msgstr "如果任何验证失败，PixelFlasher 会在写入前停止。"
+
+
+msgctxt "web.flash.plan.dryNotice"
+msgid "Dry run is enabled; no partitions will be written."
+msgstr "已启用模拟；不会写入任何分区。"
+
+
+msgctxt "web.flash.reviewTitle"
+msgid "Ready to flash"
+msgstr "可以刷机"
+
+
+msgctxt "web.flash.reviewDetail"
+msgid "Confirm the targets, package, safeguards, and risks before starting."
+msgstr "开始前请确认目标设备、固件包、安全措施和风险。"
+
+
+msgctxt "web.flash.review.targets"
+msgid "Targets"
+msgstr "目标设备"
+
+
+msgctxt "web.flash.review.firmware"
+msgid "Firmware"
+msgstr "固件"
+
+
+msgctxt "web.flash.review.mode"
+msgid "Install mode"
+msgstr "安装模式"
+
+
+msgctxt "web.flash.review.slot"
+msgid "Target slot"
+msgstr "目标槽位"
+
+
+msgctxt "web.flash.review.safeguards"
+msgid "Safeguards"
+msgstr "安全措施"
+
+
+msgctxt "web.flash.review.risks"
+msgid "Risk options"
+msgstr "风险选项"
+
+
+msgctxt "web.flash.review.checksums"
+msgid "Checksum verification"
+msgstr "校验和验证"
+
+
+msgctxt "web.flash.review.noRisk"
+msgid "No advanced risk options enabled"
+msgstr "未启用高级风险选项"
+
+
+msgctxt "web.flash.review.disableVerity"
+msgid "dm-verity disabled"
+msgstr "dm-verity 已禁用"
+
+
+msgctxt "web.flash.review.disableVerification"
+msgid "Verified Boot verification disabled"
+msgstr "Verified Boot 验证已禁用"
+
+
+msgctxt "web.flash.review.force"
+msgid "Compatibility warnings may be overridden"
+msgstr "可忽略兼容性警告"
+
+
+msgctxt "web.flash.review.downgrade"
+msgid "Firmware downgrade allowed"
+msgstr "已允许固件降级"
+
+
+msgctxt "web.flash.review.noReboot"
+msgid "Automatic reboot disabled"
+msgstr "自动重启已禁用"
+
+
+msgctxt "web.flash.review.temporaryRoot"
+msgid "Temporary root boot enabled"
+msgstr "临时 Root 启动已启用"
+
+
+msgctxt "web.flash.review.dryRun"
+msgid "Dry run — no writes"
+msgstr "模拟 — 不写入"
+
+
+msgctxt "web.flash.confirm.title"
+msgid "Destructive action confirmation"
+msgstr "确认破坏性操作"
+
+
+msgctxt "web.flash.confirm.detail"
+msgid "Type {confirmation} to confirm this high-risk plan."
+msgstr "输入 {confirmation} 以确认此高风险计划。"
+
+
+msgctxt "web.flash.confirm.placeholder"
+msgid "Type the device name or serial"
+msgstr "输入设备名称或序列号"
+
+
+msgctxt "web.flash.start"
+msgid "Start flash"
+msgstr "开始刷机"
+
+
+msgctxt "web.flash.simulate"
+msgid "Run simulation"
+msgstr "运行模拟"
+
+
+msgctxt "web.flash.running"
+msgid "Flash in progress"
+msgstr "正在刷机"
+
+
+msgctxt "web.flash.success"
+msgid "Flash completed successfully"
+msgstr "刷机成功完成"
+
+
+msgctxt "web.flash.cancelled"
+msgid "Flash was cancelled"
+msgstr "刷机已取消"
+
+
+msgctxt "web.flash.failed"
+msgid "Flash failed — review the operation log"
+msgstr "刷机失败 — 请检查操作日志"
+
+
+msgctxt "web.flash.needDevice"
+msgid "Select at least one device to continue."
+msgstr "选择至少一台设备以继续。"
+
+
+msgctxt "web.firmware.title"
+msgid "Firmware library"
+msgstr "固件库"
+
+
+msgctxt "web.firmware.subtitle"
+msgid "Manage verified factory images, OTA packages, and custom ROMs."
+msgstr "管理已验证的原厂镜像、OTA 固件包和自定义 ROM。"
+
+
+msgctxt "web.firmware.active"
+msgid "Active package"
+msgstr "当前固件包"
+
+
+msgctxt "web.firmware.available"
+msgid "Available locally"
+msgstr "本地可用"
+
+
+msgctxt "web.firmware.use"
+msgid "Use package"
+msgstr "使用固件包"
+
+
+msgctxt "web.firmware.import"
+msgid "Import package"
+msgstr "导入固件包"
+
+msgctxt "web.firmware.process"
+msgid "Process package"
+msgstr "处理固件包"
+
+
+msgctxt "web.root.title"
+msgid "Root workspace"
+msgstr "Root 工作区"
+
+
+msgctxt "web.root.subtitle"
+msgid "Patch a boot image with the root solution you trust."
+msgstr "使用你信任的 Root 方案修补启动镜像。"
+
+
+msgctxt "web.root.choose"
+msgid "Choose patch method"
+msgstr "选择修补方式"
+
+
+msgctxt "web.root.patch"
+msgid "Patch selected boot image"
+msgstr "修补所选启动镜像"
+
+
+msgctxt "web.root.warning"
+msgid ""
+"Rooting changes device security. Verify the boot image matches the installed"
+" build."
+msgstr "Root 会改变设备安全性。请验证启动镜像与已安装的版本匹配。"
+
+
+msgctxt "web.apps.title"
+msgid "Application manager"
+msgstr "应用管理器"
+
+
+msgctxt "web.apps.subtitle"
+msgid "Review and batch-manage packages on selected devices."
+msgstr "查看并批量管理所选设备上的应用包。"
+
+
+msgctxt "web.apps.filter"
+msgid "Filter packages"
+msgstr "筛选应用包"
+
+
+msgctxt "web.apps.scope"
+msgid "Scope"
+msgstr "范围"
+
+
+msgctxt "web.apps.state"
+msgid "State"
+msgstr "状态"
+
+
+msgctxt "web.backups.title"
+msgid "Backups"
+msgstr "备份"
+
+
+msgctxt "web.backups.subtitle"
+msgid "Create and restore device snapshots with clear provenance."
+msgstr "创建和恢复来源明确的设备快照。"
+
+
+msgctxt "web.backups.create"
+msgid "Create backup"
+msgstr "创建备份"
+
+
+msgctxt "web.backups.restore"
+msgid "Restore backup"
+msgstr "恢复备份"
+
+
+msgctxt "web.backups.contents"
+msgid "Contents"
+msgstr "内容"
+
+
+msgctxt "web.tools.title"
+msgid "Device tools"
+msgstr "设备工具"
+
+
+msgctxt "web.tools.subtitle"
+msgid "Open focused utilities for diagnostics and recovery."
+msgstr "打开用于诊断和恢复的专用工具。"
+
+
+msgctxt "web.tools.recovery"
+msgid "Recovery tools"
+msgstr "Recovery 工具"
+
+
+msgctxt "web.tools.partition"
+msgid "Partition manager"
+msgstr "分区管理器"
+
+
+msgctxt "web.tools.bootloader"
+msgid "Bootloader console"
+msgstr "Bootloader 控制台"
+
+
+msgctxt "web.tools.integrity"
+msgid "Integrity check"
+msgstr "完整性检查"
+
+
+msgctxt "web.settings.subtitle"
+msgid "Tune the workspace for your display, language, and workflow."
+msgstr "根据显示、语言和工作流程调整工作区。"
+
+
+msgctxt "web.settings.appearance"
+msgid "Appearance"
+msgstr "外观"
+
+
+msgctxt "web.settings.theme"
+msgid "Theme"
+msgstr "主题"
+
+
+msgctxt "web.settings.dark"
+msgid "Dark"
+msgstr "深色"
+
+
+msgctxt "web.settings.light"
+msgid "Light"
+msgstr "浅色"
+
+
+msgctxt "web.settings.language"
+msgid "Language"
+msgstr "语言"
+
+
+msgctxt "web.settings.accessibility"
+msgid "Accessibility"
+msgstr "辅助功能"
+
+
+msgctxt "web.settings.contrast"
+msgid "High contrast"
+msgstr "高对比度"
+
+
+msgctxt "web.settings.motion"
+msgid "Reduce motion"
+msgstr "减少动画"
+
+
+msgctxt "web.settings.zoom"
+msgid "Interface zoom"
+msgstr "界面缩放"
+
+
+msgctxt "web.settings.zoomOut"
+msgid "Zoom out"
+msgstr "缩小"
+
+
+msgctxt "web.settings.zoomReset"
+msgid "Reset zoom"
+msgstr "重置缩放"
+
+
+msgctxt "web.settings.zoomIn"
+msgid "Zoom in"
+msgstr "放大"
+
+
+msgctxt "web.settings.shortcuts"
+msgid "Keyboard shortcuts"
+msgstr "键盘快捷键"
+
+
+msgctxt "web.settings.shortcutNav"
+msgid "Alt + 1…9 changes task"
+msgstr "Alt + 1…9 切换任务"
+
+
+msgctxt "web.settings.shortcutZoom"
+msgid "Ctrl/Cmd + Plus, Minus, or 0 changes zoom"
+msgstr "Ctrl/Cmd + 加号、减号或 0 调整缩放"
+
+
+msgctxt "web.settings.shortcutFocus"
+msgid "Tab moves focus; Enter or Space activates controls"
+msgstr "Tab 移动焦点；Enter 或 Space 激活控件"
+
+
+msgctxt "web.notice.mock"
+msgid "Development mock active"
+msgstr "开发模拟已启用"
+
+
+msgctxt "web.notice.updated"
+msgid "Workspace updated"
+msgstr "工作区已更新"
+
+
+msgctxt "web.notice.error"
+msgid "Could not complete the request"
+msgstr "无法完成请求"
+
+
+msgctxt "web.skip.content"
+msgid "Skip to main content"
+msgstr "跳到主要内容"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.dashboard.toolsNeeded"
+msgid "Platform Tools need attention"
+msgstr "Platform Tools 需要处理"
+
+msgctxt "web.dashboard.toolsNeededDetail"
+msgid "Set up and validate ADB and Fastboot before running device actions."
+msgstr "请先设置并验证 ADB 和 Fastboot，然后再执行设备操作。"
+
+msgctxt "web.dashboard.toolsSetup"
+msgid "Set up Platform Tools"
+msgstr "设置 Platform Tools"
+
+msgctxt "web.flash.prepare"
+msgid "Prepare review"
+msgstr "准备审核"
+
+msgctxt "web.flash.preparing"
+msgid "Preparing verified plan…"
+msgstr "正在准备已验证的计划…"
+
+msgctxt "web.notice.dismiss"
+msgid "Dismiss message"
+msgstr "关闭消息"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.localPersistence"
+msgid "Preferences are saved by the PixelFlasher host on this computer."
+msgstr "PixelFlasher 主机会将偏好设置保存在此计算机上。"
+
+msgctxt "web.status.revision"
+msgid "Revision {revision}"
+msgstr "修订版本 {revision}"
+
+msgctxt "web.flash.singleDeviceTitle"
+msgid "Choose one target device"
+msgstr "选择一个目标设备"
+
+msgctxt "web.flash.singleDeviceDetail"
+msgid "Flash operations run on one device at a time. The engine validates it again before any write."
+msgstr "刷写操作一次仅在一台设备上运行。引擎会在任何写入前再次验证该设备。"
+
+msgctxt "web.flash.exactPlan"
+msgid "Exact backend plan"
+msgstr "后端精确计划"
+
+msgctxt "web.flash.exactCommands"
+msgid "Exact commands"
+msgstr "精确命令"
+
+msgctxt "web.settings.contrastDetail"
+msgid "Stronger borders and text contrast throughout the workspace."
+msgstr "在整个工作区中使用更清晰的边框和更高的文字对比度。"
+
+msgctxt "web.settings.motionDetail"
+msgid "Disables non-essential transitions and animated progress."
+msgstr "禁用非必要的过渡和动态进度效果。"
+msgctxt "web.tools.recoveryDetail"
+msgid "Reboot, sideload, and inspect recovery state."
+msgstr "重启、旁加载并检查恢复模式状态。"
+
+msgctxt "web.tools.shellBlocked"
+msgid "Arbitrary shell input stays unavailable until a bounded command policy exists."
+msgstr "在实现受限命令策略之前，任意 shell 输入保持不可用。"
+
+msgctxt "web.tools.logcatDetail"
+msgid "Collect a bounded Android system log snapshot."
+msgstr "收集有边界的 Android 系统日志快照。"
+
+msgctxt "web.tools.partitionDetail"
+msgid "Inspect allow-listed slots and partition metadata."
+msgstr "检查允许的槽位和分区元数据。"
+
+msgctxt "web.tools.bootloaderDetail"
+msgid "Reboot the selected device into the bootloader."
+msgstr "将所选设备重启至引导加载程序。"
+
+msgctxt "web.tools.integrityBlocked"
+msgid "AVB mutation stays unavailable until its typed policy is implemented."
+msgstr "在实现类型化策略之前，AVB 修改保持不可用。"
+msgctxt "web.device.model"
+msgid "Model"
+msgstr "型号"
+
+msgctxt "web.device.codename"
+msgid "Codename"
+msgstr "代号"
+
+msgctxt "web.root.magiskDetail"
+msgid "Broad module ecosystem and Zygisk support."
+msgstr "广泛的模块生态系统并支持 Zygisk。"
+
+msgctxt "web.root.kernelSuDetail"
+msgid "Kernel-based root for supported devices."
+msgstr "面向受支持设备的内核级 Root。"
+
+msgctxt "web.root.apatchDetail"
+msgid "Kernel patching with AndroidPatch."
+msgstr "使用 AndroidPatch 修补内核。"
+
+msgctxt "web.root.sukisuDetail"
+msgid "KernelSU-based advanced patch method."
+msgstr "基于 KernelSU 的高级修补方法。"
+
+##############################################################################
+# React Root workspace messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.patchAppsRequired"
+msgid "Refresh Rooting Apps and choose a compatible verified app."
+msgstr "刷新 Root 应用并选择兼容且经过验证的应用。"
+
+msgctxt "web.root.appsTitle"
+msgid "Rooting Apps"
+msgstr "Root 应用"
+
+msgctxt "web.root.appsDetail"
+msgid "Verified local APK inventory supplied by the backend."
+msgstr "由后端提供的已验证本地 APK 清单。"
+
+msgctxt "web.root.appsEmpty"
+msgid "Refresh to discover verified local rooting APKs."
+msgstr "刷新以发现已验证的本地 Root APK。"
+
+msgctxt "web.root.appInstall"
+msgid "Install app"
+msgstr "安装应用"
+
+msgctxt "web.root.appDeviceRequired"
+msgid "Select exactly one device in ADB mode to install."
+msgstr "请选择且仅选择一台处于 ADB 模式的设备进行安装。"
+
+msgctxt "web.root.modulesTitle"
+msgid "Magisk Modules"
+msgstr "Magisk 模块"
+
+msgctxt "web.root.modulesDetail"
+msgid "Manage modules on one rooted device in ADB mode."
+msgstr "管理一台处于 ADB 模式的已 Root 设备上的模块。"
+
+msgctxt "web.root.modulesEmpty"
+msgid "Refresh to list installed modules."
+msgstr "刷新以列出已安装的模块。"
+
+msgctxt "web.root.moduleInstall"
+msgid "Install module ZIP"
+msgstr "安装模块 ZIP"
+
+msgctxt "web.root.moduleEnable"
+msgid "Enable"
+msgstr "启用"
+
+msgctxt "web.root.moduleDisable"
+msgid "Disable"
+msgstr "禁用"
+
+msgctxt "web.root.moduleRemove"
+msgid "Remove"
+msgstr "移除"
+
+msgctxt "web.root.moduleDeviceRequired"
+msgid "Select exactly one rooted device in ADB mode."
+msgstr "请选择且仅选择一台处于 ADB 模式的已 Root 设备。"
+
+##############################################################################
+# React Device operations messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.actions"
+msgid "Device operations"
+msgstr "设备操作"
+
+msgctxt "web.device.singleActionGuard"
+msgid "Select exactly one device to run an operation."
+msgstr "请选择且仅选择一台设备以执行操作。"
+
+msgctxt "web.device.rebootTarget"
+msgid "Reboot destination"
+msgstr "重启目标"
+
+msgctxt "web.device.rebootSystem"
+msgid "Android system"
+msgstr "Android 系统"
+
+msgctxt "web.device.rebootRecovery"
+msgid "Recovery"
+msgstr "恢复模式"
+
+msgctxt "web.device.rebootBootloader"
+msgid "Bootloader"
+msgstr "引导加载程序"
+
+msgctxt "web.device.rebootFastbootd"
+msgid "Fastbootd"
+msgstr "Fastbootd"
+
+msgctxt "web.device.rebootNow"
+msgid "Reboot now"
+msgstr "立即重启"
+
+msgctxt "web.device.slotBootloader"
+msgid "Slot and bootloader"
+msgstr "槽位和引导加载程序"
+
+msgctxt "web.device.switchToSlot"
+msgid "Switch to slot {slot}"
+msgstr "切换到槽位 {slot}"
+
+msgctxt "web.device.lockBootloader"
+msgid "Lock bootloader"
+msgstr "锁定引导加载程序"
+
+msgctxt "web.device.lockRequiresStockEvidence"
+msgid "Locking stays blocked until PixelFlasher verifies a complete compatible stock factory flash with no later state changes."
+msgstr "在 PixelFlasher 验证已完成兼容的完整原厂刷写且之后状态未发生变化之前，锁定功能将保持禁用。"
+
+msgctxt "web.device.unlockBootloader"
+msgid "Unlock bootloader"
+msgstr "解锁引导加载程序"
+
+msgctxt "web.device.bootImage"
+msgid "Selected boot image"
+msgstr "已选择的启动映像"
+
+msgctxt "web.device.noBootImage"
+msgid "Select or patch a verified boot image first."
+msgstr "请先选择或修补经过验证的启动映像。"
+
+msgctxt "web.device.partition"
+msgid "Partition"
+msgstr "分区"
+
+msgctxt "web.device.defaultSlot"
+msgid "Current / default slot"
+msgstr "当前 / 默认槽位"
+
+msgctxt "web.device.liveBoot"
+msgid "Live boot"
+msgstr "临时启动"
+
+msgctxt "web.device.flashBoot"
+msgid "Flash image"
+msgstr "刷入映像"
+
+##############################################################################
+# React Tools workspace messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.scrcpy"
+msgid "Scrcpy"
+msgstr "Scrcpy"
+
+msgctxt "web.tools.scrcpyDetail"
+msgid "Mirror and control the selected ADB device."
+msgstr "镜像并控制选中的 ADB 设备。"
+
+msgctxt "web.tools.wifi"
+msgid "Wireless ADB"
+msgstr "无线 ADB"
+
+msgctxt "web.tools.wifiDetail"
+msgid "Pair, connect, disconnect, and verify a numeric endpoint."
+msgstr "配对、连接、断开连接并验证由数字 IP 地址和端口组成的端点。"
+
+msgctxt "web.tools.push"
+msgid "Push files"
+msgstr "推送文件"
+
+msgctxt "web.tools.pushDetail"
+msgid "Send selected files to one allow-listed device folder."
+msgstr "将所选文件发送到设备上允许的文件夹。"
+
+msgctxt "web.tools.support"
+msgid "Support package"
+msgstr "支持包"
+
+msgctxt "web.tools.supportDetail"
+msgid "Create a redacted diagnostic archive at a native destination."
+msgstr "在系统原生位置创建已脱敏的诊断压缩包。"
+
+msgctxt "web.tools.action"
+msgid "Action"
+msgstr "操作"
+
+msgctxt "web.tools.status"
+msgid "Check status"
+msgstr "检查状态"
+
+msgctxt "web.tools.pair"
+msgid "Pair"
+msgstr "配对"
+
+msgctxt "web.tools.connect"
+msgid "Connect"
+msgstr "连接"
+
+msgctxt "web.tools.disconnect"
+msgid "Disconnect"
+msgstr "断开连接"
+
+msgctxt "web.tools.host"
+msgid "Numeric IP address"
+msgstr "数字 IP 地址"
+
+msgctxt "web.tools.port"
+msgid "Port"
+msgstr "端口"
+
+msgctxt "web.tools.pairingCode"
+msgid "Six-digit pairing code"
+msgstr "六位配对码"
+
+msgctxt "web.tools.maxLines"
+msgid "Maximum lines"
+msgstr "最大行数"
+
+msgctxt "web.tools.collectLogs"
+msgid "Collect logs"
+msgstr "收集日志"
+
+msgctxt "web.tools.selectPartition"
+msgid "Selected partition"
+msgstr "所选分区"
+
+msgctxt "web.tools.partitionRead"
+msgid "Read image"
+msgstr "读取映像"
+
+msgctxt "web.tools.partitionWrite"
+msgid "Write image"
+msgstr "写入映像"
+
+msgctxt "web.tools.partitionErase"
+msgid "Erase partition"
+msgstr "擦除分区"
+
+msgctxt "web.tools.destination"
+msgid "Device destination"
+msgstr "设备目标位置"
+
+msgctxt "web.tools.chooseFiles"
+msgid "Choose files"
+msgstr "选择文件"
+
+msgctxt "web.tools.results"
+msgid "Result"
+msgstr "结果"

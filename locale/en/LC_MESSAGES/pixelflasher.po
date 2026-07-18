@@ -3083,3 +3083,1279 @@ msgstr ""
 msgid "Install Zygisk Module"
 msgstr ""
 
+##############################################################################
+
+# React Web UI source messages 2026-07-18
+
+##############################################################################
+
+msgctxt "web.app.tagline"
+msgid "Android device management suite"
+msgstr ""
+
+
+msgctxt "web.nav.tasks"
+msgid "Tasks"
+msgstr ""
+
+
+msgctxt "web.nav.dashboard"
+msgid "Dashboard"
+msgstr ""
+
+
+msgctxt "web.nav.device"
+msgid "Device"
+msgstr ""
+
+
+msgctxt "web.nav.firmware"
+msgid "Firmware"
+msgstr ""
+
+
+msgctxt "web.nav.root"
+msgid "Root"
+msgstr ""
+
+
+msgctxt "web.nav.apps"
+msgid "Apps"
+msgstr ""
+
+
+msgctxt "web.nav.backups"
+msgid "Backups"
+msgstr ""
+
+
+msgctxt "web.nav.tools"
+msgid "Tools"
+msgstr ""
+
+
+msgctxt "web.mode.expert"
+msgid "Expert Mode"
+msgstr ""
+
+
+msgctxt "web.status.ready"
+msgid "Ready"
+msgstr ""
+
+
+msgctxt "web.status.connecting"
+msgid "Connecting"
+msgstr ""
+
+
+msgctxt "web.status.error"
+msgid "Bridge error"
+msgstr ""
+
+
+msgctxt "web.status.host"
+msgid "Local bridge"
+msgstr ""
+
+
+msgctxt "web.status.devices"
+msgid "{count} devices connected"
+msgstr ""
+
+
+msgctxt "web.status.targets"
+msgid "{count} target devices"
+msgstr ""
+
+
+msgctxt "web.common.selected"
+msgid "Selected"
+msgstr ""
+
+
+msgctxt "web.common.continue"
+msgid "Continue"
+msgstr ""
+
+
+msgctxt "web.common.back"
+msgid "Back"
+msgstr ""
+
+
+msgctxt "web.common.apply"
+msgid "Apply changes"
+msgstr ""
+
+
+msgctxt "web.common.search"
+msgid "Search"
+msgstr ""
+
+
+msgctxt "web.common.stable"
+msgid "Stable"
+msgstr ""
+
+
+msgctxt "web.common.beta"
+msgid "Beta"
+msgstr ""
+
+
+msgctxt "web.common.user"
+msgid "User"
+msgstr ""
+
+
+msgctxt "web.common.enabled"
+msgid "Enabled"
+msgstr ""
+
+
+msgctxt "web.common.none"
+msgid "None"
+msgstr ""
+
+
+msgctxt "web.common.minimize"
+msgid "Minimize"
+msgstr ""
+
+
+msgctxt "web.common.maximize"
+msgid "Maximize"
+msgstr ""
+
+
+msgctxt "web.common.targets"
+msgid "Targets"
+msgstr ""
+
+
+msgctxt "web.common.build"
+msgid "Build"
+msgstr ""
+
+
+msgctxt "web.common.date"
+msgid "Date"
+msgstr ""
+
+
+msgctxt "web.dashboard.title"
+msgid "Modern UI"
+msgstr ""
+
+
+msgctxt "web.dashboard.subtitle"
+msgid "Your Android device command center"
+msgstr ""
+
+
+msgctxt "web.dashboard.toolsReady"
+msgid "Platform Tools Ready"
+msgstr ""
+
+
+msgctxt "web.dashboard.toolsDetail"
+msgid "ADB and Fastboot are configured and ready to use."
+msgstr ""
+
+
+msgctxt "web.dashboard.connected"
+msgid "Connected Device"
+msgstr ""
+
+
+msgctxt "web.dashboard.quick"
+msgid "Quick Actions"
+msgstr ""
+
+
+msgctxt "web.dashboard.scan"
+msgid "Scan Devices"
+msgstr ""
+
+
+msgctxt "web.dashboard.scanDetail"
+msgid "Refresh ADB and Fastboot connections"
+msgstr ""
+
+
+msgctxt "web.dashboard.reboot"
+msgid "Reboot Device"
+msgstr ""
+
+
+msgctxt "web.dashboard.rebootDetail"
+msgid "Restart the primary selected device"
+msgstr ""
+
+
+msgctxt "web.dashboard.slotDetail"
+msgid "Change the active boot slot safely"
+msgstr ""
+
+
+msgctxt "web.dashboard.patch"
+msgid "Patch Boot"
+msgstr ""
+
+
+msgctxt "web.dashboard.patchDetail"
+msgid "Prepare a boot image for root"
+msgstr ""
+
+
+msgctxt "web.dashboard.firmware"
+msgid "Loaded firmware"
+msgstr ""
+
+
+msgctxt "web.dashboard.security"
+msgid "Security patch"
+msgstr ""
+
+
+msgctxt "web.dashboard.deviceMode"
+msgid "Device mode"
+msgstr ""
+
+
+msgctxt "web.device.title"
+msgid "Device workspace"
+msgstr ""
+
+
+msgctxt "web.device.subtitle"
+msgid "Select one or more devices and inspect their current state."
+msgstr ""
+
+
+msgctxt "web.device.choose"
+msgid "Connected devices"
+msgstr ""
+
+
+msgctxt "web.device.details"
+msgid "Primary device details"
+msgstr ""
+
+
+msgctxt "web.device.multi"
+msgid "{count} selected for batch actions"
+msgstr ""
+
+
+msgctxt "web.device.battery"
+msgid "Battery"
+msgstr ""
+
+
+msgctxt "web.device.connection"
+msgid "Connection"
+msgstr ""
+
+
+msgctxt "web.device.root"
+msgid "Root access"
+msgstr ""
+
+
+msgctxt "web.device.rooted"
+msgid "Rooted"
+msgstr ""
+
+
+msgctxt "web.device.stock"
+msgid "Stock"
+msgstr ""
+
+
+msgctxt "web.flash.title"
+msgid "Flash Wizard"
+msgstr ""
+
+
+msgctxt "web.flash.subtitle"
+msgid "Build and verify a safe flash plan in five focused steps."
+msgstr ""
+
+
+msgctxt "web.flash.step.devices"
+msgid "Devices"
+msgstr ""
+
+
+msgctxt "web.flash.step.firmware"
+msgid "Firmware"
+msgstr ""
+
+
+msgctxt "web.flash.step.plan"
+msgid "Plan"
+msgstr ""
+
+
+msgctxt "web.flash.step.review"
+msgid "Review"
+msgstr ""
+
+
+msgctxt "web.flash.devicesTitle"
+msgid "Choose target devices"
+msgstr ""
+
+
+msgctxt "web.flash.devicesDetail"
+msgid ""
+"Compatible devices can be flashed together. Each device is validated again "
+"before any write."
+msgstr ""
+
+
+msgctxt "web.flash.firmwareTitle"
+msgid "Choose a firmware package"
+msgstr ""
+
+
+msgctxt "web.flash.firmwareDetail"
+msgid "Select a local package that matches the target device family."
+msgstr ""
+
+
+msgctxt "web.flash.optionsTitle"
+msgid "Configure flash behavior"
+msgstr ""
+
+
+msgctxt "web.flash.mode.keep"
+msgid "Keep data"
+msgstr ""
+
+
+msgctxt "web.flash.mode.keepDetail"
+msgid "Update system partitions without wiping user data."
+msgstr ""
+
+
+msgctxt "web.flash.mode.wipe"
+msgid "Clean install"
+msgstr ""
+
+
+msgctxt "web.flash.mode.wipeDetail"
+msgid "Erase user data before flashing for a clean baseline."
+msgstr ""
+
+
+msgctxt "web.flash.mode.ota"
+msgid "OTA sideload"
+msgstr ""
+
+
+msgctxt "web.flash.mode.otaDetail"
+msgid "Apply the package through recovery where supported."
+msgstr ""
+
+
+msgctxt "web.flash.slot.title"
+msgid "Target slot"
+msgstr ""
+
+
+msgctxt "web.flash.slot.default"
+msgid "Default"
+msgstr ""
+
+
+msgctxt "web.flash.slot.defaultDetail"
+msgid "Let the package and device choose the correct slot."
+msgstr ""
+
+
+msgctxt "web.flash.slot.inactive"
+msgid "Inactive slot"
+msgstr ""
+
+
+msgctxt "web.flash.slot.inactiveDetail"
+msgid "Write the currently inactive slot, then switch to it."
+msgstr ""
+
+
+msgctxt "web.flash.slot.both"
+msgid "Both slots"
+msgstr ""
+
+
+msgctxt "web.flash.slot.bothDetail"
+msgid "Write matching partitions to slot A and slot B."
+msgstr ""
+
+
+msgctxt "web.flash.option.verify"
+msgid "Verify package checksums before flashing"
+msgstr ""
+
+
+msgctxt "web.flash.option.disableVerity"
+msgid "Disable dm-verity"
+msgstr ""
+
+
+msgctxt "web.flash.option.disableVerification"
+msgid "Disable Android Verified Boot verification"
+msgstr ""
+
+
+msgctxt "web.flash.option.force"
+msgid "Force flash when host compatibility checks warn"
+msgstr ""
+
+
+msgctxt "web.flash.option.noReboot"
+msgid "Do not reboot after flashing"
+msgstr ""
+
+
+msgctxt "web.flash.option.downgrade"
+msgid "Allow firmware downgrade"
+msgstr ""
+
+
+msgctxt "web.flash.option.temporaryRoot"
+msgid "Boot a patched image for temporary root"
+msgstr ""
+
+
+msgctxt "web.flash.option.dryRun"
+msgid "Dry run only — do not write partitions"
+msgstr ""
+
+
+msgctxt "web.flash.option.otaDisabled"
+msgid "Unavailable for OTA sideload."
+msgstr ""
+
+
+msgctxt "web.flash.planTitle"
+msgid "Generated flash plan"
+msgstr ""
+
+
+msgctxt "web.flash.planDetail"
+msgid "Review the exact sequence PixelFlasher will execute."
+msgstr ""
+
+
+msgctxt "web.flash.plan.validate"
+msgid "Validate device connectivity and mode"
+msgstr ""
+
+
+msgctxt "web.flash.plan.validateDetail"
+msgid "{count} target devices"
+msgstr ""
+
+
+msgctxt "web.flash.plan.verify"
+msgid "Verify package signature and checksums"
+msgstr ""
+
+
+msgctxt "web.flash.plan.verifyEnabled"
+msgid "Checksum verification is enabled"
+msgstr ""
+
+
+msgctxt "web.flash.plan.verifySkipped"
+msgid "Checksum verification was disabled"
+msgstr ""
+
+
+msgctxt "web.flash.plan.simulate"
+msgid "Simulate partition writes"
+msgstr ""
+
+
+msgctxt "web.flash.plan.write"
+msgid "Flash selected partitions"
+msgstr ""
+
+
+msgctxt "web.flash.plan.slotDefault"
+msgid "Use package slot strategy"
+msgstr ""
+
+
+msgctxt "web.flash.plan.slotInactive"
+msgid "Write inactive slot and switch"
+msgstr ""
+
+
+msgctxt "web.flash.plan.slotBoth"
+msgid "Write slot A and slot B"
+msgstr ""
+
+
+msgctxt "web.flash.plan.finish"
+msgid "Verify result and finish operation"
+msgstr ""
+
+
+msgctxt "web.flash.plan.reboot"
+msgid "Reboot after verification"
+msgstr ""
+
+
+msgctxt "web.flash.plan.noReboot"
+msgid "Leave device in its resulting mode"
+msgstr ""
+
+
+msgctxt "web.flash.plan.safeNotice"
+msgid "PixelFlasher will stop before writing if any validation fails."
+msgstr ""
+
+
+msgctxt "web.flash.plan.dryNotice"
+msgid "Dry run is enabled; no partitions will be written."
+msgstr ""
+
+
+msgctxt "web.flash.reviewTitle"
+msgid "Ready to flash"
+msgstr ""
+
+
+msgctxt "web.flash.reviewDetail"
+msgid "Confirm the targets, package, safeguards, and risks before starting."
+msgstr ""
+
+
+msgctxt "web.flash.review.targets"
+msgid "Targets"
+msgstr ""
+
+
+msgctxt "web.flash.review.firmware"
+msgid "Firmware"
+msgstr ""
+
+
+msgctxt "web.flash.review.mode"
+msgid "Install mode"
+msgstr ""
+
+
+msgctxt "web.flash.review.slot"
+msgid "Target slot"
+msgstr ""
+
+
+msgctxt "web.flash.review.safeguards"
+msgid "Safeguards"
+msgstr ""
+
+
+msgctxt "web.flash.review.risks"
+msgid "Risk options"
+msgstr ""
+
+
+msgctxt "web.flash.review.checksums"
+msgid "Checksum verification"
+msgstr ""
+
+
+msgctxt "web.flash.review.noRisk"
+msgid "No advanced risk options enabled"
+msgstr ""
+
+
+msgctxt "web.flash.review.disableVerity"
+msgid "dm-verity disabled"
+msgstr ""
+
+
+msgctxt "web.flash.review.disableVerification"
+msgid "Verified Boot verification disabled"
+msgstr ""
+
+
+msgctxt "web.flash.review.force"
+msgid "Compatibility warnings may be overridden"
+msgstr ""
+
+
+msgctxt "web.flash.review.downgrade"
+msgid "Firmware downgrade allowed"
+msgstr ""
+
+
+msgctxt "web.flash.review.noReboot"
+msgid "Automatic reboot disabled"
+msgstr ""
+
+
+msgctxt "web.flash.review.temporaryRoot"
+msgid "Temporary root boot enabled"
+msgstr ""
+
+
+msgctxt "web.flash.review.dryRun"
+msgid "Dry run — no writes"
+msgstr ""
+
+
+msgctxt "web.flash.confirm.title"
+msgid "Destructive action confirmation"
+msgstr ""
+
+
+msgctxt "web.flash.confirm.detail"
+msgid "Type {confirmation} to confirm this high-risk plan."
+msgstr ""
+
+
+msgctxt "web.flash.confirm.placeholder"
+msgid "Type the device name or serial"
+msgstr ""
+
+
+msgctxt "web.flash.start"
+msgid "Start flash"
+msgstr ""
+
+
+msgctxt "web.flash.simulate"
+msgid "Run simulation"
+msgstr ""
+
+
+msgctxt "web.flash.running"
+msgid "Flash in progress"
+msgstr ""
+
+
+msgctxt "web.flash.success"
+msgid "Flash completed successfully"
+msgstr ""
+
+
+msgctxt "web.flash.cancelled"
+msgid "Flash was cancelled"
+msgstr ""
+
+
+msgctxt "web.flash.failed"
+msgid "Flash failed — review the operation log"
+msgstr ""
+
+
+msgctxt "web.flash.needDevice"
+msgid "Select at least one device to continue."
+msgstr ""
+
+
+msgctxt "web.firmware.title"
+msgid "Firmware library"
+msgstr ""
+
+
+msgctxt "web.firmware.subtitle"
+msgid "Manage verified factory images, OTA packages, and custom ROMs."
+msgstr ""
+
+
+msgctxt "web.firmware.active"
+msgid "Active package"
+msgstr ""
+
+
+msgctxt "web.firmware.available"
+msgid "Available locally"
+msgstr ""
+
+
+msgctxt "web.firmware.use"
+msgid "Use package"
+msgstr ""
+
+
+msgctxt "web.firmware.import"
+msgid "Import package"
+msgstr ""
+
+msgctxt "web.firmware.process"
+msgid "Process package"
+msgstr ""
+
+
+msgctxt "web.root.title"
+msgid "Root workspace"
+msgstr ""
+
+
+msgctxt "web.root.subtitle"
+msgid "Patch a boot image with the root solution you trust."
+msgstr ""
+
+
+msgctxt "web.root.choose"
+msgid "Choose patch method"
+msgstr ""
+
+
+msgctxt "web.root.patch"
+msgid "Patch selected boot image"
+msgstr ""
+
+
+msgctxt "web.root.warning"
+msgid ""
+"Rooting changes device security. Verify the boot image matches the installed"
+" build."
+msgstr ""
+
+
+msgctxt "web.apps.title"
+msgid "Application manager"
+msgstr ""
+
+
+msgctxt "web.apps.subtitle"
+msgid "Review and batch-manage packages on selected devices."
+msgstr ""
+
+
+msgctxt "web.apps.filter"
+msgid "Filter packages"
+msgstr ""
+
+
+msgctxt "web.apps.scope"
+msgid "Scope"
+msgstr ""
+
+
+msgctxt "web.apps.state"
+msgid "State"
+msgstr ""
+
+
+msgctxt "web.backups.title"
+msgid "Backups"
+msgstr ""
+
+
+msgctxt "web.backups.subtitle"
+msgid "Create and restore device snapshots with clear provenance."
+msgstr ""
+
+
+msgctxt "web.backups.create"
+msgid "Create backup"
+msgstr ""
+
+
+msgctxt "web.backups.restore"
+msgid "Restore backup"
+msgstr ""
+
+
+msgctxt "web.backups.contents"
+msgid "Contents"
+msgstr ""
+
+
+msgctxt "web.tools.title"
+msgid "Device tools"
+msgstr ""
+
+
+msgctxt "web.tools.subtitle"
+msgid "Open focused utilities for diagnostics and recovery."
+msgstr ""
+
+
+msgctxt "web.tools.recovery"
+msgid "Recovery tools"
+msgstr ""
+
+
+msgctxt "web.tools.partition"
+msgid "Partition manager"
+msgstr ""
+
+
+msgctxt "web.tools.bootloader"
+msgid "Bootloader console"
+msgstr ""
+
+
+msgctxt "web.tools.integrity"
+msgid "Integrity check"
+msgstr ""
+
+
+msgctxt "web.settings.subtitle"
+msgid "Tune the workspace for your display, language, and workflow."
+msgstr ""
+
+
+msgctxt "web.settings.appearance"
+msgid "Appearance"
+msgstr ""
+
+
+msgctxt "web.settings.theme"
+msgid "Theme"
+msgstr ""
+
+
+msgctxt "web.settings.dark"
+msgid "Dark"
+msgstr ""
+
+
+msgctxt "web.settings.light"
+msgid "Light"
+msgstr ""
+
+
+msgctxt "web.settings.language"
+msgid "Language"
+msgstr ""
+
+
+msgctxt "web.settings.accessibility"
+msgid "Accessibility"
+msgstr ""
+
+
+msgctxt "web.settings.contrast"
+msgid "High contrast"
+msgstr ""
+
+
+msgctxt "web.settings.motion"
+msgid "Reduce motion"
+msgstr ""
+
+
+msgctxt "web.settings.zoom"
+msgid "Interface zoom"
+msgstr ""
+
+
+msgctxt "web.settings.zoomOut"
+msgid "Zoom out"
+msgstr ""
+
+
+msgctxt "web.settings.zoomReset"
+msgid "Reset zoom"
+msgstr ""
+
+
+msgctxt "web.settings.zoomIn"
+msgid "Zoom in"
+msgstr ""
+
+
+msgctxt "web.settings.shortcuts"
+msgid "Keyboard shortcuts"
+msgstr ""
+
+
+msgctxt "web.settings.shortcutNav"
+msgid "Alt + 1…9 changes task"
+msgstr ""
+
+
+msgctxt "web.settings.shortcutZoom"
+msgid "Ctrl/Cmd + Plus, Minus, or 0 changes zoom"
+msgstr ""
+
+
+msgctxt "web.settings.shortcutFocus"
+msgid "Tab moves focus; Enter or Space activates controls"
+msgstr ""
+
+
+msgctxt "web.notice.mock"
+msgid "Development mock active"
+msgstr ""
+
+
+msgctxt "web.notice.updated"
+msgid "Workspace updated"
+msgstr ""
+
+
+msgctxt "web.notice.error"
+msgid "Could not complete the request"
+msgstr ""
+
+
+msgctxt "web.skip.content"
+msgid "Skip to main content"
+msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.dashboard.toolsNeeded"
+msgid "Platform Tools need attention"
+msgstr ""
+
+msgctxt "web.dashboard.toolsNeededDetail"
+msgid "Set up and validate ADB and Fastboot before running device actions."
+msgstr ""
+
+msgctxt "web.dashboard.toolsSetup"
+msgid "Set up Platform Tools"
+msgstr ""
+
+msgctxt "web.flash.prepare"
+msgid "Prepare review"
+msgstr ""
+
+msgctxt "web.flash.preparing"
+msgid "Preparing verified plan…"
+msgstr ""
+
+msgctxt "web.notice.dismiss"
+msgid "Dismiss message"
+msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.localPersistence"
+msgid "Preferences are saved by the PixelFlasher host on this computer."
+msgstr ""
+
+msgctxt "web.status.revision"
+msgid "Revision {revision}"
+msgstr ""
+
+msgctxt "web.flash.singleDeviceTitle"
+msgid "Choose one target device"
+msgstr ""
+
+msgctxt "web.flash.singleDeviceDetail"
+msgid "Flash operations run on one device at a time. The engine validates it again before any write."
+msgstr ""
+
+msgctxt "web.flash.exactPlan"
+msgid "Exact backend plan"
+msgstr ""
+
+msgctxt "web.flash.exactCommands"
+msgid "Exact commands"
+msgstr ""
+
+msgctxt "web.settings.contrastDetail"
+msgid "Stronger borders and text contrast throughout the workspace."
+msgstr ""
+
+msgctxt "web.settings.motionDetail"
+msgid "Disables non-essential transitions and animated progress."
+msgstr ""
+msgctxt "web.tools.recoveryDetail"
+msgid "Reboot, sideload, and inspect recovery state."
+msgstr ""
+
+msgctxt "web.tools.shellBlocked"
+msgid "Arbitrary shell input stays unavailable until a bounded command policy exists."
+msgstr ""
+
+msgctxt "web.tools.logcatDetail"
+msgid "Collect a bounded Android system log snapshot."
+msgstr ""
+
+msgctxt "web.tools.partitionDetail"
+msgid "Inspect allow-listed slots and partition metadata."
+msgstr ""
+
+msgctxt "web.tools.bootloaderDetail"
+msgid "Reboot the selected device into the bootloader."
+msgstr ""
+
+msgctxt "web.tools.integrityBlocked"
+msgid "AVB mutation stays unavailable until its typed policy is implemented."
+msgstr ""
+msgctxt "web.device.model"
+msgid "Model"
+msgstr ""
+
+msgctxt "web.device.codename"
+msgid "Codename"
+msgstr ""
+
+msgctxt "web.root.magiskDetail"
+msgid "Broad module ecosystem and Zygisk support."
+msgstr ""
+
+msgctxt "web.root.kernelSuDetail"
+msgid "Kernel-based root for supported devices."
+msgstr ""
+
+msgctxt "web.root.apatchDetail"
+msgid "Kernel patching with AndroidPatch."
+msgstr ""
+
+msgctxt "web.root.sukisuDetail"
+msgid "KernelSU-based advanced patch method."
+msgstr ""
+
+##############################################################################
+# React Root workspace messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.patchAppsRequired"
+msgid "Refresh Rooting Apps and choose a compatible verified app."
+msgstr ""
+
+msgctxt "web.root.appsTitle"
+msgid "Rooting Apps"
+msgstr ""
+
+msgctxt "web.root.appsDetail"
+msgid "Verified local APK inventory supplied by the backend."
+msgstr ""
+
+msgctxt "web.root.appsEmpty"
+msgid "Refresh to discover verified local rooting APKs."
+msgstr ""
+
+msgctxt "web.root.appInstall"
+msgid "Install app"
+msgstr ""
+
+msgctxt "web.root.appDeviceRequired"
+msgid "Select exactly one device in ADB mode to install."
+msgstr ""
+
+msgctxt "web.root.modulesTitle"
+msgid "Magisk Modules"
+msgstr ""
+
+msgctxt "web.root.modulesDetail"
+msgid "Manage modules on one rooted device in ADB mode."
+msgstr ""
+
+msgctxt "web.root.modulesEmpty"
+msgid "Refresh to list installed modules."
+msgstr ""
+
+msgctxt "web.root.moduleInstall"
+msgid "Install module ZIP"
+msgstr ""
+
+msgctxt "web.root.moduleEnable"
+msgid "Enable"
+msgstr ""
+
+msgctxt "web.root.moduleDisable"
+msgid "Disable"
+msgstr ""
+
+msgctxt "web.root.moduleRemove"
+msgid "Remove"
+msgstr ""
+
+msgctxt "web.root.moduleDeviceRequired"
+msgid "Select exactly one rooted device in ADB mode."
+msgstr ""
+
+##############################################################################
+# React Device operations messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.actions"
+msgid "Device operations"
+msgstr ""
+
+msgctxt "web.device.singleActionGuard"
+msgid "Select exactly one device to run an operation."
+msgstr ""
+
+msgctxt "web.device.rebootTarget"
+msgid "Reboot destination"
+msgstr ""
+
+msgctxt "web.device.rebootSystem"
+msgid "Android system"
+msgstr ""
+
+msgctxt "web.device.rebootRecovery"
+msgid "Recovery"
+msgstr ""
+
+msgctxt "web.device.rebootBootloader"
+msgid "Bootloader"
+msgstr ""
+
+msgctxt "web.device.rebootFastbootd"
+msgid "Fastbootd"
+msgstr ""
+
+msgctxt "web.device.rebootNow"
+msgid "Reboot now"
+msgstr ""
+
+msgctxt "web.device.slotBootloader"
+msgid "Slot and bootloader"
+msgstr ""
+
+msgctxt "web.device.switchToSlot"
+msgid "Switch to slot {slot}"
+msgstr ""
+
+msgctxt "web.device.lockBootloader"
+msgid "Lock bootloader"
+msgstr ""
+
+msgctxt "web.device.lockRequiresStockEvidence"
+msgid "Locking stays blocked until PixelFlasher verifies a complete compatible stock factory flash with no later state changes."
+msgstr ""
+
+msgctxt "web.device.unlockBootloader"
+msgid "Unlock bootloader"
+msgstr ""
+
+msgctxt "web.device.bootImage"
+msgid "Selected boot image"
+msgstr ""
+
+msgctxt "web.device.noBootImage"
+msgid "Select or patch a verified boot image first."
+msgstr ""
+
+msgctxt "web.device.partition"
+msgid "Partition"
+msgstr ""
+
+msgctxt "web.device.defaultSlot"
+msgid "Current / default slot"
+msgstr ""
+
+msgctxt "web.device.liveBoot"
+msgid "Live boot"
+msgstr ""
+
+msgctxt "web.device.flashBoot"
+msgid "Flash image"
+msgstr ""
+
+##############################################################################
+# React Tools workspace messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.scrcpy"
+msgid "Scrcpy"
+msgstr ""
+
+msgctxt "web.tools.scrcpyDetail"
+msgid "Mirror and control the selected ADB device."
+msgstr ""
+
+msgctxt "web.tools.wifi"
+msgid "Wireless ADB"
+msgstr ""
+
+msgctxt "web.tools.wifiDetail"
+msgid "Pair, connect, disconnect, and verify a numeric endpoint."
+msgstr ""
+
+msgctxt "web.tools.push"
+msgid "Push files"
+msgstr ""
+
+msgctxt "web.tools.pushDetail"
+msgid "Send selected files to one allow-listed device folder."
+msgstr ""
+
+msgctxt "web.tools.support"
+msgid "Support package"
+msgstr ""
+
+msgctxt "web.tools.supportDetail"
+msgid "Create a redacted diagnostic archive at a native destination."
+msgstr ""
+
+msgctxt "web.tools.action"
+msgid "Action"
+msgstr ""
+
+msgctxt "web.tools.status"
+msgid "Check status"
+msgstr ""
+
+msgctxt "web.tools.pair"
+msgid "Pair"
+msgstr ""
+
+msgctxt "web.tools.connect"
+msgid "Connect"
+msgstr ""
+
+msgctxt "web.tools.disconnect"
+msgid "Disconnect"
+msgstr ""
+
+msgctxt "web.tools.host"
+msgid "Numeric IP address"
+msgstr ""
+
+msgctxt "web.tools.port"
+msgid "Port"
+msgstr ""
+
+msgctxt "web.tools.pairingCode"
+msgid "Six-digit pairing code"
+msgstr ""
+
+msgctxt "web.tools.maxLines"
+msgid "Maximum lines"
+msgstr ""
+
+msgctxt "web.tools.collectLogs"
+msgid "Collect logs"
+msgstr ""
+
+msgctxt "web.tools.selectPartition"
+msgid "Selected partition"
+msgstr ""
+
+msgctxt "web.tools.partitionRead"
+msgid "Read image"
+msgstr ""
+
+msgctxt "web.tools.partitionWrite"
+msgid "Write image"
+msgstr ""
+
+msgctxt "web.tools.partitionErase"
+msgid "Erase partition"
+msgstr ""
+
+msgctxt "web.tools.destination"
+msgid "Device destination"
+msgstr ""
+
+msgctxt "web.tools.chooseFiles"
+msgid "Choose files"
+msgstr ""
+
+msgctxt "web.tools.results"
+msgid "Result"
+msgstr ""

@@ -47,6 +47,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up the locked React toolchain
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.0'
+
+      - name: Activate pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
+
       - name: Download ARM64 Python
         shell: pwsh
         run: |
@@ -103,6 +115,12 @@ jobs:
         run: |
           .\myenv\Scripts\pip.exe freeze
 
+      - name: Build React UI and gettext assets
+        shell: pwsh
+        run: |
+          $python = ".\myenv\Scripts\python.exe"
+          & $python scripts/build_frontend.py
+
       - name: Build ARM64 application
         shell: pwsh
         run: |
@@ -117,6 +135,28 @@ jobs:
           if (!(Test-Path "dist/PixelFlasher-arm64.exe")) {
             Write-Error "ARM64 executable not found"
             exit 1
+          }
+
+      - name: Verify React and locale assets are inside the executable
+        shell: pwsh
+        run: |
+          $viewer = ".\myenv\Scripts\pyi-archive_viewer.exe"
+          $archive = ((& $viewer -b -l "dist/PixelFlasher-arm64.exe") -join "`n").Replace('\', '/')
+          $required = @(
+            "ui/web/dist/index.html",
+            "ui/web/dist/i18n/manifest.json",
+            "ui/web/dist/i18n/en.json",
+            "ui/web/dist/i18n/es.json",
+            "ui/web/dist/i18n/fr.json",
+            "ui/web/dist/i18n/it.json",
+            "ui/web/dist/i18n/zh_CN.json",
+            "ui/web/dist/i18n/zh_TW.json"
+          )
+          foreach ($asset in $required) {
+            if (!$archive.Contains($asset)) {
+              Write-Error "Packaged asset missing from PixelFlasher-arm64.exe: $asset"
+              exit 1
+            }
           }
 
       - name: Sign Windows ARM64 Executable

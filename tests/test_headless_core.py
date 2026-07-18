@@ -1,0 +1,553 @@
+import ast
+import json
+import threading
+import time
+import unittest
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
+
+from pixelflasher_core import (
+    AppCommand,
+    AppSnapshot,
+    AppStateStore,
+    ApplicationRuntime,
+    BootInfo,
+    CommandExecutor,
+    CommandKind,
+    ConfigStore,
+    DeviceInfo,
+    FakeProcessTransport,
+    FakeTransportStep,
+    FirmwareInfo,
+    FlashPlan,
+    InteractionBroker,
+    InteractionDecision,
+    InteractionKind,
+    InteractionRequest,
+    OperationPlan,
+    OperationResult,
+    OperationStatus,
+    PixelFlasherEngine,
+    ProcessRequest,
+    SafetyPolicy,
+    StaleRevisionError,
+    SubprocessTransport,
+    ToolchainInfo,
+    TransportOutcome,
+)
+
+
+def process(*argv):
+    return ProcessRequest(tuple(argv))
+
+
+def plan_for(serial="SERIAL-A", *requests, **overrides):
+    values = {
+        "requests": requests or (process("fastboot", "-s", serial, "getvar", "product"),),
+        "target_serial": serial,
+    }
+    values.update(overrides)
+    return OperationPlan(**values)
+
+
+def flash_command(operation_plan, *, revision=0, operation_id="flash-op", serial="SERIAL-A"):
+    return AppCommand(
+        CommandKind.FLASH_EXECUTE,
+        expected_revision=revision,
+        target_serial=serial,
+        operation_plan=operation_plan,
+        operation_id=operation_id,
+    )
+
+
+class ContractTests(unittest.TestCase):
+    def test_stable_command_kinds_and_json_serialization(self):
+        self.assertEqual(
+            [
+                "snapshot.get",
+                "device.scan",
+                "device.select",
+                "firmware.select",
+                "flash.plan.update",
+                "flash.execute",
+            ],
+            [kind.value for kind in CommandKind],
+        )
+        snapshot = AppSnapshot(
+            revision=8,
+            devices=(DeviceInfo("A", "Pixel", "akita", "fastboot", "a", True, True),),
+            selected_serials=("A", "B"),
+            selected_serial="A",
+            firmware=FirmwareInfo("factory.zip", "factory", "AP4A", "firmware-hash", True, True),
+            boot=BootInfo("boot-1", "boot.img", "boot-hash", "init_boot", True),
+            plan=FlashPlan("wipeData", {"disable_verity": True}, 3, "plan-fingerprint"),
+            toolchain=ToolchainInfo("adb", "fastboot", "36.0.0", True),
+        )
+        result = OperationResult.success("op", value=snapshot.to_dict())
+
+        encoded = json.dumps({"snapshot": snapshot.to_dict(), "result": result.to_dict()})
+        decoded = json.loads(encoded)
+
+        self.assertEqual("snapshot", decoded["snapshot"]["event_type"])
+        self.assertEqual(["A", "B"], decoded["snapshot"]["selected_serials"])
+        self.assertEqual("firmware-hash", decoded["snapshot"]["firmware"]["hash"])
+        self.assertEqual("runtime", decoded["result"]["event_type"])
+
+    def test_operation_plan_has_an_immutable_exact_command_sequence(self):
+        operation_plan = OperationPlan(
+            requests=(process("fastboot", "devices"), process("fastboot", "getvar", "product")),
+            target_serial="A",
+            expected_device_state="fastboot",
+            firmware_hash="F",
+            boot_hash="B",
+            partitions=("boot", "vendor_boot"),
+            slots=("a", "b"),
+            data_behavior="preserve",
+            plan_revision=2,
+            fingerprint="P",
+            confirmation_nonce="N",
+        )
+
+        self.assertIsInstance(operation_plan.requests, tuple)
+        self.assertEqual(("boot", "vendor_boot"), operation_plan.partitions)
+        with self.assertRaises(AttributeError):
+            _ = operation_plan.request
+        with self.assertRaises(Exception):
+            operation_plan.slots += ("c",)
+
+    def test_core_never_imports_wx_or_legacy_runtime_modules(self):
+        package = Path(__file__).resolve().parents[1] / "pixelflasher_core"
+        forbidden = {"wx", "Main", "runtime", "pf_modules"}
+        violations = []
+        for source_path in package.glob("*.py"):
+            tree = ast.parse(source_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    roots = {alias.name.split(".", 1)[0] for alias in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    roots = {node.module.split(".", 1)[0]}
+                else:
+                    continue
+                if roots & forbidden:
+                    violations.append((source_path.name, roots & forbidden))
+        self.assertEqual([], violations)
+
+
+class StoreAndEngineTests(unittest.TestCase):
+    def test_store_revisions_and_subscription_are_canonical(self):
+        store = AppStateStore()
+        observed = []
+        subscription = store.subscribe(observed.append, emit_current=True)
+
+        updated = store.update(
+            expected_revision=0,
+            selected_serials=("A",),
+            selected_serial="A",
+        )
+        with self.assertRaises(StaleRevisionError):
+            store.update(expected_revision=0, selected_serial=None, selected_serials=())
+        subscription.cancel()
+        store.update(expected_revision=1, selected_serial=None, selected_serials=())
+
+        self.assertEqual(1, updated.revision)
+        self.assertEqual([0, 1], [snapshot.revision for snapshot in observed])
+
+    def test_stale_revision_is_an_explicit_failure(self):
+        store = AppStateStore()
+        store.update(expected_revision=0, selected_serial="A", selected_serials=("A",))
+        engine = PixelFlasherEngine(store=store)
+
+        result = engine.execute(
+            AppCommand(
+                CommandKind.FIRMWARE_SELECT,
+                expected_revision=0,
+                payload={"path": "factory.zip"},
+            )
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("stale_revision", result.code)
+
+    def test_serial_changed_while_confirming_is_blocked_before_execution(self):
+        store = AppStateStore(AppSnapshot(selected_serial="SERIAL-A"))
+        transport = FakeProcessTransport([TransportOutcome(0)])
+
+        def change_selection(_request):
+            store.update(
+                expected_revision=0,
+                selected_serials=("SERIAL-B",),
+                selected_serial="SERIAL-B",
+            )
+            return InteractionDecision.ACCEPTED
+
+        engine = PixelFlasherEngine(
+            store=store,
+            executor=CommandExecutor(transport),
+            interaction_handler=change_selection,
+        )
+        result = engine.execute(flash_command(plan_for()))
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("target_serial_changed", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_destructive_operations_are_serialized_and_revalidated(self):
+        started = threading.Event()
+        release = threading.Event()
+        transport = FakeProcessTransport(
+            [
+                FakeTransportStep(TransportOutcome(0), started, release),
+                TransportOutcome(0),
+            ]
+        )
+        engine = PixelFlasherEngine(
+            store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
+            executor=CommandExecutor(transport),
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+        )
+        results = {}
+        first = flash_command(plan_for(), operation_id="first")
+        second = flash_command(plan_for(), operation_id="second")
+        first_thread = threading.Thread(
+            target=lambda: results.setdefault("first", engine.execute(first)),
+            daemon=True,
+        )
+        second_thread = threading.Thread(
+            target=lambda: results.setdefault("second", engine.execute(second)),
+            daemon=True,
+        )
+
+        first_thread.start()
+        self.assertTrue(started.wait(1))
+        second_thread.start()
+        release.set()
+        first_thread.join(2)
+        second_thread.join(2)
+
+        self.assertFalse(first_thread.is_alive())
+        self.assertFalse(second_thread.is_alive())
+        self.assertEqual(OperationStatus.SUCCESS, results["first"].status)
+        self.assertEqual("stale_revision", results["second"].code)
+        self.assertEqual(1, transport.max_active_count)
+        self.assertEqual(1, len(transport.calls))
+
+    def test_running_operation_can_be_cancelled_explicitly(self):
+        started = threading.Event()
+        release = threading.Event()
+        transport = FakeProcessTransport(
+            [FakeTransportStep(TransportOutcome(0), started, release)]
+        )
+        engine = PixelFlasherEngine(
+            store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
+            executor=CommandExecutor(transport),
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+        )
+        command = flash_command(plan_for(), operation_id="cancel-me")
+        results = []
+        worker = threading.Thread(target=lambda: results.append(engine.execute(command)), daemon=True)
+
+        worker.start()
+        self.assertTrue(started.wait(1))
+        self.assertTrue(engine.cancel("cancel-me"))
+        worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(OperationStatus.CANCELLED, results[0].status)
+        self.assertEqual((), engine.store.snapshot().active_operations)
+
+    def test_success_failure_fail_fast_and_exact_commands(self):
+        first = process("adb", "devices", "-l")
+        second = process("fastboot", "devices")
+        success_transport = FakeProcessTransport(
+            [TransportOutcome(0, "adb-out\n"), TransportOutcome(0, "fastboot-out\n")]
+        )
+        success_engine = PixelFlasherEngine(
+            executor=CommandExecutor(success_transport),
+        )
+        success = success_engine.execute(
+            AppCommand(
+                CommandKind.DEVICE_SCAN,
+                expected_revision=0,
+                operation_plan=OperationPlan(requests=(first, second)),
+            )
+        )
+
+        self.assertEqual(OperationStatus.SUCCESS, success.status)
+        self.assertEqual("adb-out\nfastboot-out\n", success.stdout)
+        self.assertEqual([first, second], success_transport.calls)
+
+        failure_transport = FakeProcessTransport(
+            [TransportOutcome(17, "partial", "bad"), TransportOutcome(0)]
+        )
+        failure_engine = PixelFlasherEngine(executor=CommandExecutor(failure_transport))
+        failure = failure_engine.execute(
+            AppCommand(
+                CommandKind.DEVICE_SCAN,
+                expected_revision=0,
+                operation_plan=OperationPlan(requests=(first, second)),
+            )
+        )
+
+        self.assertEqual(OperationStatus.FAILED, failure.status)
+        self.assertEqual("process_failed", failure.code)
+        self.assertEqual(17, failure.exit_code)
+        self.assertEqual([first], failure_transport.calls)
+
+    def test_default_headless_policy_cancels_unconfirmed_destructive_work(self):
+        transport = FakeProcessTransport([TransportOutcome(0)])
+        engine = PixelFlasherEngine(
+            store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
+            executor=CommandExecutor(transport),
+        )
+
+        result = engine.execute(flash_command(plan_for()))
+
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("user_cancelled", result.code)
+        self.assertEqual([], transport.calls)
+
+
+class SafetyPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.snapshot = AppSnapshot(
+            revision=7,
+            devices=(DeviceInfo("SERIAL-A", mode="fastboot"),),
+            selected_serial="SERIAL-A",
+            firmware=FirmwareInfo(hash="F1"),
+            boot=BootInfo(hash="B1"),
+            plan=FlashPlan(revision=3, fingerprint="P1"),
+        )
+        self.base_plan = plan_for(
+            "SERIAL-A",
+            expected_device_state="fastboot",
+            firmware_hash="F1",
+            boot_hash="B1",
+            plan_revision=3,
+            fingerprint="P1",
+        )
+        self.policy = SafetyPolicy()
+
+    def decision_for(self, operation_plan=None, **command_changes):
+        values = {
+            "kind": CommandKind.FLASH_EXECUTE,
+            "expected_revision": 7,
+            "target_serial": "SERIAL-A",
+            "operation_plan": operation_plan or self.base_plan,
+        }
+        values.update(command_changes)
+        return self.policy.evaluate(AppCommand(**values), self.snapshot)
+
+    def test_golden_safety_mismatch_codes(self):
+        branches = {
+            "device_state_changed": replace(self.base_plan, expected_device_state="adb"),
+            "firmware_hash_changed": replace(self.base_plan, firmware_hash="F2"),
+            "boot_hash_changed": replace(self.base_plan, boot_hash="B2"),
+            "plan_revision_changed": replace(self.base_plan, plan_revision=2),
+            "plan_fingerprint_changed": replace(self.base_plan, fingerprint="P2"),
+        }
+        for expected_code, operation_plan in branches.items():
+            with self.subTest(expected_code=expected_code):
+                decision = self.decision_for(operation_plan)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(expected_code, decision.code)
+
+        stale = self.decision_for(expected_revision=6)
+        self.assertEqual("stale_revision", stale.code)
+        ambiguous = self.decision_for(target_serial="SERIAL-B")
+        self.assertEqual("ambiguous_target_serial", ambiguous.code)
+
+    def test_each_high_risk_branch_requires_a_nonce_bound_token(self):
+        for behavior in ("wipe", "erase", "switch", "unlock"):
+            with self.subTest(behavior=behavior):
+                risky = replace(
+                    self.base_plan,
+                    data_behavior=behavior,
+                    confirmation_nonce="nonce",
+                    confirmation_token=None,
+                )
+                decision = self.decision_for(risky)
+                self.assertFalse(decision.allowed)
+                self.assertEqual("reinforced_confirmation_required", decision.code)
+
+        risky = replace(
+            self.base_plan,
+            data_behavior="wipe",
+            confirmation_nonce="nonce",
+            confirmation_token=None,
+        )
+        confirmed = replace(risky, confirmation_token=risky.confirmation_challenge())
+        decision = self.decision_for(confirmed)
+        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.interaction.reinforced)
+        self.assertEqual("nonce", decision.interaction.confirmation_nonce)
+
+
+class ExecutorAndInteractionTests(unittest.TestCase):
+    def test_subprocess_transport_sets_shell_false_and_preserves_argv(self):
+        child = Mock()
+        child.returncode = 0
+        child.communicate.return_value = ("out", "err")
+        with patch("pixelflasher_core.executor.subprocess.Popen", return_value=child) as popen:
+            outcome = SubprocessTransport().run(
+                process("literal tool", "argument with spaces", "&not-a-shell-token"),
+                __import__("pixelflasher_core").CancellationToken(),
+            )
+
+        self.assertEqual(0, outcome.returncode)
+        args, kwargs = popen.call_args
+        self.assertEqual(
+            ["literal tool", "argument with spaces", "&not-a-shell-token"],
+            args[0],
+        )
+        self.assertIs(False, kwargs["shell"])
+
+    def test_interaction_broker_checks_revision_and_releases_waiters(self):
+        broker = InteractionBroker(timeout_seconds=1)
+        request = InteractionRequest(
+            "op",
+            InteractionKind.CONFIRM,
+            "Confirm",
+            "Continue?",
+            expected_revision=5,
+        )
+        decisions = []
+        worker = threading.Thread(target=lambda: decisions.append(broker.request(request)), daemon=True)
+        worker.start()
+        deadline = time.monotonic() + 1
+        while not broker.pending_requests() and time.monotonic() < deadline:
+            time.sleep(0.005)
+
+        self.assertFalse(broker.respond("op", InteractionDecision.ACCEPTED, 4))
+        self.assertTrue(broker.respond("op", InteractionDecision.ACCEPTED, 5))
+        worker.join(1)
+        self.assertEqual([InteractionDecision.ACCEPTED], decisions)
+
+        blocked = threading.Thread(target=lambda: decisions.append(broker.request(replace(request, operation_id="op2"))), daemon=True)
+        blocked.start()
+        deadline = time.monotonic() + 1
+        while not broker.pending_requests() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        broker.shutdown()
+        blocked.join(1)
+        self.assertEqual(InteractionDecision.CANCELLED, decisions[-1])
+
+
+class ConfigAndRuntimeTests(unittest.TestCase):
+    def test_legacy_config_is_preserved_versioned_backed_up_and_atomically_saved(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            legacy = {"device": "A", "firmware_path": "factory.zip", "mode": "dryRun", "theme": "dark"}
+            path.write_text(json.dumps(legacy), encoding="utf-8")
+            store = ConfigStore(path)
+
+            document = store.load()
+            self.assertEqual("dark", document.values["theme"])
+            store.save(document.with_values(theme="light"))
+
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            backup = json.loads(store.backup_path.read_text(encoding="utf-8"))
+            self.assertEqual(1, saved["_pixelflasher_core_schema"])
+            self.assertEqual("light", saved["theme"])
+            self.assertEqual(legacy, backup)
+            self.assertEqual([], list(path.parent.glob(".config.json.*.tmp")))
+
+    def test_latin1_legacy_config_is_backed_up_on_first_load(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            legacy_bytes = json.dumps(
+                {"device": "A", "label": "teléfono"},
+                ensure_ascii=False,
+            ).encode("latin-1")
+            path.write_bytes(legacy_bytes)
+            store = ConfigStore(path)
+
+            document = store.load()
+
+            self.assertEqual("teléfono", document.values["label"])
+            self.assertEqual(legacy_bytes, store.backup_path.read_bytes())
+
+    def test_runtime_broker_delivers_typed_events_and_persists_on_shutdown(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                json.dumps({"device": "SERIAL-A", "firmware_path": "factory.zip", "mode": "dryRun"}),
+                encoding="utf-8",
+            )
+            transport = FakeProcessTransport([TransportOutcome(0, "ok")])
+            runtime = ApplicationRuntime.open(
+                path,
+                transport=transport,
+                interaction_timeout_seconds=1,
+            )
+            event_types = []
+
+            def observe(event):
+                event_types.append(event.event_type)
+                if isinstance(event, InteractionRequest):
+                    self.assertTrue(
+                        runtime.respond_interaction(
+                            event.operation_id,
+                            "accepted",
+                            event.expected_revision,
+                        )
+                    )
+
+            runtime.subscribe(observe, emit_current=True)
+            command = flash_command(plan_for())
+            result = runtime.execute(command)
+            runtime.shutdown()
+
+            self.assertEqual(OperationStatus.SUCCESS, result.status)
+            self.assertTrue({"snapshot", "progress", "interaction", "runtime"} <= set(event_types))
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual("SERIAL-A", saved["device"])
+            self.assertEqual(1, saved["_pixelflasher_core_schema"])
+
+    def test_runtime_round_trips_dry_run_and_missing_field_migrates_safe(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            explicit = root / "explicit.json"
+            explicit.write_text(
+                json.dumps(
+                    {
+                        "_pixelflasher_core_state": {
+                            "plan": {
+                                "mode": "factory",
+                                "options": {"verify": True},
+                                "revision": 4,
+                                "fingerprint": "P4",
+                                "dry_run": False,
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = ApplicationRuntime.open(explicit)
+            self.assertFalse(runtime.snapshot().plan.dry_run)
+            runtime.shutdown()
+            reopened = ApplicationRuntime.open(explicit)
+            self.assertFalse(reopened.snapshot().plan.dry_run)
+            reopened.shutdown()
+
+            migrated = root / "migrated.json"
+            migrated.write_text(
+                json.dumps(
+                    {
+                        "mode": "keepData",
+                        "_pixelflasher_core_state": {
+                            "plan": {"mode": "factory", "options": {"verify": True}}
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            safe = ApplicationRuntime.open(migrated)
+            self.assertTrue(safe.snapshot().plan.dry_run)
+            safe.shutdown()
+
+
+if __name__ == "__main__":
+    unittest.main()

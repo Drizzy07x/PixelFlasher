@@ -57,6 +57,18 @@ jobs:
           python-version: '3.13'
           architecture: 'x64'
 
+      - name: Set up the locked React toolchain
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.0'
+
+      - name: Activate pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
+
       - name: Create virtual environment
         shell: pwsh
         run: python -m venv $env:VENV
@@ -92,10 +104,16 @@ jobs:
         run: |
           & $env:PYTHON_EXE -m pip freeze
 
+      - name: Build React UI and gettext assets
+        shell: pwsh
+        run: |
+          & $env:PYTHON_EXE scripts/build_frontend.py
+
       - name: Run beta-safe checks before packaging
         shell: pwsh
         run: |
-          & $env:PYTHON_EXE -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py ui/theme.py ui/icons.py ui/components/models.py tools/create_beta_bundle.py
+          & $env:PYTHON_EXE -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py config.py ui/bridge_contract.py ui/core_command_factory.py ui/pages/modern_primary_app.py ui/pages/modern_webview_host.py tools/create_beta_bundle.py
+          & $env:PYTHON_EXE -m compileall -q pixelflasher_core
           & $env:PYTHON_EXE PixelFlasher.py --self-test
           & $env:PYTHON_EXE -m unittest discover -s tests -v
 
@@ -104,6 +122,7 @@ jobs:
         run: |
           $env:VIRTUAL_ENV = "${{ github.workspace }}\$env:VENV"
           $env:PATH = "$env:VIRTUAL_ENV\Scripts;$env:PATH"
+          $env:PIXELFLASHER_FRONTEND_PREBUILT = "1"
           .\build.bat
 
       - name: Verify output exists
@@ -114,6 +133,28 @@ jobs:
             exit 1
           }
           Get-ChildItem dist
+
+      - name: Verify React and locale assets are inside the executable
+        shell: pwsh
+        run: |
+          $viewer = "${{ github.workspace }}\$env:VENV\Scripts\pyi-archive_viewer.exe"
+          $archive = ((& $viewer -b -l "dist/PixelFlasher.exe") -join "`n").Replace('\', '/')
+          $required = @(
+            "ui/web/dist/index.html",
+            "ui/web/dist/i18n/manifest.json",
+            "ui/web/dist/i18n/en.json",
+            "ui/web/dist/i18n/es.json",
+            "ui/web/dist/i18n/fr.json",
+            "ui/web/dist/i18n/it.json",
+            "ui/web/dist/i18n/zh_CN.json",
+            "ui/web/dist/i18n/zh_TW.json"
+          )
+          foreach ($asset in $required) {
+            if (!$archive.Contains($asset)) {
+              Write-Error "Packaged asset missing from PixelFlasher.exe: $asset"
+              exit 1
+            }
+          }
 
       - name: Sign Windows Executable
         if: ${{ env.SIGN_WINDOWS == 'true' }}

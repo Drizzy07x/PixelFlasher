@@ -53,13 +53,6 @@ def _run_cli_command(argv):
         "--diagnostics",
         "--version",
         "-V",
-        "--modern-dashboard",
-        "--modern-shell",
-        "--flash-wizard",
-        "--modern-dashboard-preview",
-        "--modern-shell-preview",
-        "--flash-wizard-preview",
-        "--flash-wizard-demo",
         "--help",
         "-h",
     }
@@ -74,12 +67,6 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --doctor        Alias for --self-test")
         print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
         print("  python PixelFlasher.py --version       Print version")
-        print("  python PixelFlasher.py --modern-dashboard")
-        print("                                      Launch standalone modern dashboard")
-        print("  python PixelFlasher.py --modern-shell")
-        print("                                      Launch standalone modern shell")
-        print("  python PixelFlasher.py --flash-wizard")
-        print("                                      Launch standalone flash wizard")
         raise SystemExit(0)
 
     if "--version" in argv or "-V" in argv:
@@ -96,19 +83,6 @@ def _run_cli_command(argv):
         from diagnostics import main as diagnostics_main
         filtered = [arg for arg in argv[1:] if arg != "--diagnostics"]
         raise SystemExit(diagnostics_main(filtered))
-
-    if "--modern-dashboard" in argv or "--modern-dashboard-preview" in argv:
-        from ui.pages.dashboard_app import main as dashboard_preview_main
-        raise SystemExit(dashboard_preview_main())
-
-    if "--modern-shell" in argv or "--modern-shell-preview" in argv:
-        from ui.pages.modern_shell_app import main as modern_shell_preview_main
-        raise SystemExit(modern_shell_preview_main())
-
-    if "--flash-wizard" in argv or "--flash-wizard-preview" in argv or "--flash-wizard-demo" in argv:
-        from ui.pages.flash_wizard_app import main as flash_wizard_preview_main
-        raise SystemExit(flash_wizard_preview_main(demo="--flash-wizard-demo" in argv))
-
 
 _run_cli_command(sys.argv)
 

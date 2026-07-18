@@ -48,6 +48,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up the locked React toolchain
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.0'
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm --version
+
       - name: Set up Python 3.13
         run: |
           sudo apt update
@@ -76,7 +87,7 @@ jobs:
           sudo apt-get install -y libnotify-dev
           sudo apt-get install -y libsm-dev
           # Install tools needed for AppImage creation
-          sudo apt-get install -y patchelf curl zsync
+          sudo apt-get install -y patchelf curl zsync xvfb xauth xdotool
 
       - name: Create virtual environment and install dependencies
         run: |
@@ -89,10 +100,46 @@ jobs:
           pip install --only-binary wxPython -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 wxPython==4.2.1 || \
           pip install -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 wxPython
           pip install -r requirements.txt
+          python scripts/build_frontend.py
+          xvfb-run -a python - <<'PY'
+          import wx
+          import wx.html2 as html2
+
+          app = wx.App(False)
+          backend = html2.WebViewBackendWebKit
+          if not html2.WebView.IsBackendAvailable(backend):
+              raise SystemExit(f"wx WebKit backend is unavailable: {backend}")
+          frame = wx.Frame(None)
+          view = html2.WebView.New(frame, backend=backend)
+          if view is None:
+              raise SystemExit("wx WebKit WebView could not be created")
+          print(f"Verified wx WebView backend: {backend}")
+          frame.Destroy()
+          PY
           python --version && pip freeze
-          ./build.sh
+          PIXELFLASHER_FRONTEND_PREBUILT=1 ./build.sh
           ls dist
         shell: bash
+
+      - name: Verify React and locale assets are inside the bundled executable
+        shell: bash
+        run: |
+          archive_listing="$(myenv/bin/pyi-archive-viewer -b -l dist/PixelFlasher | tr '\\' '/')"
+          for asset in \
+            ui/web/dist/index.html \
+            ui/web/dist/i18n/manifest.json \
+            ui/web/dist/i18n/en.json \
+            ui/web/dist/i18n/es.json \
+            ui/web/dist/i18n/fr.json \
+            ui/web/dist/i18n/it.json \
+            ui/web/dist/i18n/zh_CN.json \
+            ui/web/dist/i18n/zh_TW.json
+          do
+            if ! grep -Fq "$asset" <<<"$archive_listing"; then
+              echo "Packaged asset missing from AppImage executable: $asset"
+              exit 1
+            fi
+          done
 
       - name: Create .desktop file
         run: |
@@ -181,6 +228,28 @@ jobs:
           cat PixelFlasher-x86_64.AppImage.sha256
           ls -la
         shell: bash
+
+      - name: Launch AppImage default entrypoint under Xvfb
+        run: |
+          set -euo pipefail
+          launch_log="$RUNNER_TEMP/pixelflasher-appimage-default.log"
+          config_dir="$RUNNER_TEMP/pixelflasher-appimage-config"
+          mkdir -p "$config_dir"
+          if ! xvfb-run -a bash -ceu '
+            export XDG_CONFIG_HOME="$1"
+            export APPIMAGE_EXTRACT_AND_RUN=1
+            "$2" >"$3" 2>&1 &
+            app_pid=$!
+            cleanup() { kill "$app_pid" 2>/dev/null || true; }
+            trap cleanup EXIT
+            timeout 30s xdotool search --sync --onlyvisible --name "PixelFlasher" >/dev/null
+            kill -0 "$app_pid"
+          ' bash "$config_dir" "$GITHUB_WORKSPACE/dist/PixelFlasher-x86_64.AppImage" "$launch_log"; then
+            cat "$launch_log"
+            exit 1
+          fi
+          cat "$launch_log"
+          ! grep -F "Modern UI WebView is not available" "$launch_log"
 
       # Upload artifacts
       - name: Upload AppImage Artifact
