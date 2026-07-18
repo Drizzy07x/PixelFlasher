@@ -73,6 +73,17 @@ def _sdk_major_version(sdk_version):
     return None
 
 
+def _kernelsu_lkm_supports_magiskboot(patch_flavor, version_code):
+    """Return whether this LKM patcher version still accepts --magiskboot."""
+    magiskboot_removed_at = {
+        'SukiSU_LKM': 40796,
+        'KernelSU_LKM': 32525,
+        'KernelSU-Next_LKM': 33214,
+    }
+    removed_at = magiskboot_removed_at.get(patch_flavor)
+    return removed_at is None or version_code < removed_at
+
+
 def _modern_progress(self, label, percent=None, detail='', active=True, indeterminate=False, tone='warning'):
     targets = (getattr(self, "_modern_dialog_parent", None), self)
     seen = set()
@@ -2986,7 +2997,10 @@ def patch_boot_img(self, patch_flavor = 'Magisk'):
                 kmi_override = f" --kmi {self.config.override_kmi}"
                 data += "echo \"Overriding KMI ...\"\n"
             data += "NEWEST_FILE1=$(ls -t | head -n 1)\n"
-            data += f"./{ksud_mount} boot-patch -b {phone_path}/{boot_img} --magiskboot {magiskboot} --allow-shell{kmi_override} | tee temp_file\n"
+            magiskboot_arg = ''
+            if _kernelsu_lkm_supports_magiskboot(patch_flavor, version_code_int):
+                magiskboot_arg = f" --magiskboot {magiskboot}"
+            data += f"./{ksud_mount} boot-patch -b {phone_path}/{boot_img}{magiskboot_arg} --allow-shell{kmi_override} | tee temp_file\n"
 
             data += "OUTPUT_FILE=$(grep -o '/data/local/tmp/pf/assets/[^ ]*' \"temp_file\" | tail -n 1 | xargs basename)\n"
             data += "echo \"OUTPUT_FILE: [${OUTPUT_FILE}]\"\n"
@@ -6974,7 +6988,7 @@ def flash_phone(self):
                 device = get_phone()
                 if device:
                     _modern_progress(self, progress_label, 92, "Rebooting system", indeterminate=True)
-                    timeout = 90
+                    timeout = self.config.reboot_to_system_timeout or 90
                     res = device.reboot_system(timeout=timeout, wait_for_device=not wipe_flag)
                     if res == -1:
                         print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while rebooting to system")

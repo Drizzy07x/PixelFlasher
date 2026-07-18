@@ -191,6 +191,11 @@ class AdvancedSettings(wx.Dialog):
         self.force_codepage_checkbox.SetToolTip(_("Uses specified code page instead of system code page"))
         self.code_page = wx.TextCtrl(parent=scrolled_panel, id=wx.ID_ANY, size=(-1, -1))
 
+        # Reboot to system timeout
+        self.reboot_to_system_timeout_label = wx.StaticText(parent=scrolled_panel, id=wx.ID_ANY, label=_("Reboot to system timeout (seconds)"))
+        self.reboot_to_system_timeout_label.SetToolTip(_("Sets how long PixelFlasher waits for Android to start after flashing."))
+        self.reboot_to_system_timeout = wx.SpinCtrl(parent=scrolled_panel, id=wx.ID_ANY, min=1, max=3600, initial=90)
+
         # Delete Bundle libs
         self.delete_bundled_libs_label = wx.StaticText(parent=scrolled_panel, id=wx.ID_ANY, label=_("Delete bundled libs"))
         self.delete_bundled_libs_label.SetToolTip(_("The listed libraries would be deleted from the PF bundle to allow system defined ones to be used."))
@@ -280,6 +285,7 @@ class AdvancedSettings(wx.Dialog):
         self.sanitize_support_files.SetValue(self.Parent.config.sanitize_support_files)
         self.kb_index_cb.SetValue(self.Parent.config.kb_index)
         self.force_codepage_checkbox.SetValue(self.Parent.config.force_codepage)
+        self.reboot_to_system_timeout.SetValue(self.Parent.config.reboot_to_system_timeout)
         self.delete_bundled_libs.SetValue(self.Parent.config.delete_bundled_libs)
         self.override_kmi.SetValue(self.Parent.config.override_kmi)
         self.code_page.SetValue(str(self.Parent.config.custom_codepage))
@@ -358,6 +364,9 @@ class AdvancedSettings(wx.Dialog):
 
         fgs1.Add(self.force_codepage_checkbox, 0, wx.EXPAND)
         fgs1.Add(self.code_page, 1, wx.EXPAND)
+
+        fgs1.Add(self.reboot_to_system_timeout_label, 0, wx.EXPAND)
+        fgs1.Add(self.reboot_to_system_timeout, 1, wx.EXPAND)
 
         fgs1.Add(self.delete_bundled_libs_label, 0, wx.EXPAND)
         fgs1.Add(self.delete_bundled_libs, 1, wx.EXPAND)
@@ -595,6 +604,11 @@ class AdvancedSettings(wx.Dialog):
             self.Parent.config.force_codepage = self.force_codepage_checkbox.GetValue()
             if self.code_page.GetValue() and self.code_page.GetValue().isnumeric():
                 self.Parent.config.custom_codepage = int(self.code_page.GetValue())
+
+            value = self.reboot_to_system_timeout.GetValue()
+            if value != self.Parent.config.reboot_to_system_timeout:
+                sys.stdout.write(f"Setting Reboot to system timeout to: {value}\n")
+                self.Parent.config.reboot_to_system_timeout = value
 
             value = self.delete_bundled_libs.GetValue()
             if value is None:
