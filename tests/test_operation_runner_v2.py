@@ -933,8 +933,17 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         )
         token = CancellationToken()
 
-        def fail_cleanup(command, _plan, cancellation):
+        def succeed_then_cancel(command, _plan, cancellation):
             cancellation.cancel()
+            return OperationResult.success(
+                command.operation_id,
+                code="scrcpy_launched",
+                value={"pid": 4242},
+            )
+
+        def fail_cleanup(result, cancellation):
+            self.assertTrue(result.ok)
+            self.assertIs(token, cancellation)
             return OperationResult.failed(
                 command.operation_id,
                 code="managed_process_termination_failed",
@@ -948,11 +957,58 @@ class OperationRunnerStatefulTests(unittest.TestCase):
             command,
             plan,
             cancellation=token,
-            operation_executor=fail_cleanup,
+            operation_executor=succeed_then_cancel,
+            cancellation_cleanup=fail_cleanup,
         )
 
         self.assertEqual(OperationStatus.FAILED, result.status)
         self.assertEqual("managed_process_termination_failed", result.code)
+
+    def test_read_only_late_cancellation_runs_cleanup_before_status_mapping(self):
+        plan = read_only_plan()
+        command = AppCommand(
+            "tools.scrcpy",
+            expected_revision=7,
+            target_serial=plan.target_serial,
+            operation_plan=plan,
+            operation_id="read-only-late-cancel-cleanup",
+        )
+        token = CancellationToken()
+        launched = OperationResult.success(
+            command.operation_id,
+            code="scrcpy_launched",
+            value={"pid": 4242},
+        )
+        cleanup_calls = []
+
+        def finish_launch(_command, _plan, _cancellation):
+            return launched
+
+        def cancel_after_launch(result, cancellation):
+            self.assertIs(launched, result)
+            self.assertIs(token, cancellation)
+            cancellation.cancel()
+            return result
+
+        def cleanup(result, cancellation):
+            cleanup_calls.append((result, cancellation))
+            return result
+
+        result = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot_for(),
+        ).execute(
+            command,
+            plan,
+            cancellation=token,
+            operation_executor=finish_launch,
+            result_transformer=cancel_after_launch,
+            cancellation_cleanup=cleanup,
+        )
+
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("cancelled", result.code)
+        self.assertEqual([(launched, token)], cleanup_calls)
 
     def test_process_failure_is_unknown_only_when_target_cannot_be_observed(self):
         plan = destructive_plan()

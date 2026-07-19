@@ -45,6 +45,10 @@ OperationResultTransformer = Callable[
     [OperationResult, CancellationToken],
     OperationResult,
 ]
+CancellationCleanup = Callable[
+    [OperationResult, CancellationToken],
+    OperationResult,
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +155,7 @@ class OperationRunner:
         postcondition_observer: PostconditionObserverLike | None = None,
         operation_executor: OperationExecutor | None = None,
         result_transformer: OperationResultTransformer | None = None,
+        cancellation_cleanup: CancellationCleanup | None = None,
         before_execution: ExecutionBoundary | None = None,
     ) -> OperationResult:
         """Execute one plan.  This method never returns ``None``."""
@@ -288,6 +293,7 @@ class OperationRunner:
                 token,
                 operation_executor,
                 result_transformer,
+                cancellation_cleanup,
                 before_execution,
             )
         except Exception as error:
@@ -607,6 +613,7 @@ class OperationRunner:
         token: CancellationToken,
         operation_executor: OperationExecutor | None,
         result_transformer: OperationResultTransformer | None,
+        cancellation_cleanup: CancellationCleanup | None,
         before_execution: ExecutionBoundary | None,
     ) -> OperationResult:
         mutating = not plan.dry_run and (
@@ -744,13 +751,45 @@ class OperationRunner:
                         message="result verification returned no typed result",
                     )
                 )
-        if not mutating and token.cancelled:
+        # This single read is the read-only completion linearization point.
+        # A stop already visible here owns cleanup; a later stop races after
+        # the operation has truthfully completed and cannot rewrite success.
+        cancelled_after_execution = token.cancelled
+        if result.status is OperationStatus.CANCELLED or cancelled_after_execution:
+            if mutating:
+                return self._unknown_after_mutation(
+                    plan,
+                    snapshot,
+                    provider,
+                    observer,
+                    command.operation_id,
+                    "cancellation arrived after mutation began",
+                    result,
+                )
+            if cancelled_after_execution and cancellation_cleanup is not None:
+                try:
+                    cleaned_result = cancellation_cleanup(result, token)
+                except Exception:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="cancellation_cleanup_failed",
+                        message="post-execution cancellation cleanup failed",
+                    )
+                if not isinstance(cleaned_result, OperationResult):
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="invalid_cancellation_cleanup",
+                        message="post-execution cancellation cleanup returned no typed result",
+                    )
+                result = cleaned_result
+                if result.status is OperationStatus.FAILED:
+                    return result
             if (
                 result.status is OperationStatus.FAILED
                 and result.code == "managed_process_termination_failed"
             ):
                 return result
-            if token.reason is CancellationReason.DEADLINE:
+            if cancelled_after_execution and token.reason is CancellationReason.DEADLINE:
                 return OperationResult.failed(
                     command.operation_id,
                     code="timed_out",
@@ -768,18 +807,6 @@ class OperationRunner:
                 stdout=result.stdout,
                 stderr=result.stderr,
             )
-        if result.status is OperationStatus.CANCELLED or token.cancelled:
-            if mutating:
-                return self._unknown_after_mutation(
-                    plan,
-                    snapshot,
-                    provider,
-                    observer,
-                    command.operation_id,
-                    "cancellation arrived after mutation began",
-                    result,
-                )
-            return result
         if not result.ok:
             if mutating:
                 if command.kind == "tools.pushFiles":

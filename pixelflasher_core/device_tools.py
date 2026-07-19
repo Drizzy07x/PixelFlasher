@@ -227,6 +227,12 @@ class SecretProcessRunner(Protocol):
         cancellation: CancellationToken,
     ) -> TransportOutcome: ...
 
+    def shutdown(self) -> None: ...
+
+
+class ManagedProcessTerminationError(RuntimeError):
+    """A child process could not be stopped and remains tracked for shutdown."""
+
 
 class ManagedProcessLauncher:
     """Start argv-only GUI children and reap or terminate them on shutdown."""
@@ -273,18 +279,20 @@ class ManagedProcessLauncher:
         if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
             return False
         with self._lock:
-            process = self._children.pop(pid, None)
-        if process is None:
-            return False
-        return self._stop_child(process)
+            process = self._children.get(pid)
+            if process is None:
+                return False
+            if not self._stop_child(process):
+                return False
+            self._children.pop(pid, None)
+            return True
 
     def shutdown(self) -> None:
         with self._lock:
             self._closed = True
-            children = tuple(self._children.values())
-            self._children.clear()
-        for process in children:
-            self._stop_child(process)
+            for pid, process in tuple(self._children.items()):
+                if self._stop_child(process):
+                    self._children.pop(pid, None)
 
     def _reap_finished(self) -> None:
         finished = [pid for pid, process in self._children.items() if process.poll() is not None]
@@ -347,6 +355,11 @@ class SubprocessSecretRunner:
     default_output_limit_bytes = 64 * 1_024
     read_chunk_bytes = 16 * 1_024
 
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._children: dict[int, subprocess.Popen[bytes]] = {}
+        self._closed = False
+
     def run(
         self,
         request: ProcessRequest,
@@ -358,22 +371,27 @@ class SubprocessSecretRunner:
             environment = os.environ.copy()
             environment.update(dict(request.env))
         limit = request.output_limit_bytes or self.default_output_limit_bytes
-        process: subprocess.Popen[bytes] = subprocess.Popen(  # noqa: S603 - reviewed argv, shell disabled
-            list(request.argv),
-            cwd=request.cwd,
-            env=environment,
-            shell=False,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            start_new_session=not sys.platform.startswith("win"),
-            creationflags=(
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                if sys.platform.startswith("win")
-                else 0
-            ),
-        )
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("secret process runner has shut down")
+            self._reap_finished()
+            process: subprocess.Popen[bytes] = subprocess.Popen(  # noqa: S603 - reviewed argv, shell disabled
+                list(request.argv),
+                cwd=request.cwd,
+                env=environment,
+                shell=False,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                start_new_session=not sys.platform.startswith("win"),
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    if sys.platform.startswith("win")
+                    else 0
+                ),
+            )
+            self._children[process.pid] = process
         assert process.stdin is not None
         assert process.stdout is not None
         assert process.stderr is not None
@@ -440,20 +458,26 @@ class SubprocessSecretRunner:
         deadline = time.monotonic() + request.timeout_seconds if request.timeout_seconds is not None else None
         cancelled = False
         timed_out = False
+        termination_failed = False
         while process.poll() is None:
             if output_limited.is_set():
-                self._stop_process(process)
+                termination_failed = not self._stop_process(process)
                 break
             if cancellation.cancelled:
                 cancelled = cancellation.reason is CancellationReason.USER
                 timed_out = cancellation.reason is CancellationReason.DEADLINE
-                self._stop_process(process)
+                termination_failed = not self._stop_process(process)
                 break
             if deadline is not None and time.monotonic() >= deadline:
                 timed_out = True
-                self._stop_process(process)
+                termination_failed = not self._stop_process(process)
                 break
             cancellation.wait(self.poll_interval_seconds)
+
+        if termination_failed and process.poll() is None:
+            raise ManagedProcessTerminationError(
+                "secret process could not be terminated and remains tracked"
+            )
 
         for reader in readers:
             reader.join(timeout=1)
@@ -461,6 +485,10 @@ class SubprocessSecretRunner:
             if reader.is_alive():
                 stream.close()
                 reader.join(timeout=1)
+
+        with self._lock:
+            if process.poll() is not None:
+                self._children.pop(process.pid, None)
 
         return TransportOutcome(
             process.returncode,
@@ -472,8 +500,20 @@ class SubprocessSecretRunner:
         )
 
     @staticmethod
-    def _stop_process(process: subprocess.Popen[bytes]) -> None:
-        ManagedProcessLauncher._stop_child(process)
+    def _stop_process(process: subprocess.Popen[bytes]) -> bool:
+        return ManagedProcessLauncher._stop_child(process)
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._closed = True
+            for pid, process in tuple(self._children.items()):
+                if self._stop_process(process):
+                    self._children.pop(pid, None)
+
+    def _reap_finished(self) -> None:
+        for pid, process in tuple(self._children.items()):
+            if process.poll() is not None:
+                self._children.pop(pid, None)
 
 
 class DeviceToolPlanningError(ValueError):
@@ -1371,6 +1411,12 @@ class DeviceToolsService:
                 )
                 if not isinstance(outcome, TransportOutcome):
                     raise TypeError("secret runner returned an invalid outcome")
+            except ManagedProcessTerminationError:
+                return OperationResult.failed(
+                    operation_id,
+                    code="managed_process_termination_failed",
+                    message="ADB Wi-Fi pairing cancellation could not terminate the managed process",
+                )
             except Exception:
                 return OperationResult.failed(
                     operation_id,
@@ -1416,6 +1462,43 @@ class DeviceToolsService:
             code="device_tool_execution_invalid",
             message="the requested device-tool action has no special executor",
         )
+
+    def cleanup_cancelled_special(
+        self,
+        compilation: DeviceToolCompilation,
+        result: OperationResult,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        """Release a launched resource when the runner observes late cancellation."""
+
+        if (
+            compilation.execution != _EXECUTION_LAUNCH
+            or compilation.action != "scrcpy"
+            or not cancellation.cancelled
+            or not result.ok
+        ):
+            return result
+        raw_value = cast(object, result.value)
+        pid: object = None
+        if isinstance(raw_value, Mapping):
+            pid = cast(Mapping[object, object], raw_value).get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return OperationResult.failed(
+                result.operation_id,
+                code="managed_process_termination_failed",
+                message="scrcpy cancellation could not identify the managed process",
+            )
+        try:
+            terminated = self.process_launcher.terminate(pid)
+        except Exception:
+            terminated = False
+        if not terminated:
+            return OperationResult.failed(
+                result.operation_id,
+                code="managed_process_termination_failed",
+                message="scrcpy cancellation could not terminate the managed process",
+            )
+        return result
 
     def finalize_result(
         self,
@@ -1619,12 +1702,13 @@ class DeviceToolsService:
         )
 
     def shutdown(self) -> None:
-        """Terminate managed scrcpy children owned by this service."""
+        """Terminate every managed child owned by this service."""
 
-        try:
-            self.process_launcher.shutdown()
-        except Exception:
-            pass
+        for boundary in (self.process_launcher, self.secret_runner):
+            try:
+                boundary.shutdown()
+            except Exception:
+                pass
 
     def _compile_logcat(
         self,
@@ -2252,6 +2336,7 @@ __all__ = [
     "DeviceInspectionParseError",
     "MdnsDiscoveryParseError",
     "LaunchOutcome",
+    "ManagedProcessTerminationError",
     "ManagedProcessLauncher",
     "ProcessLauncher",
     "PushFileReceipt",

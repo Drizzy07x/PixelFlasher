@@ -548,6 +548,52 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             self.assertEqual("managed_process_termination_failed", result.code)
             self.assertEqual([4242], launcher.terminated)
 
+    def test_scrcpy_late_cancellation_is_cleaned_by_operation_runner(self):
+        class LateCancellationService(DeviceToolsService):
+            def execute_special(self, compilation, operation_id, cancellation):
+                launched = self.process_launcher.launch(compilation.plan.request)
+                result = OperationResult.success(
+                    operation_id,
+                    code="scrcpy_launched",
+                    value={
+                        "action": "scrcpy",
+                        "targetSerial": compilation.plan.target_serial,
+                        "pid": launched.pid,
+                    },
+                )
+                cancellation.cancel()
+                return result
+
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / (
+                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            )
+            write_scrcpy_executable(executable)
+            launcher = RecordingLauncher()
+            engine, transport = self.engine_for(
+                "adb",
+                [],
+                device_tools_service=LateCancellationService(
+                    scrcpy_executable=executable,
+                    process_launcher=launcher,
+                ),
+            )
+
+            result = engine.execute(
+                AppCommand(
+                    "tools.scrcpy",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    operation_id="scrcpy-late-cancel",
+                )
+            )
+
+            self.assertEqual(OperationStatus.CANCELLED, result.status)
+            self.assertEqual("cancelled", result.code)
+            self.assertEqual([4242], launcher.terminated)
+            self.assertEqual([], transport.calls)
+            engine.shutdown()
+
     def test_scrcpy_launch_failure_is_explicit_and_does_not_fake_success(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / ("scrcpy.exe" if sys.platform.startswith("win") else "scrcpy")

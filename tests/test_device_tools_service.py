@@ -23,6 +23,7 @@ from pixelflasher_core.device_tools import (
     DeviceToolsService,
     LaunchOutcome,
     ManagedProcessLauncher,
+    ManagedProcessTerminationError,
     SubprocessSecretRunner,
 )
 from pixelflasher_core.executor import CancellationToken, TransportOutcome
@@ -712,6 +713,20 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertEqual("", limited.stdout)
         self.assertEqual("", limited.stderr)
 
+        class UnstoppableSecretRunner(RecordingSecretRunner):
+            def run(self, request, secret, cancellation):
+                raise ManagedProcessTerminationError("still running")
+
+        cleanup_failed = DeviceToolsService(
+            secret_runner=UnstoppableSecretRunner(TransportOutcome(0))
+        ).execute_special(
+            pair,
+            "pair-cleanup-failed",
+            CancellationToken(),
+        )
+        self.assertIs(OperationStatus.FAILED, cleanup_failed.status)
+        self.assertEqual("managed_process_termination_failed", cleanup_failed.code)
+
         safety_failure = OperationResult.failed(
             "pair-guarded",
             code="postcondition_unverified",
@@ -812,6 +827,34 @@ class DeviceToolsServiceTests(unittest.TestCase):
         finally:
             launcher.shutdown()
 
+    def test_failed_scrcpy_termination_stays_tracked_for_shutdown_retry(self):
+        process = MagicMock()
+        process.pid = 4242
+        process.poll.return_value = None
+        process.wait.side_effect = subprocess.TimeoutExpired("scrcpy.exe", 0.1)
+        with (
+            patch(
+                "pixelflasher_core.device_tools.subprocess.Popen",
+                return_value=process,
+            ),
+            patch.object(
+                ManagedProcessLauncher,
+                "_stop_child",
+                side_effect=(False, True),
+            ) as stop_child,
+        ):
+            launcher = ManagedProcessLauncher()
+            outcome = launcher.launch(
+                ProcessRequest(("scrcpy.exe", "--serial", "SERIAL"))
+            )
+
+            self.assertFalse(launcher.terminate(outcome.pid))
+            self.assertIn(outcome.pid, launcher._children)
+            launcher.shutdown()
+
+        self.assertEqual(2, stop_child.call_count)
+        self.assertNotIn(outcome.pid, launcher._children)
+
     def test_default_pair_runner_writes_secret_to_stdin_never_argv(self):
         real_popen = subprocess.Popen
         with patch(
@@ -889,6 +932,45 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 3)
         self.assertTrue(outcome.timed_out)
         self.assertFalse(outcome.cancelled)
+
+    def test_pair_runner_tracks_child_when_forced_termination_fails(self):
+        runner = SubprocessSecretRunner()
+        token = CancellationToken()
+        token.cancel()
+        original_stop = ManagedProcessLauncher._stop_child
+        attempts = 0
+
+        def fail_once_then_stop(process):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return False
+            return original_stop(process)
+
+        with patch.object(
+            ManagedProcessLauncher,
+            "_stop_child",
+            side_effect=fail_once_then_stop,
+        ):
+            with self.assertRaises(ManagedProcessTerminationError):
+                runner.run(
+                    ProcessRequest(
+                        (
+                            sys.executable,
+                            "-c",
+                            "import sys,time; sys.stdin.readline(); time.sleep(30)",
+                        ),
+                        timeout_seconds=10,
+                        output_limit_bytes=1_024,
+                    ),
+                    "123456",
+                    token,
+                )
+            self.assertEqual(1, len(runner._children))
+            runner.shutdown()
+
+        self.assertGreaterEqual(attempts, 2)
+        self.assertEqual({}, runner._children)
 
 
 if __name__ == "__main__":

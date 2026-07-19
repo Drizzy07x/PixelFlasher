@@ -70,6 +70,7 @@ from .firmware_artifacts import (
 )
 from .interaction import InteractionTimeoutError
 from .operation_runner import (
+    CancellationCleanup,
     ExecutionBoundaryAck,
     OperationExecutor,
     OperationRunner,
@@ -600,6 +601,13 @@ class CommandEngine:
                     lambda _command, _plan, cancellation: self.device_tools_service.execute_special(
                         compilation,
                         command.operation_id,
+                        cancellation,
+                    )
+                ),
+                cancellation_cleanup=(
+                    lambda result, cancellation: self.device_tools_service.cleanup_cancelled_special(
+                        compilation,
+                        result,
                         cancellation,
                     )
                 ),
@@ -2176,6 +2184,7 @@ class CommandEngine:
         completion_boot: CompletionBoot | None = None,
         cancellation: CancellationToken | None = None,
         operation_executor: OperationExecutor | None = None,
+        cancellation_cleanup: CancellationCleanup | None = None,
     ) -> OperationResult:
         assert command.operation_plan is not None
         token = cancellation
@@ -2337,6 +2346,7 @@ class CommandEngine:
                     postcondition_observer=self.postcondition_observer,
                     operation_executor=operation_executor,
                     result_transformer=result_finalizer,
+                    cancellation_cleanup=cancellation_cleanup,
                     before_execution=begin_at_validated_boundary,
                 )
                 if result.ok and result_parser is not None:
