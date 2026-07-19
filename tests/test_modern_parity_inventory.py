@@ -351,6 +351,25 @@ class ModernParityInventoryTests(unittest.TestCase):
             logs["tests"],
         )
 
+    def test_device_inspection_inventory_closes_the_per_slot_gate(self):
+        rows = {row["id"]: row for row in self.capabilities}
+        inspection = rows["device.inspect"]
+
+        self.assertEqual("native", inspection["modernStatus"])
+        self.assertEqual("", inspection["gap"])
+        self.assertIn(
+            "pixelflasher_core/bootloader_inspection.py",
+            inspection["currentEvidence"],
+        )
+        self.assertIn(
+            "tests/test_bootloader_slot_service.py",
+            inspection["tests"],
+        )
+        self.assertIn(
+            "ui/web/src/test/device-inspection.test.tsx",
+            inspection["tests"],
+        )
+
     def test_every_registered_bridge_command_has_one_parity_owner(self):
         inventoried = [
             command_id

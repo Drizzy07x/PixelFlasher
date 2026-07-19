@@ -67,7 +67,9 @@ def command(action: str) -> AppCommand:
 
 class DeviceInspectionServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.service = DeviceToolsService()
+        self.service = DeviceToolsService(
+            bootloader_prefixes={"akita": "akita"},
+        )
         self.snapshot = snapshot()
 
     def compile(self, action: str):
@@ -75,23 +77,42 @@ class DeviceInspectionServiceTests(unittest.TestCase):
 
     def test_each_action_compiles_one_exact_serial_revision_and_codename_bound_argv(self):
         expected = {
-            "properties": ("ADB", "-s", "SERIAL", "shell", "getprop"),
-            "bootloaderVersions": ("ADB", "-s", "SERIAL", "shell", "getprop"),
-            "pifPrint": ("ADB", "-s", "SERIAL", "shell", "getprop"),
-            "screenXml": (
-                "ADB",
-                "-s",
-                "SERIAL",
-                "exec-out",
-                "uiautomator",
-                "dump",
-                "/dev/tty",
+            "properties": (("ADB", "-s", "SERIAL", "shell", "getprop"),),
+            "bootloaderVersions": (
+                ("ADB", "-s", "SERIAL", "shell", "getprop"),
+                ("ADB", "-s", "SERIAL", "shell", "su", "0", "id", "-u"),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL",
+                    "exec-out",
+                    "su",
+                    "0",
+                    "toybox",
+                    "cat",
+                    "/dev/block/by-name/abl_a",
+                ),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL",
+                    "exec-out",
+                    "su",
+                    "0",
+                    "toybox",
+                    "cat",
+                    "/dev/block/by-name/abl_b",
+                ),
             ),
+            "pifPrint": (("ADB", "-s", "SERIAL", "shell", "getprop"),),
+            "screenXml": ((
+                "ADB", "-s", "SERIAL", "exec-out", "uiautomator", "dump", "/dev/tty",
+            ),),
         }
-        for action, argv in expected.items():
+        for action, requests in expected.items():
             with self.subTest(action=action):
                 compilation = self.compile(action)
-                self.assertEqual(argv, compilation.plan.request.argv)
+                self.assertEqual(requests, tuple(item.argv for item in compilation.plan.requests))
                 self.assertEqual("SERIAL", compilation.plan.target_serial)
                 self.assertEqual(7, compilation.plan.snapshot_revision)
                 self.assertEqual("akita", compilation.plan.expected_codename)
@@ -101,6 +122,10 @@ class DeviceInspectionServiceTests(unittest.TestCase):
                 self.assertFalse(compilation.device_write)
                 self.assertFalse(compilation.destructive)
                 self.assertFalse(compilation.requires_confirmation)
+                if action == "bootloaderVersions":
+                    self.assertEqual(("abl_a", "abl_b"), compilation.plan.partitions)
+                    self.assertEqual(("a", "b"), compilation.plan.slots)
+                    self.assertEqual("bootloader-slot-stream", compilation.execution)
 
     def test_action_and_payload_injection_fail_before_execution(self):
         for action in (
@@ -165,16 +190,7 @@ class DeviceInspectionServiceTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
         self.assertNotIn("PRIVATE-SERIAL", json.dumps(result.to_dict()))
 
-    def test_bootloader_and_pif_reports_are_typed_and_fail_closed_when_incomplete(self):
-        bootloader = self.service.finalize_inspection(
-            self.compile("bootloaderVersions"),
-            OperationResult.success("bootloader", stdout=GETPROP_OUTPUT),
-        )
-        self.assertTrue(bootloader.ok)
-        self.assertEqual("adb_getprop", bootloader.value["source"])
-        self.assertEqual("akita-15.2-12345678", bootloader.value["current"])
-        self.assertEqual("a", bootloader.value["slot"])
-
+    def test_pif_report_is_typed_and_fail_closed_when_incomplete(self):
         pif = self.service.finalize_inspection(
             self.compile("pifPrint"),
             OperationResult.success("pif", stdout=GETPROP_OUTPUT),
@@ -185,16 +201,16 @@ class DeviceInspectionServiceTests(unittest.TestCase):
         self.assertEqual("akita", pif.value["profile"]["DEVICE"])
         self.assertNotIn("PRIVATE-SERIAL", pif.value["json"])
 
-        unavailable = self.service.finalize_inspection(
+        wrong_boundary = self.service.finalize_inspection(
             self.compile("bootloaderVersions"),
             OperationResult.success(
                 "missing-bootloader",
                 stdout="[ro.product.device]: [akita]\n",
             ),
         )
-        self.assertIs(OperationStatus.FAILED, unavailable.status)
-        self.assertEqual("bootloader_version_unavailable", unavailable.code)
-        self.assertEqual("", unavailable.stdout)
+        self.assertIs(OperationStatus.FAILED, wrong_boundary.status)
+        self.assertEqual("device_inspection_compilation_invalid", wrong_boundary.code)
+        self.assertEqual("", wrong_boundary.stdout)
 
     def test_screen_xml_parser_validates_structure_limits_and_redacts_password_nodes(self):
         report = parse_bounded_screen_xml(

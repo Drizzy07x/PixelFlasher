@@ -1074,7 +1074,7 @@ _COMMAND_SPECS = (
         valid_device_states=frozenset({"adb"}),
         target_scope=TargetScope.SELECTED_DEVICE,
         planner="device.inspect",
-        timeout_ms=45_000,
+        timeout_ms=4 * 60_000,
         postconditions=("bounded_typed_report_returned",),
     ),
     _command(

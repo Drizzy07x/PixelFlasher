@@ -302,6 +302,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         },
                     )
                     if command in {
+                        "device.inspect",
                         "device.openUrl",
                         "tools.logcat",
                         "tools.logcat.clear",

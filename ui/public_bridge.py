@@ -25,6 +25,7 @@ ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
     {
         "device.openUrl",
+        "device.inspect",
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
@@ -51,6 +52,11 @@ _ANDROID_PATH_PREFIXES = (
 )
 _UNSAFE_LOG_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_BOOTLOADER_CODENAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_BOOTLOADER_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$")
+_BOOTLOADER_FULL_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$")
+_LOWERCASE_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MAX_ABL_PARTITION_BYTES = 64 * 1024 * 1024
 _MDNS_LOCAL_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("100.64.0.0/10"),
@@ -1117,14 +1123,7 @@ def _project_device_inspect(value: object) -> JSONValue:
             })
         )
     elif action == "bootloaderVersions":
-        result.update(
-            _public_object({
-                "source": _string(source.get("source")),
-                "current": _string(source.get("current")),
-                "slot": _string(source.get("slot")),
-                "versions": _string_map(source.get("versions", {})),
-            })
-        )
+        return _project_bootloader_versions(value)
     elif action == "pifPrint":
         result.update(
             _public_object({
@@ -1132,7 +1131,115 @@ def _project_device_inspect(value: object) -> JSONValue:
                 "profile": _string_map(source.get("profile", {})),
             })
         )
+    else:
+        raise PublicProjectionError("device inspection action is invalid")
     return result
+
+
+def _project_bootloader_versions(value: object) -> JSONValue:
+    fields = frozenset(
+        {
+            "action",
+            "targetSerial",
+            "source",
+            "current",
+            "activeSlot",
+            "bootloaderCodename",
+            "slots",
+            "activeMatchesReported",
+        }
+    )
+    source = _closed_record(value, fields=fields)
+    target_serial = source["targetSerial"]
+    current = source["current"]
+    active_slot = source["activeSlot"]
+    bootloader_codename = source["bootloaderCodename"]
+    if source["action"] != "bootloaderVersions" or source["source"] != "abl_slots":
+        raise PublicProjectionError("bootloader inspection identity is invalid")
+    if not isinstance(target_serial, str) or not is_valid_target_serial(target_serial):
+        raise PublicProjectionError("bootloader inspection target serial is invalid")
+    if active_slot not in {"a", "b"}:
+        raise PublicProjectionError("bootloader inspection active slot is invalid")
+    if source["activeMatchesReported"] is not True:
+        raise PublicProjectionError("bootloader inspection is not verified")
+    if (
+        not isinstance(bootloader_codename, str)
+        or _BOOTLOADER_CODENAME.fullmatch(bootloader_codename) is None
+    ):
+        raise PublicProjectionError("bootloader inspection codename is invalid")
+    if (
+        not isinstance(current, str)
+        or _BOOTLOADER_FULL_VERSION.fullmatch(current) is None
+    ):
+        raise PublicProjectionError("reported bootloader version is invalid")
+
+    raw_slots = _closed_record(source["slots"], fields=frozenset({"a", "b"}))
+    slots = {
+        slot: _project_bootloader_slot(
+            raw_slots[slot],
+            slot=slot,
+            bootloader_codename=bootloader_codename,
+        )
+        for slot in ("a", "b")
+    }
+    active = slots[cast("str", active_slot)]
+    if current != active["fullVersion"]:
+        raise PublicProjectionError("reported bootloader version does not match the active slot")
+    return ensure_public_json(
+        {
+            "action": "bootloaderVersions",
+            "targetSerial": target_serial,
+            "source": "abl_slots",
+            "current": current,
+            "activeSlot": active_slot,
+            "bootloaderCodename": bootloader_codename,
+            "slots": slots,
+            "activeMatchesReported": True,
+        }
+    )
+
+
+def _project_bootloader_slot(
+    value: object,
+    *,
+    slot: str,
+    bootloader_codename: str,
+) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"partition", "version", "fullVersion", "sha256", "sizeBytes"}
+        ),
+    )
+    version = source["version"]
+    full_version = source["fullVersion"]
+    digest = source["sha256"]
+    size_bytes = source["sizeBytes"]
+    if source["partition"] != f"abl_{slot}":
+        raise PublicProjectionError("bootloader inspection partition is invalid")
+    if not isinstance(version, str) or _BOOTLOADER_VERSION.fullmatch(version) is None:
+        raise PublicProjectionError("bootloader slot version is invalid")
+    if (
+        not isinstance(full_version, str)
+        or _BOOTLOADER_FULL_VERSION.fullmatch(full_version) is None
+        or full_version != f"{bootloader_codename}-{version}"
+    ):
+        raise PublicProjectionError("bootloader slot full version is invalid")
+    if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+        raise PublicProjectionError("bootloader slot digest is invalid")
+    if (
+        not isinstance(size_bytes, int)
+        or isinstance(size_bytes, bool)
+        or not 1 <= size_bytes <= _MAX_ABL_PARTITION_BYTES
+    ):
+        raise PublicProjectionError("bootloader slot size is invalid")
+    return {
+        "partition": f"abl_{slot}",
+        "version": version,
+        "fullVersion": full_version,
+        "sha256": digest,
+        "sizeBytes": size_bytes,
+    }
 
 
 def _project_device_open_url(value: object) -> JSONValue:

@@ -18,6 +18,7 @@ from .artifact_downloads import ArtifactDownloader
 from .backups import BackupService
 from .boot_inventory import BootInventoryService
 from .boot_patch import BootPatchService
+from .bootloader_inspection import load_bootloader_prefix_catalog
 from .config_store import ConfigDocument, ConfigError, ConfigStore
 from .contracts import (
     AppCommand,
@@ -118,7 +119,11 @@ class ApplicationRuntime:
         platform_tools_installer: PlatformToolsInstaller | None = None,
         platform_tools_platform: str | None = None,
         platform_tools_architecture: str | None = None,
+        android_device_catalog_path: str | Path | None = None,
     ) -> None:
+        bootloader_prefixes = load_bootloader_prefix_catalog(
+            android_device_catalog_path or self._packaged_android_device_catalog_path()
+        )
         self.config_store = config_store
         self.config_document = config_document
         self.firmware_artifact_cache_root = self._firmware_artifact_cache_path(config_store.path)
@@ -233,6 +238,8 @@ class ApplicationRuntime:
             firmware_artifact_service=firmware_artifact_service,
             device_tools_service=DeviceToolsService(
                 scrcpy_executable=self._configured_scrcpy_path(config_document),
+                bootloader_prefixes=bootloader_prefixes,
+                bootloader_process_transport=self.executor.transport,
             ),
             ota_diagnostics_service=OtaDiagnosticsService(),
             backup_service=BackupService(),
@@ -288,6 +295,7 @@ class ApplicationRuntime:
         platform_tools_installer: PlatformToolsInstaller | None = None,
         platform_tools_platform: str | None = None,
         platform_tools_architecture: str | None = None,
+        android_device_catalog_path: str | Path | None = None,
     ) -> ApplicationRuntime:
         config_store = ConfigStore(config_path)
         document = config_store.load()
@@ -312,6 +320,7 @@ class ApplicationRuntime:
             platform_tools_installer=platform_tools_installer,
             platform_tools_platform=platform_tools_platform,
             platform_tools_architecture=platform_tools_architecture,
+            android_device_catalog_path=android_device_catalog_path,
         )
 
     def snapshot(self) -> AppSnapshot:
@@ -815,6 +824,12 @@ class ApplicationRuntime:
                 or record.metadata.get("isPatched") is True
             ),
         )
+
+    @staticmethod
+    def _packaged_android_device_catalog_path() -> Path:
+        """Resolve root-level data in source and PyInstaller bundle layouts."""
+
+        return Path(__file__).resolve().parents[1] / "android_devices.json"
 
     @staticmethod
     def _firmware_artifact_cache_path(config_path: str | Path) -> Path:

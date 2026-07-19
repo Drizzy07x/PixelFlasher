@@ -36,13 +36,26 @@ type ScreenXmlReport = {
   redactedFields: number;
 };
 
+type BootloaderSlotReport = {
+  partition: 'abl_a' | 'abl_b';
+  version: string;
+  fullVersion: string;
+  sha256: string;
+  sizeBytes: number;
+};
+
 type BootloaderVersionsReport = {
   action: 'bootloaderVersions';
   targetSerial: string;
-  source: 'adb_getprop';
+  source: 'abl_slots';
   current: string;
-  slot: '' | 'a' | 'b';
-  versions: Record<string, string>;
+  activeSlot: 'a' | 'b';
+  bootloaderCodename: string;
+  slots: {
+    a: BootloaderSlotReport;
+    b: BootloaderSlotReport;
+  };
+  activeMatchesReported: true;
 };
 
 type PifProfileReport = {
@@ -72,6 +85,16 @@ const MAX_PROPERTY_COUNT = 8192;
 const MAX_PROPERTY_VALUE = 16 * 1024;
 const MAX_SCREEN_XML = 2 * 1024 * 1024;
 const MAX_SCREEN_NODES = 20_000;
+const MAX_ABL_PARTITION = 64 * 1024 * 1024;
+const BOOTLOADER_CODENAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const BOOTLOADER_VERSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/;
+const BOOTLOADER_FULL_VERSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
+const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]) {
+  const actual = Object.keys(value);
+  return actual.length === expected.length && actual.every((key) => expected.includes(key));
+}
 
 function boundedText(value: unknown, maximum: number, multiline = false): string | null {
   if (
@@ -170,27 +193,76 @@ function parseScreenXml(value: Record<string, unknown>, serial: string): ScreenX
   return { action: 'screenXml', targetSerial: serial, xml, sha256: sha256.toLowerCase(), nodeCount, redactedFields };
 }
 
-function parseBootloaderVersions(value: Record<string, unknown>, serial: string): BootloaderVersionsReport | null {
-  const versions = stringMap(value.versions, PROPERTY_KEY, 16, 1024);
-  const current = boundedText(value.current, 1024);
-  const slot = value.slot;
+function parseBootloaderSlot(
+  value: unknown,
+  slot: 'a' | 'b',
+  bootloaderCodename: string,
+): BootloaderSlotReport | null {
+  const source = record(value);
+  const version = boundedText(source.version, 127);
+  const fullVersion = boundedText(source.fullVersion, 192);
+  const sha256 = boundedText(source.sha256, 64);
+  const sizeBytes = boundedInteger(source.sizeBytes, MAX_ABL_PARTITION);
   if (
-    !targetMatches(value, serial)
-    || value.source !== 'adb_getprop'
-    || versions === null
-    || !Object.keys(versions).length
-    || current === null
-    || !current
-    || !Object.values(versions).includes(current)
-    || !['', 'a', 'b'].includes(String(slot))
+    !hasExactKeys(source, ['partition', 'version', 'fullVersion', 'sha256', 'sizeBytes'])
+    || source.partition !== `abl_${slot}`
+    || version === null
+    || !BOOTLOADER_VERSION.test(version)
+    || fullVersion === null
+    || !BOOTLOADER_FULL_VERSION.test(fullVersion)
+    || fullVersion !== `${bootloaderCodename}-${version}`
+    || sha256 === null
+    || !LOWERCASE_SHA256.test(sha256)
+    || sizeBytes === null
+    || sizeBytes === 0
   ) return null;
+  return {
+    partition: `abl_${slot}`,
+    version,
+    fullVersion,
+    sha256,
+    sizeBytes,
+  };
+}
+
+function parseBootloaderVersions(value: Record<string, unknown>, serial: string): BootloaderVersionsReport | null {
+  const current = boundedText(value.current, 192);
+  const bootloaderCodename = boundedText(value.bootloaderCodename, 64);
+  const activeSlot = value.activeSlot;
+  const sourceSlots = record(value.slots);
+  if (
+    !hasExactKeys(value, [
+      'action',
+      'targetSerial',
+      'source',
+      'current',
+      'activeSlot',
+      'bootloaderCodename',
+      'slots',
+      'activeMatchesReported',
+    ])
+    || !targetMatches(value, serial)
+    || value.source !== 'abl_slots'
+    || current === null
+    || !BOOTLOADER_FULL_VERSION.test(current)
+    || bootloaderCodename === null
+    || !BOOTLOADER_CODENAME.test(bootloaderCodename)
+    || (activeSlot !== 'a' && activeSlot !== 'b')
+    || value.activeMatchesReported !== true
+    || !hasExactKeys(sourceSlots, ['a', 'b'])
+  ) return null;
+  const a = parseBootloaderSlot(sourceSlots.a, 'a', bootloaderCodename);
+  const b = parseBootloaderSlot(sourceSlots.b, 'b', bootloaderCodename);
+  if (!a || !b || current !== (activeSlot === 'a' ? a.fullVersion : b.fullVersion)) return null;
   return {
     action: 'bootloaderVersions',
     targetSerial: serial,
-    source: 'adb_getprop',
+    source: 'abl_slots',
     current,
-    slot: slot as '' | 'a' | 'b',
-    versions,
+    activeSlot,
+    bootloaderCodename,
+    slots: { a, b },
+    activeMatchesReported: true,
   };
 }
 
@@ -242,8 +314,10 @@ function copyValue(report: DeviceInspectionReport) {
       targetSerial: report.targetSerial,
       source: report.source,
       current: report.current,
-      slot: report.slot,
-      versions: report.versions,
+      activeSlot: report.activeSlot,
+      bootloaderCodename: report.bootloaderCodename,
+      slots: report.slots,
+      activeMatchesReported: report.activeMatchesReported,
     }, null, 2);
   }
   return JSON.stringify({
@@ -527,10 +601,34 @@ function ReportBody({ report }: { report: DeviceInspectionReport }) {
       <>
         <dl className="device-inspection-summary device-inspection-summary--compact">
           <div><dt>{t('device.inspectCurrentVersion')}</dt><dd>{report.current}</dd></div>
-          <div><dt>{t('device.inspectSource')}</dt><dd>{report.source}</dd></div>
-          <div><dt>{t('device.inspectActiveSlot')}</dt><dd>{report.slot ? report.slot.toUpperCase() : '—'}</dd></div>
+          <div><dt>{t('device.inspectSource')}</dt><dd>{t('device.inspectAblSource')}</dd></div>
+          <div><dt>{t('device.inspectActiveSlot')}</dt><dd>{report.activeSlot.toUpperCase()}</dd></div>
+          <div><dt>{t('device.codename')}</dt><dd>{report.bootloaderCodename}</dd></div>
         </dl>
-        <pre tabIndex={0} aria-label={t('device.inspectBootloaderVersions')}>{JSON.stringify(report.versions, null, 2)}</pre>
+        <div className="device-inspection-meta">
+          <Badge tone="success">{t('device.inspectMatchesAndroid')}</Badge>
+        </div>
+        {(['a', 'b'] as const).map((slot) => {
+          const slotReport = report.slots[slot];
+          const headingId = `bootloader-slot-${slot}`;
+          return (
+            <section key={slot} aria-labelledby={headingId}>
+              <div className="device-inspection-meta">
+                <strong id={headingId} role="heading" aria-level={3}>
+                  {t('device.inspectSlot', { slot: slot.toUpperCase() })}
+                </strong>
+                {report.activeSlot === slot ? <Badge tone="accent">{t('device.inspectActiveSlot')}</Badge> : null}
+              </div>
+              <dl className="device-inspection-summary">
+                <div><dt>{t('device.partition')}</dt><dd>{slotReport.partition}</dd></div>
+                <div><dt>{t('device.inspectExtractedVersion')}</dt><dd>{slotReport.version}</dd></div>
+                <div><dt>{t('device.inspectFullVersion')}</dt><dd>{slotReport.fullVersion}</dd></div>
+                <div><dt>{t('common.size')}</dt><dd>{slotReport.sizeBytes.toLocaleString()} B</dd></div>
+                <div><dt>{t('device.inspectDigest')}</dt><dd><code>{slotReport.sha256}</code></dd></div>
+              </dl>
+            </section>
+          );
+        })}
       </>
     );
   }

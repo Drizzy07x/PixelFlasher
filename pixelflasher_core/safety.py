@@ -17,7 +17,21 @@ from .contracts import (
     SafetyDecision,
 )
 
-_HIGH_RISK_ACTIONS = frozenset({"wipe", "erase", "switch", "lock", "unlock", "set_active", "set-active"})
+_HIGH_RISK_ACTIONS = frozenset(
+    {"wipe", "erase", "switch", "lock", "unlock", "set_active"}
+)
+_HIGH_RISK_DATA_BEHAVIORS = frozenset(
+    {
+        "wipe",
+        "erase",
+        "switch",
+        "lock",
+        "unlock",
+        "wipe_lock",
+        "wipe_unlock",
+        "set_active",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,7 +384,12 @@ class SafetyPolicy:
         plan = command.operation_plan
         if plan is None or plan.dry_run:
             return False
-        safety_tokens = [plan.data_behavior.lower().replace("-", "_")] + [
-            argument.lower().lstrip("-").replace("-", "_") for request in plan.requests for argument in request.argv
-        ]
-        return any(action in token for token in safety_tokens for action in _HIGH_RISK_ACTIONS)
+        behavior = plan.data_behavior.strip().casefold().replace("-", "_")
+        if behavior in _HIGH_RISK_DATA_BEHAVIORS:
+            return True
+        for request in plan.requests:
+            for argument in request.argv:
+                token = argument.strip().casefold().lstrip("-").replace("-", "_")
+                if token in _HIGH_RISK_ACTIONS or token.startswith("set_active="):
+                    return True
+        return False

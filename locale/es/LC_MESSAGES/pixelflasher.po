@@ -4579,8 +4579,7 @@ msgid "Bootloader versions"
 msgstr ""
 
 msgctxt "web.device.inspectBootloaderVersionsDetail"
-msgid ""
-"Read the current bootloader version reported through Android properties."
+msgid "Read verified versions from both bounded ABL slot partitions."
 msgstr ""
 
 msgctxt "web.device.inspectPifProfile"
@@ -4661,6 +4660,26 @@ msgstr ""
 
 msgctxt "web.device.inspectActiveSlot"
 msgid "Active slot"
+msgstr ""
+
+msgctxt "web.device.inspectAblSource"
+msgid "ABL slot partitions"
+msgstr ""
+
+msgctxt "web.device.inspectMatchesAndroid"
+msgid "Matches Android report"
+msgstr ""
+
+msgctxt "web.device.inspectSlot"
+msgid "Slot {slot}"
+msgstr ""
+
+msgctxt "web.device.inspectExtractedVersion"
+msgid "Extracted version"
+msgstr ""
+
+msgctxt "web.device.inspectFullVersion"
+msgid "Full version"
 msgstr ""
 
 msgctxt "web.device.otaTitle"

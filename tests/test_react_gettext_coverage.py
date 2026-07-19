@@ -20,7 +20,7 @@ EXPECTED_TRANSLATED_COUNTS = {
     "zh_TW": 400,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 449
+EXPECTED_WEB_CONTEXT_COUNT = 454
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.apps.apkFiles",
     "web.apps.chooseApk",
@@ -81,6 +81,11 @@ EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.device.inspectCurrentVersion",
     "web.device.inspectSource",
     "web.device.inspectActiveSlot",
+    "web.device.inspectAblSource",
+    "web.device.inspectMatchesAndroid",
+    "web.device.inspectSlot",
+    "web.device.inspectExtractedVersion",
+    "web.device.inspectFullVersion",
     # Boot inventory is source-fallback until the next reviewed translation pass.
     "web.boot.inventoryTitle",
     "web.boot.inventoryDetail",

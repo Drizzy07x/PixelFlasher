@@ -26,9 +26,20 @@ import xml.etree.ElementTree as ElementTree
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import BinaryIO, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
 
+from .bootloader_inspection import (
+    BOOTLOADER_PARTITION_LIMIT,
+    BOOTLOADER_STDERR_LIMIT,
+    BootloaderInspectionError,
+    BootloaderPartitionRunner,
+    BootloaderSlotEvidence,
+    BootloaderStreamOutcome,
+    BootloaderVersionScanner,
+    SubprocessBootloaderPartitionRunner,
+)
 from .contracts import (
     AppCommand,
     AppSnapshot,
@@ -43,7 +54,13 @@ from .contracts import (
     ProgressPhase,
     SensitiveText,
 )
-from .executor import CancellationReason, CancellationToken, TransportOutcome
+from .executor import (
+    CancellationReason,
+    CancellationToken,
+    ProcessTransport,
+    SubprocessTransport,
+    TransportOutcome,
+)
 from .grants import (
     AtomicWriteOutcomeUnknownError,
     BoundReadFile,
@@ -276,6 +293,7 @@ _EXECUTION_PROCESS = "process"
 _EXECUTION_LAUNCH = "managed-launch"
 _EXECUTION_SECRET_PROCESS = "secret-stdin"
 _EXECUTION_LOGCAT_STREAM = "logcat-stream"
+_EXECUTION_BOOTLOADER_SLOT_STREAM = "bootloader-slot-stream"
 
 DeviceToolProgress = Callable[
     [ProgressPhase, str, int | None, int | None, int | None, str | None],
@@ -1293,35 +1311,6 @@ def _properties_inspection_value(properties: Mapping[str, str]) -> dict[str, obj
     }
 
 
-def _bootloader_versions_value(properties: Mapping[str, str]) -> dict[str, object]:
-    candidates = (
-        "ro.bootloader",
-        "ro.boot.bootloader",
-        "ro.bootloader.version",
-        "ro.product.bootloader",
-    )
-    versions = {
-        key: properties[key].strip()
-        for key in candidates
-        if properties.get(key, "").strip() and properties[key].strip().casefold() != "unknown"
-    }
-    if not versions:
-        raise DeviceInspectionParseError(
-            "bootloader_version_unavailable",
-            "the device did not report a bootloader version through ADB properties",
-        )
-    return {
-        "action": "bootloaderVersions",
-        "source": "adb_getprop",
-        "current": next(iter(versions.values())),
-        "versions": versions,
-        "slot": _first_property(
-            properties,
-            ("ro.boot.slot_suffix", "ro.boot.slot"),
-        ).removeprefix("_"),
-    }
-
-
 def _pif_print_value(properties: Mapping[str, str]) -> dict[str, object]:
     profile = {field: _first_property(properties, candidates) for field, candidates in _PIF_PROPERTY_CANDIDATES}
     first_api = profile["DEVICE_INITIAL_SDK_INT"]
@@ -1531,6 +1520,7 @@ class DeviceToolCompilation:
     logcat_mode: str = ""
     logcat_redaction: str = ""
     logcat_max_lines: int = 0
+    bootloader_codename: str = ""
     export_destination: BoundWriteFile | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -1557,6 +1547,17 @@ class DeviceToolCompilation:
             )
         ):
             raise ValueError("logcat metadata is valid only for logcat")
+        if self.action == "inspect.bootloaderVersions":
+            if self.execution != _EXECUTION_BOOTLOADER_SLOT_STREAM:
+                raise ValueError("bootloader inspection requires its typed stream executor")
+            try:
+                BootloaderVersionScanner(self.bootloader_codename)
+            except BootloaderInspectionError as error:
+                raise ValueError("bootloader inspection prefix is invalid") from error
+        elif self.bootloader_codename:
+            raise ValueError(
+                "bootloader codename is valid only for bootloader inspection"
+            )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -1570,6 +1571,7 @@ class DeviceToolCompilation:
             "logcat_mode": self.logcat_mode,
             "logcat_redaction": self.logcat_redaction,
             "logcat_max_lines": self.logcat_max_lines,
+            "bootloader_codename": self.bootloader_codename,
             "export": self.export_destination is not None,
             "plan": self.plan.to_dict(),
         }
@@ -1586,6 +1588,9 @@ class DeviceToolsService:
         process_launcher: ProcessLauncher | None = None,
         secret_runner: SecretProcessRunner | None = None,
         logcat_stream_runner: LogcatStreamRunner | None = None,
+        bootloader_prefixes: Mapping[str, str] | None = None,
+        bootloader_partition_runner: BootloaderPartitionRunner | None = None,
+        bootloader_process_transport: ProcessTransport | None = None,
     ) -> None:
         if not isinstance(hash_chunk_size, int) or isinstance(hash_chunk_size, bool):
             raise TypeError("hash_chunk_size must be an integer")
@@ -1596,6 +1601,26 @@ class DeviceToolsService:
         self.process_launcher = process_launcher or ManagedProcessLauncher()
         self.secret_runner = secret_runner or SubprocessSecretRunner()
         self.logcat_stream_runner = logcat_stream_runner or SubprocessLogcatStreamRunner()
+        normalized_prefixes: dict[str, str] = {}
+        for codename, prefix in (bootloader_prefixes or {}).items():
+            if (
+                not isinstance(codename, str)
+                or re.fullmatch(r"[a-z0-9_]{1,64}", codename) is None
+                or not isinstance(prefix, str)
+            ):
+                raise ValueError("bootloader prefix catalog is invalid")
+            try:
+                BootloaderVersionScanner(prefix)
+            except BootloaderInspectionError as error:
+                raise ValueError("bootloader prefix catalog is invalid") from error
+            normalized_prefixes[codename] = prefix
+        self.bootloader_prefixes = MappingProxyType(normalized_prefixes)
+        self.bootloader_partition_runner = (
+            bootloader_partition_runner or SubprocessBootloaderPartitionRunner()
+        )
+        self.bootloader_process_transport = (
+            bootloader_process_transport or SubprocessTransport()
+        )
 
     def compile(
         self,
@@ -1715,6 +1740,61 @@ class DeviceToolsService:
                 "device_inspection_action_invalid",
                 "action must be exactly properties, screenXml, bootloaderVersions, or pifPrint",
             )
+        if action == "bootloaderVersions":
+            if not device.codename:
+                raise DeviceToolPlanningError(
+                    "bootloader_codename_required",
+                    "the selected device must report a codename before bootloader inspection",
+                )
+            bootloader_codename = self.bootloader_prefixes.get(device.codename)
+            if bootloader_codename is None:
+                raise DeviceToolPlanningError(
+                    "bootloader_prefix_unavailable",
+                    "the packaged catalog has no bootloader prefix for this device",
+                )
+            requests = (
+                ProcessRequest(
+                    (adb, "-s", device.serial, "shell", "getprop"),
+                    timeout_seconds=15.0,
+                    output_limit_bytes=_GETPROP_OUTPUT_LIMIT,
+                ),
+                ProcessRequest(
+                    (adb, "-s", device.serial, "shell", "su", "0", "id", "-u"),
+                    timeout_seconds=10.0,
+                    output_limit_bytes=1_024,
+                ),
+                *(
+                    ProcessRequest(
+                        (
+                            adb,
+                            "-s",
+                            device.serial,
+                            "exec-out",
+                            "su",
+                            "0",
+                            "toybox",
+                            "cat",
+                            f"/dev/block/by-name/abl_{slot}",
+                        ),
+                        timeout_seconds=90.0,
+                        output_limit_bytes=BOOTLOADER_PARTITION_LIMIT,
+                    )
+                    for slot in ("a", "b")
+                ),
+            )
+            return DeviceToolCompilation(
+                self._base_plan(
+                    snapshot,
+                    device,
+                    requests,
+                    label=f"Inspect A/B bootloader versions for {device.serial}",
+                    partitions=("abl_a", "abl_b"),
+                    slots=("a", "b"),
+                ),
+                "inspect.bootloaderVersions",
+                execution=_EXECUTION_BOOTLOADER_SLOT_STREAM,
+                bootloader_codename=bootloader_codename,
+            )
         if action == "screenXml":
             request = ProcessRequest(
                 (
@@ -1727,6 +1807,7 @@ class DeviceToolsService:
                     "/dev/tty",
                 ),
                 timeout_seconds=30.0,
+                output_limit_bytes=_SCREEN_XML_OUTPUT_LIMIT,
             )
         else:
             # One complete getprop call is safer and more consistent than
@@ -1734,6 +1815,7 @@ class DeviceToolsService:
             request = ProcessRequest(
                 (adb, "-s", device.serial, "shell", "getprop"),
                 timeout_seconds=15.0,
+                output_limit_bytes=_GETPROP_OUTPUT_LIMIT,
             )
         return DeviceToolCompilation(
             self._base_plan(
@@ -1917,6 +1999,13 @@ class DeviceToolsService:
         progress: DeviceToolProgress | None = None,
     ) -> OperationResult:
         """Cross one special boundary without exposing secrets or orphaning tests."""
+
+        if compilation.execution == _EXECUTION_BOOTLOADER_SLOT_STREAM:
+            return self._execute_bootloader_slot_inspection(
+                compilation,
+                operation_id,
+                cancellation,
+            )
 
         if compilation.execution == _EXECUTION_LOGCAT_STREAM:
             if compilation.action != "logcat" or compilation.logcat_mode != "stream":
@@ -2199,6 +2288,496 @@ class DeviceToolsService:
             message="the requested device-tool action has no special executor",
         )
 
+    def _execute_bootloader_slot_inspection(
+        self,
+        compilation: DeviceToolCompilation,
+        operation_id: str,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        """Reduce two fixed ABL streams to a closed, evidence-only result."""
+
+        plan = compilation.plan
+        requests = plan.requests
+        serial = plan.target_serial
+        prefix = compilation.bootloader_codename
+        if (
+            compilation.action != "inspect.bootloaderVersions"
+            or compilation.execution != _EXECUTION_BOOTLOADER_SLOT_STREAM
+            or not isinstance(serial, str)
+            or not serial
+            or len(requests) != 4
+            or plan.partitions != ("abl_a", "abl_b")
+            or plan.slots != ("a", "b")
+            or not requests[0].argv[0]
+            or requests[0].argv
+            != (requests[0].argv[0], "-s", serial, "shell", "getprop")
+            or requests[1].argv
+            != (
+                requests[0].argv[0],
+                "-s",
+                serial,
+                "shell",
+                "su",
+                "0",
+                "id",
+                "-u",
+            )
+            or requests[0].cwd is not None
+            or requests[1].cwd is not None
+            or requests[0].env is not None
+            or requests[1].env is not None
+            or requests[0].stdin_secret_field is not None
+            or requests[1].stdin_secret_field is not None
+            or requests[0].timeout_seconds != 15.0
+            or requests[1].timeout_seconds != 10.0
+            or requests[0].output_limit_bytes != _GETPROP_OUTPUT_LIMIT
+            or requests[1].output_limit_bytes != 1_024
+            or requests[0].encoding != "utf-8"
+            or requests[1].encoding != "utf-8"
+            or any(
+                requests[index].argv
+                != (
+                    requests[0].argv[0],
+                    "-s",
+                    serial,
+                    "exec-out",
+                    "su",
+                    "0",
+                    "toybox",
+                    "cat",
+                    f"/dev/block/by-name/abl_{slot}",
+                )
+                or requests[index].cwd is not None
+                or requests[index].env is not None
+                or requests[index].stdin_secret_field is not None
+                or requests[index].timeout_seconds != 90.0
+                or requests[index].output_limit_bytes
+                != BOOTLOADER_PARTITION_LIMIT
+                for index, slot in ((2, "a"), (3, "b"))
+            )
+        ):
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_inspection_compilation_invalid",
+                message="bootloader inspection received an invalid verified plan",
+            )
+        try:
+            BootloaderVersionScanner(prefix)
+        except BootloaderInspectionError:
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_inspection_compilation_invalid",
+                message="bootloader inspection received an invalid backend prefix",
+            )
+        if cancellation.cancelled:
+            return self._bootloader_stopped(operation_id, cancellation)
+
+        try:
+            getprop_outcome = self.bootloader_process_transport.run(
+                requests[0],
+                cancellation,
+            )
+        except Exception:
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_getprop_failed",
+                message="the bounded device property check could not be executed",
+            )
+        getprop_failure = self._bootloader_control_failure(
+            operation_id,
+            cancellation,
+            getprop_outcome,
+            code="bootloader_getprop_failed",
+            message="the device did not return verified bootloader properties",
+        )
+        if getprop_failure is not None:
+            return getprop_failure
+        try:
+            properties = parse_bounded_getprop(getprop_outcome.stdout)
+        except DeviceInspectionParseError as error:
+            return OperationResult.failed(
+                operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        reported_codename = self._reported_unique_value(
+            properties,
+            ("ro.product.device", "ro.build.product"),
+        )
+        if not reported_codename or not hmac.compare_digest(
+            reported_codename,
+            plan.expected_codename,
+        ):
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_device_mismatch",
+                message="fresh device properties do not match the planned codename",
+            )
+        current = self._reported_unique_value(
+            properties,
+            (
+                "ro.bootloader",
+                "ro.boot.bootloader",
+                "ro.bootloader.version",
+            ),
+        )
+        if current is None:
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_version_unavailable",
+                message="the device did not report one unambiguous bootloader version",
+            )
+        try:
+            current_version = self._validated_bootloader_current(current, prefix)
+        except BootloaderInspectionError as error:
+            return OperationResult.failed(
+                operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        active_slot = self._reported_active_slot(properties)
+        if active_slot is None:
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_active_slot_unavailable",
+                message="the device did not report one unambiguous active slot",
+            )
+        if cancellation.cancelled:
+            return self._bootloader_stopped(operation_id, cancellation)
+
+        try:
+            root_outcome = self.bootloader_process_transport.run(
+                requests[1],
+                cancellation,
+            )
+        except Exception:
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_root_check_failed",
+                message="the bounded root capability check could not be executed",
+            )
+        root_failure = self._bootloader_control_failure(
+            operation_id,
+            cancellation,
+            root_outcome,
+            code="bootloader_root_required",
+            message="effective root is required to inspect ABL partitions",
+        )
+        if root_failure is not None:
+            return root_failure
+        if root_outcome.stdout not in {"0", "0\n", "0\r\n"}:
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_root_required",
+                message="effective root could not be proven immediately before inspection",
+            )
+
+        evidence_by_slot: dict[str, BootloaderSlotEvidence] = {}
+        for index, slot in enumerate(("a", "b"), start=2):
+            if cancellation.cancelled:
+                return self._bootloader_stopped(operation_id, cancellation)
+            try:
+                outcome = self.bootloader_partition_runner.run(
+                    requests[index],
+                    cancellation,
+                    slot=slot,
+                    bootloader_codename=prefix,
+                )
+            except BootloaderInspectionError:
+                return OperationResult.failed(
+                    operation_id,
+                    code="bootloader_stream_request_invalid",
+                    message="the bounded ABL reader rejected its verified request",
+                )
+            except Exception:
+                return OperationResult.failed(
+                    operation_id,
+                    code="bootloader_stream_failed",
+                    message=f"slot {slot.upper()} could not be read through the bounded stream",
+                )
+            stream_failure = self._bootloader_stream_failure(
+                operation_id,
+                cancellation,
+                outcome,
+                slot,
+                prefix,
+            )
+            if stream_failure is not None:
+                return stream_failure
+            assert outcome.evidence is not None
+            evidence_by_slot[slot] = outcome.evidence
+
+        active_evidence = evidence_by_slot[active_slot]
+        if not hmac.compare_digest(active_evidence.version, current_version):
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_active_version_mismatch",
+                message="the active ABL slot does not match the bootloader reported by Android",
+            )
+        return OperationResult.success(
+            operation_id,
+            code="device_inspection_bootloaderVersions_succeeded",
+            message="both ABL slots were read and verified against the active bootloader",
+            exit_code=0,
+            stdout="",
+            stderr="",
+            value={
+                "action": "bootloaderVersions",
+                "targetSerial": serial,
+                "source": "abl_slots",
+                "current": current,
+                "activeSlot": active_slot,
+                "bootloaderCodename": prefix,
+                "slots": {
+                    "a": evidence_by_slot["a"].to_dict(),
+                    "b": evidence_by_slot["b"].to_dict(),
+                },
+                "activeMatchesReported": True,
+            },
+        )
+
+    @staticmethod
+    def _bootloader_control_failure(
+        operation_id: str,
+        cancellation: CancellationToken,
+        outcome: object,
+        *,
+        code: str,
+        message: str,
+    ) -> OperationResult | None:
+        if (
+            not isinstance(outcome, TransportOutcome)
+            or not isinstance(outcome.stdout, str)
+            or not isinstance(outcome.stderr, str)
+            or not all(
+                isinstance(flag, bool)
+                for flag in (
+                    outcome.cancelled,
+                    outcome.timed_out,
+                    outcome.output_limited,
+                )
+            )
+            or (
+                outcome.returncode is not None
+                and (
+                    not isinstance(outcome.returncode, int)
+                    or isinstance(outcome.returncode, bool)
+                )
+            )
+            or sum(
+                (outcome.cancelled, outcome.timed_out, outcome.output_limited)
+            )
+            > 1
+        ):
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_control_result_invalid",
+                message="a bootloader control command crossed its typed output boundary",
+            )
+        if outcome.cancelled or cancellation.reason is CancellationReason.USER:
+            return OperationResult.cancelled(
+                operation_id,
+                code="cancelled",
+                message="bootloader inspection was cancelled",
+            )
+        if outcome.timed_out or cancellation.reason is CancellationReason.DEADLINE:
+            return OperationResult.failed(
+                operation_id,
+                code="timed_out",
+                message="bootloader inspection exceeded the command deadline",
+            )
+        if outcome.output_limited:
+            return OperationResult.failed(
+                operation_id,
+                code="output_limit_exceeded",
+                message="a bootloader control command exceeded its output limit",
+                exit_code=outcome.returncode,
+            )
+        if outcome.returncode != 0 or outcome.stderr:
+            return OperationResult.failed(
+                operation_id,
+                code=code,
+                message=message,
+                exit_code=outcome.returncode,
+            )
+        return None
+
+    @staticmethod
+    def _validated_bootloader_current(current: str, prefix: str) -> str:
+        marker = f"{prefix}-"
+        if not current.startswith(marker):
+            raise BootloaderInspectionError(
+                "bootloader_version_prefix_mismatch",
+                "the reported bootloader does not match the backend device prefix",
+            )
+        try:
+            encoded = current.encode("ascii") + b"\x00"
+        except UnicodeEncodeError as error:
+            raise BootloaderInspectionError(
+                "bootloader_version_invalid",
+                "the device reported an invalid bootloader version",
+            ) from error
+        scanner = BootloaderVersionScanner(prefix)
+        scanner.feed(encoded)
+        version = scanner.finish()
+        if current != f"{prefix}-{version}":
+            raise BootloaderInspectionError(
+                "bootloader_version_invalid",
+                "the device reported an invalid bootloader version",
+            )
+        return version
+
+    @staticmethod
+    def _reported_active_slot(properties: Mapping[str, str]) -> str | None:
+        candidates = {
+            value.strip().removeprefix("_")
+            for key in ("ro.boot.slot_suffix", "ro.boot.slot")
+            if (value := properties.get(key, "")).strip()
+        }
+        return next(iter(candidates)) if len(candidates) == 1 and candidates <= {"a", "b"} else None
+
+    @staticmethod
+    def _reported_unique_value(
+        properties: Mapping[str, str],
+        keys: tuple[str, ...],
+    ) -> str | None:
+        candidates = {
+            value.strip()
+            for key in keys
+            if (value := properties.get(key, "")).strip()
+            and value.strip().casefold() not in {"generic", "mainline", "unknown"}
+        }
+        return next(iter(candidates)) if len(candidates) == 1 else None
+
+    @staticmethod
+    def _bootloader_stream_failure(
+        operation_id: str,
+        cancellation: CancellationToken,
+        outcome: object,
+        slot: str,
+        prefix: str,
+    ) -> OperationResult | None:
+        allowed_errors = {
+            "",
+            "bootloader_partition_empty",
+            "bootloader_partition_limit_exceeded",
+            "bootloader_partition_read_failed",
+            "bootloader_partition_stderr_unexpected",
+            "bootloader_stderr_limit_exceeded",
+            "bootloader_stream_failed",
+            "bootloader_version_ambiguous",
+            "bootloader_version_invalid",
+            "bootloader_version_unavailable",
+            "managed_process_termination_failed",
+        }
+        if (
+            not isinstance(outcome, BootloaderStreamOutcome)
+            or (
+                outcome.returncode is not None
+                and (
+                    not isinstance(outcome.returncode, int)
+                    or isinstance(outcome.returncode, bool)
+                )
+            )
+            or not isinstance(outcome.stderr_bytes, int)
+            or isinstance(outcome.stderr_bytes, bool)
+            or not 0 <= outcome.stderr_bytes <= BOOTLOADER_STDERR_LIMIT
+            or not all(
+                isinstance(flag, bool)
+                for flag in (
+                    outcome.cancelled,
+                    outcome.timed_out,
+                    outcome.output_limited,
+                    outcome.termination_failed,
+                )
+            )
+            or sum(
+                (
+                    outcome.cancelled,
+                    outcome.timed_out,
+                    outcome.output_limited,
+                )
+            )
+            > 1
+            or not isinstance(outcome.error_code, str)
+            or outcome.error_code not in allowed_errors
+            or (
+                outcome.evidence is not None
+                and not isinstance(outcome.evidence, BootloaderSlotEvidence)
+            )
+        ):
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_stream_result_invalid",
+                message="a bootloader slot stream crossed its typed output boundary",
+            )
+        if outcome.termination_failed:
+            return OperationResult.failed(
+                operation_id,
+                code="managed_process_termination_failed",
+                message="the bounded ABL reader could not terminate its process tree",
+            )
+        if outcome.cancelled or cancellation.reason is CancellationReason.USER:
+            return OperationResult.cancelled(
+                operation_id,
+                code="cancelled",
+                message="bootloader inspection was cancelled",
+            )
+        if outcome.timed_out or cancellation.reason is CancellationReason.DEADLINE:
+            return OperationResult.failed(
+                operation_id,
+                code="timed_out",
+                message="bootloader inspection exceeded the command deadline",
+            )
+        if outcome.output_limited:
+            return OperationResult.failed(
+                operation_id,
+                code=outcome.error_code or "bootloader_partition_limit_exceeded",
+                message=f"slot {slot.upper()} exceeded a bounded stream limit",
+                exit_code=outcome.returncode,
+            )
+        evidence = outcome.evidence
+        if (
+            outcome.returncode != 0
+            or outcome.stderr_bytes
+            or outcome.error_code
+            or evidence is None
+        ):
+            return OperationResult.failed(
+                operation_id,
+                code=outcome.error_code or "bootloader_partition_read_failed",
+                message=f"slot {slot.upper()} did not return complete ABL evidence",
+                exit_code=outcome.returncode,
+            )
+        if (
+            evidence.slot != slot
+            or evidence.partition != f"abl_{slot}"
+            or not hmac.compare_digest(evidence.bootloader_codename, prefix)
+        ):
+            return OperationResult.failed(
+                operation_id,
+                code="bootloader_stream_result_invalid",
+                message="a bootloader slot stream returned evidence for another target",
+            )
+        return None
+
+    @staticmethod
+    def _bootloader_stopped(
+        operation_id: str,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        if cancellation.reason is CancellationReason.DEADLINE:
+            return OperationResult.failed(
+                operation_id,
+                code="timed_out",
+                message="bootloader inspection exceeded the command deadline",
+            )
+        return OperationResult.cancelled(
+            operation_id,
+            code="cancelled",
+            message="bootloader inspection was cancelled",
+        )
+
     def cleanup_cancelled_special(
         self,
         compilation: DeviceToolCompilation,
@@ -2458,11 +3037,14 @@ class DeviceToolsService:
     ) -> OperationResult:
         """Parse one inspection response and discard raw device output."""
 
-        if not compilation.action.startswith("inspect."):
+        if (
+            not compilation.action.startswith("inspect.")
+            or compilation.execution != _EXECUTION_PROCESS
+        ):
             return OperationResult.failed(
                 result.operation_id,
                 code="device_inspection_compilation_invalid",
-                message="inspection finalization received a non-inspection plan",
+                message="inspection finalization received a non-process inspection plan",
             )
         if result.status is OperationStatus.CANCELLED:
             return OperationResult.cancelled(
@@ -2493,8 +3075,6 @@ class DeviceToolsService:
                 properties = parse_bounded_getprop(result.stdout)
                 if action == "properties":
                     value = _properties_inspection_value(properties)
-                elif action == "bootloaderVersions":
-                    value = _bootloader_versions_value(properties)
                 elif action == "pifPrint":
                     value = _pif_print_value(properties)
                 else:
@@ -3897,6 +4477,8 @@ class DeviceToolsService:
         risk: OperationRisk = OperationRisk.READ_ONLY,
         postconditions: tuple[OperationPostcondition, ...] = (),
         data_behavior: str = "preserve",
+        partitions: tuple[str, ...] = (),
+        slots: tuple[str, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
@@ -3909,6 +4491,8 @@ class DeviceToolsService:
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
+            partitions=partitions,
+            slots=slots,
             data_behavior=data_behavior,
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,

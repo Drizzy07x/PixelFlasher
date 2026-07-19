@@ -373,7 +373,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.bootSelect]: 5400000,
   [commands.deviceBootloaderLock]: 600000,
   [commands.deviceBootloaderUnlock]: 600000,
-  [commands.deviceInspect]: 45000,
+  [commands.deviceInspect]: 240000,
   [commands.deviceOpenUrl]: 30000,
   [commands.deviceOtaCertificates]: 45000,
   [commands.deviceOtaLogs]: 180000,

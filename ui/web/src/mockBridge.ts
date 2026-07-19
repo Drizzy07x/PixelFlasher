@@ -362,10 +362,27 @@ export function installDevelopmentBridge() {
               bootloaderVersions: {
                 action,
                 targetSerial: serial,
-                source: 'adb_getprop',
+                source: 'abl_slots',
                 current: 'akita-mock-1.0',
-                slot: target.slot === 'unknown' ? '' : target.slot,
-                versions: { 'ro.bootloader': 'akita-mock-1.0' },
+                activeSlot: target.slot === 'b' ? 'b' : 'a',
+                bootloaderCodename: 'akita',
+                slots: {
+                  a: {
+                    partition: 'abl_a',
+                    version: 'mock-1.0',
+                    fullVersion: 'akita-mock-1.0',
+                    sha256: 'a'.repeat(64),
+                    sizeBytes: 64 * 1024 * 1024,
+                  },
+                  b: {
+                    partition: 'abl_b',
+                    version: 'mock-1.0',
+                    fullVersion: 'akita-mock-1.0',
+                    sha256: 'b'.repeat(64),
+                    sizeBytes: 64 * 1024 * 1024,
+                  },
+                },
+                activeMatchesReported: true,
               },
               pifPrint: {
                 action,

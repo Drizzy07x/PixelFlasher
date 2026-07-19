@@ -60,6 +60,34 @@ function propertiesValue(serial: string) {
   };
 }
 
+function bootloaderVersionsValue(serial: string) {
+  return {
+    action: 'bootloaderVersions',
+    targetSerial: serial,
+    source: 'abl_slots',
+    current: 'akita-15.2-12345678',
+    activeSlot: 'a',
+    bootloaderCodename: 'akita',
+    slots: {
+      a: {
+        partition: 'abl_a',
+        version: '15.2-12345678',
+        fullVersion: 'akita-15.2-12345678',
+        sha256: 'a'.repeat(64),
+        sizeBytes: 64 * 1024 * 1024,
+      },
+      b: {
+        partition: 'abl_b',
+        version: '15.1-87654321',
+        fullVersion: 'akita-15.1-87654321',
+        sha256: 'b'.repeat(64),
+        sizeBytes: 63 * 1024 * 1024,
+      },
+    },
+    activeMatchesReported: true,
+  };
+}
+
 describe('modern device inspection', () => {
   it('runs against one ADB serial, renders only typed data and copies the sanitized report', async () => {
     const user = userEvent.setup();
@@ -106,14 +134,7 @@ describe('modern device inspection', () => {
         nodeCount: 2,
         redactedFields: 1,
       },
-      bootloaderVersions: {
-        action: 'bootloaderVersions',
-        targetSerial: serial,
-        source: 'adb_getprop',
-        current: 'akita-15.2-12345678',
-        slot: 'a',
-        versions: { 'ro.bootloader': 'akita-15.2-12345678' },
-      },
+      bootloaderVersions: bootloaderVersionsValue(serial),
       pifPrint: {
         action: 'pifPrint',
         targetSerial: serial,
@@ -131,9 +152,14 @@ describe('modern device inspection', () => {
       },
     };
     const onCommand = vi.fn(async (_command: BridgeCommand, payload: Record<string, unknown> = {}) => ({
-      result: { status: 'SUCCESS', value: values[String(payload.action)] },
+      result: {
+        status: 'SUCCESS',
+        stdout: 'PRIVATE-RAW-BOOTLOADER-BYTES',
+        stderr: 'PRIVATE-RAW-ROOT-PROBE',
+        value: values[String(payload.action)],
+      },
     }));
-    renderDevice(snapshot, onCommand);
+    const { container } = renderDevice(snapshot, onCommand);
 
     await user.click(screen.getByRole('button', { name: 'Screen XML' }));
     expect(await screen.findByText('Report digest')).toBeVisible();
@@ -141,8 +167,23 @@ describe('modern device inspection', () => {
     expect(screenReport?.querySelector('pre')).toHaveTextContent('[REDACTED]');
 
     await user.click(screen.getByRole('button', { name: 'Bootloader versions' }));
-    expect(await screen.findByText('akita-15.2-12345678')).toBeVisible();
-    expect(screen.getByText('adb_getprop')).toBeVisible();
+    expect(await screen.findByText('ABL slot partitions')).toBeVisible();
+    const slotAHeading = screen.getByRole('heading', { name: 'Slot A' });
+    const slotBHeading = screen.getByRole('heading', { name: 'Slot B' });
+    const slotA = slotAHeading.closest('section');
+    const slotB = slotBHeading.closest('section');
+    expect(slotA).not.toBeNull();
+    expect(slotB).not.toBeNull();
+    expect(within(slotA as HTMLElement).getByText('abl_a')).toBeVisible();
+    expect(within(slotA as HTMLElement).getByText('15.2-12345678')).toBeVisible();
+    expect(within(slotA as HTMLElement).getByText('a'.repeat(64))).toBeVisible();
+    expect(within(slotB as HTMLElement).getByText('abl_b')).toBeVisible();
+    expect(within(slotB as HTMLElement).getByText('15.1-87654321')).toBeVisible();
+    expect(within(slotB as HTMLElement).getByText('b'.repeat(64))).toBeVisible();
+    expect(screen.getByText('Matches Android report')).toBeVisible();
+    expect(screen.queryByText(/PRIVATE-RAW/)).not.toBeInTheDocument();
+    const bootloaderA11y = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
+    expect(bootloaderA11y.violations).toEqual([]);
 
     await user.click(screen.getByRole('button', { name: 'PIF profile' }));
     expect(await screen.findByText('DEVICE_INITIAL_SDK_INT')).toBeVisible();
@@ -200,6 +241,33 @@ describe('modern device inspection', () => {
     expect(parseDeviceInspectionReport('properties', {
       ...valid,
       properties: { ...valid.properties, 'ro.serialno': 'PRIVATE-SERIAL' },
+    }, 'SERIAL')).toBeNull();
+  });
+
+  it('accepts only the exact bounded per-slot bootloader DTO', () => {
+    const valid = bootloaderVersionsValue('SERIAL');
+    expect(parseDeviceInspectionReport('bootloaderVersions', valid, 'SERIAL')).toEqual(valid);
+    expect(parseDeviceInspectionReport('bootloaderVersions', { ...valid, targetSerial: 'OTHER' }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('bootloaderVersions', { ...valid, raw: 'partition bytes' }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('bootloaderVersions', {
+      ...valid,
+      slots: { ...valid.slots, a: { ...valid.slots.a, raw: 'partition bytes' } },
+    }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('bootloaderVersions', {
+      ...valid,
+      slots: { ...valid.slots, a: { ...valid.slots.a, sha256: 'A'.repeat(64) } },
+    }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('bootloaderVersions', {
+      ...valid,
+      slots: { ...valid.slots, b: { ...valid.slots.b, sizeBytes: (64 * 1024 * 1024) + 1 } },
+    }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('bootloaderVersions', {
+      ...valid,
+      current: valid.slots.b.fullVersion,
+    }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('bootloaderVersions', {
+      ...valid,
+      activeMatchesReported: false,
     }, 'SERIAL')).toBeNull();
   });
 

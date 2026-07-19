@@ -1642,15 +1642,18 @@
       "area": "device_tools",
       "capability": "Device info, props JSON, PIF print, screen XML, bootloader versions and open URL",
       "owner": "device_tools",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
+        "pixelflasher_core/bootloader_inspection.py",
         "pixelflasher_core/device_tools.py",
         "pixelflasher_core/engine.py",
+        "pixelflasher_core/runtime.py",
         "ui/command_registry.py",
+        "ui/public_bridge.py",
         "ui/web/src/pages/device/DeviceInspectionPanel.tsx",
         "ui/web/src/pages/device/DeviceOpenUrlPanel.tsx"
       ],
-      "gap": "The bounded backend and React workspace now provide typed redacted properties/device summary, PIF profile, sanitized screen XML, the current ADB-reported bootloader version and verified HTTP(S) browser-intent launch without remote-shell injection. Independently extracted per-slot bootloader versions remain open.",
+      "gap": "",
       "exitCriteria": [
         "Device info, props JSON, PIF print, screen XML, bootloader versions and open URL is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -1665,8 +1668,12 @@
         "linux"
       ],
       "tests": [
+        "tests/test_bootloader_inspection.py",
+        "tests/test_bootloader_public_contract.py",
+        "tests/test_bootloader_slot_service.py",
         "tests/test_device_inspection_service.py",
         "tests/test_device_open_url_service.py",
+        "tests/test_runtime_bootloader_catalog.py",
         "ui/web/src/test/device-inspection.test.tsx",
         "ui/web/src/test/device-open-url.test.tsx"
       ],

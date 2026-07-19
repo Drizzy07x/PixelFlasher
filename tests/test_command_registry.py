@@ -76,6 +76,7 @@ class CommandRegistryTests(unittest.TestCase):
             "boot.select": 60 * 60_000,
             "device.bootloader.lock": 5 * 60_000,
             "device.bootloader.unlock": 5 * 60_000,
+            "device.inspect": 4 * 60_000,
             "device.reboot": 5 * 60_000,
             "device.scan": 5 * 60_000,
             "device.switchSlot": 5 * 60_000,

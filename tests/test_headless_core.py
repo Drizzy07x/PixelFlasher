@@ -497,6 +497,46 @@ class SafetyPolicyTests(unittest.TestCase):
         self.assertTrue(decision.interaction.reinforced)
         self.assertEqual("nonce", decision.interaction.confirmation_nonce)
 
+    def test_reinforced_confirmation_uses_semantic_tokens_not_path_substrings(self):
+        harmless = replace(
+            self.base_plan,
+            requests=(
+                process(
+                    "adb",
+                    "-s",
+                    "SERIAL-A",
+                    "exec-out",
+                    "cat",
+                    "/dev/block/by-name/abl_a",
+                    r"C:\verified\unlock-images\boot.img",
+                ),
+            ),
+            risk=OperationRisk.READ_ONLY,
+            postconditions=(),
+            data_behavior="preserve",
+        )
+        read_command = AppCommand(
+            "device.inspect",
+            expected_revision=7,
+            target_serial="SERIAL-A",
+            operation_plan=harmless,
+        )
+
+        self.assertFalse(self.policy.requires_reinforced_confirmation(read_command))
+
+        for argv in (
+            ("fastboot", "erase", "userdata"),
+            ("fastboot", "flashing", "unlock"),
+            ("fastboot", "--set-active=b"),
+        ):
+            with self.subTest(argv=argv):
+                risky = replace(self.base_plan, requests=(process(*argv),))
+                self.assertTrue(
+                    self.policy.requires_reinforced_confirmation(
+                        replace(read_command, operation_plan=risky)
+                    )
+                )
+
 
 class ExecutorAndInteractionTests(unittest.TestCase):
     def test_subprocess_transport_sets_shell_false_and_preserves_argv(self):
