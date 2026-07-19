@@ -36,7 +36,7 @@ jobs:
       - name: Install CI runtime dependencies
         run: |
           python -c "from pathlib import Path; lines = Path('requirements.txt').read_text().splitlines(True); Path('requirements-ci.txt').write_text(''.join(line for line in lines if not line.lstrip().startswith('wxPython')))"
-          python -m pip install -r requirements-ci.txt
+          python -m pip install -r requirements-ci.txt -r requirements-dev.txt
 
       - name: Export and verify React gettext catalogs
         run: |
@@ -61,8 +61,16 @@ jobs:
       - name: Run self-test
         run: python PixelFlasher.py --self-test
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+      - name: Lint the modern Python surface
+        run: python -m ruff check pixelflasher_core ui scripts tests
+
+      - name: Type-check the strict modern core
+        run: python -m pyright --pythonpath "$(command -v python)" pixelflasher_core
+
+      - name: Run the Python suite with pytest
+        # The Python 80% coverage threshold is intentionally not a CI gate yet:
+        # the current measured total core coverage is below it.
+        run: python -m pytest
 
   ubuntu_xvfb_dashboard:
     needs: frontend_smoke
@@ -181,7 +189,7 @@ jobs:
       - name: Test and build the React UI
         working-directory: ui/web
         run: |
-          pnpm test
+          pnpm test:coverage
           pnpm build
 
       - name: Verify every gettext catalog is in the Vite build
