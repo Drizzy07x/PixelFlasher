@@ -5,6 +5,9 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from pixelflasher_core import (
     AppCommand,
     AppSnapshot,
@@ -886,6 +889,128 @@ class FlashPlannerGoldenTests(unittest.TestCase):
         self.assertFalse(compilation.ok)
         self.assertEqual("flash_option_conflict", compilation.code)
 
+    def test_image_modes_require_the_matching_canonical_firmware_kind(self):
+        cases = (
+            ("factory", "custom", "factory_firmware_required"),
+            ("customFlash", "factory", "custom_firmware_required"),
+            ("keepData", "ota", "flash_firmware_required"),
+            ("wipe", "", "flash_firmware_required"),
+            ("images", "ota", "option_not_supported_for_mode"),
+        )
+        for mode, firmware_type, expected_code in cases:
+            with self.subTest(mode=mode, firmware_type=firmware_type):
+                compilation = OperationPlanner().compile(
+                    command("flash.execute"),
+                    snapshot_for(
+                        "fastboot",
+                        plan=FlashPlan(mode, dry_run=True),
+                        firmware=FirmwareInfo(type=firmware_type),
+                    ),
+                    preview=True,
+                )
+                self.assertFalse(compilation.ok)
+                self.assertEqual(expected_code, compilation.code)
+
+    def test_wipe_intent_cannot_be_smuggled_into_a_non_wipe_mode(self):
+        cases = (
+            ("factory", {"wipe": True}),
+            ("customFlash", {"dataBehavior": "wipe"}),
+            ("wipe", {"wipe": False}),
+            ("wipe", {"dataBehavior": "preserve"}),
+        )
+        for mode, options in cases:
+            with self.subTest(mode=mode, options=options):
+                firmware_type = "custom" if mode == "customFlash" else "factory"
+                compilation = OperationPlanner().compile(
+                    command("flash.execute"),
+                    snapshot_for(
+                        "fastboot",
+                        plan=FlashPlan(mode, options, dry_run=True),
+                        firmware=FirmwareInfo(type=firmware_type),
+                    ),
+                    preview=True,
+                )
+                self.assertFalse(compilation.ok)
+                self.assertEqual("flash_option_conflict", compilation.code)
+
+    @settings(max_examples=30, deadline=None)
+    @given(
+        mode=st.sampled_from(("factory", "customFlash", "images", "keep", "keepData")),
+        field=st.sampled_from(("wipe", "dataBehavior")),
+    )
+    def test_property_non_wipe_modes_never_compile_wipe_intent(self, mode, field):
+        firmware_type = "custom" if mode == "customFlash" else "factory"
+        options = {field: True if field == "wipe" else "wipe"}
+
+        compilation = OperationPlanner().compile(
+            command("flash.execute"),
+            snapshot_for(
+                "fastboot",
+                plan=FlashPlan(mode, options, dry_run=True),
+                firmware=FirmwareInfo(type=firmware_type),
+            ),
+            preview=True,
+        )
+
+        self.assertFalse(compilation.ok)
+        self.assertEqual("flash_option_conflict", compilation.code)
+
+    @settings(max_examples=12, deadline=None)
+    @given(
+        mode=st.sampled_from(("wipe", "wipeData")),
+        field=st.sampled_from(("wipe", "dataBehavior")),
+    )
+    def test_property_wipe_modes_never_compile_preserve_intent(self, mode, field):
+        options = {field: False if field == "wipe" else "preserve"}
+
+        compilation = OperationPlanner().compile(
+            command("flash.execute"),
+            snapshot_for(
+                "fastboot",
+                plan=FlashPlan(mode, options, dry_run=True),
+                firmware=FirmwareInfo(type="factory"),
+            ),
+            preview=True,
+        )
+
+        self.assertFalse(compilation.ok)
+        self.assertEqual("flash_option_conflict", compilation.code)
+
+    def test_custom_flash_accepts_only_processed_custom_artifacts(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "custom.zip"
+            boot = root / "boot.img"
+            source.write_bytes(b"custom")
+            boot.write_bytes(b"boot")
+            firmware = FirmwareInfo(
+                str(source), "custom", "42", digest(source), True, True
+            )
+            plan = FlashPlan(
+                "customFlash",
+                {"verify": True, "noReboot": True},
+                fingerprint="custom-mode-plan",
+                dry_run=True,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
+                firmware_hash=firmware.hash,
+            )
+
+            compilation = OperationPlanner(
+                artifact_repository=repository
+            ).compile(
+                command("flash.execute"),
+                snapshot_for("fastboot", plan=plan, firmware=firmware),
+                preview=True,
+            )
+
+            self.assertTrue(compilation.ok)
+            self.assertIsNotNone(compilation.plan)
+            assert compilation.plan is not None
+            self.assertEqual(("boot",), compilation.plan.partitions)
+
     def test_factory_components_use_fixed_stages_before_os_partitions(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1194,8 +1319,14 @@ class FlashPlannerGoldenTests(unittest.TestCase):
 
     def test_wipe_preview_issues_nonce_and_exact_text_before_execution(self):
         with TemporaryDirectory() as directory:
-            boot = Path(directory) / "boot.img"
+            root = Path(directory)
+            boot = root / "boot.img"
+            factory = root / "factory.zip"
             boot.write_bytes(b"boot")
+            factory.write_bytes(b"factory")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "42", digest(factory), True, True
+            )
             plan = FlashPlan(
                 "wipeData",
                 {
@@ -1211,10 +1342,12 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             repository = ProcessedArtifactRepository()
             repository.register(
                 (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
-                plan_fingerprint=plan.fingerprint,
+                firmware_hash=firmware.hash,
             )
             engine = CommandEngine(
-                store=AppStateStore(snapshot_for("fastboot", plan=plan)),
+                store=AppStateStore(
+                    snapshot_for("fastboot", plan=plan, firmware=firmware)
+                ),
                 executor=CommandExecutor(transport),
                 postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda request: interactions.append(request) or InteractionDecision.ACCEPTED,

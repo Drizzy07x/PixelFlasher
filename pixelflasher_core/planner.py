@@ -893,6 +893,7 @@ class OperationPlanner:
                 "flash_option_conflict",
                 "temporaryRoot performs the final boot and cannot be combined with noReboot",
             )
+        self._validate_image_mode_options(mode, snapshot.firmware.type, options)
         repository_artifacts = self.artifact_repository.resolve(snapshot)
         if not repository_artifacts:
             raise PlanningError(
@@ -1121,6 +1122,53 @@ class OperationPlanner:
             ),
         )
         return plan, True, True
+
+    @staticmethod
+    def _validate_image_mode_options(
+        mode: str,
+        firmware_type: str,
+        options: Mapping[str, object],
+    ) -> None:
+        """Reject contradictory flash intent before resolving any artifact path."""
+
+        normalized_firmware = firmware_type.strip().casefold()
+        required_firmware = {
+            "factory": "factory",
+            "customflash": "custom",
+        }.get(mode)
+        if required_firmware is not None and normalized_firmware != required_firmware:
+            raise PlanningError(
+                f"{required_firmware}_firmware_required",
+                f"{mode} mode requires canonical {required_firmware} firmware metadata",
+            )
+        if mode in {"keepdata", "keep", "wipedata", "wipe"} and normalized_firmware not in {
+            "factory",
+            "custom",
+        }:
+            raise PlanningError(
+                "flash_firmware_required",
+                f"{mode} mode requires canonical factory or custom firmware metadata",
+            )
+        if mode == "images" and normalized_firmware == "ota":
+            raise PlanningError(
+                "option_not_supported_for_mode",
+                "OTA packages can only be applied through the sideload planner",
+            )
+
+        wipe_mode = mode in {"wipedata", "wipe"}
+        wipe_option = options.get("wipe")
+        behavior = options.get("dataBehavior", "wipe" if wipe_mode else "preserve")
+        if wipe_mode:
+            if wipe_option is False or behavior != "wipe":
+                raise PlanningError(
+                    "flash_option_conflict",
+                    "wipe mode requires wipe=true and dataBehavior=wipe when those fields are supplied",
+                )
+        elif wipe_option is True or behavior == "wipe":
+            raise PlanningError(
+                "flash_option_conflict",
+                "data wiping is available only through the canonical wipe flash mode",
+            )
 
     def _normalized_flash_options(
         self,

@@ -2020,7 +2020,12 @@
         "tests/test_operation_planner.py:test_each_unsupported_image_option_fails_explicitly",
         "tests/test_operation_planner.py:test_inactive_slot_is_resolved_from_backend_observed_state",
         "tests/test_operation_planner.py:test_inactive_slot_fails_closed_when_active_slot_is_unknown",
-        "tests/test_operation_planner.py:test_temporary_root_and_no_reboot_are_rejected_as_ambiguous"
+        "tests/test_operation_planner.py:test_temporary_root_and_no_reboot_are_rejected_as_ambiguous",
+        "tests/test_operation_planner.py:test_image_modes_require_the_matching_canonical_firmware_kind",
+        "tests/test_operation_planner.py:test_wipe_intent_cannot_be_smuggled_into_a_non_wipe_mode",
+        "tests/test_operation_planner.py:test_custom_flash_accepts_only_processed_custom_artifacts",
+        "tests/test_operation_planner.py:test_property_non_wipe_modes_never_compile_wipe_intent",
+        "tests/test_operation_planner.py:test_property_wipe_modes_never_compile_preserve_intent"
       ],
       "blockReason": null,
       "releaseGate": true,
