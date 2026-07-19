@@ -1186,10 +1186,11 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/rooting.py:RootingService",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:RootPage"
+        "pixelflasher_core/root_app_catalog.py:RootAppCatalogService",
+        "pixelflasher_core/engine.py:_root_app_catalog_command/_compile_service_command",
+        "ui/web/src/pages/root/RootPage.tsx:Rooting Apps"
       ],
-      "gap": "Verified download plus channel/version selection remain open; the React inventory/install flow covers only backend-owned artifacts.",
+      "gap": "The signed catalog, channel/version UX, opaque download, cache verification and inspected package/signer/architecture promotion are native. Production Ed25519 catalog manifests, real provider-source smokes and packaged runner integration remain open.",
       "exitCriteria": [
         "React lists, obtains, verifies and installs every supported rooting-app channel using opaque backend-owned artifact identifiers."
       ],
@@ -1204,6 +1205,7 @@
         "linux"
       ],
       "tests": [
+        "tests/test_root_app_catalog.py",
         "tests/test_rooting_service.py",
         "tests/test_service_engine_integration.py",
         "ui/web/src/test/App.test.tsx:root workflow"
@@ -1217,6 +1219,8 @@
         "rooting_app"
       ],
       "modernCommandIds": [
+        "root.apps.catalog.refresh",
+        "root.apps.download",
         "root.apps.list",
         "root.apps.install"
       ]

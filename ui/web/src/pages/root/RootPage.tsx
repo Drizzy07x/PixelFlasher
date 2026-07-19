@@ -12,6 +12,77 @@ interface RootAppEntry {
   version: string;
   sha256: string;
   provenance: string;
+  packageName: string;
+  signerSha256: string[];
+  schemes: string[];
+  architecture: string;
+}
+
+interface RootAppCatalogEntry {
+  artifactId: string;
+  provider: string;
+  channel: 'stable' | 'beta' | 'canary';
+  flavor: string;
+  version: string;
+  architecture: string;
+  packageName: string;
+  signerSha256: string[];
+  sha256: string;
+  size: number;
+  license: string;
+  provenance: string;
+}
+
+const rootAppFields = [
+  'id', 'provider', 'flavor', 'version', 'sha256', 'provenance', 'packageName',
+  'signerSha256', 'schemes', 'architecture',
+] as const;
+
+function parseRootApp(value: unknown): RootAppEntry | null {
+  const app = record(value);
+  const keys = Object.keys(app).sort();
+  const expected = [...rootAppFields].sort();
+  if (
+    keys.length !== expected.length || !keys.every((key, index) => key === expected[index]) ||
+    typeof app.id !== 'string' || !/^[0-9a-f]{64}$/.test(app.id) ||
+    typeof app.provider !== 'string' || !app.provider ||
+    typeof app.flavor !== 'string' || !app.flavor ||
+    typeof app.version !== 'string' || !app.version ||
+    typeof app.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(app.sha256) ||
+    typeof app.provenance !== 'string' || !app.provenance ||
+    typeof app.packageName !== 'string' || !app.packageName ||
+    !Array.isArray(app.signerSha256) || !app.signerSha256.every((item) => typeof item === 'string' && /^[0-9a-f]{64}$/.test(item)) ||
+    !Array.isArray(app.schemes) || !app.schemes.every((item) => typeof item === 'string') ||
+    typeof app.architecture !== 'string' || !app.architecture
+  ) return null;
+  return app as unknown as RootAppEntry;
+}
+
+const rootAppCatalogFields = [
+  'artifactId', 'provider', 'channel', 'flavor', 'version', 'architecture',
+  'packageName', 'signerSha256', 'sha256', 'size', 'license', 'provenance',
+] as const;
+
+function parseRootAppCatalogEntry(value: unknown): RootAppCatalogEntry | null {
+  const entry = record(value);
+  const keys = Object.keys(entry).sort();
+  const expected = [...rootAppCatalogFields].sort();
+  if (
+    keys.length !== expected.length || !keys.every((key, index) => key === expected[index]) ||
+    typeof entry.artifactId !== 'string' || !/^[0-9a-f]{32}$/.test(entry.artifactId) ||
+    typeof entry.provider !== 'string' || !entry.provider ||
+    !['stable', 'beta', 'canary'].includes(String(entry.channel)) ||
+    typeof entry.flavor !== 'string' || !entry.flavor ||
+    typeof entry.version !== 'string' || !entry.version ||
+    typeof entry.architecture !== 'string' || !entry.architecture ||
+    typeof entry.packageName !== 'string' || !entry.packageName ||
+    !Array.isArray(entry.signerSha256) || !entry.signerSha256.length || !entry.signerSha256.every((item) => typeof item === 'string' && /^[0-9a-f]{64}$/.test(item)) ||
+    typeof entry.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sha256) ||
+    typeof entry.size !== 'number' || !Number.isSafeInteger(entry.size) || entry.size < 0 ||
+    typeof entry.license !== 'string' || !entry.license ||
+    typeof entry.provenance !== 'string' || !entry.provenance
+  ) return null;
+  return entry as unknown as RootAppCatalogEntry;
 }
 
 interface RootModuleEntry {
@@ -115,6 +186,9 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   ];
   const [rootApps, setRootApps] = useState<RootAppEntry[]>([]);
   const [appsLoaded, setAppsLoaded] = useState(false);
+  const [rootAppCatalog, setRootAppCatalog] = useState<RootAppCatalogEntry[]>([]);
+  const [rootCatalogLoaded, setRootCatalogLoaded] = useState(false);
+  const [rootChannel, setRootChannel] = useState<RootAppCatalogEntry['channel']>('stable');
   const [modules, setModules] = useState<RootModuleEntry[]>([]);
   const [modulesLoaded, setModulesLoaded] = useState(false);
   const [bootImages, setBootImages] = useState<BootInventoryEntry[]>([]);
@@ -183,23 +257,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       if (!response) return;
       const value = record(record(response.result).value);
       const parsed = (Array.isArray(value.apps) ? value.apps : []).flatMap((entry) => {
-        const app = record(entry);
-        if (
-          typeof app.id !== 'string' || !/^[0-9a-f]{64}$/i.test(app.id) ||
-          typeof app.provider !== 'string' || !app.provider ||
-          typeof app.flavor !== 'string' ||
-          typeof app.version !== 'string' ||
-          typeof app.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(app.sha256) ||
-          typeof app.provenance !== 'string'
-        ) return [];
-        return [{
-          id: app.id,
-          provider: app.provider,
-          flavor: app.flavor,
-          version: app.version,
-          sha256: app.sha256,
-          provenance: app.provenance,
-        }];
+        const app = parseRootApp(entry);
+        return app ? [app] : [];
       });
       setRootApps(parsed);
       setAppsLoaded(true);
@@ -208,6 +267,41 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         if (current && availableMethods.includes(current)) return current;
         return availableMethods[0] ?? '';
       });
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const refreshRootAppCatalog = async () => {
+    if (busy) return;
+    setBusy('app-catalog');
+    try {
+      const response = await onCommand(commands.rootAppsCatalogRefresh, { channel: rootChannel });
+      if (!response) return;
+      const value = record(record(response.result).value);
+      const parsed = (Array.isArray(value.entries) ? value.entries : []).flatMap((entry) => {
+        const catalogEntry = parseRootAppCatalogEntry(entry);
+        return catalogEntry ? [catalogEntry] : [];
+      });
+      setRootAppCatalog(parsed);
+      setRootCatalogLoaded(true);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const downloadRootApp = async (artifactId: string) => {
+    if (busy) return;
+    setBusy(`app-download:${artifactId}`);
+    try {
+      const response = await onCommand(commands.rootAppsDownload, { artifactId });
+      if (!response) return;
+      const value = record(record(response.result).value);
+      const app = parseRootApp(value.app);
+      if (!app) return;
+      setRootApps((current) => [app, ...current.filter((entry) => entry.id !== app.id)]);
+      setAppsLoaded(true);
+      setMethod((current) => current || methodForProvider(app.provider));
     } finally {
       setBusy('');
     }
@@ -497,11 +591,48 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       <div className="root-management-grid">
         <Card className="root-manager" aria-busy={busy.startsWith('app') || busy === 'apps-list'}>
           <CardTitle icon="android" after={(
-            <Button icon="scan" onClick={() => void refreshRootApps()} disabled={Boolean(busy)}>{t('common.refresh')}</Button>
+            <div className="button-row button-row--wrap">
+              <label className="select-field select-field--compact">
+                <span>{t('root.appChannel')}</span>
+                <select
+                  value={rootChannel}
+                  onChange={(event) => setRootChannel(event.currentTarget.value as RootAppCatalogEntry['channel'])}
+                  disabled={Boolean(busy)}
+                >
+                  <option value="stable">{t('common.stable')}</option>
+                  <option value="beta">{t('common.beta')}</option>
+                  <option value="canary">{t('firmware.canary')}</option>
+                </select>
+              </label>
+              <Button icon="download" onClick={() => void refreshRootAppCatalog()} disabled={Boolean(busy)}>{t('root.appCatalog')}</Button>
+              <Button icon="scan" onClick={() => void refreshRootApps()} disabled={Boolean(busy)}>{t('common.refresh')}</Button>
+            </div>
           )}>{t('root.appsTitle')}</CardTitle>
           <p className="root-manager__detail">{t('root.appsDetail')}</p>
           {!singleAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.appDeviceRequired')}</p> : null}
           <div className="root-inventory" role="list" aria-label={t('root.appsTitle')}>
+            {rootAppCatalog.map((entry) => {
+              const available = rootApps.some((app) => app.sha256 === entry.sha256);
+              return (
+                <article className="root-inventory__row" role="listitem" key={entry.artifactId}>
+                  <span className="root-inventory__icon"><Icon name="download" size={24} /></span>
+                  <span className="root-inventory__copy">
+                    <strong>{entry.provider}</strong>
+                    <span>
+                      <Badge tone="accent">{entry.channel}</Badge>
+                      <Badge tone="neutral">{entry.architecture}</Badge>
+                      <Badge tone="neutral">{entry.version}</Badge>
+                    </span>
+                    <small>{entry.packageName} · <code title={entry.sha256}>{entry.sha256.slice(0, 12)}…</code></small>
+                  </span>
+                  {available ? (
+                    <Badge tone="success">{t('root.appAvailable')}</Badge>
+                  ) : (
+                    <Button icon="download" onClick={() => void downloadRootApp(entry.artifactId)} disabled={Boolean(busy)}>{t('root.appDownload')}</Button>
+                  )}
+                </article>
+              );
+            })}
             {rootApps.map((app) => (
               <article className="root-inventory__row" role="listitem" key={app.id}>
                 <span className="root-inventory__icon"><Icon name="androidPng" size={24} /></span>
@@ -513,7 +644,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 <Button icon="download" onClick={() => void installRootApp(app.id)} disabled={Boolean(busy) || !singleAdb}>{t('root.appInstall')}</Button>
               </article>
             ))}
-            {!rootApps.length ? <EmptyState icon="android" title={t('common.none')} detail={appsLoaded ? t('common.none') : t('root.appsEmpty')} /> : null}
+            {!rootApps.length && !rootAppCatalog.length ? <EmptyState icon="android" title={t('common.none')} detail={appsLoaded || rootCatalogLoaded ? t('common.none') : t('root.appsEmpty')} /> : null}
           </div>
         </Card>
 

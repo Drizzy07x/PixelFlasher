@@ -6,11 +6,39 @@ import type { ActiveOperation, BridgeRequest, BridgeResponse, HostSnapshot, Loca
 const copySnapshot = (): HostSnapshot => structuredClone(demoSnapshot);
 
 const mockRootApps = [
-  { id: 'a'.repeat(64), path: 'C:\\mock\\Magisk.apk', provider: 'Magisk', flavor: 'stable', version: '30.7', sha256: '1'.repeat(64), provenance: 'official' },
-  { id: 'b'.repeat(64), path: 'C:\\mock\\KernelSU.apk', provider: 'KernelSU', flavor: 'stable', version: '1.0.2', sha256: '2'.repeat(64), provenance: 'verified-download' },
-  { id: 'c'.repeat(64), path: 'C:\\mock\\APatch.apk', provider: 'APatch', flavor: 'stable', version: '11039', sha256: '3'.repeat(64), provenance: 'official' },
-  { id: 'd'.repeat(64), path: 'C:\\mock\\SukiSU.apk', provider: 'SukiSU', flavor: 'stable', version: '2.0', sha256: '4'.repeat(64), provenance: 'verified-download' },
+  { id: 'a'.repeat(64), provider: 'Magisk', flavor: 'stable', version: '30.7', sha256: '1'.repeat(64), provenance: 'official', packageName: 'com.topjohnwu.magisk', signerSha256: ['9'.repeat(64)], schemes: ['v2', 'v3'], architecture: 'universal' },
+  { id: 'b'.repeat(64), provider: 'KernelSU', flavor: 'stable', version: '1.0.2', sha256: '2'.repeat(64), provenance: 'verified-download', packageName: 'me.weishu.kernelsu', signerSha256: ['8'.repeat(64)], schemes: ['v2'], architecture: 'arm64-v8a' },
+  { id: 'c'.repeat(64), provider: 'APatch', flavor: 'stable', version: '11039', sha256: '3'.repeat(64), provenance: 'official', packageName: 'me.bmax.apatch', signerSha256: ['7'.repeat(64)], schemes: ['v2'], architecture: 'arm64-v8a' },
+  { id: 'd'.repeat(64), provider: 'SukiSU', flavor: 'stable', version: '2.0', sha256: '4'.repeat(64), provenance: 'verified-download', packageName: 'com.sukisu.ultra', signerSha256: ['6'.repeat(64)], schemes: ['v2'], architecture: 'arm64-v8a' },
 ] as const;
+
+const mockRootAppCatalog = [{
+  artifactId: 'e'.repeat(32),
+  provider: 'Wild_KSU',
+  channel: 'stable',
+  flavor: 'stable',
+  version: '1.0.0',
+  architecture: 'arm64-v8a',
+  packageName: 'com.wild.ksu',
+  signerSha256: ['5'.repeat(64)],
+  sha256: 'f'.repeat(64),
+  size: 12_345_678,
+  license: 'GPL-3.0',
+  provenance: 'official release',
+}] as const;
+
+const mockDownloadedRootApp = {
+  id: 'e'.repeat(64),
+  provider: 'Wild_KSU',
+  flavor: 'stable',
+  version: '1.0.0',
+  sha256: 'f'.repeat(64),
+  provenance: 'verified-download',
+  packageName: 'com.wild.ksu',
+  signerSha256: ['5'.repeat(64)],
+  schemes: ['v2'],
+  architecture: 'arm64-v8a',
+} as const;
 
 const defaultPreferences: ModernPreferences = {
   schemaVersion: 1,
@@ -818,6 +846,35 @@ export function installDevelopmentBridge() {
               message: `found ${mockRootApps.length} local root app(s)`,
               value: { count: mockRootApps.length, apps: structuredClone(mockRootApps) },
             });
+            break;
+          case 'root.apps.catalog.refresh':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'root_app_catalog_refreshed',
+              message: `Loaded ${mockRootAppCatalog.length} verified root application(s).`,
+              value: {
+                count: mockRootAppCatalog.length,
+                entries: structuredClone(mockRootAppCatalog),
+                channel: request.payload.channel ?? 'stable',
+                revision: snapshot.revision,
+              },
+            });
+            break;
+          case 'root.apps.download':
+            snapshot = { ...snapshot, revision: snapshot.revision + 1 };
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'root_app_download_registered',
+              message: 'Root application was downloaded, verified, and registered.',
+              value: {
+                artifact: structuredClone(mockRootAppCatalog[0]),
+                app: structuredClone(mockDownloadedRootApp),
+                cacheHit: false,
+                resumed: false,
+                revision: snapshot.revision,
+              },
+            });
+            publishSnapshot();
             break;
           case 'root.apps.install': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';

@@ -47,6 +47,8 @@ export const commands = {
   partitionsRead: "partitions.read",
   partitionsWrite: "partitions.write",
   platformToolsSetup: "platformTools.setup",
+  rootAppsCatalogRefresh: "root.apps.catalog.refresh",
+  rootAppsDownload: "root.apps.download",
   rootAppsInstall: "root.apps.install",
   rootAppsList: "root.apps.list",
   rootModulesAction: "root.modules.action",
@@ -252,6 +254,12 @@ export interface BridgePayloadByCommand {
     "grant"?: string;
     "source": string;
   };
+  "root.apps.catalog.refresh": {
+    "channel"?: string;
+  };
+  "root.apps.download": {
+    "artifactId": string;
+  };
   "root.apps.install": {
     "appId": string;
     "serial"?: string;
@@ -389,6 +397,8 @@ export const allowedCommands = [
   commands.partitionsRead,
   commands.partitionsWrite,
   commands.platformToolsSetup,
+  commands.rootAppsCatalogRefresh,
+  commands.rootAppsDownload,
   commands.rootAppsInstall,
   commands.rootAppsList,
   commands.rootModulesAction,
@@ -458,6 +468,8 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.partitionsRead]: 1200000,
   [commands.partitionsWrite]: 1200000,
   [commands.platformToolsSetup]: 1800000,
+  [commands.rootAppsCatalogRefresh]: 300000,
+  [commands.rootAppsDownload]: 1800000,
   [commands.rootAppsInstall]: 1800000,
   [commands.rootAppsList]: 3600000,
   [commands.rootModulesAction]: 1800000,
@@ -521,6 +533,8 @@ export const bridgeCommandMetadata = {
   [commands.partitionsRead]: {"owner":"partitions","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"partitions.read","confirmation":"none","postconditions":["local_hash_verified"]},
   [commands.partitionsWrite]: {"owner":"partitions","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"partitions.write","confirmation":"standard","postconditions":["partition_write_verified"]},
   [commands.platformToolsSetup]: {"owner":"platform_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"toolchain.setup","confirmation":"none","postconditions":["adb_fastboot_probed"]},
+  [commands.rootAppsCatalogRefresh]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.apps.catalog.refresh","confirmation":"none","postconditions":["verified_root_app_catalog_returned"]},
+  [commands.rootAppsDownload]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.apps.download","confirmation":"none","postconditions":["root_app_download_verified","root_app_inventory_updated"]},
   [commands.rootAppsInstall]: {"owner":"root","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.app_install","confirmation":"standard","postconditions":["package_installed"]},
   [commands.rootAppsList]: {"owner":"root","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.apps_inventory","confirmation":"none","postconditions":["root_apps_returned"]},
   [commands.rootModulesAction]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.module_action","confirmation":"standard","postconditions":["root_module_state_verified"]},
@@ -615,6 +629,8 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.partitionsRead]: {"grant":{"kind":"string","required":true},"overwrite":{"kind":"boolean","required":false},"partition":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
   [commands.partitionsWrite]: {"grant":{"kind":"string","required":true},"partition":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
   [commands.platformToolsSetup]: {"grant":{"kind":"string","required":false},"source":{"kind":"string","required":true}},
+  [commands.rootAppsCatalogRefresh]: {"channel":{"kind":"string","required":false}},
+  [commands.rootAppsDownload]: {"artifactId":{"kind":"string","required":true}},
   [commands.rootAppsInstall]: {"appId":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
   [commands.rootAppsList]: {"serial":{"kind":"string","required":false}},
   [commands.rootModulesAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"moduleId":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},

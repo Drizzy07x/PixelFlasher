@@ -5441,3 +5441,23 @@ msgid ""
 "The record was deleted, but physical storage cleanup was deferred and will "
 "be retried later."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.appChannel"
+msgid "Release channel"
+msgstr ""
+
+msgctxt "web.root.appCatalog"
+msgid "Load catalog"
+msgstr ""
+
+msgctxt "web.root.appDownload"
+msgid "Download app"
+msgstr ""
+
+msgctxt "web.root.appAvailable"
+msgid "Available locally"
+msgstr ""

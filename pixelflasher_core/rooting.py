@@ -14,6 +14,7 @@ import hmac
 import os
 import re
 import stat
+import threading
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ _METADATA_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. +()-]{0,63}$")
 _MODULE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 _PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_ARCHITECTURE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MODULE_ACTIONS = frozenset({"install", "enable", "disable", "remove"})
 _MODULE_REMOTE_ROOT = "/data/local/tmp/"
 _MAX_ZIP_ENTRIES = 4096
@@ -89,6 +91,15 @@ class RootAppSource:
     provenance: str
     expected_sha256: str = ""
     package_name: str = ""
+    expected_signer_sha256: tuple[str, ...] = ()
+    architecture: str = "universal"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "expected_signer_sha256",
+            tuple(self.expected_signer_sha256),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +114,7 @@ class RootAppInfo:
     package_name: str = ""
     signer_sha256: tuple[str, ...] = ()
     schemes: tuple[str, ...] = ()
+    architecture: str = "universal"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "signer_sha256", tuple(self.signer_sha256))
@@ -119,6 +131,7 @@ class RootAppInfo:
             "packageName": self.package_name,
             "signerSha256": list(self.signer_sha256),
             "schemes": list(self.schemes),
+            "architecture": self.architecture,
         }
 
 
@@ -175,7 +188,8 @@ class RootingService:
             raise TypeError("hash_chunk_size must be an integer")
         if hash_chunk_size <= 0:
             raise ValueError("hash_chunk_size must be positive")
-        self.root_app_sources = tuple(root_app_sources)
+        self._root_app_sources = tuple(root_app_sources)
+        self._root_app_sources_lock = threading.RLock()
         self.hash_chunk_size = hash_chunk_size
         self.apk_inspector = apk_inspector or ApkInspector()
 
@@ -229,11 +243,91 @@ class RootingService:
         self,
         cancellation: CancellationProbe | None = None,
     ) -> tuple[RootAppInfo, ...]:
+        with self._root_app_sources_lock:
+            sources = self._root_app_sources
+        return self._root_app_inventory(sources, cancellation)
+
+    @property
+    def root_app_sources(self) -> tuple[RootAppSource, ...]:
+        with self._root_app_sources_lock:
+            return self._root_app_sources
+
+    def register_verified_source(
+        self,
+        source: RootAppSource,
+        cancellation: CancellationProbe | None = None,
+    ) -> RootAppInfo:
+        """Atomically add one backend-verified download to the live inventory."""
+
+        if not isinstance(source, RootAppSource):
+            raise TypeError("source must be a RootAppSource")
+        if source.provenance.strip().casefold() != "verified-download":
+            raise RootingPlanningError(
+                "root_app_registration_untrusted",
+                "dynamic root-app registration requires verified-download provenance",
+            )
+        with self._root_app_sources_lock:
+            current = self._root_app_sources
+            identity = (
+                source.provider.strip().casefold(),
+                source.flavor.strip().casefold(),
+                source.version.strip().casefold(),
+                source.architecture.strip().casefold(),
+            )
+            retained = tuple(
+                candidate
+                for candidate in current
+                if (
+                    candidate.provider.strip().casefold(),
+                    candidate.flavor.strip().casefold(),
+                    candidate.version.strip().casefold(),
+                    candidate.architecture.strip().casefold(),
+                )
+                != identity
+            )
+            candidates = (*retained, source)
+            inventory = self._root_app_inventory(candidates, cancellation)
+            canonical = os.path.normcase(
+                str(Path(source.path).expanduser().resolve(strict=True))
+            )
+            registered = next(
+                (
+                    app
+                    for app in inventory
+                    if os.path.normcase(app.path) == canonical
+                ),
+                None,
+            )
+            if registered is None:  # pragma: no cover - inventory invariant
+                raise RootingPlanningError(
+                    "root_app_registration_failed",
+                    "verified root app did not enter the canonical inventory",
+                )
+            self._root_app_sources = candidates
+            return registered
+
+    def restore_root_app_sources(
+        self,
+        sources: Sequence[RootAppSource],
+    ) -> None:
+        """Restore a backend-captured inventory after failed state promotion."""
+
+        values = tuple(sources)
+        if any(not isinstance(source, RootAppSource) for source in values):
+            raise TypeError("sources must contain only RootAppSource values")
+        with self._root_app_sources_lock:
+            self._root_app_sources = values
+
+    def _root_app_inventory(
+        self,
+        sources: Sequence[RootAppSource],
+        cancellation: CancellationProbe | None = None,
+    ) -> tuple[RootAppInfo, ...]:
         inventory: list[RootAppInfo] = []
         seen_paths: set[str] = set()
         seen_identities: set[tuple[str, str, str]] = set()
         seen_ids: set[str] = set()
-        for source in self.root_app_sources:
+        for source in sources:
             self._check_cancelled(cancellation)
             provider = self._metadata(source.provider, "provider")
             flavor = self._metadata(source.flavor, "flavor")
@@ -265,6 +359,29 @@ class RootingService:
                 raise RootingPlanningError(
                     "root_app_expected_hash_required",
                     f"{provenance} root apps require a backend-provided expected SHA-256",
+                )
+            expected_signers = tuple(
+                signer.strip().casefold()
+                for signer in source.expected_signer_sha256
+            )
+            if (
+                len(expected_signers) != len(set(expected_signers))
+                or any(_SHA256_PATTERN.fullmatch(signer) is None for signer in expected_signers)
+            ):
+                raise RootingPlanningError(
+                    "root_app_expected_signer_invalid",
+                    "expected root-app signer digests are invalid",
+                )
+            if provenance == "verified-download" and not expected_signers:
+                raise RootingPlanningError(
+                    "root_app_expected_signer_required",
+                    "verified downloads require backend-pinned APK signer digests",
+                )
+            architecture = source.architecture.strip().casefold()
+            if _ARCHITECTURE_PATTERN.fullmatch(architecture) is None:
+                raise RootingPlanningError(
+                    "root_app_architecture_invalid",
+                    "root-app architecture is invalid",
                 )
             canonical_key = os.path.normcase(str(path))
             if canonical_key in seen_paths:
@@ -315,6 +432,15 @@ class RootingService:
                     "root_app_package_mismatch",
                     "root-app package name does not match its verified APK identity",
                 )
+            actual_signers = tuple(sorted(signer.casefold() for signer in apk_identity.signer_sha256))
+            if expected_signers and not hmac.compare_digest(
+                "\0".join(sorted(expected_signers)),
+                "\0".join(actual_signers),
+            ):
+                raise RootingPlanningError(
+                    "root_app_signer_mismatch",
+                    "root-app signer does not match the backend-pinned identity",
+                )
             app_id = hashlib.sha256(f"{provider.casefold()}\0{flavor.casefold()}\0{digest}".encode()).hexdigest()
             if app_id in seen_ids:
                 raise RootingPlanningError(
@@ -336,6 +462,7 @@ class RootingService:
                     apk_identity.package_name,
                     apk_identity.signer_sha256,
                     apk_identity.schemes,
+                    architecture,
                 )
             )
         return tuple(

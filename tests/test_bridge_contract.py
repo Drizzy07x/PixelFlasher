@@ -112,6 +112,43 @@ class BridgeContractTests(unittest.TestCase):
                 )
             self.assertEqual("invalid_payload", rejected.exception.code)
 
+    def test_root_app_catalog_accepts_only_channels_and_opaque_artifact_ids(self):
+        refresh = BridgeRequest.from_json(
+            message(
+                command="root.apps.catalog.refresh",
+                payload={"channel": "canary"},
+                expectedRevision=7,
+            )
+        )
+        download = BridgeRequest.from_json(
+            message(
+                command="root.apps.download",
+                payload={"artifactId": "a" * 32},
+                expectedRevision=7,
+            )
+        )
+        self.assertEqual({"channel": "canary"}, refresh.payload)
+        self.assertEqual({"artifactId": "a" * 32}, download.payload)
+
+        invalid = (
+            ("root.apps.catalog.refresh", {"channel": "nightly"}),
+            ("root.apps.download", {"artifactId": "A" * 32}),
+            ("root.apps.download", {"artifactId": "a" * 32, "url": "https://evil.test/app.apk"}),
+            ("root.apps.download", {"path": "C:/private/app.apk"}),
+        )
+        for command, payload in invalid:
+            with self.subTest(command=command, payload=payload), self.assertRaises(
+                BridgeProtocolError
+            ) as rejected:
+                BridgeRequest.from_json(
+                    message(
+                        command=command,
+                        payload=payload,
+                        expectedRevision=7,
+                    )
+                )
+            self.assertEqual("invalid_payload", rejected.exception.code)
+
     def test_logcat_clear_contract_binds_one_serial_to_an_exact_revision(self):
         loaded = BridgeRequest.from_json(
             message(

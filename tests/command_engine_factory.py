@@ -39,6 +39,7 @@ from pixelflasher_core.partitions import PartitionService
 from pixelflasher_core.planner import OperationPlanner
 from pixelflasher_core.platform_tools_setup import PlatformToolsSetupService
 from pixelflasher_core.repositories import FirmwareRepository
+from pixelflasher_core.root_app_catalog import RootAppCatalogService
 from pixelflasher_core.rooting import RootApkInspector, RootingService
 from pixelflasher_core.safety import SafetyPolicy
 from pixelflasher_core.scrcpy_setup import ScrcpySetupService
@@ -79,6 +80,7 @@ def make_test_command_engine(
     snapshot_provider: SnapshotProvider | None = None,
     postcondition_observer: PostconditionObserverLike | None = None,
     firmware_catalog_service: FirmwareCatalogService | None = None,
+    root_app_catalog_service: RootAppCatalogService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
 
@@ -147,6 +149,12 @@ def make_test_command_engine(
         / "pixelflasher-tests"
         / "firmware-downloads"
     )
+    root_app_catalog_service = root_app_catalog_service or RootAppCatalogService(
+        cache_directory=Path(tempfile.gettempdir())
+        / "pixelflasher-tests"
+        / "root-app-downloads",
+        rooting_service=rooting_service,
+    )
     return CommandEngine(
         store=store,
         executor=executor,
@@ -176,4 +184,5 @@ def make_test_command_engine(
         scrcpy_state_updater=None,
         device_scan_state_updater=None,
         firmware_catalog_service=firmware_catalog_service,
+        root_app_catalog_service=root_app_catalog_service,
     )

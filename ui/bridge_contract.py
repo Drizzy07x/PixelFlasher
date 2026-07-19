@@ -344,6 +344,13 @@ def _validate_payload_values(
         artifact_id = payload.get("artifactId")
         if not isinstance(artifact_id, str) or re.fullmatch(r"[0-9a-f]{32}", artifact_id) is None:
             _payload_error("firmware artifactId is invalid", request_id)
+    elif command == "root.apps.catalog.refresh":
+        if payload.get("channel", "stable") not in {"stable", "beta", "canary"}:
+            _payload_error("root-app catalog channel is invalid", request_id)
+    elif command == "root.apps.download":
+        artifact_id = payload.get("artifactId")
+        if not isinstance(artifact_id, str) or re.fullmatch(r"[0-9a-f]{32}", artifact_id) is None:
+            _payload_error("root-app artifactId is invalid", request_id)
     elif command == "tools.logcat":
         _validate_logcat_payload(payload, request_id)
     elif command == "boot.patch":

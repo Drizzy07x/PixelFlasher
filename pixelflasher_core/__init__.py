@@ -305,6 +305,17 @@ from .repositories import (
     LegacyMigrationReport,
     RepositoryError,
 )
+from .root_app_catalog import (
+    MappingRootAppManifestCatalog,
+    RootAppCatalogEntry,
+    RootAppCatalogError,
+    RootAppCatalogResult,
+    RootAppCatalogService,
+    RootAppCatalogSource,
+    RootAppCatalogStatus,
+    RootAppDownloadResult,
+    RootAppManifestCatalog,
+)
 from .rooting import (
     ROOTING_COMMANDS,
     RootApkInspector,
@@ -608,6 +619,15 @@ __all__ = [
     "RuntimeListener",
     "ROOTING_COMMANDS",
     "RootApkInspector",
+    "MappingRootAppManifestCatalog",
+    "RootAppCatalogEntry",
+    "RootAppCatalogError",
+    "RootAppCatalogResult",
+    "RootAppCatalogService",
+    "RootAppCatalogSource",
+    "RootAppCatalogStatus",
+    "RootAppDownloadResult",
+    "RootAppManifestCatalog",
     "RootAppInfo",
     "RootAppSource",
     "RootModuleInfo",

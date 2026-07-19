@@ -110,6 +110,11 @@ from .planner import PLANNED_COMMANDS, OperationPlanner
 from .platform_tools import PlatformToolsStatus
 from .platform_tools_setup import PlatformToolsSetupService
 from .repositories import ArtifactProvenance, FirmwareRepository, RepositoryError
+from .root_app_catalog import (
+    RootAppCatalogService,
+    RootAppCatalogStatus,
+    RootAppDownloadResult,
+)
 from .rooting import (
     ROOTING_COMMANDS,
     RootingCompilation,
@@ -229,6 +234,7 @@ class CommandEngine:
         scrcpy_state_updater: ScrcpyStateUpdater | None,
         device_scan_state_updater: DeviceScanStateUpdater | None,
         firmware_catalog_service: FirmwareCatalogService,
+        root_app_catalog_service: RootAppCatalogService,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
@@ -250,6 +256,10 @@ class CommandEngine:
             raise ValueError("device service and command engine must share one process transport")
         if boot_patch_service.rooting_service is not rooting_service:
             raise ValueError("boot patch service and command engine must share one rooting service")
+        if root_app_catalog_service.rooting_service is not rooting_service:
+            raise ValueError(
+                "root-app catalog and command engine must share one rooting service"
+            )
         self.store = store
         self.executor = executor
         self.safety_policy = safety_policy
@@ -274,6 +284,7 @@ class CommandEngine:
         self.boot_inventory_service = boot_inventory_service
         self.firmware_repository = firmware_repository
         self.firmware_catalog_service = firmware_catalog_service
+        self.root_app_catalog_service = root_app_catalog_service
         self.support_package_service = support_package_service
         self.snapshot_provider = snapshot_provider
         self.postcondition_observer = postcondition_observer
@@ -321,6 +332,8 @@ class CommandEngine:
             return self._setup_scrcpy(command)
         if command.kind in {"firmware.catalog.refresh", "firmware.download"}:
             return self._firmware_catalog_command(command)
+        if command.kind in {"root.apps.catalog.refresh", "root.apps.download"}:
+            return self._root_app_catalog_command(command)
         if command.kind == CommandKind.DEVICE_SCAN.value:
             # Compatibility for milestone-1 callers that inject an already
             # reviewed plan. Browser commands never provide operation plans.
@@ -1229,6 +1242,163 @@ class CommandEngine:
                 )
         finally:
             self._unregister_cancellation(command.operation_id)
+
+    def _root_app_catalog_command(self, command: AppCommand) -> OperationResult:
+        service = self.root_app_catalog_service
+        snapshot = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="root_app_catalog_cancelled",
+                        cancelled_message="Root-app catalog operation was cancelled.",
+                        timeout_message="Root-app catalog operation timed out.",
+                    )
+                current = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, current)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                if current.revision != snapshot.revision:
+                    return self._denied(
+                        command,
+                        "stale_revision",
+                        "Canonical state changed before the root-app catalog operation.",
+                    )
+                if command.kind == "root.apps.catalog.refresh":
+                    unknown = set(command.payload) - {"channel"}
+                    channel = command.payload.get("channel", "stable")
+                    if unknown or not isinstance(channel, str):
+                        return self._invalid(command, "Root-app catalog payload is invalid.")
+                    refreshed = service.refresh(
+                        channel=channel,
+                        cancellation=token,
+                    )
+                    if refreshed.status is RootAppCatalogStatus.CANCELLED:
+                        return self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=refreshed.code,
+                            cancelled_message=refreshed.message,
+                            timeout_message="Root-app catalog refresh timed out.",
+                        )
+                    if not refreshed.ok:
+                        return OperationResult.failed(
+                            command.operation_id,
+                            code=refreshed.code,
+                            message=refreshed.message,
+                        )
+                    return OperationResult.success(
+                        command.operation_id,
+                        code=refreshed.code,
+                        message=refreshed.message,
+                        value={
+                            **refreshed.to_public_dict(),
+                            "channel": channel.strip().casefold(),
+                            "revision": current.revision,
+                        },
+                    )
+
+                unknown = set(command.payload) - {"artifactId"}
+                artifact_id = command.payload.get("artifactId")
+                if unknown or not isinstance(artifact_id, str):
+                    return self._invalid(command, "Root-app download payload is invalid.")
+                downloaded = service.download(
+                    artifact_id,
+                    cancellation=token,
+                    progress=lambda phase, message, percent: self._publish_progress(
+                        command,
+                        phase,
+                        message,
+                        percent,
+                    ),
+                )
+                if downloaded.status is RootAppCatalogStatus.CANCELLED:
+                    return self._rollback_root_app_download(
+                        service,
+                        downloaded,
+                        command,
+                        self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=downloaded.code,
+                            cancelled_message=downloaded.message,
+                            timeout_message="Root-app download timed out.",
+                        ),
+                    )
+                if not downloaded.ok or downloaded.entry is None or downloaded.app is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=downloaded.code,
+                        message=downloaded.message,
+                    )
+                if token.cancelled:
+                    return self._rollback_root_app_download(
+                        service,
+                        downloaded,
+                        command,
+                        self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="root_app_download_cancelled",
+                            cancelled_message="Root-app download was cancelled before promotion.",
+                            timeout_message="Root-app download timed out before promotion.",
+                        ),
+                    )
+                try:
+                    updated = self.store.update(
+                        expected_revision=current.revision,
+                        preferences=current.preferences,
+                    )
+                except StaleRevisionError as error:
+                    return self._rollback_root_app_download(
+                        service,
+                        downloaded,
+                        command,
+                        self._denied(command, "stale_revision", str(error)),
+                    )
+                return OperationResult.success(
+                    command.operation_id,
+                    code="root_app_download_registered",
+                    message="Root application was downloaded, verified, and registered.",
+                    value={
+                        "artifact": downloaded.entry.to_public_dict(),
+                        "app": downloaded.app.to_dict(),
+                        "cacheHit": downloaded.cache_hit,
+                        "resumed": downloaded.resumed,
+                        "revision": updated.revision,
+                    },
+                )
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    @staticmethod
+    def _rollback_root_app_download(
+        service: RootAppCatalogService,
+        downloaded: RootAppDownloadResult,
+        command: AppCommand,
+        intended: OperationResult,
+    ) -> OperationResult:
+        if not downloaded.previous_sources and downloaded.app is None:
+            return intended
+        try:
+            service.rooting_service.restore_root_app_sources(
+                downloaded.previous_sources
+            )
+        except (TypeError, ValueError, RootingPlanningError) as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code="root_app_download_rollback_failed",
+                message=str(error),
+            )
+        return intended
 
     def _inspect_firmware(
         self,

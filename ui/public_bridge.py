@@ -32,6 +32,8 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "firmware.download",
         "firmware.process",
         "firmware.select",
+        "root.apps.catalog.refresh",
+        "root.apps.download",
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
@@ -1101,22 +1103,160 @@ def _project_boot_patch(value: object) -> JSONValue:
     })
 
 
-def _project_root_apps(value: object) -> JSONValue:
-    source = _record(value)
-    apps: list[dict[str, object]] = []
-    for raw in _array(source.get("apps", [])):
-        app = _record(raw)
-        apps.append(
+def _public_root_app(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
             {
-                "id": _string(app.get("id")),
-                "provider": _string(app.get("provider")),
-                "flavor": _string(app.get("flavor")),
-                "version": _string(app.get("version")),
-                "sha256": _string(app.get("sha256")),
-                "provenance": _string(app.get("provenance")),
+                "id",
+                "provider",
+                "flavor",
+                "version",
+                "sha256",
+                "provenance",
+                "packageName",
+                "signerSha256",
+                "schemes",
+                "architecture",
             }
-        )
+        ),
+    )
+    app_id = source["id"]
+    digest = source["sha256"]
+    signers = _strings(source["signerSha256"])
+    schemes = _strings(source["schemes"])
+    if not isinstance(app_id, str) or _LOWERCASE_SHA256.fullmatch(app_id) is None:
+        raise PublicProjectionError("root app id is invalid")
+    if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+        raise PublicProjectionError("root app digest is invalid")
+    if any(_LOWERCASE_SHA256.fullmatch(signer) is None for signer in signers):
+        raise PublicProjectionError("root app signer is invalid")
+    for name in (
+        "provider",
+        "flavor",
+        "version",
+        "provenance",
+        "packageName",
+        "architecture",
+    ):
+        if not isinstance(source[name], str) or not source[name]:
+            raise PublicProjectionError(f"root app {name} is invalid")
+    return _public_object(
+        {
+            "id": app_id,
+            "provider": source["provider"],
+            "flavor": source["flavor"],
+            "version": source["version"],
+            "sha256": digest,
+            "provenance": source["provenance"],
+            "packageName": source["packageName"],
+            "signerSha256": signers,
+            "schemes": schemes,
+            "architecture": source["architecture"],
+        }
+    )
+
+
+def _public_root_app_catalog_entry(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "artifactId",
+                "provider",
+                "channel",
+                "flavor",
+                "version",
+                "architecture",
+                "packageName",
+                "signerSha256",
+                "sha256",
+                "size",
+                "license",
+                "provenance",
+            }
+        ),
+    )
+    artifact_id = source["artifactId"]
+    digest = source["sha256"]
+    size = source["size"]
+    signers = _strings(source["signerSha256"])
+    if not isinstance(artifact_id, str) or re.fullmatch(r"[0-9a-f]{32}", artifact_id) is None:
+        raise PublicProjectionError("root-app catalog artifact id is invalid")
+    if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+        raise PublicProjectionError("root-app catalog digest is invalid")
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        raise PublicProjectionError("root-app catalog size is invalid")
+    if not signers or any(_LOWERCASE_SHA256.fullmatch(signer) is None for signer in signers):
+        raise PublicProjectionError("root-app catalog signer is invalid")
+    for name in (
+        "provider",
+        "channel",
+        "flavor",
+        "version",
+        "architecture",
+        "packageName",
+        "license",
+        "provenance",
+    ):
+        if not isinstance(source[name], str) or not source[name]:
+            raise PublicProjectionError(f"root-app catalog {name} is invalid")
+    return _public_object(source)
+
+
+def _project_root_apps(value: object) -> JSONValue:
+    source = _closed_record(value, fields=frozenset({"count", "apps"}))
+    apps = [_public_root_app(raw) for raw in _array(source["apps"])]
+    if source["count"] != len(apps):
+        raise PublicProjectionError("root app inventory count is invalid")
     return ensure_public_json({"count": len(apps), "apps": apps})
+
+
+def _project_root_app_catalog(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"count", "entries", "channel", "revision"}),
+    )
+    entries = [
+        _public_root_app_catalog_entry(raw)
+        for raw in _array(source["entries"])
+    ]
+    if source["count"] != len(entries):
+        raise PublicProjectionError("root-app catalog count is invalid")
+    if source["channel"] not in {"stable", "beta", "canary"}:
+        raise PublicProjectionError("root-app catalog channel is invalid")
+    revision = source["revision"]
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PublicProjectionError("root-app catalog revision is invalid")
+    return ensure_public_json(
+        {
+            "count": len(entries),
+            "entries": entries,
+            "channel": source["channel"],
+            "revision": revision,
+        }
+    )
+
+
+def _project_root_app_download(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"artifact", "app", "cacheHit", "resumed", "revision"}),
+    )
+    if not isinstance(source["cacheHit"], bool) or not isinstance(source["resumed"], bool):
+        raise PublicProjectionError("root-app download cache evidence is invalid")
+    revision = source["revision"]
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PublicProjectionError("root-app download revision is invalid")
+    return ensure_public_json(
+        {
+            "artifact": _public_root_app_catalog_entry(source["artifact"]),
+            "app": _public_root_app(source["app"]),
+            "cacheHit": source["cacheHit"],
+            "resumed": source["resumed"],
+            "revision": revision,
+        }
+    )
 
 
 def _project_root_modules(value: object) -> JSONValue:
@@ -1970,6 +2110,8 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "partitions.write": _project_none,
     "platformTools.setup": _project_platform_tools_setup,
     "root.apps.install": _project_none,
+    "root.apps.catalog.refresh": _project_root_app_catalog,
+    "root.apps.download": _project_root_app_download,
     "root.apps.list": _project_root_apps,
     "root.modules.action": _project_root_module_action,
     "root.modules.list": _project_root_modules,

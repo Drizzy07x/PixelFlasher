@@ -20,7 +20,7 @@ EXPECTED_TRANSLATED_COUNTS = {
     "zh_TW": 426,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 523
+EXPECTED_WEB_CONTEXT_COUNT = 527
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     # Official firmware catalog/download UI awaits the next coordinated
     # translation pass and uses its canonical English source in the meantime.
@@ -137,6 +137,10 @@ EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.boot.deleteConfirm",
     "web.boot.deleteFailed",
     "web.boot.cleanupDeferred",
+    "web.root.appChannel",
+    "web.root.appCatalog",
+    "web.root.appDownload",
+    "web.root.appAvailable",
     # Typed Scrcpy options landed after the reviewed 2026-07-19 translation
     # pass. They use source fallback until all five translated catalogs are
     # reviewed together.

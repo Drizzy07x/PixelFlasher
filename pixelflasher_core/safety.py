@@ -82,6 +82,8 @@ class SafetyPolicy:
             "backups.restore",
             "root.apps.list",
             "root.apps.install",
+            "root.apps.catalog.refresh",
+            "root.apps.download",
             "root.modules.list",
             "root.modules.action",
         }

@@ -218,6 +218,11 @@ describe('PixelFlasher web workspace', () => {
     expect(await within(appsCard).findByText('Magisk')).toBeVisible();
     expect(patchButton).toBeEnabled();
 
+    await user.click(within(appsCard).getByRole('button', { name: 'Load catalog' }));
+    const rootDownload = await within(appsCard).findByRole('button', { name: 'Download app' });
+    await user.click(rootDownload);
+    expect(await within(appsCard).findByText('Available locally')).toBeVisible();
+
     const acceptInteraction = async () => {
       const dialog = await screen.findByRole('alertdialog');
       await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
@@ -274,7 +279,9 @@ describe('PixelFlasher web workspace', () => {
     });
     expect(postMessage.mock.calls.map(([raw]) => raw).filter((raw) => raw.includes('correct-horse'))).toHaveLength(1);
 
-    await user.click(within(appsCard).getAllByRole('button', { name: 'Install app' })[0]);
+    const magiskAppRow = within(appsCard).getByText('Magisk').closest('[role="listitem"]');
+    if (!magiskAppRow) throw new Error('Magisk app row missing');
+    await user.click(within(magiskAppRow as HTMLElement).getByRole('button', { name: 'Install app' }));
     await screen.findByRole('alertdialog');
     expect(appsRefresh).toBeDisabled();
     await acceptInteraction();
@@ -311,6 +318,12 @@ describe('PixelFlasher web workspace', () => {
     expect(rootRequests.find((request) => request.command === 'root.apps.install')?.payload).toEqual({
       serial: '47161FDJH00A8L',
       appId: 'a'.repeat(64),
+    });
+    expect(rootRequests.find((request) => request.command === 'root.apps.catalog.refresh')?.payload).toEqual({
+      channel: 'stable',
+    });
+    expect(rootRequests.find((request) => request.command === 'root.apps.download')?.payload).toEqual({
+      artifactId: 'e'.repeat(32),
     });
     expect(rootRequests.find((request) => request.command === 'root.modules.list')?.payload).toEqual({
       serial: '47161FDJH00A8L',
