@@ -128,7 +128,9 @@ class MacBuildWorkflowTests(unittest.TestCase):
     def test_mac_build_uses_stable_runner_and_safe_brew_cleanup(self):
         workflow = Path('.github/workflows/mac.yml').read_text(encoding='utf-8')
 
-        self.assertIn('runs-on: macos-15', workflow)
+        self.assertIn('- runner: macos-15', workflow)
+        self.assertIn('- runner: macos-15-intel', workflow)
+        self.assertIn('runs-on: ${{ matrix.runner }}', workflow)
         self.assertIn('brew uninstall --ignore-dependencies openssl@1.1 || true', workflow)
         self.assertNotIn('brew upgrade', workflow)
 

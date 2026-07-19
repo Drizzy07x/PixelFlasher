@@ -11,17 +11,90 @@ from scripts.sync_react_gettext import (
     react_translation_coverage,
 )
 
-
 EXPECTED_TRANSLATED_COUNTS = {
     "en": 0,
-    "es": 283,
-    "fr": 283,
-    "it": 283,
-    "zh_CN": 283,
-    "zh_TW": 283,
+    "es": 285,
+    "fr": 285,
+    "it": 285,
+    "zh_CN": 285,
+    "zh_TW": 285,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 267
+EXPECTED_WEB_CONTEXT_COUNT = 334
+EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
+    "web.apps.apkFiles",
+    "web.apps.chooseApk",
+    "web.apps.replace",
+    "web.apps.replaceDetail",
+    "web.apps.grantPermissions",
+    "web.apps.grantPermissionsDetail",
+    "web.apps.allowDowngrade",
+    "web.apps.allowDowngradeDetail",
+    "web.apps.allowTest",
+    "web.apps.allowTestDetail",
+    # APK install completion landed after the reviewed 2026-07-18 translation
+    # pass. All six PO catalogs own these msgids and intentionally use the
+    # English source fallback until translators review them.
+    "web.apps.forceQueryable",
+    "web.apps.forceQueryableDetail",
+    "web.apps.bypassLowTargetSdk",
+    "web.apps.bypassLowTargetSdkDetail",
+    "web.apps.installOptions",
+    "web.apps.installGuard",
+    "web.apps.picking",
+    "web.apps.installing",
+    "web.apps.cancelling",
+    "web.apps.cancelInstall",
+    "web.apps.installCancelled",
+    "web.apps.installFailed",
+    "web.apps.installSucceeded",
+    "web.apps.inventoryRefreshFailed",
+    # Device inspection landed after the reviewed 2026-07-18 translation pass.
+    # All six PO catalogs own these msgids; non-English catalogs intentionally
+    # use the English source fallback until translators review them.
+    "web.device.inspectTitle",
+    "web.device.inspectDetail",
+    "web.device.inspectGuard",
+    "web.device.inspectProperties",
+    "web.device.inspectPropertiesDetail",
+    "web.device.inspectScreenXml",
+    "web.device.inspectScreenXmlDetail",
+    "web.device.inspectBootloaderVersions",
+    "web.device.inspectBootloaderVersionsDetail",
+    "web.device.inspectPifProfile",
+    "web.device.inspectPifProfileDetail",
+    "web.device.inspectRunning",
+    "web.device.inspectCancelling",
+    "web.device.inspectCancel",
+    "web.device.inspectCancelled",
+    "web.device.inspectFailed",
+    "web.device.inspectCopy",
+    "web.device.inspectCopied",
+    "web.device.inspectCopyFailed",
+    "web.device.inspectManufacturer",
+    "web.device.inspectSecurityPatch",
+    "web.device.inspectEntries",
+    "web.device.inspectRedacted",
+    "web.device.inspectNodes",
+    "web.device.inspectRedactedFields",
+    "web.device.inspectDigest",
+    "web.device.inspectCurrentVersion",
+    "web.device.inspectSource",
+    "web.device.inspectActiveSlot",
+    # Boot inventory is source-fallback until the next reviewed translation pass.
+    "web.boot.inventoryTitle",
+    "web.boot.inventoryDetail",
+    "web.boot.inventoryEmpty",
+    "web.boot.inventoryLoad",
+    "web.boot.import",
+    "web.boot.imageFiles",
+    "web.boot.partition",
+    "web.boot.use",
+    "web.boot.patched",
+    "web.boot.stock",
+    "web.boot.integrityFailed",
+    "web.boot.provenance",
+}
 PLACEHOLDER_PATTERN = re.compile(r"\{[A-Za-z][A-Za-z0-9_]*\}")
 
 
@@ -73,8 +146,14 @@ class ReactGettextCoverageTests(unittest.TestCase):
                 self.assertEqual(expected, set(entries))
             for key, entry in entries.items():
                 with self.subTest(locale=locale, context=key[0]):
-                    self.assertTrue(entry.msgstr.strip(), "translation is empty")
                     self.assertFalse(entry.fuzzy, "translation is fuzzy")
+                    if entry.msgctxt in EXPECTED_SOURCE_FALLBACK_CONTEXTS:
+                        self.assertFalse(
+                            entry.msgstr.strip(),
+                            "unreviewed translation must use the documented source fallback",
+                        )
+                        continue
+                    self.assertTrue(entry.msgstr.strip(), "translation is empty")
                     self.assertEqual(
                         sorted(PLACEHOLDER_PATTERN.findall(entry.msgid)),
                         sorted(PLACEHOLDER_PATTERN.findall(entry.msgstr)),

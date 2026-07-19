@@ -1,213 +1,97 @@
-#
 # Copyright (C) 2025 Badabing2005
-# SPDX-FileCopyrightText: 2025 Badabing2005
 # SPDX-License-Identifier: AGPL-3.0-or-later
-#
-# This program is free software: you can redistribute it and/or modify it under
-# the terms of the GNU Affero General Public License as published by the Free
-# Software Foundation, either version 3 of the License, or (at your option) any
-# later version.
-#
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-# FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License
-# for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# Also add information on how to contact you by electronic and paper mail.
-#
-# If your software can interact with users remotely through a computer network,
-# you should also make sure that it provides a way for users to get its source.
-# For example, if your program is a web application, its interface could
-# display a "Source" link that leads users to an archive of the code. There are
-# many ways you could offer source, and different solutions will be better for
-# different programs; see section 13 for the specific requirements.
-#
-# You should also get your employer (if you work as a programmer) or school, if
-# any, to sign a "copyright disclaimer" for the program, if necessary. For more
-# information on this, and how to apply and follow the GNU AGPL, see
-# <https://www.gnu.org/licenses/>.
 
-name: Build for macOS 11+
+name: Build native macOS packages
 
 on:
   workflow_call:
   workflow_dispatch:
-    inputs:
-      tags:
-        description: 'Build tags'
 
 jobs:
-  build_mac:
-    runs-on: macos-15
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            label: AppleSilicon
+          - runner: macos-15-intel
+            arch: x86_64
+            label: Intel
+    runs-on: ${{ matrix.runner }}
+    env:
+      SIGN_MACOS: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+      KEYCHAIN_PATH: ${{ runner.temp }}/pixelflasher-signing.keychain-db
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: List Cellar directory
-        run: ls /opt/homebrew/Cellar
-
-      - name: Updating Homebrew Packages
-        run : |
-          if brew tap-info aws/tap >/dev/null 2>&1; then
-            brew untap aws/tap
-          fi
-          rm -rf /opt/homebrew/etc/openssl@1.1
-          if brew list --formula | grep -q '^openssl@1\.1$'; then
-            brew uninstall --ignore-dependencies openssl@1.1 || true
-          fi
+      - name: Prove the runner architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "${{ matrix.arch }}"
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
-      - name: Install wxPython
-        run: pip install wxPython
-
-      - name: Install node
-        run: |
-          if brew tap-info aws/tap >/dev/null 2>&1; then
-            brew untap aws/tap
-          fi
-          brew install node
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Set up Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.14.0'
 
       - name: Activate pnpm
+        shell: bash
         run: |
           corepack enable
           corepack prepare pnpm@11.9.0 --activate
           pnpm --version
 
-      - name: Install ImageMagick
-        run: brew install imagemagick
-
-      - name: Install create-dmg
+      - name: Install native build dependencies
+        shell: bash
         run: |
-          npm cache clean --force
-          npm install --global create-dmg
-          # Check if 'util.isDate' is patched
-          if grep -q "util.isDate" "$(npm root -g)/create-dmg/node_modules/macos-alias/lib/encode.js"; then
-            echo "Patching util.isDate..."
-            sed -i.bak "s/util.isDate/((val) => Object.prototype.toString.call(val) === '[object Date]')/g" \
-              "$(npm root -g)/create-dmg/node_modules/macos-alias/lib/encode.js"
+          set -euo pipefail
+          brew uninstall --ignore-dependencies openssl@1.1 || true
+          brew install create-dmg imagemagick
+          python -m venv myenv
+          source myenv/bin/activate
+          python -m pip install --upgrade pip wheel setuptools
+          python -m pip install --only-binary=:all: wxPython==4.2.2
+          python -m pip install -r requirements.txt
+          python -c 'import platform, wx; print(platform.machine(), wx.version())'
+
+      - name: Build and test the local React application
+        shell: bash
+        run: |
+          set -euo pipefail
+          source myenv/bin/activate
+          if [[ "$GITHUB_REF" == refs/tags/v10.* ]]; then
+            python scripts/release_version.py --apply "$GITHUB_REF_NAME"
           fi
+          python scripts/build_frontend.py
+          python PixelFlasher.py --self-test
+          python -m unittest discover -s tests -v
 
-      - name: Add Python 3.13 to PATH
-        run: export PATH=/opt/homebrew/Cellar/python@3.13/bin:$PATH
-
-      - name: Create virtual environment
-        run: python3.13 -m venv myenv
-        shell: bash
-
-      - name: Activate virtual environment
-        run: source myenv/bin/activate
-        shell: bash
-
-      - name: Install requirements
-        run: PYLZ4_USE_SYSTEM_LZ4="False" ARCHFLAGS="-arch x86_64 -arch arm64" python3.13 -m pip install --no-binary 'bsdiff4,psutil,PyYAML,MarkupSafe,cffi,lz4' -r requirements.txt
-
-      - name: List modules and their versions
-        run: python3.13 -m pip freeze
-
-      - name: Build React UI and gettext assets
-        run: |
-          python3.13 scripts/build_frontend.py
-
-      - name: Verify universal2 extension modules
+      - name: Build the native application bundle without a DMG
         shell: bash
         run: |
-          python3.13 - <<'PY'
-          import importlib.machinery
-          import pathlib
-          import fnmatch
-          import site
-          import subprocess
-          import sys
+          set -euo pipefail
+          source myenv/bin/activate
+          PIXELFLASHER_FRONTEND_PREBUILT=1 PIXELFLASHER_SKIP_DMG=1 ./build.sh
+          test -x dist/PixelFlasher.app/Contents/MacOS/PixelFlasher
 
-          ext_suffixes = tuple(importlib.machinery.EXTENSION_SUFFIXES)
-          if not ext_suffixes:
-            print("Could not determine extension suffixes.", file=sys.stderr)
-            sys.exit(1)
-
-          allowlist_patterns = [
-            # Add glob patterns for extension-module paths to exempt from universal2 checks.
-            # Example: "*/site-packages/somepkg/someext*.so"
-          ]
-
-          def iter_site_package_roots() -> list[pathlib.Path]:
-            roots = set()
-            for path in site.getsitepackages():
-              roots.add(pathlib.Path(path).resolve())
-            user_site = site.getusersitepackages()
-            if user_site:
-              roots.add(pathlib.Path(user_site).resolve())
-            return sorted(roots)
-
-          def is_extension_module(path: pathlib.Path) -> bool:
-            return any(path.name.endswith(suffix) for suffix in ext_suffixes)
-
-          def is_allowlisted(path: pathlib.Path) -> bool:
-            normalized = path.as_posix()
-            return any(fnmatch.fnmatch(normalized, pattern) for pattern in allowlist_patterns)
-
-          def check_arches(path: pathlib.Path) -> tuple[bool, str]:
-            result = subprocess.run(
-              ["lipo", "-archs", str(path)],
-              check=False,
-              capture_output=True,
-              text=True,
-            )
-            if result.returncode != 0:
-              return False, f"lipo failed: {result.stderr.strip()}"
-            archs = set(result.stdout.strip().split())
-            ok = {"arm64", "x86_64"}.issubset(archs)
-            return ok, " ".join(sorted(archs))
-
-          failures = []
-          checked = 0
-
-          for root in iter_site_package_roots():
-            if not root.exists():
-              continue
-            for path in root.rglob("*"):
-              if not path.is_file() or not is_extension_module(path):
-                continue
-              if is_allowlisted(path):
-                continue
-              checked += 1
-              ok, details = check_arches(path)
-              if not ok:
-                failures.append((path, details))
-
-          print(f"Checked {checked} compiled extension modules for universal2 slices.")
-
-          if failures:
-            print("Universal2 guard failed. Non-universal extension modules found:", file=sys.stderr)
-            for path, details in failures[:50]:
-              print(f" - {path}: {details}", file=sys.stderr)
-            if len(failures) > 50:
-              print(f" ... and {len(failures) - 50} more", file=sys.stderr)
-            sys.exit(1)
-
-          print("Universal2 guard passed: all extension modules include arm64 and x86_64.")
-          PY
-
-      - name: Build application
-        id: build_app
-        run: PIXELFLASHER_FRONTEND_PREBUILT=1 ./build.sh
-
-      - name: Verify React and locale assets are inside the app
+      - name: Verify native slice and packaged WebView assets
         shell: bash
         run: |
-          archive_listing="$(python3.13 -m PyInstaller.utils.cliutils.archive_viewer -b -l dist/PixelFlasher.app/Contents/MacOS/PixelFlasher | tr '\\' '/')"
+          set -euo pipefail
+          binary=dist/PixelFlasher.app/Contents/MacOS/PixelFlasher
+          arches="$(lipo -archs "${binary}")"
+          test "${arches}" = "${{ matrix.arch }}"
+          archive_listing="$(myenv/bin/pyi-archive-viewer -b -l "${binary}" | tr '\\' '/')"
           for asset in \
             ui/web/dist/index.html \
             ui/web/dist/i18n/manifest.json \
@@ -218,34 +102,100 @@ jobs:
             ui/web/dist/i18n/zh_CN.json \
             ui/web/dist/i18n/zh_TW.json
           do
-            if ! grep -Fq "$asset" <<<"$archive_listing"; then
-              echo "Packaged asset missing from PixelFlasher.app: $asset"
-              exit 1
-            fi
+            grep -Fq "${asset}" <<<"${archive_listing}"
           done
 
-      - name: Upload PixelFlasher.app as artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: PixelFlasher.app for macOS 11+
-          path: dist/PixelFlasher.app
-
-      - name: Rename the file names
-        run: mv dist/PixelFlasher.dmg "dist/PixelFlasher_MacOS.dmg"
-
-      - name: Get sha256
+      - name: Require signing and notarization credentials for v10 tags
+        if: ${{ startsWith(github.ref, 'refs/tags/v10.') && env.SIGN_MACOS != 'true' }}
+        shell: bash
         run: |
-          shasum -a 256 "dist/PixelFlasher_MacOS.dmg" > "dist/PixelFlasher_MacOS.dmg.sha256"
-          cat "dist/PixelFlasher_MacOS.dmg.sha256"
+          echo "Developer ID and notarization secrets are mandatory for v10 release tags." >&2
+          exit 1
 
-      - name: List contents of dist directory
-        run: ls ./ dist/
+      - name: Import Developer ID certificate
+        if: ${{ env.SIGN_MACOS == 'true' }}
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate="$RUNNER_TEMP/pixelflasher.p12"
+          printf '%s' "${MACOS_CERTIFICATE}" | base64 --decode > "${certificate}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${certificate}" -P "${MACOS_CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+          security list-keychain -d user -s "${KEYCHAIN_PATH}"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
 
-      - name: Upload macOS 11+ Artifact
-        uses: actions/upload-artifact@v7
-        id: upload_artifact_macos
+      - name: Sign with hardened runtime and verify the app bundle
+        if: ${{ env.SIGN_MACOS == 'true' }}
+        shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          codesign --force --deep --options runtime --timestamp \
+            --sign "${MACOS_SIGNING_IDENTITY}" dist/PixelFlasher.app
+          codesign --verify --deep --strict --verbose=2 dist/PixelFlasher.app
+          codesign --display --verbose=4 dist/PixelFlasher.app
+
+      - name: Launch the real packaged application self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist/PixelFlasher.app/Contents/MacOS/PixelFlasher --version
+          dist/PixelFlasher.app/Contents/MacOS/PixelFlasher --self-test
+
+      - name: Create architecture-specific DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          create-dmg dist/PixelFlasher.app
+          source_dmg="$(find . -maxdepth 1 -name 'PixelFlasher*.dmg' -print -quit)"
+          test -n "${source_dmg}"
+          mv "${source_dmg}" "dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg"
+
+      - name: Sign, notarize, staple and assess the DMG
+        if: ${{ env.SIGN_MACOS == 'true' }}
+        shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          dmg="dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg"
+          codesign --force --timestamp --sign "${MACOS_SIGNING_IDENTITY}" "${dmg}"
+          xcrun notarytool submit "${dmg}" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}" \
+            --wait
+          xcrun stapler staple "${dmg}"
+          xcrun stapler validate "${dmg}"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "${dmg}"
+
+      - name: Generate SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg"
+          shasum -a 256 "${dmg}" > "${dmg}.sha256"
+          cat "${dmg}.sha256"
+
+      - name: Remove temporary signing keychain
+        if: ${{ env.SIGN_MACOS == 'true' }}
+        shell: bash
+        run: security delete-keychain "${KEYCHAIN_PATH}" || true
+
+      - name: Upload native macOS artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: PixelFlasher_MacOS.dmg Artifacts
+          name: PixelFlasher_MacOS_${{ matrix.label }}.dmg Artifacts
           path: |
-            dist/PixelFlasher_MacOS.dmg
-            dist/PixelFlasher_MacOS.dmg.sha256
+            dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg
+            dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg.sha256

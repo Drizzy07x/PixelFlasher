@@ -1,8 +1,14 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { installDevelopmentBridge } from '../mockBridge';
+
+installDevelopmentBridge();
+const developmentBridge = window.pixelflasher;
 
 beforeEach(() => {
+  window.pixelflasher = developmentBridge;
+  developmentBridge?.__reset?.();
   window.localStorage.clear();
   window.location.hash = '';
   document.documentElement.removeAttribute('data-theme');
@@ -17,4 +23,5 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  window.pixelflasher = developmentBridge;
 });

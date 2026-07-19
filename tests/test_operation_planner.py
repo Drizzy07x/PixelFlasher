@@ -1,6 +1,5 @@
 import hashlib
 import threading
-import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -19,13 +18,18 @@ from pixelflasher_core import (
     FirmwareInfo,
     FlashPlan,
     InteractionDecision,
-    OperationStatus,
     OperationPlanner,
-    PixelFlasherEngine,
+    OperationRunner,
+    OperationStatus,
     ProcessedArtifactRepository,
+    SafetyPolicy,
     ToolchainInfo,
     TransportOutcome,
 )
+from tests.artifact_stage_assertions import assert_exact_or_staged_argv
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.stateful_postcondition_observer import StatefulPostconditionObserver
+from tests.stateful_slot_transport import StatefulSlotTransport, make_slot_observer
 
 
 def digest(path):
@@ -36,12 +40,22 @@ def snapshot_for(
     mode,
     *,
     serial="SERIAL-A",
+    root=False,
     plan=None,
     firmware=None,
     boot=None,
 ):
     return AppSnapshot(
-        devices=(DeviceInfo(serial, codename="akita", mode=mode, online=True, bootloader="unlocked"),),
+        devices=(
+            DeviceInfo(
+                serial,
+                codename="akita",
+                mode=mode,
+                root=root,
+                online=True,
+                bootloader="unlocked",
+            ),
+        ),
         selected_serial=serial,
         firmware=firmware or FirmwareInfo(),
         boot=boot or BootInfo(),
@@ -79,9 +93,10 @@ class DevicePlannerGoldenTests(unittest.TestCase):
         for device_mode, payload, expected in cases:
             with self.subTest(device_mode=device_mode):
                 transport = FakeProcessTransport([TransportOutcome(0)])
-                engine = PixelFlasherEngine(
+                engine = CommandEngine(
                     store=AppStateStore(snapshot_for(device_mode)),
                     executor=CommandExecutor(transport),
+                    postcondition_observer=StatefulPostconditionObserver(transport),
                 )
 
                 result = engine.execute(command("device.reboot", payload=payload))
@@ -96,13 +111,13 @@ class DevicePlannerGoldenTests(unittest.TestCase):
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
         transport = FakeProcessTransport([])
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(offline),
             executor=CommandExecutor(transport),
         )
 
         disconnected = engine.execute(command("device.reboot"))
-        injected = PixelFlasherEngine(
+        injected = CommandEngine(
             store=AppStateStore(snapshot_for("adb")),
             executor=CommandExecutor(transport),
         ).execute(command("device.reboot", payload={"argv": ["cmd", "/c", "evil"]}))
@@ -113,12 +128,13 @@ class DevicePlannerGoldenTests(unittest.TestCase):
 
     def test_fastbootd_can_reboot_but_cannot_run_bootloader_only_commands(self):
         reboot_transport = FakeProcessTransport([TransportOutcome(0)])
-        reboot = PixelFlasherEngine(
+        reboot = CommandEngine(
             store=AppStateStore(snapshot_for("fastbootd")),
             executor=CommandExecutor(reboot_transport),
+            postcondition_observer=StatefulPostconditionObserver(reboot_transport),
         ).execute(command("device.reboot", payload={"mode": "system"}))
         blocked_transport = FakeProcessTransport([])
-        blocked = PixelFlasherEngine(
+        blocked = CommandEngine(
             store=AppStateStore(snapshot_for("fastbootd")),
             executor=CommandExecutor(blocked_transport),
         ).execute(command("device.switchSlot", payload={"slot": "b"}))
@@ -131,12 +147,132 @@ class DevicePlannerGoldenTests(unittest.TestCase):
         self.assertEqual("fastboot_required", blocked.code)
         self.assertEqual([], blocked_transport.calls)
 
+    def test_sideload_reboot_is_exact_adb_only_and_requires_observed_mode(self):
+        for source_mode in ("adb", "recovery"):
+            with self.subTest(source_mode=source_mode):
+                transport = FakeProcessTransport([TransportOutcome(0)])
+                result = CommandEngine(
+                    store=AppStateStore(snapshot_for(source_mode)),
+                    executor=CommandExecutor(transport),
+                    postcondition_observer=StatefulPostconditionObserver(transport),
+                ).execute(command("device.reboot", payload={"mode": "sideload"}))
+
+                self.assertEqual(OperationStatus.SUCCESS, result.status)
+                self.assertEqual(
+                    [("ADB", "-s", "SERIAL-A", "reboot", "sideload")],
+                    [request.argv for request in transport.calls],
+                )
+
+        for source_mode in ("sideload", "fastboot", "fastbootd"):
+            with self.subTest(rejected_source_mode=source_mode):
+                transport = FakeProcessTransport([])
+                result = CommandEngine(
+                    store=AppStateStore(snapshot_for(source_mode)),
+                    executor=CommandExecutor(transport),
+                ).execute(command("device.reboot", payload={"mode": "sideload"}))
+
+                self.assertEqual("sideload_reboot_adb_required", result.code)
+                self.assertEqual([], transport.calls)
+
+    def test_safe_mode_plan_is_rooted_adb_only_and_uses_fixed_argv(self):
+        planner = OperationPlanner(confirmation_secret=b"s" * 32)
+        rooted_adb = snapshot_for("adb", root=True)
+
+        compilation = planner.compile(
+            command("device.reboot", payload={"mode": "safeMode"}),
+            rooted_adb,
+        )
+
+        self.assertTrue(compilation.ok)
+        self.assertIsNotNone(compilation.plan)
+        if compilation.plan is None:
+            self.fail("safe mode compilation omitted its plan")
+        self.assertEqual(
+            [
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-A",
+                    "shell",
+                    "su",
+                    "-c",
+                    "setprop persist.sys.safemode 1",
+                ),
+                ("ADB", "-s", "SERIAL-A", "reboot"),
+            ],
+            [request.argv for request in compilation.plan.requests],
+        )
+        self.assertTrue(
+            all(
+                request.cwd is None and request.env is None
+                for request in compilation.plan.requests
+            )
+        )
+        self.assertEqual(
+            ["device_reachable", "safe_mode_active"],
+            [item.kind for item in compilation.plan.postconditions],
+        )
+        self.assertEqual(
+            {"mode": "system", "bootCompleted": True},
+            dict(compilation.plan.postconditions[0].expected),
+        )
+        self.assertEqual(
+            {"active": True},
+            dict(compilation.plan.postconditions[1].expected),
+        )
+
+        unrooted = planner.compile(
+            command("device.reboot", payload={"mode": "safeMode"}),
+            snapshot_for("adb"),
+        )
+        wrong_transport = planner.compile(
+            command("device.reboot", payload={"mode": "safeMode"}),
+            snapshot_for("recovery", root=True),
+        )
+        self.assertEqual("safe_mode_root_required", unrooted.code)
+        self.assertEqual("safe_mode_adb_required", wrong_transport.code)
+
+    def test_download_reboot_is_explicitly_unverifiable_and_never_executes(self):
+        for source_mode in ("adb", "fastboot", "fastbootd", "recovery"):
+            with self.subTest(source_mode=source_mode):
+                transport = FakeProcessTransport([])
+                result = CommandEngine(
+                    store=AppStateStore(snapshot_for(source_mode)),
+                    executor=CommandExecutor(transport),
+                ).execute(command("device.reboot", payload={"mode": "download"}))
+
+                self.assertEqual("reboot_download_unverifiable", result.code)
+                self.assertEqual([], transport.calls)
+
     def test_slot_switch_requires_backend_challenge_and_exact_text(self):
-        transport = FakeProcessTransport([TransportOutcome(0)])
+        snapshot = snapshot_for("fastboot")
+        transport = StatefulSlotTransport(
+            "SERIAL-A",
+            active_slot="a",
+            reconnect_cycles=1,
+        )
+        executor = CommandExecutor(transport)
+        postcondition_observer = make_slot_observer(transport)
+        safety_policy = SafetyPolicy()
+        store = AppStateStore(snapshot)
+
+        def snapshot_provider(_serial):
+            return store.snapshot()
+
         interactions = []
-        engine = PixelFlasherEngine(
-            store=AppStateStore(snapshot_for("fastboot")),
-            executor=CommandExecutor(transport),
+        engine = CommandEngine(
+            store=store,
+            executor=executor,
+            safety_policy=safety_policy,
+            operation_runner=OperationRunner(
+                executor,
+                safety_policy=safety_policy,
+                snapshot_provider=snapshot_provider,
+                postcondition_observer=postcondition_observer,
+                postcondition_timeout_seconds=0.2,
+            ),
+            snapshot_provider=snapshot_provider,
+            postcondition_observer=postcondition_observer,
             interaction_handler=lambda request: interactions.append(request) or InteractionDecision.ACCEPTED,
         )
 
@@ -150,18 +286,27 @@ class DevicePlannerGoldenTests(unittest.TestCase):
         )
 
         self.assertEqual("confirmation_text_required", preview.code)
-        self.assertEqual("SWITCH SERIAL-A TO SLOT b", required)
+        self.assertEqual("SLOT b RIAL-A", required)
         self.assertEqual("confirmation_text_mismatch", wrong.code)
         self.assertEqual(OperationStatus.SUCCESS, executed.status)
+        self.assertEqual("postconditions_satisfied", executed.code)
+        mutation = ("FASTBOOT", "-s", "SERIAL-A", "--set-active=b")
+        mode_probe = ("FASTBOOT", "-s", "SERIAL-A", "getvar", "is-userspace")
+        observation = ("FASTBOOT", "-s", "SERIAL-A", "getvar", "current-slot")
         self.assertEqual(
-            [("FASTBOOT", "-s", "SERIAL-A", "--set-active=b")],
-            [request.argv for request in transport.calls],
+            [mutation],
+            [request.argv for request in transport.calls if request.argv == mutation],
         )
+        argv = [request.argv for request in transport.calls]
+        self.assertIn(observation, argv)
+        self.assertGreaterEqual(argv.count(mode_probe), 2)
+        self.assertLess(argv.index(mutation), argv.index(observation))
+        self.assertEqual("b", transport.active_slot)
         self.assertTrue(interactions[0].reinforced)
 
     def test_bootloader_unlock_is_backend_compiled_and_lock_fails_without_stock_evidence(self):
         lock_transport = FakeProcessTransport([])
-        lock = PixelFlasherEngine(
+        lock = CommandEngine(
             store=AppStateStore(snapshot_for("fastboot")),
             executor=CommandExecutor(lock_transport),
         ).execute(command("device.bootloader.lock"))
@@ -170,9 +315,10 @@ class DevicePlannerGoldenTests(unittest.TestCase):
         self.assertEqual([], lock_transport.calls)
 
         unlock_transport = FakeProcessTransport([TransportOutcome(0)])
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(snapshot_for("fastboot")),
             executor=CommandExecutor(unlock_transport),
+            postcondition_observer=StatefulPostconditionObserver(unlock_transport),
             interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
         )
         kind = "device.bootloader.unlock"
@@ -210,16 +356,17 @@ class BootPlannerGoldenTests(unittest.TestCase):
                 with self.subTest(kind=kind):
                     boot = BootInfo("boot-id", str(boot_path), digest(boot_path), flavor, True)
                     transport = FakeProcessTransport([TransportOutcome(0)])
-                    engine = PixelFlasherEngine(
+                    engine = CommandEngine(
                         store=AppStateStore(snapshot_for("fastboot", boot=boot)),
                         executor=CommandExecutor(transport),
+                        postcondition_observer=StatefulPostconditionObserver(transport),
                         interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
                     )
 
                     result = engine.execute(command(kind, payload=payload))
 
                     self.assertEqual(OperationStatus.SUCCESS, result.status)
-                    self.assertEqual([expected], [request.argv for request in transport.calls])
+                    assert_exact_or_staged_argv(self, [expected], transport.calls)
 
     def test_boot_operations_require_unlocked_matching_boot_artifacts(self):
         with TemporaryDirectory() as directory:
@@ -228,11 +375,11 @@ class BootPlannerGoldenTests(unittest.TestCase):
             digest_value = digest(boot_path)
             init_boot = BootInfo("init-boot-id", str(boot_path), digest_value, "init_boot", True)
 
-            mismatch = PixelFlasherEngine(
+            mismatch = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", boot=init_boot)),
                 executor=CommandExecutor(FakeProcessTransport([])),
             ).execute(command("boot.flash", payload={"partition": "vendor_boot"}))
-            live_init_boot = PixelFlasherEngine(
+            live_init_boot = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", boot=init_boot)),
                 executor=CommandExecutor(FakeProcessTransport([])),
             ).execute(command("boot.live"))
@@ -252,7 +399,7 @@ class BootPlannerGoldenTests(unittest.TestCase):
                     ),
                 ),
             )
-            locked = PixelFlasherEngine(
+            locked = CommandEngine(
                 store=AppStateStore(locked_snapshot),
                 executor=CommandExecutor(FakeProcessTransport([])),
             ).execute(command("boot.live"))
@@ -272,7 +419,7 @@ class BootPlannerGoldenTests(unittest.TestCase):
                 boot_path.write_bytes(b"changed after prompt")
                 return InteractionDecision.ACCEPTED
 
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", boot=boot)),
                 executor=CommandExecutor(transport),
                 interaction_handler=mutate,
@@ -289,13 +436,13 @@ class BootPlannerGoldenTests(unittest.TestCase):
             boot_path.write_bytes(b"boot")
             bad_hash_boot = BootInfo("id", str(boot_path), "0" * 64, "boot", False)
             transport = FakeProcessTransport([])
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", boot=bad_hash_boot)),
                 executor=CommandExecutor(transport),
             )
 
             bad_hash = engine.execute(command("boot.flash"))
-            bad_partition = PixelFlasherEngine(
+            bad_partition = CommandEngine(
                 store=AppStateStore(
                     snapshot_for(
                         "fastboot",
@@ -320,9 +467,10 @@ class BootPlannerGoldenTests(unittest.TestCase):
             cancel_transport = FakeProcessTransport(
                 [FakeTransportStep(TransportOutcome(0), started, release)]
             )
-            cancel_engine = PixelFlasherEngine(
+            cancel_engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", boot=boot)),
                 executor=CommandExecutor(cancel_transport),
+                postcondition_observer=StatefulPostconditionObserver(cancel_transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
             )
             results = []
@@ -337,16 +485,19 @@ class BootPlannerGoldenTests(unittest.TestCase):
             self.assertTrue(cancel_engine.cancel("cancel-boot"))
             worker.join(2)
 
-            self.assertEqual(OperationStatus.CANCELLED, results[0].status)
+            self.assertEqual(OperationStatus.FAILED, results[0].status)
+            self.assertEqual("outcome_unknown", results[0].code)
 
             for outcome, expected_code in (
                 (TransportOutcome(None, timed_out=True), "timed_out"),
                 (TransportOutcome(1, stderr="device disconnected"), "process_failed"),
             ):
                 with self.subTest(expected_code=expected_code):
-                    engine = PixelFlasherEngine(
+                    transport = FakeProcessTransport([outcome])
+                    engine = CommandEngine(
                         store=AppStateStore(snapshot_for("fastboot", boot=boot)),
-                        executor=CommandExecutor(FakeProcessTransport([outcome])),
+                        executor=CommandExecutor(transport),
+                        postcondition_observer=StatefulPostconditionObserver(transport),
                         interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
                     )
                     result = engine.execute(command("boot.live"))
@@ -386,7 +537,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             )
 
             transport = FakeProcessTransport([])
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot),
                 executor=CommandExecutor(transport),
                 operation_planner=planner,
@@ -460,7 +611,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 True,
             )
             transport = FakeProcessTransport([TransportOutcome(0)])
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(
                     snapshot_for(
                         "sideload",
@@ -473,24 +624,26 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     )
                 ),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
             )
 
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
-            self.assertEqual(
+            assert_exact_or_staged_argv(
+                self,
                 [("ADB", "-s", "SERIAL-A", "sideload", str(ota.resolve()))],
-                [request.argv for request in transport.calls],
+                transport.calls,
             )
 
     def test_ota_no_reboot_false_appends_exact_adb_reboot(self):
         with TemporaryDirectory() as directory:
             ota = Path(directory) / "ota.zip"
             ota.write_bytes(b"ota")
-            firmware = FirmwareInfo(str(ota), "ota", "", digest(ota), True, True)
+            firmware = FirmwareInfo(str(ota), "ota", "42", digest(ota), True, True)
             transport = FakeProcessTransport([TransportOutcome(0), TransportOutcome(0)])
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(
                     snapshot_for(
                         "sideload",
@@ -503,18 +656,20 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     )
                 ),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
             )
 
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
-            self.assertEqual(
+            assert_exact_or_staged_argv(
+                self,
                 [
                     ("ADB", "-s", "SERIAL-A", "sideload", str(ota.resolve())),
                     ("ADB", "-s", "SERIAL-A", "reboot"),
                 ],
-                [request.argv for request in transport.calls],
+                transport.calls,
             )
 
     def test_ota_rejects_each_incompatible_marked_option_explicitly(self):
@@ -532,7 +687,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             ):
                 with self.subTest(option=option):
                     transport = FakeProcessTransport([])
-                    engine = PixelFlasherEngine(
+                    engine = CommandEngine(
                         store=AppStateStore(
                             snapshot_for(
                                 "sideload",
@@ -556,14 +711,14 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             ota.write_bytes(b"ota")
             firmware = FirmwareInfo(str(ota), "ota", "", digest(ota), True, True)
             transport = FakeProcessTransport([])
-            wrong_state = PixelFlasherEngine(
+            wrong_state = CommandEngine(
                 store=AppStateStore(
                     snapshot_for("adb", plan=FlashPlan("OTA", dry_run=False), firmware=firmware)
                 ),
                 executor=CommandExecutor(transport),
             ).execute(command("flash.execute"))
             wrong_hash_firmware = FirmwareInfo(str(ota), "ota", "", "0" * 64, True, True)
-            wrong_hash = PixelFlasherEngine(
+            wrong_hash = CommandEngine(
                 store=AppStateStore(
                     snapshot_for(
                         "sideload",
@@ -614,9 +769,10 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 ),
                 firmware_hash=firmware.hash,
             )
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", plan=plan, firmware=firmware)),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
                 operation_planner=OperationPlanner(artifact_repository=repository),
             )
@@ -624,7 +780,8 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
-            self.assertEqual(
+            assert_exact_or_staged_argv(
+                self,
                 [
                     (
                         "FASTBOOT", "-s", "SERIAL-A", "--slot=b", "--disable-verity",
@@ -636,7 +793,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     ),
                     ("FASTBOOT", "-s", "SERIAL-A", "reboot"),
                 ],
-                [request.argv for request in transport.calls],
+                transport.calls,
             )
 
     def test_factory_components_use_fixed_stages_before_os_partitions(self):
@@ -734,16 +891,17 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             transport = FakeProcessTransport(
                 [TransportOutcome(0) for _request in expected_requests]
             )
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
                 operation_planner=planner,
             )
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
-            self.assertEqual(expected_requests, [request.argv for request in transport.calls])
+            assert_exact_or_staged_argv(self, expected_requests, transport.calls)
 
     def test_factory_components_fail_closed_when_mode_state_or_artifacts_are_incomplete(self):
         with TemporaryDirectory() as directory:
@@ -875,9 +1033,10 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             transport = FakeProcessTransport(
                 [TransportOutcome(0), TransportOutcome(1, stderr="reboot failed")]
             )
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
                 operation_planner=OperationPlanner(artifact_repository=repository),
             )
@@ -885,8 +1044,9 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.FAILED, result.status)
-            self.assertEqual("process_failed", result.code)
-            self.assertEqual(
+            self.assertEqual("outcome_unknown", result.code)
+            assert_exact_or_staged_argv(
+                self,
                 [
                     (
                         "FASTBOOT", "-s", "SERIAL-A", "flash", "bootloader",
@@ -894,7 +1054,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     ),
                     ("FASTBOOT", "-s", "SERIAL-A", "reboot-bootloader"),
                 ],
-                [request.argv for request in transport.calls],
+                transport.calls,
             )
 
     def test_temporary_root_uses_only_canonical_patched_boot(self):
@@ -916,7 +1076,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 plan_fingerprint=plan.fingerprint,
             )
             transport = FakeProcessTransport([TransportOutcome(0), TransportOutcome(0)])
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(
                     snapshot_for(
                         "fastboot",
@@ -925,6 +1085,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     )
                 ),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
                 operation_planner=OperationPlanner(artifact_repository=repository),
             )
@@ -932,12 +1093,13 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
-            self.assertEqual(
+            assert_exact_or_staged_argv(
+                self,
                 [
                     ("FASTBOOT", "-s", "SERIAL-A", "flash", "boot", str(original.resolve())),
                     ("FASTBOOT", "-s", "SERIAL-A", "boot", str(patched.resolve())),
                 ],
-                [request.argv for request in transport.calls],
+                transport.calls,
             )
 
     def test_wipe_preview_issues_nonce_and_exact_text_before_execution(self):
@@ -961,9 +1123,10 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
                 plan_fingerprint=plan.fingerprint,
             )
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", plan=plan)),
                 executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda request: interactions.append(request) or InteractionDecision.ACCEPTED,
                 operation_planner=OperationPlanner(artifact_repository=repository),
             )
@@ -988,21 +1151,22 @@ class FlashPlannerGoldenTests(unittest.TestCase):
 
             self.assertEqual("flash_plan_preview", preview.code)
             self.assertTrue(confirmation["nonce"])
-            self.assertEqual("WIPE SERIAL-A akita", confirmation["required_text"])
+            self.assertEqual("WIPE RIAL-A", confirmation["required_text"])
             self.assertEqual("untrusted_confirmation_token", rejected_token.code)
             self.assertEqual(OperationStatus.SUCCESS, executed.status)
             self.assertTrue(interactions[0].reinforced)
-            self.assertEqual(
+            assert_exact_or_staged_argv(
+                self,
                 [
                     ("FASTBOOT", "-s", "SERIAL-A", "flash", "boot", str(boot.resolve())),
                     ("FASTBOOT", "-s", "SERIAL-A", "-w"),
                 ],
-                [request.argv for request in transport.calls],
+                transport.calls,
             )
 
     def test_backend_artifacts_are_required_and_ui_metadata_is_rejected(self):
         transport = FakeProcessTransport([])
-        no_images = PixelFlasherEngine(
+        no_images = CommandEngine(
             store=AppStateStore(
                 snapshot_for(
                     "fastboot",
@@ -1021,7 +1185,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 {"images": {"boot": {"path": str(image), "hash": digest(image)}}},
                 dry_run=False,
             )
-            injected = PixelFlasherEngine(
+            injected = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", plan=injected_plan)),
                 executor=CommandExecutor(transport),
             ).execute(command("flash.execute"))
@@ -1032,7 +1196,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 (FileArtifact(str(image.resolve()), digest(image), "partition:boot;erase"),),
                 plan_fingerprint=bad_plan.fingerprint,
             )
-            invalid_partition = PixelFlasherEngine(
+            invalid_partition = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot", plan=bad_plan)),
                 executor=CommandExecutor(transport),
                 operation_planner=OperationPlanner(artifact_repository=repository),
@@ -1043,7 +1207,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
         self.assertEqual("partition_not_allowed", invalid_partition.code)
         self.assertEqual([], transport.calls)
 
-        updated = PixelFlasherEngine(
+        updated = CommandEngine(
             store=AppStateStore(snapshot_for("fastboot")),
             executor=CommandExecutor(transport),
         ).execute(
@@ -1082,7 +1246,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                         fingerprint="unsupported",
                         dry_run=False,
                     )
-                    result = PixelFlasherEngine(
+                    result = CommandEngine(
                         store=AppStateStore(snapshot_for("fastboot", plan=plan)),
                         executor=CommandExecutor(transport),
                         operation_planner=OperationPlanner(artifact_repository=repository),
@@ -1116,7 +1280,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 )
                 return InteractionDecision.ACCEPTED
 
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=store,
                 executor=CommandExecutor(transport),
                 interaction_handler=change_plan,
@@ -1130,10 +1294,12 @@ class FlashPlannerGoldenTests(unittest.TestCase):
 
     def test_reinforced_challenge_is_ttl_bounded_and_one_use(self):
         snapshot = snapshot_for("fastboot")
+        challenge_time = [100.0]
         planner = OperationPlanner(
             confirmation_secret=b"stable-secret",
-            challenge_ttl_seconds=0.02,
+            challenge_ttl_seconds=20.0,
             maximum_pending_challenges=1,
+            challenge_clock=lambda: challenge_time[0],
         )
         intent = command("device.switchSlot", payload={"slot": "b"})
 
@@ -1165,7 +1331,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
         self.assertLessEqual(len(planner._issued_challenges), 1)
 
         refreshed = planner.compile(intent, snapshot)
-        time.sleep(0.03)
+        challenge_time[0] += 20.0
         expired = planner.compile(
             command(
                 "device.switchSlot",
@@ -1177,7 +1343,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
 
     def test_dry_run_toggle_changes_fingerprint_and_stales_preview_revision(self):
         store = AppStateStore(snapshot_for("fastboot"))
-        engine = PixelFlasherEngine(store=store)
+        engine = CommandEngine(store=store)
         real = engine.execute(
             AppCommand(
                 "flash.plan.update",

@@ -7,7 +7,7 @@ from scripts.verify_react_bridge_commands import (
     raw_command_emissions,
     verify_react_commands,
 )
-from ui.bridge_contract import ALLOWED_COMMANDS
+from ui.command_registry import ALLOWED_COMMANDS
 
 
 class ReactBridgeCommandTests(unittest.TestCase):

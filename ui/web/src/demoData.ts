@@ -11,7 +11,6 @@ export const demoFirmwares: Firmware[] = [
     channel: 'stable',
     size: '2.47 GB',
     securityPatch: '2025-02-05',
-    path: 'akita-ap4a.250205.002-factory.zip',
   },
   {
     id: 'husky-bp11.241121.010',
@@ -23,7 +22,6 @@ export const demoFirmwares: Firmware[] = [
     channel: 'beta',
     size: '2.19 GB',
     securityPatch: '2025-01-05',
-    path: 'husky-bp11.241121.010-factory.zip',
   },
   {
     id: 'panther-ap4a.250205.002-ota',
@@ -35,7 +33,6 @@ export const demoFirmwares: Firmware[] = [
     channel: 'stable',
     size: '1.94 GB',
     securityPatch: '2025-02-05',
-    path: 'panther-ota-ap4a.250205.002.zip',
   },
   {
     id: 'panther-graphene-2025021000',
@@ -47,12 +44,19 @@ export const demoFirmwares: Firmware[] = [
     channel: 'stable',
     size: '1.61 GB',
     securityPatch: '2025-02-05',
-    path: 'panther-install-2025021000.zip',
   },
 ];
 
 export const demoSnapshot: HostSnapshot = {
   revision: 14,
+  preferences: {
+    schemaVersion: 1,
+    theme: 'dark',
+    locale: 'en',
+    highContrast: false,
+    reducedMotion: false,
+    zoom: 100,
+  },
   devices: [
     {
       serial: '47161FDJH00A8L',
@@ -108,7 +112,6 @@ export const demoSnapshot: HostSnapshot = {
   boot: {
     id: 'patched-magisk-boot',
     image: 'boot.img',
-    path: 'C:\\mock\\patched-magisk-boot.img',
     hash: '7'.repeat(64),
     flavor: 'boot',
     patched: true,
@@ -119,8 +122,8 @@ export const demoSnapshot: HostSnapshot = {
   toolchain: {
     adb: true,
     fastboot: true,
+    ready: true,
     version: '35.0.2-12147458',
-    path: 'platform-tools',
   },
   activeOperation: null,
   active_operation: null,

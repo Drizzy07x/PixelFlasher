@@ -1,12 +1,11 @@
-import unittest
 import json
 import tempfile
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from self_test import CheckResult, _check_platform_tools, _write_frozen_self_test_log, format_results, run_checks
-
 
 WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
 DESKTOP_SPEC_SOURCES = (

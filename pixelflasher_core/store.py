@@ -2,25 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from threading import RLock
-from typing import Callable
+from typing import cast
 from uuid import uuid4
 
 from .contracts import (
     ActiveOperation,
     AppSnapshot,
-    BootloaderLockEvidence,
     BootInfo,
+    BootloaderLockEvidence,
     DeviceInfo,
     FirmwareInfo,
-    FlashPlan,
     OperationResult,
-    ToolchainInfo,
 )
-
+from .devices import canonicalize_device_inventory, reconcile_device_selection
 
 StateListener = Callable[[AppSnapshot], None]
+StateChangePreparer = Callable[[AppSnapshot], Mapping[str, object]]
+StateSideEffect = Callable[[AppSnapshot, AppSnapshot], None]
 
 
 class StaleRevisionError(RuntimeError):
@@ -43,10 +44,20 @@ class Subscription:
             self._cancelled = True
         self._cancel_callback()
 
-    def __enter__(self) -> "Subscription":
+    def __call__(self) -> None:
+        """Cancel the subscription through the public callable contract."""
+
+        self.cancel()
+
+    def __enter__(self) -> Subscription:
         return self
 
-    def __exit__(self, *_args) -> None:
+    def __exit__(
+        self,
+        _exception_type: object,
+        _exception: object,
+        _traceback: object,
+    ) -> None:
         self.cancel()
 
 
@@ -56,6 +67,7 @@ class AppStateStore:
     _UPDATABLE_FIELDS = frozenset(
         {
             "devices",
+            "preferences",
             "selected_serials",
             "selected_serial",
             "firmware",
@@ -90,34 +102,130 @@ class AppStateStore:
 
         return Subscription(cancel)
 
-    def update(self, *, expected_revision: int | None = None, **changes) -> AppSnapshot:
-        unknown = set(changes) - self._UPDATABLE_FIELDS
-        if unknown:
-            raise ValueError(f"unsupported state fields: {', '.join(sorted(unknown))}")
+    def update(
+        self,
+        *,
+        expected_revision: int | None = None,
+        **changes: object,
+    ) -> AppSnapshot:
         with self._lock:
             current = self._snapshot
             self._assert_revision(current, expected_revision)
-            next_revision = current.revision + 1
-            if "bootloader_lock_evidence" not in changes:
-                changes["bootloader_lock_evidence"] = ()
-            else:
-                evidence_values = tuple(changes["bootloader_lock_evidence"])
-                if any(
-                    not isinstance(evidence, BootloaderLockEvidence)
-                    for evidence in evidence_values
-                ):
-                    raise TypeError(
-                        "bootloader_lock_evidence must contain BootloaderLockEvidence values"
-                    )
-                if any(
-                    evidence.snapshot_revision != next_revision
-                    for evidence in evidence_values
-                ):
-                    raise ValueError(
-                        "bootloader lock evidence must bind to the resulting snapshot revision"
-                    )
-                changes["bootloader_lock_evidence"] = evidence_values
-            updated = replace(current, revision=next_revision, **changes)
+            updated = self._updated_snapshot(current, changes)
+            self._snapshot = updated
+            listeners = tuple(self._listeners.values())
+        self._publish(listeners, updated)
+        return updated
+
+    def transactional_update(
+        self,
+        *,
+        expected_revision: int | None,
+        prepare: StateChangePreparer,
+        side_effect: StateSideEffect,
+    ) -> AppSnapshot:
+        """Promote state only after one locked side effect succeeds.
+
+        Revision validation, change preparation, replacement validation, the
+        durable side effect, and snapshot promotion all occur while holding the
+        canonical-state lock. The replacement is fully constructed before the
+        side effect begins. If either callback raises, no state is promoted and
+        no subscriber is notified.
+        """
+
+        if not callable(prepare) or not callable(side_effect):
+            raise TypeError("prepare and side_effect must be callable")
+        with self._lock:
+            current = self._snapshot
+            self._assert_revision(current, expected_revision)
+            raw_changes = prepare(current)
+            if not isinstance(raw_changes, Mapping):
+                raise TypeError("transaction prepare must return a mapping")
+            changes = dict(raw_changes)
+            updated = self._updated_snapshot(current, changes)
+            side_effect(current, updated)
+            self._snapshot = updated
+            listeners = tuple(self._listeners.values())
+        self._publish(listeners, updated)
+        return updated
+
+    def _updated_snapshot(
+        self,
+        current: AppSnapshot,
+        changes: Mapping[str, object],
+    ) -> AppSnapshot:
+        prepared = dict(changes)
+        unknown = set(prepared) - self._UPDATABLE_FIELDS
+        if unknown:
+            raise ValueError(f"unsupported state fields: {', '.join(sorted(unknown))}")
+        next_revision = current.revision + 1
+        if "bootloader_lock_evidence" not in prepared:
+            prepared["bootloader_lock_evidence"] = ()
+        else:
+            raw_evidence = prepared["bootloader_lock_evidence"]
+            if not isinstance(raw_evidence, (tuple, list)):
+                raise TypeError("bootloader_lock_evidence must be a sequence")
+            evidence_items = cast(
+                tuple[object, ...] | list[object],
+                raw_evidence,
+            )
+            if any(
+                not isinstance(evidence, BootloaderLockEvidence)
+                for evidence in evidence_items
+            ):
+                raise TypeError(
+                    "bootloader_lock_evidence must contain BootloaderLockEvidence values"
+                )
+            evidence_values = tuple(
+                evidence
+                for evidence in evidence_items
+                if isinstance(evidence, BootloaderLockEvidence)
+            )
+            if any(
+                evidence.snapshot_revision != next_revision
+                for evidence in evidence_values
+            ):
+                raise ValueError(
+                    "bootloader lock evidence must bind to the resulting snapshot revision"
+                )
+            prepared["bootloader_lock_evidence"] = evidence_values
+        return replace(current, revision=next_revision, **prepared)
+
+    def reconcile_devices(
+        self,
+        devices: Sequence[DeviceInfo],
+        *,
+        expected_revision: int | None = None,
+    ) -> AppSnapshot:
+        """Atomically apply an inventory and repair the multi-selection.
+
+        This path is intentionally idempotent: an unchanged hotplug scan does
+        not consume a revision or wake presentation subscribers.
+        """
+
+        inventory = canonicalize_device_inventory(devices)
+        with self._lock:
+            current = self._snapshot
+            self._assert_revision(current, expected_revision)
+            selected, primary = reconcile_device_selection(
+                inventory,
+                current.selected_serials,
+                current.selected_serial,
+            )
+            if (
+                inventory == current.devices
+                and selected == current.selected_serials
+                and primary == current.selected_serial
+            ):
+                return current
+            updated = replace(
+                current,
+                revision=current.revision + 1,
+                devices=inventory,
+                selected_serials=selected,
+                selected_serial=primary,
+                bootloader_lock_evidence=(),
+            )
             self._snapshot = updated
             listeners = tuple(self._listeners.values())
         self._publish(listeners, updated)
@@ -179,7 +287,7 @@ class AppStateStore:
                 )
             if active is not None and active.operation_id == result.operation_id:
                 active = None
-            changes = {
+            changes: dict[str, object] = {
                 "revision": current.revision + 1,
                 "active_operation": active,
                 "last_result": result,

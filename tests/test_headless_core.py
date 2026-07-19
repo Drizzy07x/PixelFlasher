@@ -1,18 +1,19 @@
 import ast
+import inspect
 import json
 import threading
 import time
 import unittest
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from pixelflasher_core import (
     AppCommand,
+    ApplicationRuntime,
     AppSnapshot,
     AppStateStore,
-    ApplicationRuntime,
     BootInfo,
     CommandExecutor,
     CommandKind,
@@ -26,17 +27,23 @@ from pixelflasher_core import (
     InteractionDecision,
     InteractionKind,
     InteractionRequest,
+    InteractionResponse,
+    OperationFinished,
     OperationPlan,
     OperationResult,
     OperationStatus,
     PixelFlasherEngine,
     ProcessRequest,
     SafetyPolicy,
+    SnapshotChanged,
     StaleRevisionError,
     SubprocessTransport,
     ToolchainInfo,
     TransportOutcome,
 )
+from pixelflasher_core.contracts import OperationPostcondition, OperationRisk
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 
 
 def process(*argv):
@@ -47,6 +54,14 @@ def plan_for(serial="SERIAL-A", *requests, **overrides):
     values = {
         "requests": requests or (process("fastboot", "-s", serial, "getvar", "product"),),
         "target_serial": serial,
+        "risk": OperationRisk.DESTRUCTIVE,
+        "postconditions": (
+            OperationPostcondition(
+                "device_reachable",
+                {"mode": "fastboot"},
+                "the simulated fastboot target remains reachable",
+            ),
+        ),
     }
     values.update(overrides)
     return OperationPlan(**values)
@@ -63,6 +78,69 @@ def flash_command(operation_plan, *, revision=0, operation_id="flash-op", serial
 
 
 class ContractTests(unittest.TestCase):
+    def test_public_engine_facade_has_one_synchronous_typed_boundary(self):
+        store = AppStateStore(AppSnapshot())
+        command_engine = CommandEngine(store=store)
+        facade = PixelFlasherEngine(
+            command_engine=command_engine,
+            command_handler=lambda _command: None,  # type: ignore[arg-type,return-value]
+        )
+        observed = []
+        subscription = facade.subscribe(observed.append, emit_current=True)
+
+        result = facade.execute(AppCommand("unsupported", operation_id="typed-result"))
+
+        self.assertIs(facade.snapshot(), store.snapshot())
+        self.assertFalse(hasattr(facade, "command_engine"))
+        self.assertFalse(hasattr(facade, "store"))
+        self.assertEqual(
+            {
+                "cancel",
+                "execute",
+                "respond_interaction",
+                "shutdown",
+                "snapshot",
+                "subscribe",
+            },
+            {
+                name
+                for name, value in vars(PixelFlasherEngine).items()
+                if not name.startswith("_") and callable(value)
+            },
+        )
+        self.assertEqual(
+            [
+                "command_engine",
+                "command_handler",
+                "event_subscriber",
+                "event_publisher",
+                "cancellation_handler",
+                "interaction_responder",
+                "shutdown_handler",
+            ],
+            list(inspect.signature(PixelFlasherEngine).parameters),
+        )
+        with self.assertRaises(TypeError):
+            PixelFlasherEngine(store=store)  # type: ignore[call-arg]
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("invalid_engine_result", result.code)
+        self.assertIsInstance(observed[0], SnapshotChanged)
+        self.assertIs(result, observed[-1].result)
+        self.assertIsInstance(observed[-1], OperationFinished)
+        self.assertEqual("operation_not_active", facade.cancel("missing").code)
+        self.assertEqual(
+            "interaction_unsupported",
+            facade.respond_interaction(
+                "missing",
+                InteractionResponse(InteractionDecision.ACCEPTED, 0),
+            ).code,
+        )
+
+        subscription()
+        facade.shutdown()
+        stopped = facade.execute(AppCommand("unsupported", operation_id="stopped"))
+        self.assertEqual("engine_shutdown", stopped.code)
+
     def test_stable_command_kinds_and_json_serialization(self):
         self.assertEqual(
             [
@@ -95,6 +173,27 @@ class ContractTests(unittest.TestCase):
         self.assertEqual("firmware-hash", decoded["snapshot"]["firmware"]["hash"])
         self.assertEqual("runtime", decoded["result"]["event_type"])
 
+    def test_public_engine_never_serializes_unexpected_exception_text(self):
+        secret = "APATCH-SUPERKEY-MUST-NOT-LEAK"
+        command_engine = CommandEngine(store=AppStateStore())
+
+        def failing_handler(_command):
+            raise RuntimeError(secret)
+
+        facade = PixelFlasherEngine(
+            command_engine=command_engine,
+            command_handler=failing_handler,
+        )
+
+        result = facade.execute(
+            AppCommand("test.failure", operation_id="redacted-failure")
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("engine_error", result.code)
+        self.assertEqual("The command could not be completed.", result.message)
+        self.assertNotIn(secret, repr(result))
+
     def test_operation_plan_has_an_immutable_exact_command_sequence(self):
         operation_plan = OperationPlan(
             requests=(process("fastboot", "devices"), process("fastboot", "getvar", "product")),
@@ -114,7 +213,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(("boot", "vendor_boot"), operation_plan.partitions)
         with self.assertRaises(AttributeError):
             _ = operation_plan.request
-        with self.assertRaises(Exception):
+        with self.assertRaises(FrozenInstanceError):
             operation_plan.slots += ("c",)
 
     def test_core_never_imports_wx_or_legacy_runtime_modules(self):
@@ -157,7 +256,7 @@ class StoreAndEngineTests(unittest.TestCase):
     def test_stale_revision_is_an_explicit_failure(self):
         store = AppStateStore()
         store.update(expected_revision=0, selected_serial="A", selected_serials=("A",))
-        engine = PixelFlasherEngine(store=store)
+        engine = CommandEngine(store=store)
 
         result = engine.execute(
             AppCommand(
@@ -182,7 +281,7 @@ class StoreAndEngineTests(unittest.TestCase):
             )
             return InteractionDecision.ACCEPTED
 
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=store,
             executor=CommandExecutor(transport),
             interaction_handler=change_selection,
@@ -202,9 +301,10 @@ class StoreAndEngineTests(unittest.TestCase):
                 TransportOutcome(0),
             ]
         )
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
             executor=CommandExecutor(transport),
+            postcondition_observer=StatefulPostconditionObserver(transport),
             interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
         )
         results = {}
@@ -239,9 +339,10 @@ class StoreAndEngineTests(unittest.TestCase):
         transport = FakeProcessTransport(
             [FakeTransportStep(TransportOutcome(0), started, release)]
         )
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
             executor=CommandExecutor(transport),
+            postcondition_observer=StatefulPostconditionObserver(transport),
             interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
         )
         command = flash_command(plan_for(), operation_id="cancel-me")
@@ -254,7 +355,8 @@ class StoreAndEngineTests(unittest.TestCase):
         worker.join(2)
 
         self.assertFalse(worker.is_alive())
-        self.assertEqual(OperationStatus.CANCELLED, results[0].status)
+        self.assertEqual(OperationStatus.FAILED, results[0].status)
+        self.assertEqual("outcome_unknown", results[0].code)
         self.assertEqual((), engine.store.snapshot().active_operations)
 
     def test_success_failure_fail_fast_and_exact_commands(self):
@@ -263,7 +365,7 @@ class StoreAndEngineTests(unittest.TestCase):
         success_transport = FakeProcessTransport(
             [TransportOutcome(0, "adb-out\n"), TransportOutcome(0, "fastboot-out\n")]
         )
-        success_engine = PixelFlasherEngine(
+        success_engine = CommandEngine(
             executor=CommandExecutor(success_transport),
         )
         success = success_engine.execute(
@@ -281,7 +383,7 @@ class StoreAndEngineTests(unittest.TestCase):
         failure_transport = FakeProcessTransport(
             [TransportOutcome(17, "partial", "bad"), TransportOutcome(0)]
         )
-        failure_engine = PixelFlasherEngine(executor=CommandExecutor(failure_transport))
+        failure_engine = CommandEngine(executor=CommandExecutor(failure_transport))
         failure = failure_engine.execute(
             AppCommand(
                 CommandKind.DEVICE_SCAN,
@@ -297,7 +399,7 @@ class StoreAndEngineTests(unittest.TestCase):
 
     def test_default_headless_policy_cancels_unconfirmed_destructive_work(self):
         transport = FakeProcessTransport([TransportOutcome(0)])
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
             executor=CommandExecutor(transport),
         )
@@ -448,9 +550,16 @@ class ConfigAndRuntimeTests(unittest.TestCase):
 
             saved = json.loads(path.read_text(encoding="utf-8"))
             backup = json.loads(store.backup_path.read_text(encoding="utf-8"))
-            self.assertEqual(1, saved["_pixelflasher_core_schema"])
+            self.assertEqual(2, saved["_pixelflasher_core_schema"])
             self.assertEqual("light", saved["theme"])
-            self.assertEqual(legacy, backup)
+            self.assertEqual(2, backup["_pixelflasher_core_schema"])
+            self.assertEqual("dark", backup["theme"])
+            self.assertEqual(
+                legacy,
+                json.loads(
+                    store.migration_backup_path.read_text(encoding="utf-8")
+                ),
+            )
             self.assertEqual([], list(path.parent.glob(".config.json.*.tmp")))
 
     def test_latin1_legacy_config_is_backed_up_on_first_load(self):
@@ -479,6 +588,7 @@ class ConfigAndRuntimeTests(unittest.TestCase):
             runtime = ApplicationRuntime.open(
                 path,
                 transport=transport,
+                postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_timeout_seconds=1,
             )
             event_types = []
@@ -489,8 +599,10 @@ class ConfigAndRuntimeTests(unittest.TestCase):
                     self.assertTrue(
                         runtime.respond_interaction(
                             event.operation_id,
-                            "accepted",
-                            event.expected_revision,
+                            InteractionResponse(
+                                InteractionDecision.ACCEPTED,
+                                event.expected_revision,
+                            ),
                         )
                     )
 
@@ -503,7 +615,7 @@ class ConfigAndRuntimeTests(unittest.TestCase):
             self.assertTrue({"snapshot", "progress", "interaction", "runtime"} <= set(event_types))
             saved = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual("SERIAL-A", saved["device"])
-            self.assertEqual(1, saved["_pixelflasher_core_schema"])
+            self.assertEqual(2, saved["_pixelflasher_core_schema"])
 
     def test_runtime_round_trips_dry_run_and_missing_field_migrates_safe(self):
         with TemporaryDirectory() as directory:

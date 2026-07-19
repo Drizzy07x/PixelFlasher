@@ -12,12 +12,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
 
 import polib
-
 
 SCHEMA_VERSION = 1
 DEFAULT_DOMAIN = "pixelflasher"
@@ -103,7 +102,7 @@ def _json_bytes(value: object) -> bytes:
         sort_keys=True,
         separators=(",", ": "),
     )
-    return f"{text}\n".encode("utf-8")
+    return f"{text}\n".encode()
 
 
 def build_export_files(

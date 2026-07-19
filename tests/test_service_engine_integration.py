@@ -1,8 +1,8 @@
 import hashlib
+import sys
 import tempfile
 import unittest
 import zipfile
-import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,13 +19,16 @@ from pixelflasher_core import (
     LaunchOutcome,
     OperationStatus,
     PackageService,
-    PixelFlasherEngine,
     RootAppSource,
     RootingService,
     SafetyPolicy,
     ToolchainInfo,
     TransportOutcome,
 )
+from tests.apk_test_helpers import FakeVerifiedApkInspector
+from tests.artifact_stage_assertions import assert_exact_or_staged_argv
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 
 
 class RecordingLauncher:
@@ -55,11 +58,7 @@ class RecordingSecretRunner:
 
 
 def write_scrcpy_executable(path: Path) -> None:
-    path.write_bytes(
-        b"MZ\x00\x00fake scrcpy"
-        if sys.platform.startswith("win")
-        else b"#!/bin/sh\nexit 0\n"
-    )
+    path.write_bytes(b"MZ\x00\x00fake scrcpy" if sys.platform.startswith("win") else b"#!/bin/sh\nexit 0\n")
     if not sys.platform.startswith("win"):
         path.chmod(path.stat().st_mode | 0o111)
 
@@ -122,6 +121,14 @@ def write_root_module(path: Path, module_id: str = "test_module") -> bytes:
 
 
 class ServiceEngineIntegrationTests(unittest.TestCase):
+    def test_factory_shares_one_apk_identity_boundary_across_app_services(self):
+        inspector = FakeVerifiedApkInspector()
+
+        engine = CommandEngine(apk_inspector=inspector)
+
+        self.assertIs(inspector, engine.package_service.apk_inspector)
+        self.assertIs(inspector, engine.rooting_service.apk_inspector)
+
     def engine_for(
         self,
         mode,
@@ -133,9 +140,10 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         device_tools_service=None,
     ):
         transport = FakeProcessTransport(outcomes)
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(snapshot_for(mode, root=root)),
             executor=CommandExecutor(transport),
+            postcondition_observer=StatefulPostconditionObserver(transport),
             rooting_service=rooting_service,
             device_tools_service=device_tools_service,
             interaction_handler=(
@@ -235,7 +243,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         )
 
         self.assertEqual("confirmation_text_required", challenge.code)
-        self.assertEqual("ERASE SERIAL userdata", required)
+        self.assertEqual("ERASE userdata SERIAL", required)
         self.assertTrue(result.ok)
         self.assertEqual(
             [("FASTBOOT", "-s", "SERIAL", "erase", "userdata")],
@@ -292,9 +300,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
     def test_scrcpy_launch_is_serial_bound_managed_and_never_uses_executor(self):
         with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / (
-                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
-            )
+            executable = Path(directory) / ("scrcpy.exe" if sys.platform.startswith("win") else "scrcpy")
             write_scrcpy_executable(executable)
             launcher = RecordingLauncher()
             service = DeviceToolsService(
@@ -325,9 +331,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
     def test_scrcpy_launch_failure_is_explicit_and_does_not_fake_success(self):
         with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / (
-                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
-            )
+            executable = Path(directory) / ("scrcpy.exe" if sys.platform.startswith("win") else "scrcpy")
             write_scrcpy_executable(executable)
             launcher = RecordingLauncher(error=OSError("launch denied"))
             engine, transport = self.engine_for(
@@ -348,9 +352,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
     def test_scrcpy_executable_hash_is_revalidated_immediately_before_launch(self):
         with tempfile.TemporaryDirectory() as directory:
-            executable = Path(directory) / (
-                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
-            )
+            executable = Path(directory) / ("scrcpy.exe" if sys.platform.startswith("win") else "scrcpy")
             write_scrcpy_executable(executable)
             launcher = RecordingLauncher()
 
@@ -434,10 +436,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         runner = RecordingSecretRunner(
             TransportOutcome(
                 0,
-                (
-                    "Enter pairing code: Successfully paired to "
-                    f"192.0.2.20:37123 [guid=test]\ninput={secret}\n"
-                ),
+                (f"Enter pairing code: Successfully paired to 192.0.2.20:37123 [guid=test]\ninput={secret}\n"),
                 f"diagnostic repeated {secret}",
             )
         )
@@ -497,7 +496,10 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                     )
                 )
                 self.assertEqual(OperationStatus.FAILED, result.status)
-                self.assertEqual("wifi_pair_failed", result.code)
+                # A pairing handshake can persist host/device keys before its
+                # final protocol response. With no independent observation in
+                # this fake, the runner must not claim a known clean failure.
+                self.assertEqual("outcome_unknown", result.code)
                 self.assertNotIn(secret, str(result.to_dict()))
                 self.assertEqual("", result.stdout)
                 self.assertEqual("", result.stderr)
@@ -515,10 +517,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                     TransportOutcome(0, "alpha.bin: 1 file pushed\n"),
                     TransportOutcome(0, "beta.zip: 1 file pushed\n"),
                 ],
-                interaction_handler=(
-                    lambda request: interactions.append(request)
-                    or InteractionDecision.ACCEPTED
-                ),
+                interaction_handler=(lambda request: interactions.append(request) or InteractionDecision.ACCEPTED),
             )
 
             result = engine.execute(
@@ -583,7 +582,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "boot_a.img"
             transport = BackupCreatingTransport(contents)
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot")),
                 executor=CommandExecutor(transport),
             )
@@ -649,7 +648,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "boot_a.img"
             transport = BackupCreatingTransport(b"")
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot_for("fastboot")),
                 executor=CommandExecutor(transport),
             )
@@ -677,10 +676,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             engine, transport = self.engine_for(
                 "fastboot",
                 [TransportOutcome(0, "finished\n")],
-                interaction_handler=(
-                    lambda request: interactions.append(request)
-                    or InteractionDecision.ACCEPTED
-                ),
+                interaction_handler=(lambda request: interactions.append(request) or InteractionDecision.ACCEPTED),
             )
 
             # The UI command deliberately carries no risk booleans. The engine
@@ -706,16 +702,17 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(1, len(interactions))
             self.assertTrue(interactions[0].destructive)
             self.assertEqual("SERIAL", interactions[0].target_serial)
-            self.assertEqual(
-                (
+            assert_exact_or_staged_argv(
+                self,
+                [(
                     "FASTBOOT",
                     "-s",
                     "SERIAL",
                     "flash",
                     "vendor_boot_b",
                     str(image.resolve()),
-                ),
-                transport.calls[0].argv,
+                )],
+                transport.calls,
             )
 
     def test_backup_restore_is_revalidated_after_confirmation(self):
@@ -757,8 +754,10 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                         "30.7",
                         "official",
                         digest,
+                        "com.topjohnwu.magisk",
                     ),
-                )
+                ),
+                apk_inspector=FakeVerifiedApkInspector("com.topjohnwu.magisk"),
             )
             engine, transport = self.engine_for(
                 "adb",
@@ -773,6 +772,9 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(1, result.value["count"])
             self.assertEqual("Magisk", result.value["apps"][0]["provider"])
             self.assertEqual(digest, result.value["apps"][0]["sha256"])
+            self.assertNotIn("path", result.value["apps"][0])
+            self.assertEqual(["a" * 64], result.value["apps"][0]["signerSha256"])
+            self.assertEqual(["v2"], result.value["apps"][0]["schemes"])
             self.assertEqual([], transport.calls)
             self.assertEqual(result, engine.store.snapshot().last_result)
 
@@ -791,32 +793,31 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                         "30.7",
                         "official",
                         digest,
+                        "com.topjohnwu.magisk",
                     ),
-                )
+                ),
+                apk_inspector=FakeVerifiedApkInspector("com.topjohnwu.magisk"),
             )
             app_id = service.root_app_inventory()[0].id
             engine, transport = self.engine_for(
                 "adb",
                 [TransportOutcome(0, "Success\n")],
                 rooting_service=service,
-                interaction_handler=(
-                    lambda request: interactions.append(request)
-                    or InteractionDecision.ACCEPTED
-                ),
+                interaction_handler=(lambda request: interactions.append(request) or InteractionDecision.ACCEPTED),
             )
 
-            result = engine.execute(
-                command("root.apps.install", {"appId": app_id})
-            )
+            result = engine.execute(command("root.apps.install", {"appId": app_id}))
 
             self.assertTrue(result.ok)
             self.assertEqual("root_app_installed", result.code)
             self.assertEqual(digest, result.value["app"]["sha256"])
+            self.assertNotIn("path", result.value["app"])
             self.assertEqual(1, len(interactions))
             self.assertFalse(interactions[0].destructive)
-            self.assertEqual(
-                ("ADB", "-s", "SERIAL", "install", "-r", str(apk.resolve())),
-                transport.calls[0].argv,
+            assert_exact_or_staged_argv(
+                self,
+                [("ADB", "-s", "SERIAL", "install", "-r", str(apk.resolve()))],
+                transport.calls,
             )
 
     def test_root_modules_list_parses_only_valid_ids(self):
@@ -825,8 +826,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             [
                 TransportOutcome(
                     0,
-                    "zygisk_next\nplay_integrity_fix\n../escape\n"
-                    "bad;reboot\nzygisk_next\n",
+                    "zygisk_next\nplay_integrity_fix\n../escape\nbad;reboot\nzygisk_next\n",
                 )
             ],
             root=True,
@@ -867,8 +867,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                     [TransportOutcome(0)],
                     root=True,
                     interaction_handler=(
-                        lambda request: interactions.append(request)
-                        or InteractionDecision.ACCEPTED
+                        lambda request, observed=interactions: observed.append(request) or InteractionDecision.ACCEPTED
                     ),
                 )
 
@@ -896,10 +895,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                 "adb",
                 [TransportOutcome(0), TransportOutcome(0), TransportOutcome(0)],
                 root=True,
-                interaction_handler=(
-                    lambda request: interactions.append(request)
-                    or InteractionDecision.ACCEPTED
-                ),
+                interaction_handler=(lambda request: interactions.append(request) or InteractionDecision.ACCEPTED),
             )
 
             result = engine.execute(
@@ -988,9 +984,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
     def test_arbitrary_adb_shell_is_explicitly_disabled_without_execution(self):
         engine, transport = self.engine_for("adb", [])
 
-        result = engine.execute(
-            command("tools.adbShell", {"command": "rm -rf /data/local/tmp"})
-        )
+        result = engine.execute(command("tools.adbShell", {"command": "rm -rf /data/local/tmp"}))
 
         self.assertEqual(OperationStatus.FAILED, result.status)
         self.assertEqual("adb_shell_unsupported", result.code)
@@ -999,9 +993,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
     def test_service_commands_require_current_revision_before_execution(self):
         engine, transport = self.engine_for("adb", [])
 
-        missing = engine.execute(
-            AppCommand("apps.list", target_serial="SERIAL")
-        )
+        missing = engine.execute(AppCommand("apps.list", target_serial="SERIAL"))
         stale = engine.execute(command("tools.logcat", revision=3))
 
         self.assertEqual("revision_required", missing.code)

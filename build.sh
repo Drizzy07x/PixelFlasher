@@ -39,7 +39,7 @@ DIST_NAME="PixelFlasher"
 
 if [[ $OSTYPE == 'darwin'* ]]; then
     if [[ $(arch) == 'arm64' ]]; then
-        echo "Building macOS Universal Binary"
+        echo "Building native macOS Apple Silicon binary"
         specfile=build-on-mac.spec
     else
         echo "Building for macOS"
@@ -73,7 +73,7 @@ pyinstaller --log-level=DEBUG \
             --noconfirm \
             $specfile
 
-if [[ $OSTYPE == 'darwin'* ]]; then
+if [[ $OSTYPE == 'darwin'* && ${PIXELFLASHER_SKIP_DMG:-0} != "1" ]]; then
     # https://github.com/sindresorhus/create-dmg
     echo "List before creating DMG"
     ls -l ./ dist/

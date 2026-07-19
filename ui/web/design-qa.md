@@ -50,7 +50,7 @@ Scope: the production React shell and the current critical Device, Firmware, Fla
 - Development data remains behind `window.pixelflasher.__mock`; production bridge requests use the canonical Python allow-list and revision contract.
 - Protocol acknowledgements without a terminal result are never presented as successful operations.
 - Frontend regression: 23/23 Vitest tests passed, including dashboard and Tools axe smokes, exact bridge payloads, Device, Tools, Root, Firmware, and Flash journeys.
-- Production build: TypeScript, 283 gettext message IDs and 267 web contexts across all six locales, Vite output, and the static `file://` WebView contract passed.
+- Production build: TypeScript, 294 gettext message IDs and 277 web contexts across all six locales, Vite output, and the static `file://` WebView contract passed. Ten newly registered Apps messages intentionally use gettext's documented source fallback until reviewed translations are supplied.
 - Backend regression is 466/466, including serial-bound fastboot getvars, fastbootd classification, cancellation and identity-history tests. The post-command observer half of P1 remains open.
 - This scoped design QA has no remaining visual overflow defect; it does not close the remaining postcondition work or any release-level parity gate.
 

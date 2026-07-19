@@ -8,7 +8,7 @@ can select only a flavor, a backend-issued root-app ID and a local output path.
 Runner protocol (argv, never a caller-provided command string)::
 
     RUNNER patch --flavor FLAVOR --input STOCK --output PATCHED --app APK
-        [--support FILE]...
+        [--support FILE]... [--superkey-stdin]
 
 The runner and any support files are backend-owned, canonical ``FileArtifact``
 objects.  If a verified APK or runner is unavailable, planning fails closed.
@@ -20,9 +20,10 @@ import hashlib
 import hmac
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from .contracts import (
     AppCommand,
@@ -31,12 +32,15 @@ from .contracts import (
     DeviceInfo,
     FileArtifact,
     OperationPlan,
+    OperationPostcondition,
     OperationResult,
+    OperationRisk,
     OperationStatus,
     ProcessRequest,
+    SensitiveText,
 )
+from .path_compat import is_reserved_path
 from .rooting import RootAppInfo, RootingPlanningError, RootingService
-
 
 BOOT_PATCH_COMMAND = "boot.patch"
 
@@ -199,10 +203,14 @@ class BootPatchService:
                 f"unsupported boot-patch command: {command.kind}",
             )
         self._revision(command, snapshot)
-        self._validate_payload(command, {"serial", "flavor", "method", "appId", "destination"})
+        self._validate_payload(
+            command,
+            {"serial", "flavor", "method", "appId", "destination", "superKey"},
+        )
         device = self._device(command, snapshot)
         adb = self._adb(snapshot)
         flavor = self._payload_flavor(command)
+        uses_super_key = self._validate_super_key(command, flavor)
         partition, boot_artifact = self._boot_artifact(snapshot, flavor, cancellation)
         app = self._verified_app(command.payload.get("appId"), flavor, cancellation)
         bundle = self.tool_bundles.get(flavor)
@@ -234,7 +242,7 @@ class BootPatchService:
         self._reject_duplicate_artifacts((boot_artifact, app_artifact, runner, *support))
         destination = self._output_path(command.payload.get("destination"))
         token = hashlib.sha256(
-            f"{command.operation_id}\0{boot_artifact.sha256}\0{flavor}".encode("utf-8")
+            f"{command.operation_id}\0{boot_artifact.sha256}\0{flavor}".encode()
         ).hexdigest()[:16]
         remote_root = "/data/local/tmp"
         remote_boot = f"{remote_root}/pf-stock-{token}.img"
@@ -272,6 +280,7 @@ class BootPatchService:
             for remote_path in remote_support
             for argument in ("--support", remote_path)
         )
+        super_key_argv = ("--superkey-stdin",) if uses_super_key else ()
         requests.extend(
             (
                 ProcessRequest(
@@ -295,8 +304,10 @@ class BootPatchService:
                         "--app",
                         remote_app,
                         *support_argv,
+                        *super_key_argv,
                     ),
                     timeout_seconds=900.0,
+                    stdin_secret_field="superKey" if uses_super_key else None,
                 ),
                 ProcessRequest(
                     (adb, "-s", device.serial, "pull", remote_output, str(destination)),
@@ -324,7 +335,30 @@ class BootPatchService:
         plan = OperationPlan(
             requests=tuple(requests),
             label=f"Patch {partition} with {flavor} on {device.serial}",
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "device_reachable",
+                    {"mode": "adb"},
+                    "the target remains reachable after patch artifacts are cleaned up",
+                ),
+                OperationPostcondition(
+                    "host_artifact_written",
+                    {
+                        "path": str(destination),
+                        "sourceSha256": boot_artifact.sha256,
+                        "requireDifferentSha256": True,
+                        "minimumBytes": 1,
+                    },
+                    (
+                        "the patched host artifact exists, is non-empty, and differs "
+                        "from the verified stock image"
+                    ),
+                ),
+            ),
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=boot_artifact.sha256,
@@ -614,7 +648,7 @@ class BootPatchService:
                 "boot_patch_path_traversal",
                 "parent-directory traversal is not accepted in patch paths",
             )
-        if not _OUTPUT_NAME_PATTERN.fullmatch(expanded.name) or expanded.is_reserved():
+        if not _OUTPUT_NAME_PATTERN.fullmatch(expanded.name) or is_reserved_path(expanded):
             raise BootPatchPlanningError(
                 "patch_destination_invalid",
                 "patch destination must use a safe ASCII .img file name",
@@ -653,6 +687,31 @@ class BootPatchService:
                     "flavor and method select different patch providers",
                 )
         return BootPatchService._flavor(raw_flavor)
+
+    @staticmethod
+    def _validate_super_key(command: AppCommand, flavor: str) -> bool:
+        present = "superKey" in command.payload
+        raw_super_key = command.payload.get("superKey")
+        if flavor != "apatch":
+            if present:
+                raise BootPatchPlanningError(
+                    "apatch_superkey_not_applicable",
+                    "superKey is accepted only for APatch boot patching",
+                )
+            return False
+        if not isinstance(raw_super_key, SensitiveText):
+            raise BootPatchPlanningError(
+                "apatch_superkey_required",
+                "APatch boot patching requires an opaque superkey grant",
+            )
+        if not raw_super_key.meets_policy(8, 128, nul_free=True):
+            raise BootPatchPlanningError(
+                "apatch_superkey_invalid",
+                "APatch superkey must contain 8 to 128 NUL-free characters",
+            )
+        # The closed policy check above does not reveal the value. The service
+        # deliberately never stores it in its compilation or operation plan.
+        return True
 
     @staticmethod
     def _flavor(raw_flavor: object) -> str:

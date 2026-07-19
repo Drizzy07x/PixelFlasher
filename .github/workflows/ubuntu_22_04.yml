@@ -45,10 +45,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up the locked React toolchain
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.14.0'
 
@@ -99,6 +99,9 @@ jobs:
           pip install --only-binary wxPython -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 wxPython==4.2.1 || \
           pip install -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 wxPython
           pip install -r requirements.txt
+          if [[ "$GITHUB_REF" == refs/tags/v10.* ]]; then
+            python scripts/release_version.py --apply "$GITHUB_REF_NAME"
+          fi
           python scripts/build_frontend.py
           xvfb-run -a python - <<'PY'
           import wx
@@ -167,7 +170,7 @@ jobs:
 
       # Upload artifacts Ubuntu 22.04
       - name: Upload Ubuntu 22.04 Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         id: upload_artifacts_ubuntu_22_04
         with:
           name: PixelFlasher_Ubuntu_22_04 Artifacts

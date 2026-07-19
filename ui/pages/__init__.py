@@ -1,3 +1,3 @@
-"""wxPython pages for the modern PixelFlasher UI rollout."""
+"""The persistent React WebView host and native platform selectors."""
 
 __all__ = []

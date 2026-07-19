@@ -16,7 +16,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,9 +25,10 @@ from .contracts import (
     DeviceInfo,
     FileArtifact,
     OperationPlan,
+    OperationPostcondition,
+    OperationRisk,
     ProcessRequest,
 )
-
 
 PARTITION_COMMANDS = frozenset(
     {
@@ -286,6 +286,18 @@ class PartitionService:
                 partitions=(partition,),
                 data_behavior="partition_write",
                 artifacts=(artifact,),
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "partition_written",
+                        {
+                            "partition": partition,
+                            "slot": "",
+                            "sha256": artifact.sha256,
+                        },
+                        "the selected partition contains the verified image",
+                    ),
+                ),
             ),
             "write",
             destructive=True,
@@ -313,6 +325,14 @@ class PartitionService:
                 label=f"Erase {partition} on {device.serial}",
                 partitions=(partition,),
                 data_behavior="erase",
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "partition_erased",
+                        {"partition": partition},
+                        "the selected partition is reported erased",
+                    ),
+                ),
             ),
             "erase",
             destructive=True,
@@ -492,11 +512,15 @@ class PartitionService:
         partitions: tuple[str, ...] = (),
         data_behavior: str = "preserve",
         artifacts: tuple[FileArtifact, ...] = (),
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
             label=label,
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
@@ -505,6 +529,8 @@ class PartitionService:
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
             artifacts=artifacts,
+            risk=risk,
+            postconditions=postconditions,
         )
 
     @staticmethod

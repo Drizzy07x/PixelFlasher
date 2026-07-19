@@ -4842,8 +4842,6 @@ Unless you know what you're doing, it is recommended that you take the default s
                 package_boot_id = 0
 
         set_db(con)
-        patched_boot_id = boot_id
-        setattr(self, "_last_patch_boot_id", patched_boot_id)
 
     # if Samsung firmware, create boot.tar
     if is_odin == 1 or self.config.create_boot_tar:

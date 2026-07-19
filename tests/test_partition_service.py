@@ -161,6 +161,11 @@ class PartitionServiceTests(unittest.TestCase):
             self.assertTrue(compilation.destructive)
             self.assertTrue(compilation.requires_confirmation)
             self.assertFalse(compilation.reinforced_confirmation)
+            self.assertEqual("destructive", compilation.plan.risk.value)
+            self.assertEqual(
+                ("partition_written",),
+                tuple(item.kind for item in compilation.plan.postconditions),
+            )
             self.assertEqual(1, len(compilation.plan.artifacts))
             artifact = compilation.plan.artifacts[0]
             self.assertEqual(hashlib.sha256(contents).hexdigest(), artifact.sha256)
@@ -182,6 +187,11 @@ class PartitionServiceTests(unittest.TestCase):
         self.assertTrue(compilation.destructive)
         self.assertTrue(compilation.requires_confirmation)
         self.assertTrue(compilation.reinforced_confirmation)
+        self.assertEqual("destructive", compilation.plan.risk.value)
+        self.assertEqual(
+            ("partition_erased",),
+            tuple(item.kind for item in compilation.plan.postconditions),
+        )
 
     def test_partition_and_payload_injection_are_rejected_fail_closed(self):
         for partition in (

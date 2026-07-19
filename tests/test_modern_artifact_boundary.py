@@ -1,0 +1,465 @@
+import ast
+import json
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+from build_artifact_policy import RETIRED_UI_DATA_DIRS, RETIRED_UI_MODULES
+from pixelflasher_core import (
+    ActiveOperation,
+    AppSnapshot,
+    BootInfo,
+    BootloaderLockEvidence,
+    FileArtifact,
+    FirmwareInfo,
+    FlashPlan,
+    InteractionKind,
+    InteractionRequest,
+    OperationFinished,
+    OperationPlan,
+    OperationResult,
+    ProcessRequest,
+    ProgressEvent,
+    ProgressPhase,
+    SnapshotChanged,
+    ToolchainInfo,
+)
+from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest, response_envelope
+from ui.command_registry import ALLOWED_COMMANDS
+from ui.pages.modern_webview_host import (
+    ModernWebViewFrame,
+    ReplayAction,
+    _jsonable,
+    _RequestReplayLedger,
+)
+from ui.public_bridge import (
+    PUBLIC_RESULT_PROJECTORS,
+    PublicProjectionError,
+    project_operation_result,
+    public_snapshot,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+DESKTOP_SPECS = (
+    ROOT / "build-on-win.spec",
+    ROOT / "build-on-win-arm64.spec",
+    ROOT / "build-on-linux.spec",
+    ROOT / "build-on-mac.spec",
+    ROOT / "build-on-mac-intel-only.spec",
+)
+
+HOST_PATH_SENTINELS = (
+    r"C:\Users\Alice\PixelFlasher\private.zip",
+    r"[C:\Users\Alice\PixelFlasher\private.zip]",
+    r"\\build-server\private-share\firmware.zip",
+    "/home/alice/PixelFlasher/private.zip",
+    "/Users/alice/PixelFlasher/private.zip",
+    "/tmp/pixelflasher/private.zip",
+    "/root/pixelflasher/private.zip",
+    "/etc/pixelflasher/private.conf",
+    "/usr/local/pixelflasher/private.bin",
+    "/run/user/1000/pixelflasher/private.sock",
+    r"WindowsPath('C:\Users\Alice\private.zip')",
+    "PosixPath('/home/alice/private.zip')",
+)
+
+
+def _module_candidates(module_name: str) -> tuple[Path, Path]:
+    base = ROOT.joinpath(*module_name.split("."))
+    return base.with_suffix(".py"), base / "__init__.py"
+
+
+class ModernArtifactBoundaryTests(unittest.TestCase):
+    def assert_route_free(self, value: object) -> None:
+        def strings(item: object):
+            if isinstance(item, str):
+                yield item
+            elif isinstance(item, dict):
+                for key, nested in item.items():
+                    yield str(key)
+                    yield from strings(nested)
+            elif isinstance(item, (list, tuple)):
+                for nested in item:
+                    yield from strings(nested)
+
+        public_strings = tuple(strings(value))
+        for sentinel in HOST_PATH_SENTINELS:
+            with self.subTest(sentinel=sentinel):
+                self.assertFalse(
+                    any(sentinel in item for item in public_strings),
+                    (sentinel, public_strings),
+                )
+        json.dumps(value)
+
+    def test_retired_preview_and_widget_adapter_modules_are_absent(self):
+        for module_name in RETIRED_UI_MODULES:
+            if module_name == "Main":
+                continue
+            for candidate in _module_candidates(module_name):
+                with self.subTest(module=module_name, candidate=candidate.name):
+                    self.assertFalse(candidate.exists(), candidate)
+
+    def test_retired_preview_assets_are_not_packaged_or_kept(self):
+        for relative in RETIRED_UI_DATA_DIRS:
+            directory = ROOT / relative
+            with self.subTest(relative=relative):
+                self.assertFalse(directory.exists() and any(directory.rglob("*")))
+        for spec in DESKTOP_SPECS:
+            source = spec.read_text(encoding="utf-8")
+            with self.subTest(spec=spec.name):
+                self.assertIn(
+                    "from build_artifact_policy import RETIRED_UI_MODULES", source
+                )
+                self.assertIn("*RETIRED_UI_MODULES", source)
+                for relative in RETIRED_UI_DATA_DIRS:
+                    self.assertNotIn(relative, source)
+
+    def test_legacy_main_cannot_enter_the_modern_artifact(self):
+        self.assertIn("Main", RETIRED_UI_MODULES)
+        entrypoint = (ROOT / "PixelFlasher.py").read_text(encoding="utf-8")
+        self.assertNotIn("import Main", entrypoint)
+        self.assertNotIn("from Main", entrypoint)
+
+    def test_main_no_longer_exposes_preview_handlers_or_menu(self):
+        source = (ROOT / "Main.py").read_text(encoding="utf-8")
+        for retired in (
+            "_on_modern_ui_preview",
+            "_on_modern_patch_boot",
+            "_modern_patch_boot_flavor",
+            "_modern_ui_preview_frame",
+            "ui.pages.dashboard_app",
+            "Open the modern PixelFlasher workspace",
+        ):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, source)
+
+    def test_modern_python_surface_has_no_named_legacy_delegates(self):
+        violations: list[str] = []
+        paths = [ROOT / "PixelFlasher.py", *sorted((ROOT / "ui").rglob("*.py"))]
+        for path in paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    if node.value.startswith("_on_"):
+                        violations.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.value}")
+                if isinstance(node, ast.Import):
+                    imports = {alias.name.split(".", 1)[0] for alias in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    imports = {node.module.split(".", 1)[0]}
+                else:
+                    continue
+                for forbidden in imports & {"Main", "runtime", "pf_modules"}:
+                    violations.append(
+                        f"{path.relative_to(ROOT)}:{node.lineno}:import {forbidden}"
+                    )
+        self.assertEqual([], violations)
+
+    def test_historical_action_contract_remains_evidence_not_executable_code(self):
+        golden = json.loads(
+            (ROOT / "tests" / "golden" / "modern_action_contracts.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(1, golden["schemaVersion"])
+        self.assertEqual(32, len(golden["actions"]))
+        self.assertTrue(any(action.get("delegate") for action in golden["actions"]))
+
+    def test_snapshot_and_last_result_are_route_free_on_every_platform(self):
+        digest = "a" * 64
+        evidence = BootloaderLockEvidence(
+            serial="SERIAL123456",
+            device_codename="akita",
+            firmware_hash=digest,
+            firmware_build="AP4A.250205.002",
+            flash_operation_id="flash-operation",
+            flash_plan_fingerprint="b" * 64,
+            snapshot_revision=8,
+            required_partitions=("boot", "vbmeta"),
+            flashed_partitions=("boot", "vbmeta"),
+            slots=("a", "b"),
+        )
+        for route in HOST_PATH_SENTINELS:
+            with self.subTest(route=route):
+                result = OperationResult.success(
+                    "operation",
+                    message=f"completed [{route}]",
+                    stdout=route,
+                    stderr=route,
+                    value={"path": route, "metadata": {"cwd": route}},
+                )
+                snapshot = AppSnapshot(
+                    revision=8,
+                    firmware=FirmwareInfo(
+                        path=route,
+                        type="factory",
+                        build="AP4A.250205.002",
+                        hash=digest,
+                        verified=True,
+                    ),
+                    boot=BootInfo(
+                        id="stock-boot",
+                        path=route,
+                        hash=digest,
+                        flavor="boot",
+                    ),
+                    plan=FlashPlan(options={"images": {"boot": route}}),
+                    toolchain=ToolchainInfo(
+                        adb=f"{route}/adb",
+                        fastboot=f"{route}/fastboot",
+                        version="35.0.2",
+                        ready=True,
+                    ),
+                    active_operation=ActiveOperation(
+                        "operation",
+                        "firmware.process",
+                        f"Processing [{route}]",
+                    ),
+                    last_result=result,
+                    bootloader_lock_evidence=(evidence,),
+                )
+
+                public = public_snapshot(snapshot)
+                self.assert_route_free(public)
+                self.assertNotIn("value", public["last_result"])
+                self.assertNotIn("stdout", public["last_result"])
+                self.assertNotIn("stderr", public["last_result"])
+                self.assertEqual(
+                    [{"serial": "SERIAL123456", "snapshot_revision": 8}],
+                    public["bootloader_lock_evidence"],
+                )
+
+    def test_plan_preview_response_keeps_logical_argv_but_no_host_routes(self):
+        digest = "c" * 64
+        for route in HOST_PATH_SENTINELS:
+            with self.subTest(route=route):
+                artifact_path = f"{route}/firmware.zip"
+                artifact = FileArtifact(artifact_path, digest, "firmware")
+                plan = OperationPlan(
+                    ProcessRequest(
+                        (f"{route}/platform-tools/adb", artifact_path),
+                        cwd=route,
+                        env=(("PRIVATE_ROOT", route),),
+                    ),
+                    label=f"Flash [{route}]",
+                    artifacts=(artifact,),
+                    dry_run=True,
+                )
+                result = OperationResult.success(
+                    "preview",
+                    message=f"Preview [{route}]",
+                    stdout=route,
+                    stderr=route,
+                    value={
+                        "revision": 9,
+                        "canonical_plan": FlashPlan().to_dict(),
+                        "plan": FlashPlan().to_dict(),
+                        "selected_serials": ["SERIAL123456"],
+                        "firmware": FirmwareInfo(
+                            path=route,
+                            type="factory",
+                            build="AP4A.250205.002",
+                            hash=digest,
+                        ).to_dict(),
+                        "compiled": {
+                            "ok": True,
+                            "code": "ok",
+                            "message": route,
+                            "destructive": False,
+                            "requires_confirmation": False,
+                            "plan": plan.to_dict(),
+                            "confirmation": None,
+                        },
+                    },
+                )
+
+                public = project_operation_result("flash.plan.preview", result)
+                self.assert_route_free(public)
+                compiled = public["value"]["compiled"]
+                request = compiled["plan"]["requests"][0]
+                self.assertNotIn("cwd", request)
+                self.assertNotIn("env", request)
+                self.assertEqual(
+                    f"@artifact/firmware/{digest[:12]}",
+                    request["argv"][1],
+                )
+
+    def test_every_exposed_command_has_a_fail_closed_result_projector(self):
+        self.assertEqual(ALLOWED_COMMANDS, frozenset(PUBLIC_RESULT_PROJECTORS))
+        for command in sorted(ALLOWED_COMMANDS):
+            for route in HOST_PATH_SENTINELS:
+                with self.subTest(command=command, route=route):
+                    result = OperationResult.success(
+                        "operation",
+                        message=f"Result [{route}]",
+                        stdout=route,
+                        stderr=route,
+                        value={
+                            "path": route,
+                            "cwd": route,
+                            "env": {"PRIVATE": route},
+                            "metadata": {"source": route},
+                            "outputDirectory": route,
+                        },
+                    )
+                    self.assert_route_free(project_operation_result(command, result))
+
+    def test_platform_tools_result_exposes_closed_installation_receipt_without_routes(self):
+        digest = "d" * 64
+        receipt = {
+            "source": "official",
+            "ready": True,
+            "version": "36.0.0",
+            "installation": {
+                "installed": True,
+                "adbAvailable": True,
+                "fastbootAvailable": True,
+                "archiveSha256": digest.upper(),
+                "archiveSize": 12_345,
+                "version": "36.0.0",
+            },
+            "revision": 12,
+        }
+        public = project_operation_result(
+            "platformTools.setup",
+            OperationResult.success("platform-tools", value=receipt),
+        )
+
+        self.assert_route_free(public)
+        self.assertEqual(
+            {
+                **receipt,
+                "installation": {
+                    **receipt["installation"],
+                    "archiveSha256": digest,
+                },
+            },
+            public["value"],
+        )
+
+        directory_receipt = {
+            "source": "directory",
+            "ready": True,
+            "version": "35.0.2",
+            "installation": None,
+            "revision": 13,
+        }
+        directory_public = project_operation_result(
+            "platformTools.setup",
+            OperationResult.success("platform-tools-directory", value=directory_receipt),
+        )
+        self.assertEqual(directory_receipt, directory_public["value"])
+
+        for route in HOST_PATH_SENTINELS:
+            with self.subTest(route=route):
+                unsafe_values = (
+                    {**receipt, "path": route},
+                    {**receipt, "version": route},
+                    {
+                        **receipt,
+                        "installation": {**receipt["installation"], "root": route},
+                    },
+                )
+                for unsafe in unsafe_values:
+                    projected = project_operation_result(
+                        "platformTools.setup",
+                        OperationResult.success("platform-tools", value=unsafe),
+                    )
+                    self.assert_route_free(projected)
+                    self.assertNotIn("value", projected)
+
+    def test_snapshot_progress_interaction_and_finished_events_are_route_free(self):
+        for route in HOST_PATH_SENTINELS:
+            with self.subTest(route=route):
+                snapshot = AppSnapshot(
+                    revision=3,
+                    last_result=OperationResult.failed(
+                        "operation",
+                        code="failed",
+                        message=f"Failed [{route}]",
+                        stderr=route,
+                    ),
+                )
+                events = (
+                    SnapshotChanged(snapshot),
+                    ProgressEvent(
+                        "operation",
+                        ProgressPhase.RUNNING,
+                        f"Working [{route}]",
+                        50,
+                    ),
+                    InteractionRequest(
+                        "operation",
+                        InteractionKind.CONFIRM,
+                        f"Confirm [{route}]",
+                        f"Continue [{route}]",
+                        3,
+                    ),
+                    OperationFinished(
+                        OperationResult.success(
+                            "operation",
+                            message=f"Finished [{route}]",
+                            stdout=route,
+                            value={"path": route},
+                        )
+                    ),
+                )
+                for event in events:
+                    self.assert_route_free(_jsonable(event))
+
+    def test_response_replay_stores_only_the_sanitized_projection(self):
+        route = r"C:\Users\Alice\private\firmware.zip"
+        request = BridgeRequest.from_json(
+            json.dumps(
+                {
+                    "version": BRIDGE_VERSION,
+                    "requestId": "privacy-replay",
+                    "command": "tools.pushFiles",
+                    "payload": {
+                        "serial": "SERIAL123456",
+                        "grants": ["g" * 32],
+                        "destination": "/sdcard/Download/",
+                    },
+                    "expectedRevision": 4,
+                }
+            )
+        )
+        ledger = _RequestReplayLedger(maximum_completed=4)
+        emitted: list[dict[str, object]] = []
+        host = SimpleNamespace(_replay_ledger=ledger, _emit=emitted.append)
+        self.assertIs(ReplayAction.EXECUTE, ledger.begin(request).action)
+        result = project_operation_result(
+            request.command,
+            OperationResult.success(
+                "push",
+                message=f"Pushed [{route}]",
+                stdout=route,
+                value={"source": route, "destination": "/sdcard/Download/file.zip"},
+            ),
+        )
+        ModernWebViewFrame._complete_request(
+            host,
+            request,
+            response_envelope(request.request_id, ok=True, result=result),
+        )
+        replay = ledger.begin(request)
+        self.assertIs(ReplayAction.REPLAY, replay.action)
+        self.assertIsNotNone(replay.message)
+        self.assert_route_free(emitted[0])
+        self.assert_route_free(replay.message)
+
+    def test_generic_host_serializer_rejects_python_paths_and_host_path_strings(self):
+        with self.assertRaises(PublicProjectionError):
+            _jsonable({"path": Path("private.zip")})
+        for route in HOST_PATH_SENTINELS:
+            with self.subTest(route=route), self.assertRaises(PublicProjectionError):
+                _jsonable({"message": route})
+
+        # Deliberate device paths remain part of typed device reports.
+        self.assertEqual(
+            {"apk_path": "/system/app/example/base.apk"},
+            _jsonable({"apk_path": "/system/app/example/base.apk"}),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -5,10 +5,12 @@ from ui.bridge_contract import (
     ALLOWED_COMMANDS,
     BRIDGE_CHANNEL,
     BRIDGE_VERSION,
+    MAX_PAYLOAD_BYTES,
     BridgeProtocolError,
     BridgeRequest,
     event_envelope,
     protocol_error_envelope,
+    response_envelope,
 )
 
 
@@ -18,127 +20,105 @@ def message(**overrides):
         "requestId": "request-1",
         "command": "snapshot.get",
         "payload": {},
-        "expectedRevision": 0,
+        "expectedRevision": None,
     }
     value.update(overrides)
     return json.dumps(value)
 
 
 class BridgeContractTests(unittest.TestCase):
-    def test_uses_the_single_edge_compatible_channel(self):
+    def test_uses_v2_on_the_single_edge_compatible_channel(self):
+        self.assertEqual(2, BRIDGE_VERSION)
         self.assertEqual("pixelflasher", BRIDGE_CHANNEL)
 
-    def test_parses_a_versioned_allow_listed_request(self):
-        request = BridgeRequest.from_json(message(payload={"include": ["devices"]}))
+    def test_parses_only_the_exact_request_envelope(self):
+        request = BridgeRequest.from_json(message())
 
         self.assertEqual("request-1", request.request_id)
         self.assertEqual("snapshot.get", request.command)
-        self.assertEqual({"include": ["devices"]}, request.payload)
-        self.assertEqual(0, request.expected_revision)
+        self.assertEqual({}, request.payload)
+        self.assertIsNone(request.expected_revision)
 
-    def test_rejects_unknown_commands_and_extra_fields(self):
-        with self.assertRaisesRegex(BridgeProtocolError, "not allow-listed") as unknown:
+        for alias, value in (
+            ("request_id", "alias"),
+            ("expected_revision", 0),
+            ("delegate", "_on_flash"),
+        ):
+            raw = json.loads(message())
+            raw[alias] = value
+            with self.subTest(alias=alias), self.assertRaises(BridgeProtocolError) as rejected:
+                BridgeRequest.from_json(json.dumps(raw))
+            self.assertEqual("invalid_envelope", rejected.exception.code)
+
+    def test_rejects_unknown_commands_versions_duplicates_and_nonfinite_json(self):
+        with self.assertRaises(BridgeProtocolError) as unknown:
             BridgeRequest.from_json(message(command="python.eval"))
         self.assertEqual("command_not_allowed", unknown.exception.code)
 
-        value = json.loads(message())
-        value["delegate"] = "_on_flash"
-        with self.assertRaisesRegex(BridgeProtocolError, "unexpected: delegate") as extra:
-            BridgeRequest.from_json(json.dumps(value))
-        self.assertEqual("invalid_envelope", extra.exception.code)
-
-    def test_rejects_wrong_versions_and_invalid_revisions(self):
         with self.assertRaises(BridgeProtocolError) as version:
-            BridgeRequest.from_json(message(version=BRIDGE_VERSION + 1))
+            BridgeRequest.from_json(message(version=1))
         self.assertEqual("unsupported_version", version.exception.code)
 
-        for revision in (-1, True, "1"):
-            with self.subTest(revision=revision):
-                with self.assertRaises(BridgeProtocolError) as invalid:
-                    BridgeRequest.from_json(message(expectedRevision=revision))
-                self.assertEqual("invalid_revision", invalid.exception.code)
-
-    def test_protocol_errors_are_safe_json_responses(self):
-        error = BridgeProtocolError("invalid_json", "Malformed request", request_id="safe-id")
-        envelope = protocol_error_envelope(error)
-
-        self.assertFalse(envelope["ok"])
-        self.assertEqual("safe-id", envelope["requestId"])
-        self.assertEqual("invalid_json", envelope["error"]["code"])
-        json.dumps(envelope)
-
-    def test_event_types_are_constrained(self):
-        self.assertEqual("snapshot", event_envelope("snapshot", {"revision": 1})["type"])
-        with self.assertRaises(ValueError):
-            event_envelope("javascript", {})
-
-    def test_allow_list_covers_all_primary_product_areas(self):
-        prefixes = {
-            command.split(".", 1)[0]
-            for command in ALLOWED_COMMANDS
-        }
-        self.assertTrue(
-            {"device", "flash", "firmware", "boot", "root", "apps", "backups", "tools", "settings"}
-            <= prefixes
+        duplicate = (
+            '{"version":2,"version":2,"requestId":"r","command":"snapshot.get",'
+            '"payload":{},"expectedRevision":null}'
         )
-        self.assertIn("settings.get", ALLOWED_COMMANDS)
-        self.assertIn("settings.update", ALLOWED_COMMANDS)
-        self.assertTrue(
-            {
-                "root.apps.list",
-                "root.apps.install",
-                "root.modules.list",
-                "root.modules.action",
-            }
-            <= ALLOWED_COMMANDS
-        )
+        with self.assertRaises(BridgeProtocolError) as duplicated:
+            BridgeRequest.from_json(duplicate)
+        self.assertEqual("invalid_json", duplicated.exception.code)
 
-    def test_settings_get_is_read_only_and_accepts_a_null_revision(self):
-        request = BridgeRequest.from_json(
+        with self.assertRaises(BridgeProtocolError) as nonfinite:
+            BridgeRequest.from_json(message(payload={"value": float("nan")}))
+        self.assertEqual("invalid_json", nonfinite.exception.code)
+
+    def test_mutations_require_a_non_negative_expected_revision(self):
+        for revision in (None, -1, True, "1"):
+            with self.subTest(revision=revision), self.assertRaises(BridgeProtocolError) as invalid:
+                BridgeRequest.from_json(
+                    message(command="device.scan", expectedRevision=revision)
+                )
+            self.assertIn(invalid.exception.code, {"revision_required", "invalid_revision"})
+
+        loaded = BridgeRequest.from_json(
             message(command="settings.get", expectedRevision=None)
         )
+        self.assertIsNone(loaded.expected_revision)
 
-        self.assertEqual("settings.get", request.command)
-        self.assertIsNone(request.expected_revision)
-
-    def test_firmware_process_has_an_empty_public_payload(self):
-        request = BridgeRequest.from_json(
-            message(command="firmware.process", payload={}, expectedRevision=7)
+    def test_all_commands_reject_unknown_fields_and_browser_paths(self):
+        cases = (
+            ("firmware.process", {"path": "C:/firmware.zip"}),
+            ("firmware.select", {"path": "C:/firmware.zip"}),
+            ("boot.patch", {"destination": "C:/patched.img"}),
+            ("tools.pushFiles", {"paths": ["C:/private/file"]}),
+            ("support.create", {"destinationId": "x" * 64}),
+            ("tools.wifi", {"pairingCode": "123456"}),
+            ("native.pickFile", {"purpose": "firmware.select", "initialDirectory": "C:/"}),
         )
-
-        self.assertEqual({}, request.payload)
-        for payload in (
-            {"path": "C:/firmware.zip"},
-            {"sha256": "0" * 64},
-            {"argv": ["fastboot", "flash"]},
-            {"outputRoot": "C:/browser-cache"},
-            {"stagingPath": "C:/browser-stage"},
-        ):
-            with self.subTest(payload=payload):
-                with self.assertRaises(BridgeProtocolError) as rejected:
-                    BridgeRequest.from_json(
-                        message(command="firmware.process", payload=payload)
-                    )
-                self.assertEqual("invalid_payload", rejected.exception.code)
-
-    def test_firmware_select_accepts_only_the_native_picker_path(self):
-        selected = BridgeRequest.from_json(
-            message(command="firmware.select", payload={"path": "C:/firmware.zip"})
-        )
-        self.assertEqual({"path": "C:/firmware.zip"}, selected.payload)
-
-        with self.assertRaises(BridgeProtocolError) as rejected:
-            BridgeRequest.from_json(
-                message(
-                    command="firmware.select",
-                    payload={"path": "C:/firmware.zip", "hash": "browser"},
+        for command, payload in cases:
+            with self.subTest(command=command), self.assertRaises(BridgeProtocolError) as rejected:
+                BridgeRequest.from_json(
+                    message(command=command, payload=payload, expectedRevision=1)
                 )
-            )
-        self.assertEqual("invalid_payload", rejected.exception.code)
+            self.assertEqual("invalid_payload", rejected.exception.code)
 
-    def test_device_connectivity_payloads_reject_browser_process_fields(self):
-        scrcpy = BridgeRequest.from_json(
-            message(command="tools.scrcpy", payload={"serial": "SERIAL"})
+    def test_grants_and_native_picker_purposes_are_bounded(self):
+        token = "g" * 64
+        selected = BridgeRequest.from_json(
+            message(
+                command="firmware.select",
+                payload={"grant": token},
+                expectedRevision=7,
+            )
+        )
+        prompt = BridgeRequest.from_json(
+            message(
+                command="secret.issue",
+                payload={
+                    "purpose": "wifi.pairingCode",
+                    "secret": "123456",
+                },
+                expectedRevision=7,
+            )
         )
         wifi = BridgeRequest.from_json(
             message(
@@ -148,24 +128,107 @@ class BridgeContractTests(unittest.TestCase):
                     "action": "pair",
                     "host": "192.0.2.20",
                     "port": 37123,
-                    "pairingCode": "123456",
+                    "secretGrant": token,
                 },
+                expectedRevision=7,
             )
         )
-        self.assertEqual({"serial": "SERIAL"}, scrcpy.payload)
-        self.assertEqual("pair", wifi.payload["action"])
+
+        self.assertEqual(token, selected.payload["grant"])
+        self.assertEqual("wifi.pairingCode", prompt.payload["purpose"])
+        self.assertNotIn("123456", repr(prompt))
         self.assertNotIn("123456", repr(wifi))
 
-        for command, payload in (
-            ("tools.scrcpy", {"path": "C:/browser/scrcpy.exe"}),
-            ("tools.scrcpy", {"argv": ["scrcpy", "--record", "x"]}),
-            ("tools.wifi", {"stdin": "123456"}),
-            ("tools.wifi", {"command": "pair 192.0.2.1:1 123456"}),
-        ):
-            with self.subTest(command=command, payload=payload):
-                with self.assertRaises(BridgeProtocolError) as rejected:
-                    BridgeRequest.from_json(message(command=command, payload=payload))
-                self.assertEqual("invalid_payload", rejected.exception.code)
+        apatch = BridgeRequest.from_json(
+            message(
+                command="boot.patch",
+                payload={
+                    "serial": "SERIAL",
+                    "flavor": "apatch",
+                    "appId": "a" * 64,
+                    "grant": "w" * 64,
+                    "secretGrant": token,
+                },
+                expectedRevision=7,
+            )
+        )
+        self.assertEqual(token, apatch.payload["secretGrant"])
+
+        with self.assertRaises(BridgeProtocolError) as missing_apatch_secret:
+            BridgeRequest.from_json(
+                message(
+                    command="boot.patch",
+                    payload={
+                        "serial": "SERIAL",
+                        "flavor": "apatch",
+                        "appId": "a" * 64,
+                        "grant": "w" * 64,
+                    },
+                    expectedRevision=7,
+                )
+            )
+        self.assertEqual("invalid_payload", missing_apatch_secret.exception.code)
+
+        with self.assertRaises(BridgeProtocolError) as raw_secret:
+            BridgeRequest.from_json(
+                message(
+                    command="tools.wifi",
+                    payload={"serial": "SERIAL", "action": "pair", "pairingCode": "123456"},
+                    expectedRevision=7,
+                )
+            )
+        self.assertEqual("invalid_payload", raw_secret.exception.code)
+
+    def test_payload_has_an_independent_size_limit(self):
+        with self.assertRaises(BridgeProtocolError) as large:
+            BridgeRequest.from_json(
+                message(
+                    command="settings.update",
+                    payload={"theme": "x" * (MAX_PAYLOAD_BYTES + 1)},
+                    expectedRevision=1,
+                )
+            )
+        self.assertEqual("payload_too_large", large.exception.code)
+
+    def test_response_and_event_envelopes_are_exact(self):
+        success = response_envelope("r1", ok=True, result={"status": "SUCCESS"})
+        failure = response_envelope(
+            "r2", ok=False, error={"code": "failed", "message": "Failed."}
+        )
+        event = event_envelope("snapshot", {"revision": 3}, revision=3)
+
+        self.assertEqual({"version", "requestId", "ok", "result"}, set(success))
+        self.assertEqual({"version", "requestId", "ok", "error"}, set(failure))
+        self.assertEqual({"version", "event", "revision", "payload"}, set(event))
+        self.assertNotIn("type", success)
+        self.assertNotIn("type", event)
+
+    def test_protocol_errors_are_safe_exact_failure_responses(self):
+        error = BridgeProtocolError("invalid_json", "Malformed request", request_id="safe-id")
+        envelope = protocol_error_envelope(error)
+
+        self.assertEqual(
+            {"version", "requestId", "ok", "error"},
+            set(envelope),
+        )
+        self.assertFalse(envelope["ok"])
+        self.assertEqual("invalid_json", envelope["error"]["code"])
+        json.dumps(envelope)
+
+    def test_event_types_are_constrained(self):
+        self.assertEqual(
+            "snapshot",
+            event_envelope("snapshot", {"revision": 1}, revision=1)["event"],
+        )
+        with self.assertRaises(ValueError):
+            event_envelope("javascript", {}, revision=1)
+
+    def test_allow_list_covers_primary_product_areas(self):
+        prefixes = {command.split(".", 1)[0] for command in ALLOWED_COMMANDS}
+        self.assertTrue(
+            {"device", "flash", "firmware", "boot", "root", "apps", "backups", "tools", "settings"}
+            <= prefixes
+        )
 
 
 if __name__ == "__main__":

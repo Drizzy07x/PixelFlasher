@@ -10,11 +10,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from platformdirs import user_data_dir
 import wx
+from platformdirs import user_data_dir
 
 from constants import APPNAME, CONFIG_FILE_NAME
-from pixelflasher_core import ApplicationRuntime
+from pixelflasher_core import LEGACY_V9_DATABASE_NAME, ApplicationRuntime
 from ui.core_command_factory import create_command_factory
 from ui.pages.modern_webview_host import (
     create_modern_webview_frame,
@@ -39,11 +39,17 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
     app: wx.App | None = None
     frame: wx.Frame | None = None
     try:
-        runtime = ApplicationRuntime.open(config_path)
+        system_data_root = Path(user_data_dir(APPNAME, appauthor=False, roaming=True))
+        runtime = ApplicationRuntime.open(
+            config_path,
+            enable_device_monitor=True,
+            legacy_database_path=system_data_root / LEGACY_V9_DATABASE_NAME,
+        )
         app = wx.App(False)
         frame = create_modern_webview_frame(
-            runtime,
-            command_factory=create_command_factory(runtime.snapshot),
+            runtime.engine,
+            command_factory=create_command_factory(runtime.engine.snapshot),
+            support_destination_registrar=runtime.register_support_destination,
             index_path=index_path,
         )
         # Keep lifecycle owners reachable for the duration of the native loop.

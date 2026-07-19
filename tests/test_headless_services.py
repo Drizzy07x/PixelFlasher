@@ -9,20 +9,18 @@ from unittest.mock import patch
 
 from pixelflasher_core import (
     AppCommand,
+    ApplicationRuntime,
     AppSnapshot,
     AppStateStore,
-    ApplicationRuntime,
     CancellationToken,
     CommandExecutor,
     DeviceInfo,
     DevicePoller,
     DeviceService,
     FakeProcessTransport,
-    FakeTransportStep,
     FirmwareInspector,
     FirmwareKind,
     OperationStatus,
-    PixelFlasherEngine,
     ProcessRequest,
     ToolchainInfo,
     ToolchainService,
@@ -36,17 +34,23 @@ from pixelflasher_core import (
     parse_getprop,
     parse_platform_tools_version,
 )
-
+from pixelflasher_core.platform_tools_setup import PlatformToolsSetupService
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
 
 ADB_VERSION = "Android Debug Bridge version 1.0.41\nVersion 36.0.0-13206524\n"
 FASTBOOT_VERSION = "fastboot version 36.0.0-13206524\n"
 
 
 def make_toolchain_files(directory: Path):
+    content = bytearray(128)
+    content[:2] = b"MZ"
+    content[60:64] = (64).to_bytes(4, "little")
+    content[64:68] = b"PE\x00\x00"
+    content[68:70] = (0x8664).to_bytes(2, "little")
     adb = directory / "adb.exe"
     fastboot = directory / "fastboot.exe"
-    adb.write_bytes(b"")
-    fastboot.write_bytes(b"")
+    adb.write_bytes(content)
+    fastboot.write_bytes(content)
     return adb.resolve(), fastboot.resolve()
 
 
@@ -529,10 +533,26 @@ class EngineServiceIntegrationTests(unittest.TestCase):
             transport = FakeProcessTransport(
                 [TransportOutcome(0, ADB_VERSION), TransportOutcome(0, FASTBOOT_VERSION)]
             )
-            engine = PixelFlasherEngine(executor=CommandExecutor(transport))
+            toolchain_service = ToolchainService(transport)
+            setup_service = PlatformToolsSetupService(
+                toolchain_service,
+                cache_directory=root / "cache",
+                install_directory=root / "install",
+                platform="windows",
+                architecture="x86_64",
+            )
+            engine = CommandEngine(
+                executor=CommandExecutor(transport),
+                toolchain_service=toolchain_service,
+                platform_tools_setup_service=setup_service,
+            )
 
             result = engine.execute(
-                AppCommand("platformTools.setup", expected_revision=0, payload={"path": str(root)})
+                AppCommand(
+                    "platformTools.setup",
+                    expected_revision=0,
+                    payload={"source": "directory", "path": str(root)},
+                )
             )
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
@@ -543,10 +563,10 @@ class EngineServiceIntegrationTests(unittest.TestCase):
                 AppCommand(
                     "platformTools.setup",
                     expected_revision=1,
-                    payload={"download": True},
+                    payload={"source": "official"},
                 )
             )
-            self.assertEqual("network_setup_not_supported", blocked.code)
+            self.assertEqual("platform_tools_catalog_unavailable", blocked.code)
 
     def test_real_device_scan_updates_snapshot_and_preserves_stable_selection(self):
         transport = FakeProcessTransport(
@@ -560,7 +580,7 @@ class EngineServiceIntegrationTests(unittest.TestCase):
             selected_serial="A",
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(initial),
             executor=CommandExecutor(transport),
         )
@@ -583,7 +603,7 @@ class EngineServiceIntegrationTests(unittest.TestCase):
             selected_serial="F",
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(initial),
             executor=CommandExecutor(transport),
         )
@@ -597,7 +617,7 @@ class EngineServiceIntegrationTests(unittest.TestCase):
         self.assertEqual("F", engine.store.snapshot().selected_serial)
 
     def test_device_select_rejects_a_serial_not_in_latest_inventory(self):
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(AppSnapshot(devices=(DeviceInfo("A"),)))
         )
         result = engine.execute(
@@ -614,7 +634,9 @@ class EngineServiceIntegrationTests(unittest.TestCase):
                     "META-INF/com/android/metadata": (
                         "ota-type=AB\npre-device=husky\npost-build-incremental=42\n"
                     ),
-                    "payload.bin": b"payload",
+                    "META-INF/com/google/android/update-binary": (
+                        b"never execute archive-provided code"
+                    ),
                 },
             )
             initial = AppSnapshot(
@@ -622,7 +644,7 @@ class EngineServiceIntegrationTests(unittest.TestCase):
                 selected_serial="A",
                 toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
             )
-            engine = PixelFlasherEngine(store=AppStateStore(initial))
+            engine = CommandEngine(store=AppStateStore(initial))
 
             selected = engine.execute(
                 AppCommand("firmware.select", expected_revision=0, payload={"path": str(ota)})
@@ -650,7 +672,7 @@ class EngineServiceIntegrationTests(unittest.TestCase):
             self.assertEqual("flash_plan_preview", preview.code)
             self.assertEqual(engine.store.snapshot().plan.fingerprint, preview.value["plan"]["fingerprint"])
 
-            mismatch_engine = PixelFlasherEngine(
+            mismatch_engine = CommandEngine(
                 store=AppStateStore(
                     AppSnapshot(
                         devices=(DeviceInfo("B", codename="shiba"),),

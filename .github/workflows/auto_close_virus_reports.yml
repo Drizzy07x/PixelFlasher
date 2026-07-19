@@ -16,7 +16,7 @@ jobs:
     if: contains(github.event.issue.body, 'Is this issue about reporting a virus or trojan detection?') && contains(github.event.issue.body, '- [x] Yes')
     steps:
       - name: Close Issue
-        uses: peter-evans/close-issue@v3
+        uses: peter-evans/close-issue@05dff7ca07116e5707cfb3a3cd4af7bb5e43524c # v3
         with:
           issue-number: ${{ github.event.issue.number }}
           comment: |

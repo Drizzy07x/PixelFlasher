@@ -46,10 +46,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up the locked React toolchain
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.14.0'
 
@@ -87,7 +87,7 @@ jobs:
           sudo apt-get install -y libnotify-dev
           sudo apt-get install -y libsm-dev
           # Install tools needed for AppImage creation
-          sudo apt-get install -y patchelf curl zsync xvfb xauth xdotool
+          sudo apt-get install -y patchelf curl zsync xvfb xauth xdotool weston
 
       - name: Create virtual environment and install dependencies
         run: |
@@ -100,6 +100,9 @@ jobs:
           pip install --only-binary wxPython -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 wxPython==4.2.1 || \
           pip install -U -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 wxPython
           pip install -r requirements.txt
+          if [[ "$GITHUB_REF" == refs/tags/v10.* ]]; then
+            python scripts/release_version.py --apply "$GITHUB_REF_NAME"
+          fi
           python scripts/build_frontend.py
           xvfb-run -a python - <<'PY'
           import wx
@@ -158,12 +161,15 @@ jobs:
 
       - name: Install AppImage tools
         run: |
-          # Download CI version of appimagetool but don't try to install it.
-          # Extract and run it directly to avoid FUSE dependency issues
-          echo "Downloading appimagetool..."
-          curl -L -o appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          set -euo pipefail
+          # Pin the immutable GitHub asset id and verify the audited bytes.
+          curl --fail --location \
+            -H "Accept: application/octet-stream" \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -o appimagetool.AppImage \
+            https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406882
+          echo "a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  appimagetool.AppImage" | sha256sum --check --strict
           chmod +x appimagetool.AppImage
-          echo "Downloaded appimagetool successfully"
           ls -la appimagetool.AppImage
         shell: bash
 
@@ -251,11 +257,78 @@ jobs:
           cat "$launch_log"
           ! grep -F "Modern UI WebView is not available" "$launch_log"
 
+      - name: Launch AppImage with the native Wayland backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$RUNNER_TEMP/pixelflasher-wayland"
+          launch_log="$RUNNER_TEMP/pixelflasher-appimage-wayland.log"
+          mkdir -p "$runtime_dir"
+          chmod 700 "$runtime_dir"
+          XDG_RUNTIME_DIR="$runtime_dir" weston \
+            --backend=headless-backend.so \
+            --socket=wayland-pixelflasher \
+            --idle-time=0 >"$RUNNER_TEMP/weston.log" 2>&1 &
+          weston_pid=$!
+          cleanup() {
+            kill "$app_pid" 2>/dev/null || true
+            kill "$weston_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 30); do
+            test -S "$runtime_dir/wayland-pixelflasher" && break
+            sleep 1
+          done
+          test -S "$runtime_dir/wayland-pixelflasher"
+          XDG_RUNTIME_DIR="$runtime_dir" \
+          WAYLAND_DISPLAY=wayland-pixelflasher \
+          GDK_BACKEND=wayland \
+          APPIMAGE_EXTRACT_AND_RUN=1 \
+            dist/PixelFlasher-x86_64.AppImage >"$launch_log" 2>&1 &
+          app_pid=$!
+          sleep 10
+          kill -0 "$app_pid"
+          ! grep -F "Modern UI WebView is not available" "$launch_log"
+
       # Upload artifacts
       - name: Upload AppImage Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: PixelFlasher-x86_64.AppImage Artifacts
           path: |
             dist/PixelFlasher-x86_64.AppImage
             dist/PixelFlasher-x86_64.AppImage.sha256
+
+  smoke_clean_image:
+    needs: build_appimage
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    steps:
+      - name: Install runtime-only WebView dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates libgtk-3-0 libwebkit2gtk-4.0-37 xvfb xauth
+
+      - name: Download the AppImage from this workflow run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: PixelFlasher-x86_64.AppImage Artifacts
+          path: dist
+
+      - name: Run self-test and default entrypoint without build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x dist/PixelFlasher-x86_64.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage --self-test
+          launch_log="$RUNNER_TEMP/pixelflasher-clean-appimage.log"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
+            dist/PixelFlasher-x86_64.AppImage >"${launch_log}" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          sleep 10
+          kill -0 "$app_pid"
+          ! grep -F "Modern UI WebView is not available" "${launch_log}"

@@ -6,6 +6,8 @@ UBUNTU_SMOKE = Path(".github/workflows/ubuntu-smoke.yml")
 UBUNTU_22 = Path(".github/workflows/ubuntu_22_04.yml")
 APPIMAGE = Path(".github/workflows/appimage-x86_64.yml")
 LINUX_WORKFLOWS = (UBUNTU_24, UBUNTU_SMOKE, UBUNTU_22, APPIMAGE)
+DOWNLOAD_ARTIFACT = "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131"
+UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 
 
 class LinuxDeliveryContractTests(unittest.TestCase):
@@ -37,16 +39,16 @@ class LinuxDeliveryContractTests(unittest.TestCase):
         source = UBUNTU_SMOKE.read_text(encoding="utf-8")
 
         self.assertIn("needs: frontend_smoke", source)
-        self.assertIn("actions/download-artifact@v7", source)
-        self.assertIn("actions/upload-artifact@v7", source)
+        self.assertIn(DOWNLOAD_ARTIFACT, source)
+        self.assertIn(UPLOAD_ARTIFACT, source)
         self.assertIn("path: ui/web/dist", source)
         self.assertEqual(2, source.count("needs: frontend_smoke"))
-        self.assertEqual(2, source.count("actions/download-artifact@v7"))
-        self.assertEqual(1, source.count("actions/upload-artifact@v7"))
+        self.assertEqual(2, source.count(DOWNLOAD_ARTIFACT))
+        self.assertEqual(1, source.count(UPLOAD_ARTIFACT))
         downloads = [
             position
             for position in range(len(source))
-            if source.startswith("actions/download-artifact@v7", position)
+            if source.startswith(DOWNLOAD_ARTIFACT, position)
         ]
         self.assertLess(downloads[0], source.index("python PixelFlasher.py --self-test"))
         self.assertLess(downloads[1], source.index("Launch the real default modern entrypoint"))

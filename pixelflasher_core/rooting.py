@@ -10,23 +10,27 @@ cross the process boundary.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import re
 import stat
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol, Sequence
+from typing import Protocol
 
+from .apk_inspection import ApkIdentity, ApkInspectionError, ApkInspector
 from .contracts import (
     AppCommand,
     AppSnapshot,
     DeviceInfo,
     FileArtifact,
     OperationPlan,
+    OperationPostcondition,
+    OperationRisk,
     ProcessRequest,
 )
-
 
 ROOTING_COMMANDS = frozenset(
     {
@@ -37,12 +41,11 @@ ROOTING_COMMANDS = frozenset(
     }
 )
 
-_PROVENANCE = frozenset(
-    {"official", "verified-download", "bundled", "user-import"}
-)
+_PROVENANCE = frozenset({"official", "verified-download", "bundled", "user-import"})
 _VERIFIED_PROVENANCE = frozenset({"official", "verified-download", "bundled"})
 _METADATA_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. +()-]{0,63}$")
 _MODULE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
+_PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _MODULE_ACTIONS = frozenset({"install", "enable", "disable", "remove"})
 _MODULE_REMOTE_ROOT = "/data/local/tmp/"
@@ -53,6 +56,12 @@ _MAX_ZIP_UNCOMPRESSED = 512 * 1024 * 1024
 class CancellationProbe(Protocol):
     @property
     def cancelled(self) -> bool: ...
+
+
+class RootApkInspector(Protocol):
+    """Narrow injectable boundary for cryptographic APK inspection."""
+
+    def inspect(self, path: str | os.PathLike[str]) -> ApkIdentity: ...
 
 
 class RootingPlanningError(ValueError):
@@ -73,6 +82,7 @@ class RootAppSource:
     version: str
     provenance: str
     expected_sha256: str = ""
+    package_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,16 +94,25 @@ class RootAppInfo:
     version: str
     sha256: str
     provenance: str
+    package_name: str = ""
+    signer_sha256: tuple[str, ...] = ()
+    schemes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "signer_sha256", tuple(self.signer_sha256))
+        object.__setattr__(self, "schemes", tuple(self.schemes))
 
     def to_dict(self) -> dict[str, object]:
         return {
             "id": self.id,
-            "path": self.path,
             "provider": self.provider,
             "flavor": self.flavor,
             "version": self.version,
             "sha256": self.sha256,
             "provenance": self.provenance,
+            "packageName": self.package_name,
+            "signerSha256": list(self.signer_sha256),
+            "schemes": list(self.schemes),
         }
 
 
@@ -137,6 +156,7 @@ class RootingService:
         root_app_sources: Sequence[RootAppSource] = (),
         *,
         hash_chunk_size: int = 1024 * 1024,
+        apk_inspector: RootApkInspector | None = None,
     ) -> None:
         if isinstance(root_app_sources, (str, bytes)) or not isinstance(
             root_app_sources,
@@ -151,6 +171,7 @@ class RootingService:
             raise ValueError("hash_chunk_size must be positive")
         self.root_app_sources = tuple(root_app_sources)
         self.hash_chunk_size = hash_chunk_size
+        self.apk_inspector = apk_inspector or ApkInspector()
 
     def compile(
         self,
@@ -222,7 +243,23 @@ class RootingService:
                 suffix=".apk",
                 missing_code="root_app_path_invalid",
             )
-            self._validate_apk(path)
+            declared_package_name = source.package_name.strip()
+            if declared_package_name and _PACKAGE_NAME_PATTERN.fullmatch(declared_package_name) is None:
+                raise RootingPlanningError(
+                    "root_app_package_name_invalid",
+                    "root-app package name is invalid",
+                )
+            expected = source.expected_sha256.strip().casefold()
+            if expected and not _SHA256_PATTERN.fullmatch(expected):
+                raise RootingPlanningError(
+                    "root_app_expected_hash_invalid",
+                    "expected root-app SHA-256 must contain 64 hexadecimal characters",
+                )
+            if provenance in _VERIFIED_PROVENANCE and not expected:
+                raise RootingPlanningError(
+                    "root_app_expected_hash_required",
+                    f"{provenance} root apps require a backend-provided expected SHA-256",
+                )
             canonical_key = os.path.normcase(str(path))
             if canonical_key in seen_paths:
                 raise RootingPlanningError(
@@ -235,26 +272,34 @@ class RootingService:
                     "root_app_inventory_ambiguous",
                     "provider, flavor and version must identify one local APK",
                 )
-            digest = self._sha256(path, cancellation)
-            expected = source.expected_sha256.strip().casefold()
-            if expected and not _SHA256_PATTERN.fullmatch(expected):
+            self._check_cancelled(cancellation)
+            try:
+                apk_identity = self.apk_inspector.inspect(path)
+            except ApkInspectionError as error:
+                raise RootingPlanningError(error.code.value, str(error)) from error
+            except (OSError, TypeError, ValueError) as error:
                 raise RootingPlanningError(
-                    "root_app_expected_hash_invalid",
-                    "expected root-app SHA-256 must contain 64 hexadecimal characters",
-                )
-            if provenance in _VERIFIED_PROVENANCE and not expected:
+                    "apk_inspection_failed",
+                    "root-app APK identity verification failed",
+                ) from error
+            self._check_cancelled(cancellation)
+            if not isinstance(apk_identity, ApkIdentity) or not apk_identity.verified:
                 raise RootingPlanningError(
-                    "root_app_expected_hash_required",
-                    f"{provenance} root apps require a backend-provided expected SHA-256",
+                    "apk_identity_unverified",
+                    "root-app APK inspection did not return a verified identity",
                 )
-            if expected and digest != expected:
+            digest = apk_identity.sha256
+            if expected and not hmac.compare_digest(digest, expected):
                 raise RootingPlanningError(
                     "root_app_hash_mismatch",
                     f"root-app hash does not match its {provenance} provenance: {path}",
                 )
-            app_id = hashlib.sha256(
-                f"{provider.casefold()}\0{flavor.casefold()}\0{digest}".encode("utf-8")
-            ).hexdigest()
+            if declared_package_name and apk_identity.package_name != declared_package_name:
+                raise RootingPlanningError(
+                    "root_app_package_mismatch",
+                    "root-app package name does not match its verified APK identity",
+                )
+            app_id = hashlib.sha256(f"{provider.casefold()}\0{flavor.casefold()}\0{digest}".encode()).hexdigest()
             if app_id in seen_ids:
                 raise RootingPlanningError(
                     "root_app_inventory_ambiguous",
@@ -272,6 +317,9 @@ class RootingService:
                     version,
                     digest,
                     provenance,
+                    apk_identity.package_name,
+                    apk_identity.signer_sha256,
+                    apk_identity.schemes,
                 )
             )
         return tuple(
@@ -296,9 +344,7 @@ class RootingService:
     ) -> RootingCompilation:
         self._validate_payload(command, {"serial", "appId"})
         raw_app_id = command.payload.get("appId")
-        if not isinstance(raw_app_id, str) or not _SHA256_PATTERN.fullmatch(
-            raw_app_id.strip().casefold()
-        ):
+        if not isinstance(raw_app_id, str) or not _SHA256_PATTERN.fullmatch(raw_app_id.strip().casefold()):
             raise RootingPlanningError(
                 "root_app_id_invalid",
                 "appId must be a backend-issued 64-character identifier",
@@ -329,6 +375,20 @@ class RootingService:
             label=f"Install {app.provider} {app.flavor} on {device.serial}",
             data_behavior="root_app_install",
             artifacts=(artifact,),
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "root_app_installed",
+                    {
+                        "appId": app.id,
+                        "apkSha256": artifact.sha256,
+                        "provider": app.provider,
+                        "flavor": app.flavor,
+                        "packageName": app.package_name,
+                    },
+                    "the selected root application is installed on the device",
+                ),
+            ),
         )
         return RootingCompilation(
             "apps.install",
@@ -424,8 +484,21 @@ class RootingService:
                 device,
                 (request,),
                 label=f"{action} Magisk module {module_id} on {device.serial}",
-                data_behavior=(
-                    "root_module_remove" if destructive else "root_module_state_write"
+                data_behavior=("root_module_remove" if destructive else "root_module_state_write"),
+                risk=(OperationRisk.DESTRUCTIVE if destructive else OperationRisk.MUTATING),
+                postconditions=(
+                    OperationPostcondition(
+                        "root_module_state",
+                        {
+                            "moduleId": module_id,
+                            "state": {
+                                "enable": "enabled",
+                                "disable": "disabled",
+                                "remove": "pending_remove",
+                            }[action],
+                        },
+                        "the Magisk module reports the requested state",
+                    ),
                 ),
             ),
             module_id=module_id,
@@ -482,24 +555,24 @@ class RootingService:
                 label=f"Install Magisk module {module_id} on {device.serial}",
                 data_behavior="root_module_install",
                 artifacts=(artifact,),
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "root_module_state",
+                        {
+                            "moduleId": module_id,
+                            "state": "installed",
+                            "zipSha256": artifact.sha256,
+                        },
+                        "the verified Magisk module is present after installation",
+                    ),
+                ),
             ),
             module_id=module_id,
             device_write=True,
             destructive=True,
             requires_confirmation=True,
         )
-
-    def _validate_apk(self, path: Path) -> None:
-        try:
-            with zipfile.ZipFile(path) as archive:
-                names = {info.filename for info in archive.infolist()}
-        except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as error:
-            raise RootingPlanningError("root_app_apk_invalid", str(error)) from error
-        if "AndroidManifest.xml" not in names:
-            raise RootingPlanningError(
-                "root_app_apk_invalid",
-                "root-app APK does not contain AndroidManifest.xml",
-            )
 
     def _validate_module_zip(
         self,
@@ -594,9 +667,7 @@ class RootingService:
                 "module.prop must be valid UTF-8",
             ) from error
         declared_ids = [
-            line.partition("=")[2].strip()
-            for line in metadata.splitlines()
-            if line.partition("=")[0].strip() == "id"
+            line.partition("=")[2].strip() for line in metadata.splitlines() if line.partition("=")[0].strip() == "id"
         ]
         if len(declared_ids) != 1 or not _MODULE_ID_PATTERN.fullmatch(declared_ids[0]):
             raise RootingPlanningError(
@@ -694,9 +765,7 @@ class RootingService:
     @staticmethod
     def _validate_optional_serial(command: AppCommand) -> None:
         raw_serial = command.payload.get("serial")
-        if raw_serial is not None and (
-            not isinstance(raw_serial, str) or not raw_serial.strip()
-        ):
+        if raw_serial is not None and (not isinstance(raw_serial, str) or not raw_serial.strip()):
             raise RootingPlanningError(
                 "target_serial_invalid",
                 "payload.serial must be a non-empty string",
@@ -715,18 +784,13 @@ class RootingService:
         if command.expected_revision != snapshot.revision:
             raise RootingPlanningError(
                 "stale_revision",
-                (
-                    f"state revision changed: expected {command.expected_revision}, "
-                    f"current {snapshot.revision}"
-                ),
+                (f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
             )
 
     @staticmethod
     def _adb_device(command: AppCommand, snapshot: AppSnapshot) -> DeviceInfo:
         raw_serial = command.payload.get("serial")
-        if raw_serial is not None and (
-            not isinstance(raw_serial, str) or not raw_serial.strip()
-        ):
+        if raw_serial is not None and (not isinstance(raw_serial, str) or not raw_serial.strip()):
             raise RootingPlanningError(
                 "target_serial_invalid",
                 "payload.serial must be a non-empty string",
@@ -779,11 +843,15 @@ class RootingService:
         label: str,
         data_behavior: str = "preserve",
         artifacts: tuple[FileArtifact, ...] = (),
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
             label=label,
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
@@ -791,6 +859,8 @@ class RootingService:
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
             artifacts=artifacts,
+            risk=risk,
+            postconditions=postconditions,
         )
 
     @staticmethod
@@ -806,16 +876,13 @@ class RootingService:
 def parse_root_module_list(stdout: str) -> tuple[RootModuleInfo, ...]:
     """Parse fixed ``ls`` output without promoting malformed names to IDs."""
 
-    modules = {
-        line.strip()
-        for line in stdout.splitlines()
-        if _MODULE_ID_PATTERN.fullmatch(line.strip())
-    }
+    modules = {line.strip() for line in stdout.splitlines() if _MODULE_ID_PATTERN.fullmatch(line.strip())}
     return tuple(RootModuleInfo(module_id) for module_id in sorted(modules, key=str.casefold))
 
 
 __all__ = [
     "ROOTING_COMMANDS",
+    "RootApkInspector",
     "RootAppInfo",
     "RootAppSource",
     "RootModuleInfo",

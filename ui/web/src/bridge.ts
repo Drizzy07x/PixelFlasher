@@ -1,11 +1,18 @@
-import { installDevelopmentBridge } from './mockBridge';
-import { commands, type BridgeCommand } from './commands';
+import {
+  bridgeVersion,
+  commandTimeoutByName,
+  commands,
+  revisionOptionalCommands,
+  type BridgeCommand,
+} from './commands';
 import type {
   ActiveOperation,
+  BootArtifact,
   BridgeEvent,
   BridgeMessage,
   BridgeRequest,
   BridgeResponse,
+  BridgeFailureResponse,
   Device,
   Firmware,
   HostSnapshot,
@@ -13,8 +20,6 @@ import type {
   ModernPreferences,
   OperationStatus,
 } from './types';
-
-installDevelopmentBridge();
 
 type Listener = (message: BridgeEvent) => void;
 
@@ -25,24 +30,24 @@ interface PendingRequest {
 }
 
 export class BridgeError extends Error {
-  constructor(message: string, public readonly response?: BridgeResponse) {
+  constructor(message: string, public readonly response?: BridgeFailureResponse) {
     super(message);
     this.name = 'BridgeError';
   }
 }
 
 const supportedLocales = new Set(['en', 'es', 'fr', 'it', 'zh_CN', 'zh_TW']);
+const defaultPreferences: ModernPreferences = {
+  schemaVersion: 1,
+  theme: 'dark',
+  locale: 'en',
+  highContrast: false,
+  reducedMotion: false,
+  zoom: 100,
+};
 
 export function commandTimeoutMs(command: BridgeCommand) {
-  if (command === commands.flashExecute || command === commands.firmwareProcess) {
-    return 30 * 60_000;
-  }
-  if (command === commands.bootFlash) return 10 * 60_000;
-  if (command === commands.bootLive) return 5 * 60_000;
-  if (command === commands.partitionsRead || command === commands.partitionsWrite) return 20 * 60_000;
-  if (command === commands.partitionsErase || command === commands.toolsPushFiles || command === commands.supportCreate) return 10 * 60_000;
-  if (command === commands.toolsLogcat) return 3 * 60_000;
-  return command === commands.firmwareSelect ? 3 * 60_000 : 60_000;
+  return commandTimeoutByName[command];
 }
 
 export function normalizePreferences(input: unknown): ModernPreferences {
@@ -101,11 +106,49 @@ function requestId() {
   return `pf-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function parseMessage(detail: unknown): BridgeMessage | null {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasExactFields(value: Record<string, unknown>, fields: readonly string[]) {
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  return actual.length === expected.length && actual.every((field, index) => field === expected[index]);
+}
+
+function validRevision(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function validError(value: unknown): value is BridgeFailureResponse['error'] {
+  if (!isRecord(value)) return false;
+  const validFields = hasExactFields(value, ['code', 'message'])
+    || hasExactFields(value, ['code', 'message', 'details']);
+  return validFields
+    && typeof value.code === 'string'
+    && typeof value.message === 'string'
+    && (!('details' in value) || isRecord(value.details));
+}
+
+export function parseBridgeMessage(detail: unknown): BridgeMessage | null {
   try {
     const parsed = typeof detail === 'string' ? JSON.parse(detail) : detail;
-    if (!parsed || typeof parsed !== 'object' || !('type' in parsed)) return null;
-    return parsed as BridgeMessage;
+    if (!isRecord(parsed) || parsed.version !== bridgeVersion) return null;
+    if ('requestId' in parsed || 'ok' in parsed) {
+      if (typeof parsed.requestId !== 'string' || parsed.requestId.length > 128) return null;
+      if (parsed.ok === true) {
+        if (!hasExactFields(parsed, ['version', 'requestId', 'ok', 'result']) || !isRecord(parsed.result)) return null;
+      } else if (parsed.ok === false) {
+        if (!hasExactFields(parsed, ['version', 'requestId', 'ok', 'error']) || !validError(parsed.error)) return null;
+      } else {
+        return null;
+      }
+      return parsed as unknown as BridgeResponse;
+    }
+    if (typeof parsed.event !== 'string' || !['snapshot', 'progress', 'interaction', 'runtime'].includes(parsed.event)) return null;
+    if (!hasExactFields(parsed, ['version', 'event', 'revision', 'payload'])) return null;
+    if (!isRecord(parsed.payload) || !validRevision(parsed.revision)) return null;
+    return parsed as unknown as BridgeEvent;
   } catch {
     return null;
   }
@@ -125,16 +168,30 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
   const sourceSerials = input.selectedSerials ?? input.selected_serials;
   const selected = input.selectedSerial ?? input.selected_serial ?? sourceSerials?.[0] ?? null;
   const serials = sourceSerials?.length ? sourceSerials : selected ? [selected] : [];
-  const rawOperation = input.activeOperation ?? input.active_operation;
-  const activeOperation = rawOperation
-    ? { ...rawOperation, status: normalizeOperationStatus(rawOperation.status) }
+  const rawOperation = (input.activeOperation ?? input.active_operation) as
+    | (Partial<ActiveOperation> & { operation_id?: unknown })
+    | null
+    | undefined;
+  const operationId = typeof rawOperation?.id === 'string' && rawOperation.id
+    ? rawOperation.id
+    : typeof rawOperation?.operation_id === 'string' ? rawOperation.operation_id : '';
+  const activeOperation = rawOperation && operationId
+    ? {
+        id: operationId,
+        label: typeof rawOperation.label === 'string' && rawOperation.label
+          ? rawOperation.label
+          : 'Operation in progress',
+        status: normalizeOperationStatus(rawOperation.status ?? 'running'),
+        ...(typeof rawOperation.progress === 'number' ? { progress: rawOperation.progress } : {}),
+        ...(typeof rawOperation.detail === 'string' ? { detail: rawOperation.detail } : {}),
+      }
     : null;
   const devices = (Array.isArray(input.devices) ? input.devices : []).map((raw) => {
     const device = raw as Device & Record<string, unknown>;
     const mode = typeof device.mode === 'string' ? device.mode : 'offline';
     const model = typeof device.model === 'string' && device.model ? device.model : String(device.codename || device.serial);
     return {
-      ...device,
+      serial: typeof device.serial === 'string' ? device.serial : '',
       name: typeof device.name === 'string' && device.name ? device.name : model,
       model,
       codename: typeof device.codename === 'string' ? device.codename : '',
@@ -151,24 +208,23 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
       battery: typeof device.battery === 'number' ? device.battery : 0,
       connection: device.connection === 'Wi-Fi' ? 'Wi-Fi' : 'USB',
       rooted: typeof device.rooted === 'boolean' ? device.rooted : Boolean(device.root),
+      online: typeof device.online === 'boolean' ? device.online : true,
     } as Device;
   });
   const rawFirmware = input.firmware as (Firmware & Record<string, unknown>) | null | undefined;
   const hasFirmware = rawFirmware && typeof rawFirmware === 'object' && [
     rawFirmware.id,
     rawFirmware.name,
-    rawFirmware.path,
     rawFirmware.hash,
     rawFirmware.build,
   ].some((value) => typeof value === 'string' && value.trim());
   const firmware = hasFirmware ? {
-    ...rawFirmware,
     id: typeof rawFirmware.id === 'string' && rawFirmware.id
       ? rawFirmware.id
-      : String(rawFirmware.hash || rawFirmware.path || rawFirmware.build || 'selected-firmware'),
+      : String(rawFirmware.hash || rawFirmware.build || 'selected-firmware'),
     name: typeof rawFirmware.name === 'string' && rawFirmware.name
       ? rawFirmware.name
-      : String(rawFirmware.path || rawFirmware.build || 'Selected firmware'),
+      : String(rawFirmware.build || 'Selected firmware'),
     version: typeof rawFirmware.version === 'string' ? rawFirmware.version : '',
     build: typeof rawFirmware.build === 'string' ? rawFirmware.build : '—',
     device: typeof rawFirmware.device === 'string' ? rawFirmware.device : '',
@@ -178,43 +234,71 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
     channel: rawFirmware.channel === 'beta' ? 'beta' : 'stable',
     size: typeof rawFirmware.size === 'string' ? rawFirmware.size : '—',
     securityPatch: typeof rawFirmware.securityPatch === 'string' ? rawFirmware.securityPatch : '—',
+    verified: rawFirmware.verified === true,
+    processed: rawFirmware.processed === true,
+    hash: typeof rawFirmware.hash === 'string' ? rawFirmware.hash : '',
   } as Firmware : null;
+  const rawBoot = input.boot as (BootArtifact & Record<string, unknown>) | null | undefined;
+  const hasBoot = rawBoot && typeof rawBoot === 'object'
+    && [rawBoot.id, rawBoot.hash].some((value) => typeof value === 'string' && value.trim());
+  const boot = hasBoot ? {
+    id: typeof rawBoot.id === 'string' ? rawBoot.id : '',
+    image: typeof rawBoot.image === 'string' ? rawBoot.image : 'boot.img',
+    hash: typeof rawBoot.hash === 'string' ? rawBoot.hash : '',
+    flavor: typeof rawBoot.flavor === 'string' ? rawBoot.flavor : 'boot',
+    patched: rawBoot.patched === true,
+    verified: rawBoot.verified === true,
+  } satisfies BootArtifact : null;
   const rawLockEvidence = input.bootloaderLockEvidence ?? input.bootloader_lock_evidence;
-  const bootloaderLockEvidence = (Array.isArray(rawLockEvidence) ? rawLockEvidence : []).filter((entry) => (
+  const bootloaderLockEvidence = (Array.isArray(rawLockEvidence) ? rawLockEvidence : []).flatMap((entry) => (
     entry
     && typeof entry === 'object'
     && typeof entry.serial === 'string'
-    && typeof entry.device_codename === 'string'
-    && typeof entry.firmware_hash === 'string'
-    && typeof entry.firmware_build === 'string'
-    && typeof entry.flash_operation_id === 'string'
-    && typeof entry.flash_plan_fingerprint === 'string'
     && typeof entry.snapshot_revision === 'number'
-    && Array.isArray(entry.required_partitions)
-    && Array.isArray(entry.flashed_partitions)
-    && Array.isArray(entry.slots)
+    && Number.isInteger(entry.snapshot_revision)
+    && entry.snapshot_revision >= 0
+      ? [{ serial: entry.serial, snapshot_revision: entry.snapshot_revision }]
+      : []
   ));
+  const rawToolchain: Record<string, unknown> = isRecord(input.toolchain) ? input.toolchain : {};
+  const toolchain = {
+    adb: rawToolchain.adb === true,
+    fastboot: rawToolchain.fastboot === true,
+    ready: rawToolchain.ready === true,
+    version: typeof rawToolchain.version === 'string' ? rawToolchain.version : '',
+  };
+  const rawLastResult = input.lastResult ?? input.last_result;
+  const lastResult = isRecord(rawLastResult) ? {
+    event_type: typeof rawLastResult.event_type === 'string' ? rawLastResult.event_type : 'runtime',
+    operation_id: typeof rawLastResult.operation_id === 'string' ? rawLastResult.operation_id : '',
+    status: typeof rawLastResult.status === 'string' ? rawLastResult.status : 'failed',
+    code: typeof rawLastResult.code === 'string' ? rawLastResult.code : 'operation_failed',
+    message: typeof rawLastResult.message === 'string' ? rawLastResult.message : '',
+    exit_code: typeof rawLastResult.exit_code === 'number' ? rawLastResult.exit_code : null,
+  } : null;
   return {
-    ...input,
     revision: Number.isFinite(input.revision) ? input.revision : 0,
+    preferences: normalizePreferences(input.preferences ?? defaultPreferences),
     devices,
     selectedSerial: selected,
     selected_serial: selected,
     selectedSerials: serials,
     selected_serials: serials,
     firmware,
+    boot,
+    plan: isRecord(input.plan) ? input.plan : null,
+    toolchain,
     activeOperation,
     active_operation: activeOperation,
-    lastResult: input.lastResult ?? input.last_result ?? null,
-    last_result: input.lastResult ?? input.last_result ?? null,
+    lastResult,
+    last_result: lastResult,
     bootloaderLockEvidence,
     bootloader_lock_evidence: bootloaderLockEvidence,
   };
 }
 
 function errorText(response: BridgeResponse) {
-  if (typeof response.error === 'string') return response.error;
-  return response.error?.message ?? 'The PixelFlasher host rejected the request.';
+  return response.ok ? 'The PixelFlasher host rejected the request.' : response.error.message;
 }
 
 class PixelFlasherClient {
@@ -226,10 +310,10 @@ class PixelFlasherClient {
   }
 
   private handleMessage = (event: CustomEvent<unknown>) => {
-    const message = parseMessage(event.detail);
+    const message = parseBridgeMessage(event.detail);
     if (!message) return;
 
-    if (message.type === 'response') {
+    if ('ok' in message) {
       const pending = this.pending.get(message.requestId);
       if (!pending) return;
       window.clearTimeout(pending.timeout);
@@ -254,10 +338,13 @@ class PixelFlasherClient {
   ): Promise<{ result: T; revision?: number }> {
     const bridge = window.pixelflasher;
     if (!bridge) throw new BridgeError('PixelFlasher host bridge is unavailable.');
+    if (expectedRevision === undefined && !revisionOptionalCommands.has(command)) {
+      throw new BridgeError(`A current revision is required for ${command}.`);
+    }
 
     const id = requestId();
     const request: BridgeRequest = {
-      version: 1,
+      version: bridgeVersion,
       requestId: id,
       command,
       payload,
@@ -273,14 +360,18 @@ class PixelFlasherClient {
       bridge.postMessage(JSON.stringify(request));
     });
 
-    return { result: response.result as T, revision: response.revision };
+    if (!response.ok) throw new BridgeError(errorText(response), response);
+    const revision = response.result.revision;
+    return {
+      result: response.result as T,
+      revision: validRevision(revision) ? revision : undefined,
+    };
   }
 
   async getSnapshot() {
-    const { result } = await this.command<HostSnapshot | { snapshot: HostSnapshot }>(commands.snapshotGet);
-    const snapshot = result && typeof result === 'object' && 'snapshot' in result ? result.snapshot : result;
-    if (!snapshot || typeof snapshot !== 'object') throw new BridgeError('Host returned an invalid snapshot.');
-    return normalizeSnapshot(snapshot);
+    const { result } = await this.command<HostSnapshot>(commands.snapshotGet);
+    if (!result || typeof result !== 'object') throw new BridgeError('Host returned an invalid snapshot.');
+    return normalizeSnapshot(result);
   }
 
   async getPreferences() {
@@ -300,31 +391,31 @@ class PixelFlasherClient {
 export const bridge = new PixelFlasherClient();
 
 export function snapshotFromEvent(event: BridgeEvent): HostSnapshot | null {
-  if (event.type !== 'snapshot') return null;
-  const direct = event.snapshot;
-  const nested = event.payload?.snapshot;
-  const payloadSnapshot = nested && typeof nested === 'object'
-    ? nested as HostSnapshot
-    : event.payload && typeof event.payload === 'object'
-      ? event.payload as unknown as HostSnapshot
-      : null;
-  const snapshot = direct ?? payloadSnapshot;
-  return snapshot ? normalizeSnapshot(snapshot) : null;
+  if (event.event !== 'snapshot') return null;
+  return normalizeSnapshot(event.payload as unknown as HostSnapshot);
 }
 
 export function operationFromEvent(event: BridgeEvent): ActiveOperation | null {
-  if (event.type !== 'progress') return null;
-  const operation = event.operation ?? event.payload?.operation;
-  if (!operation || typeof operation !== 'object') return null;
-  const typed = operation as unknown as ActiveOperation;
-  return { ...typed, status: normalizeOperationStatus(typed.status) };
+  if (event.event !== 'progress') return null;
+  const operationId = event.payload.operation_id;
+  if (typeof operationId !== 'string' || !operationId) return null;
+  const phase = typeof event.payload.phase === 'string' ? event.payload.phase : 'running';
+  return {
+    id: operationId,
+    label: typeof event.payload.message === 'string' && event.payload.message
+      ? event.payload.message
+      : phase,
+    status: phase === 'finished' ? 'success' : 'running',
+    progress: typeof event.payload.percent === 'number' ? event.payload.percent : undefined,
+    detail: typeof event.payload.message === 'string' ? event.payload.message : undefined,
+  };
 }
 
 export function interactionFromEvent(event: BridgeEvent): InteractionRequest | null {
-  if (event.type !== 'interaction' || !event.payload || typeof event.payload !== 'object') return null;
+  if (event.event !== 'interaction') return null;
   const raw = event.payload;
-  const operationId = raw.operationId ?? raw.operation_id;
-  const expectedRevision = raw.expectedRevision ?? raw.expected_revision;
+  const operationId = raw.operation_id;
+  const expectedRevision = raw.expected_revision;
   if (typeof operationId !== 'string' || !operationId || typeof expectedRevision !== 'number') return null;
   return {
     operationId,
@@ -332,7 +423,7 @@ export function interactionFromEvent(event: BridgeEvent): InteractionRequest | n
     title: typeof raw.title === 'string' ? raw.title : '',
     message: typeof raw.message === 'string' ? raw.message : '',
     expectedRevision,
-    targetSerial: typeof (raw.targetSerial ?? raw.target_serial) === 'string' ? String(raw.targetSerial ?? raw.target_serial) : null,
+    targetSerial: typeof raw.target_serial === 'string' ? raw.target_serial : null,
     destructive: raw.destructive === true,
     reinforced: raw.reinforced === true,
   };

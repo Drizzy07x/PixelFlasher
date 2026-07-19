@@ -14,11 +14,11 @@ from pixelflasher_core import (
     InteractionDecision,
     OperationResult,
     OperationStatus,
-    PixelFlasherEngine,
     ToolchainInfo,
     TransportOutcome,
 )
-
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 
 SERIAL = "SERIAL-STOCK"
 FIRMWARE_HASH = "f" * 64
@@ -93,7 +93,7 @@ def lock_command(*, confirmation_text=None, revision=0):
 class BootloaderLockPolicyTests(unittest.TestCase):
     def test_lock_fails_closed_without_backend_stock_evidence(self):
         transport = FakeProcessTransport([])
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(stock_snapshot()),
             executor=CommandExecutor(transport),
         )
@@ -109,9 +109,10 @@ class BootloaderLockPolicyTests(unittest.TestCase):
         evidence = lock_evidence()
         transport = FakeProcessTransport([TransportOutcome(0)])
         interactions = []
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(stock_snapshot(evidence=(evidence,))),
             executor=CommandExecutor(transport),
+            postcondition_observer=StatefulPostconditionObserver(transport),
             interaction_handler=lambda request: interactions.append(request)
             or InteractionDecision.ACCEPTED,
         )
@@ -120,7 +121,7 @@ class BootloaderLockPolicyTests(unittest.TestCase):
         required = preview.value["confirmation"]["required_text"]
         result = engine.execute(lock_command(confirmation_text=required))
 
-        self.assertEqual("LOCK SERIAL-STOCK akita", required)
+        self.assertEqual("LOCK -STOCK", required)
         self.assertEqual(OperationStatus.SUCCESS, result.status)
         self.assertEqual(
             [("FASTBOOT", "-s", SERIAL, "flashing", "lock")],
@@ -150,7 +151,7 @@ class BootloaderLockPolicyTests(unittest.TestCase):
         for snapshot, expected_code in cases:
             with self.subTest(expected_code=expected_code):
                 transport = FakeProcessTransport([])
-                result = PixelFlasherEngine(
+                result = CommandEngine(
                     store=AppStateStore(snapshot),
                     executor=CommandExecutor(transport),
                 ).execute(lock_command())

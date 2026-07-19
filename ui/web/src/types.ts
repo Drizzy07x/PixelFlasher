@@ -48,7 +48,6 @@ export interface Firmware {
   channel: 'stable' | 'beta';
   size: string;
   securityPatch: string;
-  path?: string;
   verified?: boolean;
   processed?: boolean;
   hash?: string;
@@ -57,7 +56,6 @@ export interface Firmware {
 export interface BootArtifact {
   id?: string;
   image?: string;
-  path?: string;
   hash?: string;
   flavor?: string;
   patched?: boolean;
@@ -94,19 +92,12 @@ export interface InteractionRequest {
 
 export interface BootloaderLockEvidence {
   serial: string;
-  device_codename: string;
-  firmware_hash: string;
-  firmware_build: string;
-  flash_operation_id: string;
-  flash_plan_fingerprint: string;
   snapshot_revision: number;
-  required_partitions: string[];
-  flashed_partitions: string[];
-  slots: string[];
 }
 
 export interface HostSnapshot {
   revision: number;
+  preferences: ModernPreferences;
   devices: Device[];
   selectedSerial?: string | null;
   selected_serial?: string | null;
@@ -116,11 +107,10 @@ export interface HostSnapshot {
   boot?: BootArtifact | null;
   plan?: Record<string, unknown> | null;
   toolchain?: {
-    adb: boolean | string;
-    fastboot: boolean | string;
+    adb: boolean;
+    fastboot: boolean;
     ready?: boolean;
     version?: string;
-    path?: string;
   };
   activeOperation?: ActiveOperation | null;
   active_operation?: ActiveOperation | null;
@@ -131,30 +121,44 @@ export interface HostSnapshot {
 }
 
 export interface BridgeRequest {
-  version: 1;
+  version: 2;
   requestId: string;
   command: import('./commands').BridgeCommand;
   payload: Record<string, unknown>;
   expectedRevision: number | null;
 }
 
-export interface BridgeResponse {
-  version?: number;
-  type: 'response';
+export interface BridgeSuccessResponse {
+  version: 2;
   requestId: string;
-  ok: boolean;
-  result?: unknown;
-  error?: string | { code?: string; message?: string };
-  revision?: number;
+  ok: true;
+  result: Record<string, unknown>;
 }
 
+export interface BridgeFailureResponse {
+  version: 2;
+  requestId: string;
+  ok: false;
+  error: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+export type BridgeResponse = BridgeSuccessResponse | BridgeFailureResponse;
+
 export interface BridgeEvent {
-  version?: number;
-  type: 'snapshot' | 'progress' | 'interaction';
-  snapshot?: HostSnapshot;
-  payload?: Record<string, unknown>;
-  operation?: ActiveOperation;
-  revision?: number;
+  version: 2;
+  event: 'snapshot' | 'progress' | 'interaction' | 'runtime';
+  revision: number;
+  payload: Record<string, unknown>;
+}
+
+export interface NativeGrant {
+  grant: string;
+  purpose: string;
+  target: 'file' | 'directory';
+  access: 'read' | 'write';
+  consumeOnce: boolean;
+  expiresInSeconds: number | null;
+  displayName: string;
 }
 
 export type BridgeMessage = BridgeResponse | BridgeEvent;

@@ -30,7 +30,7 @@ function staticWebViewShell(): Plugin {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark light">
     <meta name="theme-color" content="#080d18">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
     <title>PixelFlasher</title>
     <link rel="stylesheet" href="./assets/pixelflasher.css">
   </head>
@@ -75,7 +75,6 @@ export default defineConfig(({ command }) => ({
     },
     rollupOptions: {
       output: {
-        inlineDynamicImports: true,
         entryFileNames: 'assets/pixelflasher.js',
         assetFileNames: (assetInfo) => assetInfo.name?.endsWith('.css')
           ? 'assets/pixelflasher.css'
@@ -88,5 +87,17 @@ export default defineConfig(({ command }) => ({
     setupFiles: './src/test/setup.ts',
     css: true,
     restoreMocks: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/test/**', 'src/main.dev.tsx', 'src/mockBridge.ts'],
+      thresholds: {
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        statements: 80,
+      },
+    },
   },
 }));

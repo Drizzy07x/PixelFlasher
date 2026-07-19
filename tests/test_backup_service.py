@@ -134,6 +134,11 @@ class BackupServiceTests(unittest.TestCase):
             self.assertTrue(compilation.device_write)
             self.assertTrue(compilation.destructive)
             self.assertTrue(compilation.requires_confirmation)
+            self.assertEqual("destructive", compilation.plan.risk.value)
+            self.assertEqual(
+                ("partition_written",),
+                tuple(item.kind for item in compilation.plan.postconditions),
+            )
             artifact = compilation.plan.artifacts[0]
             self.assertEqual(hashlib.sha256(contents).hexdigest(), artifact.sha256)
             self.assertEqual(str(image.resolve()), artifact.path)

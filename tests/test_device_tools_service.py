@@ -11,6 +11,9 @@ from pixelflasher_core.contracts import (
     AppCommand,
     AppSnapshot,
     DeviceInfo,
+    OperationResult,
+    OperationRisk,
+    OperationStatus,
     ProcessRequest,
     ToolchainInfo,
 )
@@ -21,7 +24,7 @@ from pixelflasher_core.device_tools import (
     ManagedProcessLauncher,
     SubprocessSecretRunner,
 )
-from pixelflasher_core.executor import CancellationToken
+from pixelflasher_core.executor import CancellationToken, TransportOutcome
 
 
 class RecordingLauncher:
@@ -63,7 +66,9 @@ class DeviceToolsServiceTests(unittest.TestCase):
     def setUp(self):
         self.snapshot = AppSnapshot(
             revision=7,
-            devices=(DeviceInfo("SERIAL", mode="adb", online=True),),
+            devices=(
+                DeviceInfo("SERIAL", codename="akita", mode="adb", online=True),
+            ),
             selected_serial="SERIAL",
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
@@ -118,7 +123,11 @@ class DeviceToolsServiceTests(unittest.TestCase):
         )
         self.assertEqual(12.0, compilation.plan.request.timeout_seconds)
         self.assertEqual("SERIAL", compilation.plan.target_serial)
+        self.assertEqual(7, compilation.plan.snapshot_revision)
+        self.assertEqual("akita", compilation.plan.expected_codename)
         self.assertEqual("adb", compilation.plan.expected_device_state)
+        self.assertIs(OperationRisk.READ_ONLY, compilation.plan.risk)
+        self.assertEqual((), compilation.plan.postconditions)
         self.assertFalse(compilation.device_write)
         self.assertFalse(compilation.requires_confirmation)
 
@@ -208,6 +217,24 @@ class DeviceToolsServiceTests(unittest.TestCase):
             self.assertTrue(compilation.device_write)
             self.assertTrue(compilation.requires_confirmation)
             self.assertFalse(compilation.destructive)
+            self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
+            self.assertEqual("user_file_write", compilation.plan.data_behavior)
+            self.assertEqual(
+                ("remote_files_written",),
+                tuple(item.kind for item in compilation.plan.postconditions),
+            )
+            expected_hashes = compilation.plan.postconditions[0].expected["hashes"]
+            self.assertEqual(
+                {
+                    "/sdcard/Download/alpha.bin": hashlib.sha256(
+                        b"alpha contents"
+                    ).hexdigest(),
+                    "/sdcard/Download/beta.zip": hashlib.sha256(
+                        b"beta contents"
+                    ).hexdigest(),
+                },
+                expected_hashes,
+            )
 
     def test_push_rejects_arbitrary_destination_name_and_ui_execution_fields(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -348,6 +375,7 @@ class DeviceToolsServiceTests(unittest.TestCase):
             self.service.compile(
                 AppCommand(
                     "tools.logcat",
+                    expected_revision=7,
                     target_serial="SERIAL",
                     payload={"serial": "OTHER"},
                 ),
@@ -382,6 +410,10 @@ class DeviceToolsServiceTests(unittest.TestCase):
             )
             self.assertEqual(str(executable.resolve().parent), compilation.plan.request.cwd)
             self.assertEqual("managed-launch", compilation.execution)
+            self.assertFalse(compilation.device_write)
+            self.assertIs(OperationRisk.READ_ONLY, compilation.plan.risk)
+            self.assertEqual("preserve", compilation.plan.data_behavior)
+            self.assertEqual((), compilation.plan.postconditions)
             self.assertEqual("scrcpy-executable", compilation.plan.artifacts[0].role)
             self.assertEqual(
                 hashlib.sha256(contents).hexdigest(),
@@ -412,7 +444,11 @@ class DeviceToolsServiceTests(unittest.TestCase):
             service = DeviceToolsService(scrcpy_executable=wrong)
             with self.assertRaises(DeviceToolPlanningError) as invalid:
                 service.compile(
-                    AppCommand("tools.scrcpy", target_serial="SERIAL"),
+                    AppCommand(
+                        "tools.scrcpy",
+                        expected_revision=7,
+                        target_serial="SERIAL",
+                    ),
                     self.snapshot,
                 )
             self.assertEqual("scrcpy_path_invalid", invalid.exception.code)
@@ -434,6 +470,16 @@ class DeviceToolsServiceTests(unittest.TestCase):
 
         self.assertEqual(("ADB", "pair", "192.0.2.20:37123"), compilation.plan.request.argv)
         self.assertEqual("secret-stdin", compilation.execution)
+        self.assertTrue(compilation.device_write)
+        self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
+        self.assertEqual(
+            "adb_wifi_pairing_recorded",
+            compilation.plan.postconditions[0].kind,
+        )
+        self.assertEqual(
+            "192.0.2.20:37123",
+            compilation.plan.postconditions[0].expected["endpoint"],
+        )
         self.assertNotIn("123456", repr(command))
         self.assertNotIn("123456", repr(compilation))
         self.assertNotIn("123456", str(command.to_dict()))
@@ -454,10 +500,115 @@ class DeviceToolsServiceTests(unittest.TestCase):
                     compilation.plan.request.argv,
                 )
                 self.assertEqual("SERIAL", compilation.plan.target_serial)
+                self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
+                self.assertEqual(
+                    "adb_wifi_endpoint_state",
+                    compilation.plan.postconditions[0].kind,
+                )
+                self.assertIs(
+                    action == "connect",
+                    compilation.plan.postconditions[0].expected["connected"],
+                )
 
         status = self.compile("tools.wifi", {"action": "status"})
         self.assertEqual(("ADB", "-s", "SERIAL", "get-state"), status.plan.request.argv)
         self.assertEqual("wifi.status", status.action)
+        self.assertIs(OperationRisk.READ_ONLY, status.plan.risk)
+        self.assertEqual((), status.plan.postconditions)
+
+    def test_revision_is_required_and_stale_state_fails_before_planning(self):
+        for revision, code in ((None, "revision_required"), (6, "stale_revision")):
+            with self.subTest(revision=revision):
+                with self.assertRaises(DeviceToolPlanningError) as raised:
+                    self.service.compile(
+                        AppCommand(
+                            "tools.logcat",
+                            expected_revision=revision,
+                            target_serial="SERIAL",
+                        ),
+                        self.snapshot,
+                    )
+                self.assertEqual(code, raised.exception.code)
+
+    def test_special_execution_results_are_always_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            executable = Path(directory) / name
+            write_scrcpy_executable(executable)
+            launcher = RecordingLauncher()
+            service = DeviceToolsService(
+                scrcpy_executable=executable,
+                process_launcher=launcher,
+            )
+            compilation = service.compile(
+                AppCommand(
+                    "tools.scrcpy",
+                    expected_revision=7,
+                    target_serial="SERIAL",
+                ),
+                self.snapshot,
+            )
+
+            cancelled_token = CancellationToken()
+            cancelled_token.cancel()
+            cancelled = service.execute_special(
+                compilation,
+                "scrcpy-cancelled",
+                cancelled_token,
+            )
+            succeeded = service.execute_special(
+                compilation,
+                "scrcpy-success",
+                CancellationToken(),
+            )
+
+            self.assertIs(OperationStatus.CANCELLED, cancelled.status)
+            self.assertIs(OperationStatus.SUCCESS, succeeded.status)
+            self.assertEqual("scrcpy_launched", succeeded.code)
+
+        pair_runner = RecordingSecretRunner(
+            TransportOutcome(
+                0,
+                stdout="Successfully paired to 192.0.2.20:37123\n",
+            )
+        )
+        pair_service = DeviceToolsService(secret_runner=pair_runner)
+        pair = pair_service.compile(
+            AppCommand(
+                "tools.wifi",
+                expected_revision=7,
+                target_serial="SERIAL",
+                payload={
+                    "action": "pair",
+                    "host": "192.0.2.20",
+                    "port": 37123,
+                    "pairingCode": "123456",
+                },
+            ),
+            self.snapshot,
+        )
+        result = pair_service.execute_special(
+            pair,
+            "pair-success",
+            CancellationToken(),
+        )
+        self.assertIs(OperationStatus.SUCCESS, result.status)
+        self.assertEqual("wifi_pair_succeeded", result.code)
+
+        safety_failure = OperationResult.failed(
+            "pair-guarded",
+            code="postcondition_unverified",
+            message="pairing evidence is unavailable",
+        )
+        self.assertEqual(
+            safety_failure,
+            pair_service.finalize_result(pair, safety_failure),
+        )
+        safety_cancelled = OperationResult.cancelled("pair-cancelled")
+        self.assertEqual(
+            safety_cancelled,
+            pair_service.finalize_result(pair, safety_cancelled),
+        )
 
     def test_wifi_rejects_host_port_pairing_and_action_ambiguity(self):
         cases = (

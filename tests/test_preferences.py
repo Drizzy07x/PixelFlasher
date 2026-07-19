@@ -1,7 +1,9 @@
 import json
 import tempfile
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, cast
 
 from pixelflasher_core.config_store import ConfigStore
 from pixelflasher_core.preferences import (
@@ -49,7 +51,9 @@ class ModernPreferencesValidationTests(unittest.TestCase):
         ):
             with self.subTest(raw=raw):
                 with self.assertRaises(PreferencesError) as raised:
-                    ModernPreferences.from_mapping(raw)
+                    ModernPreferences.from_mapping(
+                        cast(Mapping[str, Any], raw)
+                    )
                 self.assertEqual("unknown_preference_field", raised.exception.code)
 
         for schema in (True, "1", 0, 2):
@@ -130,11 +134,25 @@ class PreferencePersistenceTests(unittest.TestCase):
                 ModernPreferences("light", "zh_TW", True, True, 130),
                 preferences,
             )
-            # Loading a schema-0 9.x file delegates its automatic backup to
-            # ConfigStore without rewriting the source document.
+            # Loading a schema-0 9.x file migrates only after exact backups.
+            migrated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(2, migrated["_pixelflasher_core_schema"])
             self.assertEqual(
-                json.loads(path.read_text(encoding="utf-8")),
+                {"visible": {"partition_manager": True}},
+                migrated["toolbar"],
+            )
+            original = {
+                key: value
+                for key, value in migrated.items()
+                if key not in {"_pixelflasher_core_schema", "modern"}
+            }
+            self.assertEqual(
+                original,
                 json.loads(path.with_name("config.json.bak").read_text(encoding="utf-8")),
+            )
+            self.assertEqual(
+                original,
+                json.loads(path.with_name("config.json.v9.bak").read_text(encoding="utf-8")),
             )
 
     def test_canonical_nested_preferences_take_precedence_over_legacy_values(self):
@@ -217,8 +235,17 @@ class PreferencePersistenceTests(unittest.TestCase):
             self.assertEqual(expected.to_dict(), payload[PREFERENCES_KEY])
             self.assertEqual("light", payload["theme"])
             self.assertEqual("it", payload["language"])
-            self.assertEqual(1, payload["_pixelflasher_core_schema"])
-            self.assertEqual(original, json.loads(store.backup_path.read_text(encoding="utf-8")))
+            self.assertEqual(2, payload["_pixelflasher_core_schema"])
+            self.assertEqual(expected.to_dict(), payload["modern"][PREFERENCES_KEY])
+            self.assertEqual(
+                original,
+                json.loads(store.migration_backup_path.read_text(encoding="utf-8")),
+            )
+            previous_schema_two = json.loads(
+                store.backup_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(2, previous_schema_two["_pixelflasher_core_schema"])
+            self.assertEqual(original["toolbar"], previous_schema_two["toolbar"])
             self.assertEqual([], list(path.parent.glob(".config.json.*.tmp")))
 
             previous = path.read_bytes()
@@ -253,6 +280,46 @@ class PreferencePersistenceTests(unittest.TestCase):
             )
             self.assertEqual(ModernPreferences("dark", "es", False, True, 110), saved)
 
+    def test_save_updates_all_existing_aliases_and_required_9x_mirrors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "uiTheme": "light",
+                        "locale": "es",
+                        "highContrast": False,
+                        "reducedMotion": False,
+                        "zoom": 90,
+                        "unrelated": {"keep": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            expected = ModernPreferences(
+                "dark",
+                "fr",
+                high_contrast=True,
+                reduced_motion=True,
+                zoom=175,
+            )
+
+            save_preferences(path, expected)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+            self.assertEqual("dark", payload["theme"])
+            self.assertEqual("dark", payload["uiTheme"])
+            self.assertEqual("fr", payload["language"])
+            self.assertEqual("fr", payload["locale"])
+            self.assertTrue(payload["high_contrast"])
+            self.assertTrue(payload["highContrast"])
+            self.assertTrue(payload["reduced_motion"])
+            self.assertTrue(payload["reducedMotion"])
+            self.assertEqual(175, payload["ui_zoom"])
+            self.assertEqual(175, payload["zoom"])
+            self.assertEqual({"keep": True}, payload["unrelated"])
+            self.assertEqual(expected.to_dict(), payload[PREFERENCES_KEY])
+
     def test_save_does_not_overwrite_unknown_future_preference_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -275,7 +342,16 @@ class PreferencePersistenceTests(unittest.TestCase):
                 save_preferences(path, ModernPreferences(theme="light"))
 
             self.assertEqual("unknown_preference_field", raised.exception.code)
-            self.assertEqual(before, path.read_bytes())
+            migrated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(2, migrated["_pixelflasher_core_schema"])
+            self.assertEqual(
+                "preserve-me",
+                migrated[PREFERENCES_KEY]["futureField"],
+            )
+            self.assertEqual(
+                before,
+                path.with_name("config.json.v9.bak").read_bytes(),
+            )
 
 
 if __name__ == "__main__":

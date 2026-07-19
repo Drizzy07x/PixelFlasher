@@ -49,16 +49,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
           architecture: 'x64'
 
       - name: Set up the locked React toolchain
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.14.0'
 
@@ -107,6 +107,9 @@ jobs:
       - name: Build React UI and gettext assets
         shell: pwsh
         run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v10.*') {
+            & $env:PYTHON_EXE scripts/release_version.py --apply $env:GITHUB_REF_NAME
+          }
           & $env:PYTHON_EXE scripts/build_frontend.py
 
       - name: Run beta-safe checks before packaging
@@ -158,7 +161,7 @@ jobs:
 
       - name: Sign Windows Executable
         if: ${{ env.SIGN_WINDOWS == 'true' }}
-        uses: skymatic/code-sign-action@v3
+        uses: skymatic/code-sign-action@6d68ef9679c6778de22bc1cf52e44f454de3604e # v3
         with:
           certificate: '${{ secrets.CERTIFICATE }}'
           password: '${{ secrets.CERT_PASSWORD }}'
@@ -169,10 +172,38 @@ jobs:
           folder: 'dist'
           recursive: false
 
+      - name: Refuse an unsigned v10 release artifact
+        if: ${{ startsWith(github.ref, 'refs/tags/v10.') && env.SIGN_WINDOWS != 'true' }}
+        shell: pwsh
+        run: |
+          Write-Error "Windows signing secrets are mandatory for v10 release tags."
+          exit 1
+
       - name: Explain unsigned build
-        if: ${{ env.SIGN_WINDOWS != 'true' }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/v10.') && env.SIGN_WINDOWS != 'true' }}
         shell: pwsh
         run: Write-Host "Windows signing skipped because signing secrets are not configured for this run."
+
+      - name: Verify Authenticode and launch the packaged executable
+        shell: pwsh
+        run: |
+          if ($env:SIGN_WINDOWS -eq 'true') {
+            $signature = Get-AuthenticodeSignature -LiteralPath "dist/PixelFlasher.exe"
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              Write-Error "Authenticode verification failed: $($signature.StatusMessage)"
+              exit 1
+            }
+            if ($null -eq $signature.SignerCertificate) {
+              Write-Error "Signed executable has no signer certificate."
+              exit 1
+            }
+          }
+          & "dist/PixelFlasher.exe" --version
+          & "dist/PixelFlasher.exe" --self-test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Packaged PixelFlasher self-test failed."
+            exit $LASTEXITCODE
+          }
 
       - name: Get sha256
         shell: pwsh
@@ -181,7 +212,7 @@ jobs:
           Get-Content dist/PixelFlasher.exe.sha256
 
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         id: upload_artifacts_windows
         with:
           name: PixelFlasher.exe Artifacts

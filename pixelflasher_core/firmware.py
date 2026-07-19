@@ -7,17 +7,17 @@ import os
 import re
 import stat
 import zipfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Mapping, Sequence
 
 from .contracts import FirmwareInfo
 from .executor import CancellationToken
 
 
-class FirmwareKind(str, Enum):
+class FirmwareKind(StrEnum):
     FACTORY = "factory"
     OTA = "ota"
     CUSTOM = "custom"
@@ -31,7 +31,7 @@ class FirmwareInspection:
     sha256: str = ""
     build: str = ""
     device: str = ""
-    metadata: Mapping[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, str] = field(default_factory=dict[str, str])
     code: str = "ok"
     message: str = ""
 

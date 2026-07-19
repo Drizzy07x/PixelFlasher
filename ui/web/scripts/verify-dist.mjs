@@ -14,6 +14,17 @@ for (const path of [htmlPath, scriptPath, cssPath]) {
 const html = readFileSync(htmlPath, 'utf8');
 const script = readFileSync(scriptPath, 'utf8');
 
+const forbiddenDevelopmentBridgeMarkers = [
+  'MOCK_COMMAND_ERROR',
+  'C:\\\\mock\\\\Magisk.apk',
+];
+
+for (const marker of forbiddenDevelopmentBridgeMarkers) {
+  if (script.includes(marker)) {
+    throw new Error(`Production WebView bundle contains the development bridge marker: ${marker}`);
+  }
+}
+
 if (/type\s*=\s*["']module["']/i.test(html)) {
   throw new Error('dist/index.html must use a classic script for file:// WebView loading.');
 }
@@ -28,6 +39,10 @@ if (!/<script\s+src=["']\.\/assets\/pixelflasher\.js["']><\/script>/i.test(html)
 }
 if (!/<link\s+rel=["']stylesheet["']\s+href=["']\.\/assets\/pixelflasher\.css["']>/i.test(html)) {
   throw new Error('dist/index.html does not reference the static stylesheet.');
+}
+const csp = html.match(/<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*>/i)?.[0];
+if (!csp || !/\bconnect-src\s+'none'(?:\s*;|\s*["'])/i.test(csp)) {
+  throw new Error("Production WebView CSP must disable browser networking with connect-src 'none'.");
 }
 
 const browserErrors = [];

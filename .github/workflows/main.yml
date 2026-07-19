@@ -1,296 +1,211 @@
-#
 # Copyright (C) 2025 Badabing2005
-# SPDX-FileCopyrightText: 2025 Badabing2005
 # SPDX-License-Identifier: AGPL-3.0-or-later
-#
-# This program is free software: you can redistribute it and/or modify it under
-# the terms of the GNU Affero General Public License as published by the Free
-# Software Foundation, either version 3 of the License, or (at your option) any
-# later version.
-#
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-# FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License
-# for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-name: Build for All platforms
-
-env:
-  ACTIONS_RUNTIME_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-permissions:
-  contents: write
-  actions: read
+name: Build and release all platforms
 
 on:
   push:
     branches:
-      - '**'
+      - "**"
     tags:
-      - 'v*'
+      - "v10.*"
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      tags:
-        description: 'Build tags'
+
+concurrency:
+  group: pixelflasher-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
 
 jobs:
-  check_artifacts:
-    runs-on: ubuntu-latest
-    outputs:
-      commit_sha: ${{ steps.get_sha.outputs.commit_sha }}
-      build_windows: ${{ steps.check_artifacts.outputs.build_windows }}
-      build_ubuntu_24_04: ${{ steps.check_artifacts.outputs.build_ubuntu_24_04 }}
-      build_mac: ${{ steps.check_artifacts.outputs.build_mac }}
-      artifact_runs: ${{ steps.check_artifacts.outputs.artifact_runs }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Get commit SHA
-        id: get_sha
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
-            COMMIT_SHA=$(git rev-parse ${{ github.ref_name }}^{commit})
-          else
-            COMMIT_SHA=${{ github.sha }}
-          fi
-          echo "commit_sha=${COMMIT_SHA}" >> "${GITHUB_OUTPUT}"
-
-      - name: Check for existing artifacts
-        id: check_artifacts
-        run: |
-          declare -A ARTIFACTS=(
-            ["PixelFlasher.exe Artifacts"]="build_windows"
-            ["PixelFlasher_Ubuntu_24_04 Artifacts"]="build_ubuntu_24_04"
-            ["PixelFlasher_MacOS.dmg Artifacts"]="build_mac"
-          )
-
-          if [[ "${{ github.event_name }}" != "push" || "${{ startsWith(github.ref, 'refs/tags/') }}" != "true" ]]; then
-            for JOB in "${!ARTIFACTS[@]}"; do
-              OUTPUT_VAR="${ARTIFACTS[$JOB]}"
-              echo "${OUTPUT_VAR}=true" >> "${GITHUB_OUTPUT}"
-              echo "Regular build or PR: Will build $JOB"
-            done
-            echo 'artifact_runs={}' >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          COMMIT_SHA=$(git rev-parse ${{ github.ref_name }}^{commit})
-          echo "Checking for reusable artifacts for commit: ${COMMIT_SHA}"
-
-          WORKFLOW_RUNS=$(curl -s \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=${COMMIT_SHA}")
-
-          RUN_IDS=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs[].id')
-          ARTIFACT_RUNS="{}"
-
-          for ARTIFACT_NAME in "${!ARTIFACTS[@]}"; do
-            OUTPUT_VAR="${ARTIFACTS[$ARTIFACT_NAME]}"
-            ARTIFACT_FOUND=false
-
-            for RUN_ID in $RUN_IDS; do
-              RUN_ARTIFACTS=$(curl -s \
-                -H "Accept: application/vnd.github.v3+json" \
-                -H "Authorization: Bearer ${{ github.token }}" \
-                "https://api.github.com/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts")
-
-              ARTIFACT_EXISTS=$(echo "$RUN_ARTIFACTS" | jq --arg name "$ARTIFACT_NAME" '.artifacts[] | select(.name==$name) | .id')
-
-              if [[ -n "$ARTIFACT_EXISTS" ]]; then
-                echo "Found existing artifact: $ARTIFACT_NAME, no need to rebuild"
-                ARTIFACT_FOUND=true
-                ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq -c --arg name "$ARTIFACT_NAME" --arg id "$RUN_ID" '. + {($name): $id}')
-                break
-              fi
-            done
-
-            if [[ "$ARTIFACT_FOUND" == "true" ]]; then
-              echo "${OUTPUT_VAR}=false" >> "${GITHUB_OUTPUT}"
-            else
-              echo "${OUTPUT_VAR}=true" >> "${GITHUB_OUTPUT}"
-              echo "Did not find artifact: $ARTIFACT_NAME, will rebuild"
-            fi
-          done
-
-          ARTIFACT_RUNS=$(echo "$ARTIFACT_RUNS" | jq -c .)
-          echo "artifact_runs=${ARTIFACT_RUNS}" >> "${GITHUB_OUTPUT}"
-
-  build_windows:
-    needs: check_artifacts
-    if: ${{ needs.check_artifacts.outputs.build_windows == 'true' }}
+  windows-x64:
     uses: ./.github/workflows/windows.yml
     secrets: inherit
 
-  build_ubuntu_24_04:
-    needs: check_artifacts
-    if: ${{ needs.check_artifacts.outputs.build_ubuntu_24_04 == 'true' }}
+  windows-arm64:
+    uses: ./.github/workflows/windows-arm64.yml
+    secrets: inherit
+
+  ubuntu-22:
+    uses: ./.github/workflows/ubuntu_22_04.yml
+    secrets: inherit
+
+  ubuntu-24:
     uses: ./.github/workflows/ubuntu_24_04.yml
     secrets: inherit
 
-  build_mac:
-    needs: check_artifacts
-    if: ${{ needs.check_artifacts.outputs.build_mac == 'true' }}
+  appimage-x64:
+    uses: ./.github/workflows/appimage-x86_64.yml
+    secrets: inherit
+
+  macos:
     uses: ./.github/workflows/mac.yml
     secrets: inherit
 
-  deploy:
-    needs: [check_artifacts, build_windows, build_ubuntu_24_04, build_mac]
-    if: always() && (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
+  release:
+    if: ${{ success() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v10.') }}
+    needs:
+      - windows-x64
+      - windows-arm64
+      - ubuntu-22
+      - ubuntu-24
+      - appimage-x64
+      - macos
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
 
     steps:
-      - name: Get version from tag
-        id: get_version
+      - name: Validate protected release tag
+        shell: bash
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            version=${GITHUB_REF#refs/tags/v}
-          else
-            version=0.0.0.${GITHUB_REF#refs/heads/}
-          fi
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-
-      - name: Determine release type
-        id: release_type
-        run: |
-          if [[ "${{ steps.get_version.outputs.version }}" == *"-beta"* || "${{ steps.get_version.outputs.version }}" == *"-alpha"* || "${{ steps.get_version.outputs.version }}" == *"-rc"* ]]; then
-            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Create release directory
-        run: mkdir -p release
-
-      - name: Download artifacts from current or previous runs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMMIT_SHA: ${{ needs.check_artifacts.outputs.commit_sha }}
-        run: |
-          echo "Using commit SHA: ${COMMIT_SHA}"
-
-          ARTIFACTS=(
-            "PixelFlasher.exe Artifacts"
-            "PixelFlasher_Ubuntu_24_04 Artifacts"
-            "PixelFlasher_MacOS.dmg Artifacts"
-          )
-
-          WORKFLOW_RUNS=$(gh api \
-            -H "Accept: application/vnd.github.v3+json" \
-            "/repos/${{ github.repository }}/actions/runs?head_sha=${COMMIT_SHA}")
-
-          RUN_IDS=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs[].id')
-
-          echo "Trying to download artifacts from current run..."
-          for ARTIFACT in "${ARTIFACTS[@]}"; do
-            echo "Downloading $ARTIFACT..."
-            gh run download --name "$ARTIFACT" --dir release || echo "Could not download $ARTIFACT from current run, will try from previous runs"
-          done
-
-          ARTIFACT_RUNS='${{ needs.check_artifacts.outputs.artifact_runs }}'
-          echo "Artifact runs from previous job: $ARTIFACT_RUNS"
-
-          for ARTIFACT in "${ARTIFACTS[@]}"; do
-            ARTIFACT_FILES=$(find release -type f | grep -i "$(echo $ARTIFACT | cut -d' ' -f1)" || true)
-            if [[ -z "$ARTIFACT_FILES" ]]; then
-              echo "Need to find $ARTIFACT in previous runs..."
-
-              if [[ -n "$ARTIFACT_RUNS" && "$ARTIFACT_RUNS" != "null" ]]; then
-                RUN_ID=$(echo "$ARTIFACT_RUNS" | jq -r --arg name "$ARTIFACT" '.[$name] // empty')
-
-                if [[ -n "$RUN_ID" && "$RUN_ID" != "null" ]]; then
-                  echo "Using run ID $RUN_ID from check_artifacts for $ARTIFACT"
-                  TEMP_DIR=$(mktemp -d)
-                  if gh run download $RUN_ID --name "$ARTIFACT" --dir "$TEMP_DIR" 2>/dev/null; then
-                    echo "Found and downloaded $ARTIFACT from run $RUN_ID"
-                    cp -r $TEMP_DIR/* release/
-                    continue
-                  else
-                    echo "Failed to download from run ID provided by check_artifacts"
-                    rm -rf "$TEMP_DIR"
-                  fi
-                fi
-              fi
-
-              for RUN_ID in $RUN_IDS; do
-                if [[ "$RUN_ID" != "${{ github.run_id }}" ]]; then
-                  echo "Checking run $RUN_ID for $ARTIFACT"
-                  TEMP_DIR=$(mktemp -d)
-                  if gh run download $RUN_ID --name "$ARTIFACT" --dir "$TEMP_DIR" 2>/dev/null; then
-                    echo "Found and downloaded $ARTIFACT from run $RUN_ID"
-                    cp -r $TEMP_DIR/* release/
-                    break
-                  else
-                    echo "Artifact not found in run $RUN_ID"
-                    rm -rf "$TEMP_DIR"
-                  fi
-                fi
-              done
-            else
-              echo "Already have $ARTIFACT from current run"
-            fi
-          done
-
-          echo "Downloaded artifacts:"
-          ls -la release/
-
-          MISSING_ARTIFACTS=false
-          for ARTIFACT in "${ARTIFACTS[@]}"; do
-            ARTIFACT_FILES=$(find release -type f | grep -i "$(echo $ARTIFACT | cut -d' ' -f1)" || true)
-            if [[ -z "$ARTIFACT_FILES" ]]; then
-              echo "ERROR: Failed to find artifact: $ARTIFACT"
-              MISSING_ARTIFACTS=true
-            fi
-          done
-
-          if [[ "$MISSING_ARTIFACTS" == "true" ]]; then
-            echo "ERROR: Some required artifacts are missing. Release cannot be created."
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v10\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "Release tag must be v10.X.Y or v10.X.Y-rc.N" >&2
             exit 1
           fi
 
-      - name: List release contents
-        run: ls -la ${{ github.workspace }}/release*
-
-      - name: Create release
-        id: create_release
-        uses: softprops/action-gh-release@v3
+      - name: Checkout the tagged source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: v${{ steps.get_version.outputs.version }}
-          target_commitish: ${{ needs.check_artifacts.outputs.commit_sha }}
-          name: Release v${{ steps.get_version.outputs.version }}
-          body: |
-            ## PixelFlasher v${{ steps.get_version.outputs.version }}
+          fetch-depth: 0
+          ref: ${{ github.ref }}
 
-            PixelFlasher includes:
-            - Modern Dashboard as the primary workspace
-            - Guided Flash Wizard with firmware source selection
-            - Official Android factory and OTA package access
-            - Custom ROM archive selection and processing
-            - Android Platform Tools setup for ADB and Fastboot
-            - Rooting app, support package, module, backup, and partition tools
+      - name: Prove tag and checkout identify the same commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_commit="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          checkout_commit="$(git rev-parse HEAD)"
+          test "${tag_commit}" = "${checkout_commit}"
+          test "${checkout_commit}" = "${GITHUB_SHA}"
 
-            Included release assets:
-            - Windows: `PixelFlasher.exe`
-            - Linux: `PixelFlasher_Ubuntu_24_04`
-            - macOS: `PixelFlasher_MacOS.dmg`
+      - name: Download only artifacts built in this workflow run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: "* Artifacts"
+          path: release
+          merge-multiple: true
 
-            Sensitive operations continue to use PixelFlasher confirmations before device changes are made.
-          draft: false
-          prerelease: ${{ steps.release_type.outputs.prerelease }}
-          files: |
-            release/*
+      - name: Verify the complete platform matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            PixelFlasher.exe
+            PixelFlasher-arm64.exe
+            PixelFlasher_Ubuntu_22_04
+            PixelFlasher_Ubuntu_24_04
+            PixelFlasher-x86_64.AppImage
+            PixelFlasher_MacOS_AppleSilicon.dmg
+            PixelFlasher_MacOS_Intel.dmg
+          )
+          for artifact in "${required[@]}"; do
+            test -s "release/${artifact}" || {
+              echo "Required same-run artifact is missing: ${artifact}" >&2
+              exit 1
+            }
+          done
+          find release -maxdepth 1 -type f -print -exec file {} \;
+
+      - name: Generate a CycloneDX SBOM for release payloads
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: release
+          format: cyclonedx-json
+          output-file: release/pixelflasher-${{ github.ref_name }}.cdx.json
+
+      - name: Generate release manifest and homogeneous checksums
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import platform
+
+          root = pathlib.Path("release")
+          files = []
+          for path in sorted(root.iterdir()):
+              if not path.is_file() or path.name in {"release-manifest.json", "SHA256SUMS", "SHA256SUMS.asc"}:
+                  continue
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              files.append({"name": path.name, "size": path.stat().st_size, "sha256": digest})
+          manifest = {
+              "schemaVersion": 1,
+              "tag": os.environ["RELEASE_TAG"],
+              "commit": os.environ["RELEASE_COMMIT"],
+              "workflowRun": os.environ["GITHUB_RUN_ID"],
+              "generator": f"Python {platform.python_version()}",
+              "files": files,
+          }
+          (root / "release-manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          (
+            cd release
+            sha256sum -- * | grep -vE ' (SHA256SUMS|SHA256SUMS.asc)$' > SHA256SUMS
+          )
+          cat release/SHA256SUMS
+
+      - name: Require and import the release checksum signing key
+        shell: bash
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_SIGNING_KEY}" || {
+            echo "RELEASE_SIGNING_KEY is mandatory for v10 release tags" >&2
+            exit 1
+          }
+          printf '%s' "${RELEASE_SIGNING_KEY}" | gpg --batch --import
+
+      - name: Sign and verify release checksums
+        shell: bash
+        env:
+          RELEASE_SIGNING_PASSPHRASE: ${{ secrets.RELEASE_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "${RELEASE_SIGNING_PASSPHRASE}" \
+            --armor --detach-sign --output release/SHA256SUMS.asc release/SHA256SUMS
+          gpg --batch --verify release/SHA256SUMS.asc release/SHA256SUMS
+
+      - name: Attest every release payload from this run
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            release/PixelFlasher.exe
+            release/PixelFlasher-arm64.exe
+            release/PixelFlasher_Ubuntu_22_04
+            release/PixelFlasher_Ubuntu_24_04
+            release/PixelFlasher-x86_64.AppImage
+            release/PixelFlasher_MacOS_AppleSilicon.dmg
+            release/PixelFlasher_MacOS_Intel.dmg
+            release/release-manifest.json
+            release/SHA256SUMS
+
+      - name: Publish the immutable GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: PixelFlasher ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: release/*

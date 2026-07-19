@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Verify React's emitted command constants against the canonical host allow-list."""
+"""Verify React emissions use the generated canonical host command constants."""
 
 from __future__ import annotations
 
 import argparse
 import re
 import sys
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Sequence
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
-from ui.bridge_contract import ALLOWED_COMMANDS
-
+from ui.command_registry import ALLOWED_COMMANDS  # noqa: E402
 
 DEFAULT_COMMAND_SOURCE = Path("ui/web/src/commands.ts")
 DEFAULT_REACT_SOURCE_DIR = Path("ui/web/src")
@@ -42,7 +41,7 @@ def load_react_commands(path: Path = DEFAULT_COMMAND_SOURCE) -> dict[str, str]:
     source = Path(path).read_text(encoding="utf-8")
     match = _COMMAND_BLOCK.search(source)
     if match is None:
-        raise ValueError(f"canonical React commands object was not found in {path}")
+        raise ValueError(f"generated React commands object was not found in {path}")
 
     commands: dict[str, str] = {}
     unparsed: list[str] = []
@@ -98,7 +97,7 @@ def verify_react_commands(
     unknown = sorted(set(commands.values()) - allowed)
     if unknown:
         raise ValueError(
-            "React commands are absent from ui.bridge_contract.ALLOWED_COMMANDS: "
+            "React commands are absent from ui.command_registry.ALLOWED_COMMANDS: "
             + ", ".join(unknown)
         )
     raw = raw_command_emissions(source_dir)
@@ -126,7 +125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     print(
         f"Verified {len(commands)} React commands against "
-        "ui.bridge_contract.ALLOWED_COMMANDS"
+        "ui.command_registry.ALLOWED_COMMANDS"
     )
     return 0
 

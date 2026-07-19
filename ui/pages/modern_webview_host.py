@@ -6,15 +6,18 @@ pickers. Product state and operations belong to the injected headless engine.
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, is_dataclass
-from enum import Enum
 import json
+import math
 import os
-from pathlib import Path
 import sys
 import threading
-from typing import Any, Callable, Mapping, Protocol
+from collections import OrderedDict
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+from queue import Empty, Queue
+from typing import Any, Protocol
 from urllib.parse import unquote, urlparse
 
 import wx
@@ -25,6 +28,19 @@ except (ImportError, ModuleNotFoundError):
     html2 = None  # type: ignore[assignment]
 
 from constants import APPNAME, VERSION
+from pixelflasher_core import (
+    AppCommand,
+    AppEvent,
+    AppSnapshot,
+    CommandAck,
+    InteractionDecision,
+    InteractionRequest,
+    InteractionResponse,
+    OperationFinished,
+    OperationResult,
+    ProgressEvent,
+    SnapshotChanged,
+)
 from ui.bridge_contract import (
     BRIDGE_CHANNEL,
     BridgeProtocolError,
@@ -33,26 +49,207 @@ from ui.bridge_contract import (
     protocol_error_envelope,
     response_envelope,
 )
+from ui.core_command_factory import CommandFactoryError, CoreCommandFactory
+from ui.public_bridge import (
+    PublicProjectionError,
+    ensure_public_json,
+    project_operation_result,
+    public_operation_summary,
+    public_snapshot,
+    safe_public_message,
+)
 
 
 class EngineProtocol(Protocol):
-    def snapshot(self) -> object: ...
+    def snapshot(self) -> AppSnapshot: ...
 
-    def subscribe(self, listener: Callable[[object], None]) -> object: ...
+    def subscribe(
+        self,
+        listener: Callable[[AppEvent], None],
+        *,
+        emit_current: bool = False,
+    ) -> Callable[[], None]: ...
 
-    def execute(self, command: object) -> object: ...
+    def execute(self, command: AppCommand) -> OperationResult: ...
 
-    def register_support_destination(
+    def cancel(self, operation_id: str) -> CommandAck: ...
+
+    def respond_interaction(
+        self,
+        request_id: str,
+        response: InteractionResponse,
+    ) -> CommandAck: ...
+
+    def shutdown(self) -> None: ...
+
+
+class SupportDestinationRegistrar(Protocol):
+    """Native-only capability kept outside the public engine contract."""
+
+    def __call__(
         self,
         destination: str | Path,
         *,
         allow_overwrite: bool = False,
     ) -> str: ...
 
-    def shutdown(self) -> None: ...
+
+class ReplayAction(StrEnum):
+    EXECUTE = "execute"
+    WAIT = "wait"
+    REPLAY = "replay"
+    CONFLICT = "conflict"
+    CAPACITY = "capacity"
 
 
-CommandFactory = Callable[[BridgeRequest], object]
+@dataclass(frozen=True, slots=True)
+class ReplayDecision:
+    action: ReplayAction
+    message: dict[str, Any] | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True)
+class _InflightReplay:
+    fingerprint: str
+    waiters: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _CompletedReplay:
+    fingerprint: str
+    message: dict[str, Any] = field(repr=False)
+
+
+class _RequestReplayLedger:
+    """Session-bounded requestId ledger for exact at-most-once dispatch."""
+
+    def __init__(self, *, maximum_completed: int = 1_024) -> None:
+        if maximum_completed <= 0:
+            raise ValueError("maximum_completed must be positive")
+        self._maximum_completed = maximum_completed
+        self._inflight: dict[str, _InflightReplay] = {}
+        self._completed: OrderedDict[str, _CompletedReplay] = OrderedDict()
+        self._lock = threading.RLock()
+
+    def begin(self, request: BridgeRequest) -> ReplayDecision:
+        fingerprint = request.fingerprint()
+        with self._lock:
+            completed = self._completed.get(request.request_id)
+            if completed is not None:
+                if completed.fingerprint != fingerprint:
+                    return ReplayDecision(ReplayAction.CONFLICT)
+                self._completed.move_to_end(request.request_id)
+                return ReplayDecision(ReplayAction.REPLAY, dict(completed.message))
+
+            inflight = self._inflight.get(request.request_id)
+            if inflight is not None:
+                if inflight.fingerprint != fingerprint:
+                    return ReplayDecision(ReplayAction.CONFLICT)
+                inflight.waiters += 1
+                return ReplayDecision(ReplayAction.WAIT)
+
+            # Never evict an ID: eviction would make an old request executable
+            # again. Once the bounded session ledger is full, fail closed and
+            # require a new host session instead of weakening idempotency.
+            if len(self._completed) + len(self._inflight) >= self._maximum_completed:
+                return ReplayDecision(ReplayAction.CAPACITY)
+            self._inflight[request.request_id] = _InflightReplay(fingerprint)
+            return ReplayDecision(ReplayAction.EXECUTE)
+
+    def complete(
+        self,
+        request: BridgeRequest,
+        message: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], ...]:
+        with self._lock:
+            inflight = self._inflight.pop(request.request_id, None)
+            if inflight is None or inflight.fingerprint != request.fingerprint():
+                raise RuntimeError("request replay ledger completion is inconsistent")
+            bounded = _limit_bridge_payload(dict(message))
+            if not isinstance(bounded, dict):
+                raise TypeError("request replay payload must remain an object")
+            stable_message = bounded
+            completed = _CompletedReplay(
+                inflight.fingerprint,
+                stable_message,
+            )
+            self._completed[request.request_id] = completed
+            self._completed.move_to_end(request.request_id)
+            return tuple(dict(stable_message) for _ in range(inflight.waiters + 1))
+
+    def clear(self) -> None:
+        with self._lock:
+            self._inflight.clear()
+            self._completed.clear()
+
+
+@dataclass(frozen=True, slots=True)
+class _CommandWorkItem:
+    request: BridgeRequest
+    command: AppCommand = field(repr=False)
+
+
+class _SerialCommandWorker:
+    """One explicit FIFO worker; engine execution never blocks the wx loop."""
+
+    def __init__(
+        self,
+        engine: EngineProtocol,
+        deliver: Callable[[BridgeRequest, OperationResult | None], None],
+    ) -> None:
+        self._engine = engine
+        self._deliver = deliver
+        self._queue: Queue[_CommandWorkItem | None] = Queue()
+        self._closed = False
+        self._lock = threading.RLock()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="pixelflasher-engine",
+            # Engine shutdown cancels live work first. A wedged third-party
+            # process boundary must never keep the native application alive
+            # forever after its last window has closed.
+            daemon=True,
+        )
+        self._thread.start()
+
+    def submit(self, request: BridgeRequest, command: AppCommand) -> None:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("command worker has shut down")
+            self._queue.put(_CommandWorkItem(request, command))
+
+    def shutdown(self, *, timeout_seconds: float = 10.0) -> bool:
+        if timeout_seconds < 0:
+            raise ValueError("timeout_seconds must not be negative")
+        with self._lock:
+            if self._closed:
+                return not self._thread.is_alive()
+            self._closed = True
+            # Do not start queued commands while the application is closing.
+            # The engine has already cancelled active work and rejects any
+            # command that crosses its shutdown boundary.
+            while True:
+                try:
+                    self._queue.get_nowait()
+                except Empty:
+                    break
+            self._queue.put(None)
+        self._thread.join(timeout_seconds)
+        return not self._thread.is_alive()
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            outcome: OperationResult | None = None
+            try:
+                candidate = self._engine.execute(item.command)
+                if isinstance(candidate, OperationResult):
+                    outcome = candidate
+            except Exception:
+                outcome = None
+            wx.CallAfter(self._deliver, item.request, outcome)
 
 
 class FrontendAssetsNotFound(RuntimeError):
@@ -74,7 +271,7 @@ def frontend_index_path() -> Path:
         raise FrontendAssetsNotFound(f"Frontend index not found at {candidate}")
 
     roots: list[Path] = []
-    frozen_root = getattr(sys, "_MEIPASS", None)
+    frozen_root = vars(sys).get("_MEIPASS")
     if frozen_root:
         roots.append(Path(frozen_root))
     roots.append(Path(__file__).resolve().parents[2])
@@ -93,15 +290,17 @@ def frontend_index_path() -> Path:
 def create_modern_webview_frame(
     engine: EngineProtocol,
     *,
-    command_factory: CommandFactory,
+    command_factory: CoreCommandFactory,
+    support_destination_registrar: SupportDestinationRegistrar,
     parent: wx.Window | None = None,
     index_path: Path | None = None,
-) -> "ModernWebViewFrame":
+) -> ModernWebViewFrame:
     if not is_webview_available():
         raise RuntimeError("wx WebView is unavailable. Install the platform WebView runtime first.")
     return ModernWebViewFrame(
         engine=engine,
         command_factory=command_factory,
+        support_destination_registrar=support_destination_registrar,
         parent=parent,
         index_path=index_path,
     )
@@ -114,7 +313,8 @@ class ModernWebViewFrame(wx.Frame):
         self,
         *,
         engine: EngineProtocol,
-        command_factory: CommandFactory,
+        command_factory: CoreCommandFactory,
+        support_destination_registrar: SupportDestinationRegistrar,
         parent: wx.Window | None = None,
         index_path: Path | None = None,
     ) -> None:
@@ -135,8 +335,14 @@ class ModernWebViewFrame(wx.Frame):
         self._loaded = False
         self._closing = False
         self._pending_messages: list[dict[str, Any]] = []
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pixelflasher-engine")
-        self._subscription: object | None = None
+        self._replay_ledger = _RequestReplayLedger()
+        self._operation_commands: dict[str, str] = {}
+        self._operation_commands_lock = threading.RLock()
+        self._subscription: Callable[[], None] | None = None
+        self._command_factory.bind_support_destination_registrar(
+            support_destination_registrar
+        )
+        self._command_worker = _SerialCommandWorker(self._engine, self._command_finished)
 
         backend = _preferred_backend()
         if backend is None:
@@ -163,7 +369,13 @@ class ModernWebViewFrame(wx.Frame):
         if self._loaded:
             return
         self._loaded = True
-        self._emit(event_envelope("runtime", {"status": "ready", "version": VERSION}))
+        self._emit(
+            event_envelope(
+                "runtime",
+                {"status": "ready", "version": VERSION},
+                revision=_revision(self._engine.snapshot()),
+            )
+        )
         self._emit_snapshot()
         queued, self._pending_messages = self._pending_messages, []
         for message in queued:
@@ -171,59 +383,100 @@ class ModernWebViewFrame(wx.Frame):
 
     def _on_load_error(self, event: object) -> None:
         message = "The local PixelFlasher interface could not be loaded."
-        getter = getattr(event, "GetString", None)
-        if callable(getter):
-            detail = str(getter() or "").strip()
-            if detail:
-                message = f"{message} {detail}"
+        detail = str(event.GetString() or "").strip()  # type: ignore[attr-defined]
+        if detail:
+            message = f"{message} {detail}"
         wx.LogError(message)
 
     def _on_navigating(self, event: object) -> None:
-        getter = getattr(event, "GetURL", None)
-        url = str(getter() if callable(getter) else "")
+        url = str(event.GetURL())  # type: ignore[attr-defined]
         if _is_allowed_local_url(url, self._asset_root):
             return
-        veto = getattr(event, "Veto", None)
-        if callable(veto):
-            veto()
+        event.Veto()  # type: ignore[attr-defined]
         self._emit(
             event_envelope(
                 "runtime",
                 {"status": "navigationBlocked", "message": "Navigation stayed inside PixelFlasher."},
+                revision=_revision(self._engine.snapshot()),
             )
         )
 
     def _on_script_message(self, event: object) -> None:
-        getter = getattr(event, "GetString", None)
-        raw = str(getter() if callable(getter) else "")
+        raw = str(event.GetString())  # type: ignore[attr-defined]
         try:
             request = BridgeRequest.from_json(raw)
         except BridgeProtocolError as exc:
             self._emit(protocol_error_envelope(exc))
             return
 
+        replay = self._replay_ledger.begin(request)
+        if replay.action is ReplayAction.REPLAY:
+            if replay.message is not None:
+                self._emit(replay.message)
+            return
+        if replay.action is ReplayAction.WAIT:
+            return
+        if replay.action is ReplayAction.CONFLICT:
+            self._emit(
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={
+                        "code": "request_id_reused",
+                        "message": "requestId was already used for a different request.",
+                    },
+                )
+            )
+            return
+        if replay.action is ReplayAction.CAPACITY:
+            self._emit(
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={
+                        "code": "request_ledger_full",
+                        "message": (
+                            "The request ledger reached its safe session limit; "
+                            "restart PixelFlasher before sending more commands."
+                        ),
+                    },
+                )
+            )
+            return
+
+        self._dispatch_request(request)
+
+    def _dispatch_request(self, request: BridgeRequest) -> None:
+
+        if request.command == "secret.issue":
+            self._handle_secret_issue(request)
+            return
         if request.command.startswith("native."):
             self._handle_native_request(request)
             return
         if request.command == "app.ready":
-            self._emit(
+            self._complete_request(
+                request,
                 response_envelope(
                     request.request_id,
                     ok=True,
-                    result={"status": "SUCCESS", "message": "Bridge ready."},
-                    revision=_revision(self._engine.snapshot()),
+                    result={
+                        "status": "SUCCESS",
+                        "message": "Bridge ready.",
+                        "revision": _revision(self._engine.snapshot()),
+                    },
                 )
             )
             self._emit_snapshot()
             return
         if request.command == "snapshot.get":
             snapshot = self._engine.snapshot()
-            self._emit(
+            self._complete_request(
+                request,
                 response_envelope(
                     request.request_id,
                     ok=True,
-                    result={"status": "SUCCESS", "snapshot": _jsonable(snapshot)},
-                    revision=_revision(snapshot),
+                    result=_mapping(snapshot),
                 )
             )
             return
@@ -236,133 +489,204 @@ class ModernWebViewFrame(wx.Frame):
 
         try:
             command = self._command_factory(request)
+        except (BridgeProtocolError, CommandFactoryError) as exc:
+            code = exc.code
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={
+                        "code": code,
+                        "message": safe_public_message(
+                            str(exc),
+                            fallback="The command payload is invalid.",
+                        ),
+                    },
+                )
+            )
+            return
         except Exception:
-            self._emit(
+            self._complete_request(
+                request,
                 response_envelope(
                     request.request_id,
                     ok=False,
                     error={"code": "invalid_command", "message": "The command payload is invalid."},
-                    revision=_revision(self._engine.snapshot()),
-                )
+                ),
             )
             return
 
-        future = self._executor.submit(self._execute_command, command)
-        future.add_done_callback(lambda completed: self._command_finished(request, completed))
+        with self._operation_commands_lock:
+            self._operation_commands[command.operation_id] = request.command
+        try:
+            self._command_worker.submit(request, command)
+        except RuntimeError:
+            with self._operation_commands_lock:
+                self._operation_commands.pop(command.operation_id, None)
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={"code": "engine_shutdown", "message": "The engine has shut down."},
+                ),
+            )
 
     def _handle_operation_cancel(self, request: BridgeRequest) -> None:
         operation_id = request.payload.get("operationId")
-        cancel = getattr(self._engine, "cancel", None)
-        if not callable(cancel):
-            cancel = getattr(self._engine, "cancel_operation", None)
-        accepted = bool(cancel(operation_id)) if callable(cancel) and isinstance(operation_id, str) else False
-        self._emit(
+        acknowledgement = (
+            self._engine.cancel(operation_id)
+            if isinstance(operation_id, str)
+            else CommandAck(False, "invalid_operation_id", "Operation ID is required.")
+        )
+        accepted = acknowledgement.accepted
+        acknowledgement_message = safe_public_message(
+            acknowledgement.message,
+            fallback="The cancellation request could not be completed.",
+        )
+        self._complete_request(
+            request,
             response_envelope(
                 request.request_id,
                 ok=accepted,
                 result={
                     "status": "SUCCESS" if accepted else "FAILED",
-                    "code": "cancellation_requested" if accepted else "operation_not_active",
-                    "message": "Cancellation requested." if accepted else "Operation is not active.",
+                    "code": acknowledgement.code,
+                    "message": acknowledgement_message,
+                    "revision": _revision(self._engine.snapshot()),
                 },
                 error={} if accepted else {
-                    "code": "operation_not_active",
-                    "message": "Operation is not active.",
+                    "code": acknowledgement.code,
+                    "message": acknowledgement_message,
                 },
-                revision=_revision(self._engine.snapshot()),
             )
         )
 
     def _handle_interaction_response(self, request: BridgeRequest) -> None:
         operation_id = request.payload.get("operationId")
         decision = request.payload.get("decision")
-        respond = getattr(self._engine, "respond_interaction", None)
-        accepted = False
+        acknowledgement = CommandAck(
+            False,
+            "invalid_interaction_response",
+            "The interaction response is invalid.",
+        )
         if (
-            callable(respond)
-            and isinstance(operation_id, str)
+            isinstance(operation_id, str)
             and decision in {"accepted", "cancelled"}
+            and isinstance(request.expected_revision, int)
+            and not isinstance(request.expected_revision, bool)
         ):
-            accepted = bool(respond(operation_id, decision, request.expected_revision))
-        self._emit(
+            acknowledgement = self._engine.respond_interaction(
+                operation_id,
+                InteractionResponse(
+                    InteractionDecision(decision),
+                    request.expected_revision,
+                ),
+            )
+        accepted = acknowledgement.accepted
+        acknowledgement_message = safe_public_message(
+            acknowledgement.message,
+            fallback="The interaction response could not be completed.",
+        )
+        self._complete_request(
+            request,
             response_envelope(
                 request.request_id,
                 ok=accepted,
                 result={
                     "status": "SUCCESS" if accepted else "FAILED",
-                    "code": "interaction_recorded" if accepted else "interaction_not_pending",
-                    "message": "Decision recorded." if accepted else "Interaction is no longer pending.",
+                    "code": acknowledgement.code,
+                    "message": acknowledgement_message,
+                    "revision": _revision(self._engine.snapshot()),
                 },
                 error={} if accepted else {
-                    "code": "interaction_not_pending",
-                    "message": "Interaction is no longer pending.",
+                    "code": acknowledgement.code,
+                    "message": acknowledgement_message,
                 },
-                revision=_revision(self._engine.snapshot()),
             )
         )
 
-    def _execute_command(self, command: object) -> object:
-        result = self._engine.execute(command)
-        if isinstance(result, Future):
-            return result.result()
-        waiter = getattr(result, "wait", None)
-        if callable(waiter):
-            waited = waiter()
-            if waited is not None:
-                return waited
-        result_getter = getattr(result, "result", None)
-        if callable(result_getter) and not is_dataclass(result):
-            return result_getter()
-        return result
-
-    def _command_finished(self, request: BridgeRequest, future: Future[object]) -> None:
+    def _command_finished(
+        self,
+        request: BridgeRequest,
+        result: OperationResult | None,
+    ) -> None:
         if self._closing:
             return
         try:
-            result = future.result()
-            serialized = _jsonable(result)
-            if not isinstance(serialized, dict):
-                serialized = {"status": "FAILED", "message": "Engine returned an invalid result."}
+            if not isinstance(result, OperationResult):
+                raise TypeError("engine returned a non-OperationResult value")
+            serialized = project_operation_result(request.command, result)
             status = str(serialized.get("status", "FAILED")).upper()
             ok = status == "SUCCESS"
+            serialized["revision"] = _revision(self._engine.snapshot())
             error = {}
             if status == "FAILED":
                 error = {
                     "code": str(serialized.get("code", "operation_failed")),
                     "message": str(serialized.get("message", "Operation failed.")),
+                    "details": serialized,
                 }
             elif status == "CANCELLED":
                 error = {
                     "code": str(serialized.get("code", "operation_cancelled")),
                     "message": str(serialized.get("message", "Operation cancelled.")),
+                    "details": serialized,
                 }
             message = response_envelope(
                 request.request_id,
                 ok=ok,
                 result=serialized,
                 error=error,
-                revision=_revision(self._engine.snapshot()),
             )
         except Exception:
             message = response_envelope(
                 request.request_id,
                 ok=False,
                 error={"code": "engine_error", "message": "The operation could not be completed."},
-                revision=_revision(self._engine.snapshot()),
             )
-        wx.CallAfter(self._emit, message)
-        wx.CallAfter(self._emit_snapshot)
+        with self._operation_commands_lock:
+            if isinstance(result, OperationResult):
+                self._operation_commands.pop(result.operation_id, None)
+        self._complete_request(request, message)
+        self._emit_snapshot()
 
     def _handle_native_request(self, request: BridgeRequest) -> None:
-        result = _run_native_picker(self, request.command, request.payload)
-        if (
-            request.command == "native.saveFile"
-            and request.payload.get("purpose") == "support"
-            and str(result.get("status", "")) == "SUCCESS"
-        ):
-            result = _register_support_destination_result(self._engine, result)
+        try:
+            self._command_factory.validate_native_request(request)
+            selection = _run_native_picker(self, request.command, request.payload)
+            if selection.cancelled:
+                result = _cancelled_selection()
+            else:
+                data = self._command_factory.issue_native_grants(request, selection.paths)
+                result = {
+                    "status": "SUCCESS",
+                    "message": "Native resource selected.",
+                    "data": data,
+                }
+        except (BridgeProtocolError, CommandFactoryError) as exc:
+            result = {
+                "status": "FAILED",
+                "code": exc.code,
+                "message": safe_public_message(
+                    str(exc),
+                    fallback="The native resource selection is invalid.",
+                ),
+                "data": {},
+            }
+        except Exception:
+            result = {
+                "status": "FAILED",
+                "code": "native_selection_invalid",
+                "message": "The native resource selection is invalid.",
+                "data": {},
+            }
         status = str(result.get("status", "FAILED"))
-        self._emit(
+        if status == "SUCCESS":
+            result["revision"] = _revision(self._engine.snapshot())
+        self._complete_request(
+            request,
             response_envelope(
                 request.request_id,
                 ok=status == "SUCCESS",
@@ -370,28 +694,71 @@ class ModernWebViewFrame(wx.Frame):
                 error={} if status == "SUCCESS" else {
                     "code": str(result.get("code", "operation_cancelled")),
                     "message": str(result.get("message", "Selection cancelled.")),
+                    "details": result,
                 },
-                revision=_revision(self._engine.snapshot()),
             )
         )
 
-    def _on_engine_event(self, event: object) -> None:
+    def _handle_secret_issue(self, request: BridgeRequest) -> None:
+        try:
+            data = self._command_factory.issue_secret(request)
+            result = {
+                "status": "SUCCESS",
+                "message": "Secret grant issued.",
+                "data": data,
+                "revision": _revision(self._engine.snapshot()),
+            }
+            message = response_envelope(request.request_id, ok=True, result=result)
+        except (BridgeProtocolError, CommandFactoryError) as exc:
+            message = response_envelope(
+                request.request_id,
+                ok=False,
+                error={
+                    "code": exc.code,
+                    "message": safe_public_message(
+                        str(exc),
+                        fallback="The secret grant could not be issued.",
+                    ),
+                },
+            )
+        except Exception:
+            message = response_envelope(
+                request.request_id,
+                ok=False,
+                error={"code": "secret_issue_failed", "message": "The secret grant could not be issued."},
+            )
+        self._complete_request(request, message)
+
+    def _on_engine_event(self, event: AppEvent) -> None:
         if self._closing:
             return
-        event_type = str(getattr(event, "event_type", "") or "").lower()
-        if not event_type:
-            class_name = type(event).__name__.lower()
-            if "progress" in class_name:
-                event_type = "progress"
-            elif "interaction" in class_name:
-                event_type = "interaction"
-            elif "snapshot" in class_name:
-                event_type = "snapshot"
-            else:
-                event_type = "runtime"
-        if event_type not in {"snapshot", "progress", "interaction", "runtime"}:
+        revision = _revision(self._engine.snapshot())
+        if isinstance(event, SnapshotChanged):
+            event_type = "snapshot"
+            payload = _mapping(event.snapshot)
+            revision = event.revision
+        elif isinstance(event, ProgressEvent):
+            event_type = "progress"
+            payload = _mapping(event)
+        elif isinstance(event, InteractionRequest):
+            event_type = "interaction"
+            payload = _mapping(event)
+        elif isinstance(event, OperationFinished):
             event_type = "runtime"
-        message = event_envelope(event_type, _mapping(event))
+            with self._operation_commands_lock:
+                command = self._operation_commands.get(event.result.operation_id)
+            payload = (
+                project_operation_result(command, event.result)
+                if command is not None
+                else _mapping(event.result)
+            )
+        else:
+            return
+        message = event_envelope(
+            event_type,
+            payload,
+            revision=revision,
+        )
         if threading.current_thread() is threading.main_thread():
             self._emit(message)
         else:
@@ -399,7 +766,24 @@ class ModernWebViewFrame(wx.Frame):
 
     def _emit_snapshot(self) -> None:
         snapshot = self._engine.snapshot()
-        self._emit(event_envelope("snapshot", _mapping(snapshot)))
+        self._emit(
+            event_envelope(
+                "snapshot",
+                _mapping(snapshot),
+                revision=_revision(snapshot),
+            )
+        )
+
+    def _complete_request(
+        self,
+        request: BridgeRequest,
+        message: Mapping[str, Any],
+    ) -> None:
+        public_message = ensure_public_json(message)
+        if not isinstance(public_message, dict):
+            raise PublicProjectionError("bridge response must be a public JSON object")
+        for replay_message in self._replay_ledger.complete(request, public_message):
+            self._emit(replay_message)
 
     def _emit(self, message: dict[str, Any]) -> None:
         if self._closing:
@@ -423,25 +807,36 @@ class ModernWebViewFrame(wx.Frame):
             event.Skip()
             return
         self._closing = True
-        _cancel_subscription(self._subscription)
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        if self._subscription is not None:
+            self._subscription()
         try:
             self._engine.shutdown()
         finally:
+            stopped = self._command_worker.shutdown()
+            if not stopped:
+                wx.LogWarning(
+                    "PixelFlasher's operation worker did not stop within the shutdown timeout."
+                )
+            self._command_factory.path_grants.clear()
+            self._command_factory.secret_grants.clear()
+            with self._operation_commands_lock:
+                self._operation_commands.clear()
+            self._replay_ledger.clear()
             event.Skip()
 
 
 def _preferred_backend() -> str | None:
     if html2 is None:
         return None
-    edge = getattr(html2, "WebViewBackendEdge", "")
+    module_values = vars(html2)
+    edge = module_values.get("WebViewBackendEdge", "")
     if edge:
         try:
             if html2.WebView.IsBackendAvailable(edge):
                 return edge
         except Exception:
             pass
-    default = getattr(html2, "WebViewBackendDefault", "")
+    default = module_values.get("WebViewBackendDefault", "")
     try:
         if html2.WebView.IsBackendAvailable(default):
             return default
@@ -454,7 +849,7 @@ def _is_allowed_local_url(url: str, asset_root: Path) -> bool:
     if not url or url in {"about:blank", "about:srcdoc"}:
         return True
     parsed = urlparse(url)
-    if parsed.scheme != "file":
+    if parsed.scheme != "file" or parsed.netloc:
         return False
     try:
         path_text = unquote(parsed.path)
@@ -467,20 +862,28 @@ def _is_allowed_local_url(url: str, asset_root: Path) -> bool:
         return False
 
 
+@dataclass(frozen=True, slots=True)
+class _NativePickerSelection:
+    paths: tuple[Path, ...] = field(default=(), repr=False)
+
+    @property
+    def cancelled(self) -> bool:
+        return not self.paths
+
+
 def _run_native_picker(
     parent: wx.Window,
     command: str,
     payload: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> _NativePickerSelection:
     title = str(payload.get("title") or "Choose a file")[:160]
-    initial_directory = str(payload.get("initialDirectory") or "")
 
     if command == "native.pickDirectory":
-        dialog = wx.DirDialog(parent, title, defaultPath=initial_directory, style=wx.DD_DEFAULT_STYLE)
+        dialog = wx.DirDialog(parent, title, style=wx.DD_DEFAULT_STYLE)
         try:
             if dialog.ShowModal() != wx.ID_OK:
-                return _cancelled_selection()
-            return {"status": "SUCCESS", "message": "Folder selected.", "data": {"path": dialog.GetPath()}}
+                return _NativePickerSelection()
+            return _NativePickerSelection((Path(dialog.GetPath()),))
         finally:
             dialog.Destroy()
 
@@ -494,60 +897,18 @@ def _run_native_picker(
     dialog = wx.FileDialog(
         parent,
         title,
-        defaultDir=initial_directory,
         defaultFile=str(payload.get("defaultName") or ""),
         wildcard=wildcard,
         style=style,
     )
     try:
         if dialog.ShowModal() != wx.ID_OK:
-            return _cancelled_selection()
+            return _NativePickerSelection()
         if command == "native.pickFiles":
-            return {
-                "status": "SUCCESS",
-                "message": "Files selected.",
-                "data": {"paths": list(dialog.GetPaths())},
-            }
-        return {"status": "SUCCESS", "message": "File selected.", "data": {"path": dialog.GetPath()}}
+            return _NativePickerSelection(tuple(Path(path) for path in dialog.GetPaths()))
+        return _NativePickerSelection((Path(dialog.GetPath()),))
     finally:
         dialog.Destroy()
-
-
-def _register_support_destination_result(
-    engine: object,
-    picker_result: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Exchange a native picker path for a one-use, WebView-safe identifier."""
-
-    data = picker_result.get("data")
-    path = data.get("path") if isinstance(data, Mapping) else None
-    register = getattr(engine, "register_support_destination", None)
-    if not isinstance(path, str) or not callable(register):
-        return {
-            "status": "FAILED",
-            "code": "support_destination_unavailable",
-            "message": "The selected support destination could not be registered.",
-            "data": {},
-        }
-    try:
-        destination_id = register(path, allow_overwrite=True)
-    except Exception:
-        return {
-            "status": "FAILED",
-            "code": "support_destination_invalid",
-            "message": "The selected support destination is invalid.",
-            "data": {},
-        }
-    # Do not return the filesystem path to WebView code.  The opaque grant can
-    # be consumed once by support.create.
-    return {
-        "status": "SUCCESS",
-        "message": "Support destination selected.",
-        "data": {
-            "destinationId": destination_id,
-            "displayName": Path(path).name,
-        },
-    }
 
 
 def _safe_wildcard(raw_filters: object) -> str:
@@ -584,28 +945,49 @@ def _cancelled_selection() -> dict[str, Any]:
 
 def _mapping(value: object) -> dict[str, Any]:
     mapped = _jsonable(value)
-    if isinstance(mapped, dict):
-        return mapped
-    return {"value": mapped}
+    if not isinstance(mapped, dict):
+        raise PublicProjectionError("public bridge objects must serialize as objects")
+    return mapped
 
 
 def _jsonable(value: Any) -> Any:
-    converter = getattr(value, "to_dict", None)
-    if callable(converter):
-        return _jsonable(converter())
-    if is_dataclass(value):
-        return _jsonable(asdict(value))
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return [_jsonable(item) for item in value]
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    return str(value)
+    if isinstance(value, AppSnapshot):
+        return public_snapshot(value)
+    if isinstance(value, SnapshotChanged):
+        return {
+            "event_type": value.event_type,
+            "snapshot": public_snapshot(value.snapshot),
+        }
+    if isinstance(value, ProgressEvent):
+        return {
+            "event_type": value.event_type,
+            "operation_id": value.operation_id,
+            "phase": value.phase.value,
+            "message": safe_public_message(value.message, fallback="Operation update."),
+            "percent": value.percent,
+        }
+    if isinstance(value, InteractionRequest):
+        return {
+            "event_type": value.event_type,
+            "operation_id": value.operation_id,
+            "kind": value.kind.value,
+            "title": safe_public_message(value.title, fallback="Confirm operation"),
+            "message": safe_public_message(value.message, fallback="Continue?"),
+            "expected_revision": value.expected_revision,
+            "target_serial": value.target_serial,
+            "destructive": value.destructive,
+            "choices": list(value.choices),
+            "reinforced": value.reinforced,
+            "confirmation_nonce": value.confirmation_nonce,
+        }
+    if isinstance(value, OperationFinished):
+        return {
+            "event_type": value.event_type,
+            "result": public_operation_summary(value.result),
+        }
+    if isinstance(value, OperationResult):
+        return public_operation_summary(value)
+    return ensure_public_json(value)
 
 
 def _limit_bridge_payload(value: Any, *, depth: int = 0, field: str = "") -> Any:
@@ -614,44 +996,28 @@ def _limit_bridge_payload(value: Any, *, depth: int = 0, field: str = "") -> Any
     if depth > 20:
         return "[depth limit]"
     if isinstance(value, Mapping):
-        return {
-            str(key): _limit_bridge_payload(item, depth=depth + 1, field=str(key))
-            for key, item in list(value.items())[:2048]
-        }
+        result: dict[str, Any] = {}
+        for key, item in list(value.items())[:2048]:
+            if not isinstance(key, str):
+                raise PublicProjectionError("public bridge keys must be strings")
+            result[key] = _limit_bridge_payload(item, depth=depth + 1, field=key)
+        return result
     if isinstance(value, (list, tuple)):
         return [_limit_bridge_payload(item, depth=depth + 1, field=field) for item in value[:2048]]
     if isinstance(value, str):
         limit = 32_768 if field.lower() in {"stdout", "stderr", "log", "logs"} else 131_072
         if len(value) > limit:
             return value[:limit] + f"\n[truncated {len(value) - limit} characters]"
-    return value
+        return value
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise PublicProjectionError(f"unsupported bridge payload type: {type(value).__name__}")
 
 
-def _revision(snapshot: object) -> int | None:
-    value = getattr(snapshot, "revision", None)
-    if isinstance(value, bool) or not isinstance(value, int):
-        if isinstance(snapshot, Mapping):
-            value = snapshot.get("revision")
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-def _cancel_subscription(subscription: object | None) -> None:
-    if subscription is None:
-        return
-    if callable(subscription):
-        try:
-            subscription()
-        except Exception:
-            pass
-        return
-    for name in ("cancel", "unsubscribe", "close"):
-        method = getattr(subscription, name, None)
-        if callable(method):
-            try:
-                method()
-            except Exception:
-                pass
-            return
+def _revision(snapshot: AppSnapshot) -> int:
+    return snapshot.revision
 
 
 def _apply_frame_icon(frame: wx.Frame) -> None:

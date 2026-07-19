@@ -87,8 +87,7 @@ function emit(detail: unknown) {
 
 function errorMessage(message: string, request: BridgeRequest): BridgeResponse {
   return {
-    version: 1,
-    type: 'response',
+    version: 2,
     requestId: request.requestId,
     ok: false,
     error: { code: 'MOCK_COMMAND_ERROR', message },
@@ -102,19 +101,32 @@ export function installDevelopmentBridge() {
   let pendingFlash: { request: BridgeRequest; operation: ActiveOperation } | null = null;
   let pendingGuarded: { request: BridgeRequest; operationId: string; complete: () => void } | null = null;
   let mockRootModules = ['play_integrity_fix', 'zygisk_next'];
+  let mockBootImages: Array<{
+    bootId: string;
+    sha256: string;
+    size: number;
+    provenance: string;
+    createdAt: number;
+    partition: 'boot' | 'init_boot' | 'vendor_boot' | 'vendor_kernel_boot';
+    deviceCodenames: string[];
+    patcher: string;
+    patcherVersion: string;
+    signature: string;
+    sourceHash: string;
+    patched: boolean;
+    verified: boolean;
+  }> = [];
 
   const publishSnapshot = () => {
-    emit({ version: 1, type: 'snapshot', payload: structuredClone(snapshot), revision: snapshot.revision });
+    emit({ version: 2, event: 'snapshot', revision: snapshot.revision, payload: structuredClone(snapshot) });
   };
 
-  const respondTo = (request: BridgeRequest, result: unknown = null) => {
+  const respondTo = (request: BridgeRequest, result: Record<string, unknown>) => {
     emit({
-      version: 1,
-      type: 'response',
+      version: 2,
       requestId: request.requestId,
       ok: true,
-      result,
-      revision: snapshot.revision,
+      result: { ...result, revision: snapshot.revision },
     } satisfies BridgeResponse);
   };
   const respond = respondTo;
@@ -133,7 +145,18 @@ export function installDevelopmentBridge() {
       activeOperation: operation,
       active_operation: operation,
     };
-    emit({ version: 1, type: 'progress', operation, revision: snapshot.revision });
+    emit({
+      version: 2,
+      event: 'progress',
+      payload: {
+        event_type: 'progress',
+        operation_id: operation.id,
+        phase: 'execute',
+        message: operation.detail ?? operation.label,
+        percent: operation.progress ?? 0,
+      },
+      revision: snapshot.revision,
+    });
     publishSnapshot();
     respond(request, success('Flash operation started.', { operationId: operation.id }));
 
@@ -154,7 +177,18 @@ export function installDevelopmentBridge() {
           activeOperation: next,
           active_operation: next,
         };
-        emit({ version: 1, type: 'progress', operation: next, revision: snapshot.revision });
+        emit({
+          version: 2,
+          event: 'progress',
+          payload: {
+            event_type: 'progress',
+            operation_id: next.id,
+            phase: status === 'success' ? 'finished' : 'execute',
+            message: next.detail ?? next.label,
+            percent: next.progress ?? 0,
+          },
+          revision: snapshot.revision,
+        });
         publishSnapshot();
       }, 320 * (index + 1));
     });
@@ -181,8 +215,8 @@ export function installDevelopmentBridge() {
     pendingGuarded = { request, operationId, complete };
     const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
     emit({
-      version: 1,
-      type: 'interaction',
+      version: 2,
+      event: 'interaction',
       revision: snapshot.revision,
       payload: {
         event_type: 'interaction',
@@ -200,18 +234,19 @@ export function installDevelopmentBridge() {
 
   const requireConfirmationText = (request: BridgeRequest, requiredText: string) => {
     emit({
-      version: 1,
-      type: 'response',
+      version: 2,
       requestId: request.requestId,
       ok: false,
-      result: {
-        status: 'FAILED',
+      error: {
         code: 'confirmation_text_required',
         message: 'Exact confirmation text is required.',
-        value: { confirmation: { required_text: requiredText, nonce: 'mock-reinforced' } },
+        details: {
+          status: 'FAILED',
+          code: 'confirmation_text_required',
+          message: 'Exact confirmation text is required.',
+          value: { confirmation: { required_text: requiredText, nonce: 'mock-reinforced' } },
+        },
       },
-      error: { code: 'confirmation_text_required', message: 'Exact confirmation text is required.' },
-      revision: snapshot.revision,
     } satisfies BridgeResponse);
   };
 
@@ -222,6 +257,7 @@ export function installDevelopmentBridge() {
       pendingFlash = null;
       pendingGuarded = null;
       mockRootModules = ['play_integrity_fix', 'zygisk_next'];
+      mockBootImages = [];
     },
     postMessage(rawMessage: string) {
       window.setTimeout(() => {
@@ -232,7 +268,7 @@ export function installDevelopmentBridge() {
           return;
         }
 
-        if (request.version !== 1 || !request.requestId || !request.command) {
+        if (request.version !== 2 || !request.requestId || !request.command) {
           emit(errorMessage('Invalid bridge request.', request));
           return;
         }
@@ -248,7 +284,7 @@ export function installDevelopmentBridge() {
 
         switch (request.command) {
           case 'snapshot.get':
-            respond(request, { status: 'SUCCESS', snapshot: structuredClone(snapshot) });
+            respond(request, structuredClone(snapshot) as unknown as Record<string, unknown>);
             publishSnapshot();
             break;
           case 'settings.get':
@@ -279,6 +315,86 @@ export function installDevelopmentBridge() {
             respond(request, success(`Found ${snapshot.devices.length} devices.`, { count: snapshot.devices.length }));
             publishSnapshot();
             break;
+          case 'device.inspect': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : '';
+            const action = typeof request.payload.action === 'string' ? request.payload.action : '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            if (!target || target.mode !== 'adb') {
+              emit(errorMessage('Device inspection requires one ADB device.', request));
+              break;
+            }
+            const properties = {
+              'ro.boot.slot_suffix': `_${target.slot}`,
+              'ro.bootloader': 'akita-mock-1.0',
+              'ro.build.display.id': target.build,
+              'ro.build.version.release': target.androidVersion,
+              'ro.build.version.security_patch': target.securityPatch,
+              'ro.product.device': target.codename,
+              'ro.product.manufacturer': 'Google',
+              'ro.product.model': target.model,
+              'ro.serialno': '[REDACTED]',
+            };
+            const values: Record<string, Record<string, unknown>> = {
+              properties: {
+                action,
+                targetSerial: serial,
+                count: Object.keys(properties).length,
+                properties,
+                redactedKeys: ['ro.serialno'],
+                summary: {
+                  manufacturer: 'Google',
+                  model: target.model,
+                  codename: target.codename,
+                  androidVersion: target.androidVersion,
+                  build: target.build,
+                  securityPatch: target.securityPatch,
+                  bootloader: 'akita-mock-1.0',
+                },
+              },
+              screenXml: {
+                action,
+                targetSerial: serial,
+                xml: '<?xml version="1.0" encoding="UTF-8"?>\n<hierarchy rotation="0"><node text="PixelFlasher demo" /></hierarchy>',
+                sha256: 'a'.repeat(64),
+                nodeCount: 2,
+                redactedFields: 0,
+              },
+              bootloaderVersions: {
+                action,
+                targetSerial: serial,
+                source: 'adb_getprop',
+                current: 'akita-mock-1.0',
+                slot: target.slot === 'unknown' ? '' : target.slot,
+                versions: { 'ro.bootloader': 'akita-mock-1.0' },
+              },
+              pifPrint: {
+                action,
+                targetSerial: serial,
+                format: 'playintegrityfork-v5-compatible',
+                profile: {
+                  MANUFACTURER: 'Google',
+                  MODEL: target.model,
+                  FINGERPRINT: `google/${target.codename}/${target.codename}:demo/${target.build}:user/release-keys`,
+                  PRODUCT: target.codename,
+                  DEVICE: target.codename,
+                  SECURITY_PATCH: target.securityPatch,
+                  DEVICE_INITIAL_SDK_INT: '32',
+                },
+              },
+            };
+            const value = values[action];
+            if (!value) {
+              emit(errorMessage('Unknown device inspection action.', request));
+              break;
+            }
+            respond(request, {
+              status: 'SUCCESS',
+              code: `device_inspection_${action}_succeeded`,
+              message: 'Device inspection completed.',
+              value,
+            });
+            break;
+          }
           case 'device.select': {
             const serials = Array.isArray(request.payload.serials)
               ? request.payload.serials.filter((serial): serial is string => typeof serial === 'string')
@@ -295,61 +411,99 @@ export function installDevelopmentBridge() {
             publishSnapshot();
             break;
           }
-          case 'native.pickFile': {
-            const filters = Array.isArray(request.payload.filters) ? request.payload.filters : [];
-            const modulePicker = filters.some((filter) => {
-              const extensions = filter && typeof filter === 'object' && Array.isArray((filter as Record<string, unknown>).extensions)
-                ? (filter as Record<string, unknown>).extensions as unknown[]
-                : [];
-              return extensions.length === 1 && extensions[0] === 'zip';
-            });
-            const imagePicker = filters.some((filter) => {
-              const extensions = filter && typeof filter === 'object' && Array.isArray((filter as Record<string, unknown>).extensions)
-                ? (filter as Record<string, unknown>).extensions as unknown[]
-                : [];
-              return extensions.includes('img');
-            });
+          case 'secret.issue': {
+            const purpose = String(request.payload.purpose);
             respond(request, {
               status: 'SUCCESS',
-              message: 'File selected.',
-              data: { path: modulePicker ? 'C:\\mock\\magisk-module.zip' : imagePicker ? 'C:\\mock\\partition-image.img' : demoFirmwares[0].path },
+              message: 'Native secret approved.',
+              data: {
+                grant: 's'.repeat(64),
+                purpose,
+                consumeOnce: true,
+                expiresInSeconds: 60,
+              },
             });
             break;
           }
-          case 'native.pickFiles':
+          case 'native.pickFile': {
+            const purpose = String(request.payload.purpose);
+            respond(request, {
+              status: 'SUCCESS',
+              message: 'File selected.',
+              data: {
+                grant: 'g'.repeat(64),
+                purpose,
+                target: 'file',
+                access: 'read',
+                consumeOnce: false,
+                expiresInSeconds: null,
+                displayName: purpose === 'root.modules.install' ? 'magisk-module.zip' : 'selected-file.img',
+              },
+            });
+            break;
+          }
+          case 'native.pickFiles': {
+            const purpose = String(request.payload.purpose);
             respond(request, {
               status: 'SUCCESS',
               message: 'Files selected.',
-              data: { paths: ['C:\\mock\\alpha.zip', 'C:\\mock\\beta.txt'] },
-            });
-            break;
-          case 'native.saveFile': {
-            const defaultName = typeof request.payload.defaultName === 'string' ? request.payload.defaultName : '';
-            if (request.payload.purpose === 'support') {
-              respond(request, {
-                status: 'SUCCESS',
-                message: 'Support destination selected.',
-                data: { destinationId: 's'.repeat(64), displayName: defaultName || 'PixelFlasher-support.zip' },
-              });
-              break;
-            }
-            respond(request, {
-              status: 'SUCCESS',
-              message: 'File selected.',
-              data: { path: defaultName.startsWith('patched-') ? `C:\\mock\\${defaultName}` : 'C:\\mock\\partition-backup.img' },
+              data: {
+                purpose,
+                grants: ['g', 'h'].map((prefix, index) => ({
+                  grant: prefix.repeat(64),
+                  purpose,
+                  target: 'file',
+                  access: 'read',
+                  consumeOnce: false,
+                  expiresInSeconds: null,
+                  displayName: index ? 'beta.txt' : 'alpha.zip',
+                })),
+              },
             });
             break;
           }
-          case 'native.pickDirectory':
-            respond(request, { status: 'SUCCESS', message: 'Folder selected.', data: { path: 'C:\\mock\\platform-tools' } });
+          case 'native.saveFile': {
+            const defaultName = typeof request.payload.defaultName === 'string' ? request.payload.defaultName : '';
+            const purpose = String(request.payload.purpose);
+            respond(request, {
+              status: 'SUCCESS',
+              message: 'File selected.',
+              data: {
+                grant: 'w'.repeat(64),
+                purpose,
+                target: 'file',
+                access: 'write',
+                consumeOnce: true,
+                expiresInSeconds: 300,
+                displayName: defaultName || 'selected-output.bin',
+              },
+            });
             break;
+          }
+          case 'native.pickDirectory': {
+            const purpose = String(request.payload.purpose);
+            respond(request, {
+              status: 'SUCCESS',
+              message: 'Folder selected.',
+              data: {
+                grant: 'd'.repeat(64),
+                purpose,
+                target: 'directory',
+                access: 'read',
+                consumeOnce: false,
+                expiresInSeconds: null,
+                displayName: 'platform-tools',
+              },
+            });
+            break;
+          }
           case 'firmware.select': {
-            const path = typeof request.payload.path === 'string' ? request.payload.path : '';
-            const firmware = demoFirmwares.find((entry) => entry.path === path);
+            const firmwareId = typeof request.payload.firmwareId === 'string' ? request.payload.firmwareId : '';
+            const selected = demoFirmwares.find((firmware) => firmware.id === firmwareId) ?? demoFirmwares[0];
             snapshot = {
               ...snapshot,
               revision: snapshot.revision + 1,
-              firmware: firmware ?? snapshot.firmware,
+              firmware: selected,
               boot: null,
             };
             respond(request, success('Firmware selected.', { snapshot: structuredClone(snapshot) }));
@@ -432,10 +586,10 @@ export function installDevelopmentBridge() {
                   partitions: mode === 'ota' ? ['ota-package'] : ['boot', 'system', 'vendor'],
                   slots: mode === 'ota' ? [] : ['a'],
                   requests: mode === 'ota'
-                    ? [{ argv: ['adb.exe', '-s', serial, 'sideload', snapshot.firmware?.path ?? 'firmware.zip'] }]
+                    ? [{ argv: ['adb.exe', '-s', serial, 'sideload', snapshot.firmware?.name ?? 'selected-firmware'] }]
                     : [
                         { argv: ['adb.exe', '-s', serial, 'reboot', 'bootloader'] },
-                        { argv: ['fastboot.exe', '-s', serial, 'update', snapshot.firmware?.path ?? 'firmware.zip', ...(mode === 'wipe' ? ['-w'] : [])] },
+                        { argv: ['fastboot.exe', '-s', serial, 'update', snapshot.firmware?.name ?? 'selected-firmware', ...(mode === 'wipe' ? ['-w'] : [])] },
                       ],
                 },
               },
@@ -458,8 +612,8 @@ export function installDevelopmentBridge() {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);
             emit({
-              version: 1,
-              type: 'interaction',
+              version: 2,
+              event: 'interaction',
               revision: snapshot.revision,
               payload: {
                 event_type: 'interaction',
@@ -474,6 +628,68 @@ export function installDevelopmentBridge() {
                 codename: target?.codename ?? '',
               },
             });
+            break;
+          }
+          case 'boot.inventory':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'boot_inventory_listed',
+              message: `found ${mockBootImages.length} boot image(s)`,
+              value: {
+                boots: structuredClone(mockBootImages),
+                selectedBootId: snapshot.boot?.id ?? null,
+                revision: snapshot.revision,
+              },
+            });
+            break;
+          case 'boot.select': {
+            let selected = mockBootImages.find((entry) => entry.bootId === request.payload.bootId);
+            if (typeof request.payload.grant === 'string') {
+              const partition = request.payload.partition;
+              if (!['boot', 'init_boot', 'vendor_boot', 'vendor_kernel_boot'].includes(String(partition))) {
+                emit(errorMessage('A supported boot partition is required.', request));
+                break;
+              }
+              selected = {
+                bootId: 'e'.repeat(32),
+                sha256: '7'.repeat(64),
+                size: 67_108_864,
+                provenance: 'user_supplied',
+                createdAt: Math.floor(Date.now() / 1000),
+                partition: partition as 'boot' | 'init_boot' | 'vendor_boot' | 'vendor_kernel_boot',
+                deviceCodenames: [],
+                patcher: '',
+                patcherVersion: '',
+                signature: '',
+                sourceHash: '',
+                patched: false,
+                verified: true,
+              };
+              mockBootImages = [selected, ...mockBootImages.filter((entry) => entry.bootId !== selected?.bootId)];
+            }
+            if (!selected?.verified) {
+              emit(errorMessage('The requested verified boot image is unavailable.', request));
+              break;
+            }
+            snapshot = {
+              ...snapshot,
+              revision: snapshot.revision + 1,
+              boot: {
+                id: selected.bootId,
+                image: `${selected.partition}.img`,
+                hash: selected.sha256,
+                flavor: selected.partition,
+                patched: selected.patched,
+                verified: true,
+              },
+            };
+            respond(request, {
+              status: 'SUCCESS',
+              code: typeof request.payload.grant === 'string' ? 'boot_imported' : 'boot_selected',
+              message: 'Verified boot image selected.',
+              value: { selected: structuredClone(selected), revision: snapshot.revision },
+            });
+            publishSnapshot();
             break;
           }
           case 'root.apps.list':
@@ -533,7 +749,7 @@ export function installDevelopmentBridge() {
               emit(errorMessage('Invalid Magisk module identifier.', request));
               break;
             }
-            if (action === 'install' && typeof request.payload.path !== 'string') {
+            if (action === 'install' && typeof request.payload.grant !== 'string') {
               emit(errorMessage('A module ZIP is required.', request));
               break;
             }
@@ -554,7 +770,7 @@ export function installDevelopmentBridge() {
                     targetSerial: serial,
                     moduleId,
                     artifact: action === 'install'
-                      ? { path: request.payload.path, sha256: '5'.repeat(64), role: `root-module-zip:${moduleId}` }
+                      ? { path: 'C:\\mock\\magisk-module.zip', sha256: '5'.repeat(64), role: `root-module-zip:${moduleId}` }
                       : null,
                   },
                 });
@@ -566,9 +782,10 @@ export function installDevelopmentBridge() {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);
             const flavor = typeof request.payload.flavor === 'string' ? request.payload.flavor : '';
-            const destination = typeof request.payload.destination === 'string' ? request.payload.destination : '';
+            const destination = `C:\\mock\\patched-${flavor}.img`;
             const app = mockRootApps.find((candidate) => candidate.id === request.payload.appId);
-            if (!target || target.mode !== 'adb' || !flavor || !destination.endsWith('.img') || !app) {
+            const secretReady = flavor !== 'apatch' || request.payload.secretGrant === 's'.repeat(64);
+            if (!target || target.mode !== 'adb' || !flavor || typeof request.payload.grant !== 'string' || !app || !secretReady) {
               emit(errorMessage('Boot patch payload is incomplete or no verified app is available.', request));
               break;
             }
@@ -578,13 +795,13 @@ export function installDevelopmentBridge() {
               false,
               () => {
                 const hash = '6'.repeat(64);
-                snapshot = { ...snapshot, boot: { id: hash.slice(0, 16), path: destination, hash, flavor: 'boot', patched: true } };
+                snapshot = { ...snapshot, boot: { id: hash.slice(0, 16), image: 'boot.img', hash, flavor: 'boot', patched: true, verified: true } };
                 finishGuarded(request, {
                   status: 'SUCCESS',
                   code: 'boot_patched',
                   message: `patched boot with ${flavor}`,
                   value: {
-                    patchedBoot: { artifact: { path: destination, sha256: hash, role: `patched-boot:${flavor}` }, sourceSha256: '7'.repeat(64), flavor, partition: 'boot' },
+                    patchedBoot: { artifact: { sha256: hash, role: `patched-boot:${flavor}`, displayName: `@artifact/patched-boot/${hash.slice(0, 12)}` }, sourceSha256: '7'.repeat(64), flavor, partition: 'boot' },
                     boot: snapshot.boot,
                   },
                 });
@@ -605,12 +822,10 @@ export function installDevelopmentBridge() {
               respond(request, success('Decision recorded.'));
               if (decision === 'accepted') finishOperation(pending.request, pending.operation);
               else emit({
-                version: 1,
-                type: 'response',
+                version: 2,
                 requestId: pending.request.requestId,
                 ok: false,
                 error: { code: 'operation_cancelled', message: 'Operation was cancelled.' },
-                revision: snapshot.revision,
               } satisfies BridgeResponse);
               break;
             }
@@ -620,12 +835,10 @@ export function installDevelopmentBridge() {
               respond(request, success('Decision recorded.'));
               if (decision === 'accepted') pending.complete();
               else emit({
-                version: 1,
-                type: 'response',
+                version: 2,
                 requestId: pending.request.requestId,
                 ok: false,
                 error: { code: 'operation_cancelled', message: 'Operation was cancelled.' },
-                revision: snapshot.revision,
               } satisfies BridgeResponse);
               break;
             }
@@ -717,7 +930,7 @@ export function installDevelopmentBridge() {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);
             const live = request.command === 'boot.live';
-            if (!target || target.mode !== 'fastboot' || target.bootloader !== 'unlocked' || !snapshot.boot?.path || !snapshot.boot.hash) {
+            if (!target || target.mode !== 'fastboot' || target.bootloader !== 'unlocked' || !snapshot.boot?.id || !snapshot.boot.hash) {
               emit(errorMessage('A verified boot image and one unlocked Fastboot device are required.', request));
               break;
             }
@@ -808,11 +1021,25 @@ export function installDevelopmentBridge() {
           case 'platformTools.setup':
           case 'backups.create':
           case 'backups.restore':
-          case 'apps.action':
-          case 'tools.adbShell':
-          case 'tools.avb':
             respond(request, success('Command accepted.'));
             break;
+          case 'apps.action': {
+            if (request.payload.action === 'install') {
+              respond(request, success('APK installed.', {
+                action: 'install',
+                apkIdentity: {
+                  packageName: 'com.example.selected',
+                  sha256: '9'.repeat(64),
+                  signerSha256: ['8'.repeat(64)],
+                  schemes: ['v2', 'v3'],
+                  verified: true,
+                },
+              }));
+            } else {
+              respond(request, success('Command accepted.', { action: request.payload.action }));
+            }
+            break;
+          }
           case 'apps.list':
             respond(request, success('Packages listed.', {
               packages: demoApps.map((app) => ({

@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Sequence
 from urllib.parse import unquote, urlsplit
-
 
 _IMPORT_META = re.compile(r"\bimport\s*\.\s*meta\b")
 _CSS_URL = re.compile(r"url\(\s*([\"']?)(.*?)\1\s*\)", re.IGNORECASE)

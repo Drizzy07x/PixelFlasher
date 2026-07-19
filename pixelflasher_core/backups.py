@@ -23,9 +23,11 @@ from .contracts import (
     DeviceInfo,
     FileArtifact,
     OperationPlan,
+    OperationPostcondition,
+    OperationRisk,
     ProcessRequest,
 )
-
+from .path_compat import is_reserved_path
 
 BACKUP_COMMANDS = frozenset({"backups.create", "backups.restore"})
 
@@ -206,6 +208,20 @@ class BackupService:
             slots=(slot,),
             data_behavior="partition_restore",
             artifacts=(artifact,),
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition(
+                    "partition_written",
+                    {
+                        "partition": target,
+                        "slot": "",
+                        "sha256": artifact.sha256,
+                        "sourcePartition": partition,
+                        "sourceSlot": slot,
+                    },
+                    "the restored partition contains the selected backup image",
+                ),
+            ),
         )
         return BackupCompilation(
             plan,
@@ -315,7 +331,7 @@ class BackupService:
     def _output_path(raw_path: object) -> Path:
         raw, expanded = BackupService._absolute_path(raw_path, field="destination")
         BackupService._reject_parent_traversal(raw)
-        if not _BACKUP_NAME_PATTERN.fullmatch(expanded.name) or expanded.is_reserved():
+        if not _BACKUP_NAME_PATTERN.fullmatch(expanded.name) or is_reserved_path(expanded):
             raise BackupPlanningError(
                 "backup_destination_invalid",
                 "destination must use a safe ASCII .img file name",
@@ -484,11 +500,15 @@ class BackupService:
         slots: tuple[str, ...],
         data_behavior: str = "preserve",
         artifacts: tuple[FileArtifact, ...] = (),
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
             label=label,
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
@@ -498,6 +518,8 @@ class BackupService:
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
             artifacts=artifacts,
+            risk=risk,
+            postconditions=postconditions,
         )
 
     @staticmethod

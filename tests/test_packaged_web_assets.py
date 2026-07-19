@@ -1,7 +1,6 @@
 import unittest
 from pathlib import Path
 
-
 PACKAGE_WORKFLOWS = {
     Path(".github/workflows/windows.yml"): ".\\build.bat",
     Path(".github/workflows/windows_2019.yml"): ".\\build.bat",

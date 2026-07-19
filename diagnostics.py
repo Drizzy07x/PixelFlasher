@@ -101,16 +101,6 @@ def create_diagnostics_bundle(output: str | None = None) -> Path:
         from self_test import format_results, run_checks
         (tmp_path / "self_test.txt").write_text(redact(format_results(run_checks())), encoding="utf-8")
 
-        try:
-            from ui.icons import ICON_REGISTRY, validate_icon_registry
-            icon_payload = {
-                "icons": {name: {"file": spec.filename, "dangerous": spec.dangerous} for name, spec in ICON_REGISTRY.items()},
-                "errors": validate_icon_registry(),
-            }
-            (tmp_path / "ui_icons.json").write_text(json.dumps(icon_payload, indent=2), encoding="utf-8")
-        except Exception as exc:
-            (tmp_path / "ui_icons_error.txt").write_text(str(exc), encoding="utf-8")
-
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         for index, log_file in enumerate(_candidate_logs(root), start=1):

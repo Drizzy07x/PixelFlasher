@@ -694,6 +694,13 @@ img {
   font-size: 0.67rem;
 }
 
+.platform-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.62fr) minmax(19rem, 0.85fr);
@@ -1275,6 +1282,212 @@ code {
   flex-wrap: wrap;
 }
 
+.device-inspection-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.device-inspection-card__detail {
+  margin: 0;
+  padding: 0.8rem 1rem 0;
+  color: var(--muted);
+  font-size: 0.67rem;
+  line-height: 1.55;
+}
+
+.device-inspection-guard {
+  margin-bottom: 0;
+}
+
+.device-inspection-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+  padding: 0.85rem;
+}
+
+.device-inspection-action {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.58rem;
+  background: var(--surface-soft);
+}
+
+.device-inspection-action > div:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.device-inspection-action .button {
+  min-height: 1.8rem;
+  justify-content: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.device-inspection-action .button:hover:not(:disabled) {
+  background: transparent;
+}
+
+.device-inspection-action small {
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1.45;
+}
+
+.device-inspection-progress,
+.device-inspection-feedback {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0.85rem 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.52rem;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 0.65rem;
+}
+
+.device-inspection-progress .button {
+  min-height: 1.8rem;
+  margin-left: auto;
+}
+
+.device-inspection-feedback > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.device-inspection-feedback code {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.device-inspection-feedback--error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface-soft));
+}
+
+.device-inspection-result {
+  margin: 0 0.85rem 0.85rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.62rem;
+  background: var(--surface-soft);
+}
+
+.device-inspection-result > header {
+  display: flex;
+  min-height: 3.1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.device-inspection-result > header > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.device-inspection-result h2 {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.device-inspection-summary,
+.device-inspection-profile {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+}
+
+.device-inspection-summary > div,
+.device-inspection-profile > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.22rem;
+  padding: 0.65rem 0.75rem;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.device-inspection-summary > div:nth-child(3n),
+.device-inspection-profile > div:nth-child(3n) {
+  border-right: 0;
+}
+
+.device-inspection-summary dt,
+.device-inspection-profile dt {
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-weight: 750;
+}
+
+.device-inspection-summary dd,
+.device-inspection-profile dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-soft);
+  font-size: 0.64rem;
+}
+
+.device-inspection-summary dd code {
+  font-size: 0.55rem;
+}
+
+.device-inspection-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.device-inspection-result pre {
+  max-height: 22rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--bg-deep) 68%, var(--surface));
+  color: var(--text-soft);
+  font: 0.6rem/1.55 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  white-space: pre;
+}
+
+.device-inspection-copy-status {
+  display: block;
+  min-height: 1.7rem;
+  padding: 0.4rem 0.75rem;
+  color: var(--success);
+  font-size: 0.58rem;
+}
+
+.device-inspection-copy-status.is-error {
+  color: var(--danger);
+}
+
 .wizard-card {
   overflow: hidden;
 }
@@ -1509,6 +1722,61 @@ code {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+}
+
+.apps-install-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.85rem;
+  border: 0;
+}
+
+.apps-install-card__guard {
+  margin-bottom: 0;
+}
+
+.apps-install-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0 0.85rem 0.85rem;
+}
+
+.apps-install-feedback {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0.85rem 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.52rem;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 0.65rem;
+}
+
+.apps-install-feedback > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.apps-install-feedback code,
+.apps-install-feedback small {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.apps-install-feedback--success {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: color-mix(in srgb, var(--success) 9%, var(--surface-soft));
+}
+
+.apps-install-feedback--error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface-soft));
 }
 
 .toggle-row {
@@ -2692,6 +2960,10 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .device-inspection-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .tool-form-grid,
   .tool-form-grid--compact,
   .tool-form-grid--partition {
@@ -2738,12 +3010,24 @@ code {
   .tool-grid,
   .settings-grid,
   .root-methods,
+  .apps-install-options,
   .review-summary {
     grid-template-columns: 1fr;
   }
 
   .device-operation-grid {
     grid-template-columns: 1fr;
+  }
+
+  .device-inspection-actions,
+  .device-inspection-summary,
+  .device-inspection-profile {
+    grid-template-columns: 1fr;
+  }
+
+  .device-inspection-summary > div,
+  .device-inspection-profile > div {
+    border-right: 0;
   }
 
   .tool-form-grid,
@@ -2911,7 +3195,12 @@ code {
   .search-field,
   .confirmation-field,
   .exact-plan,
-  .interaction-dialog {
+  .interaction-dialog,
+  .device-inspection-action,
+  .device-inspection-progress,
+  .device-inspection-feedback,
+  .device-inspection-result,
+  .apps-install-feedback {
     border-color: CanvasText;
   }
 

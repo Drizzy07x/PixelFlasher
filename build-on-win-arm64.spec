@@ -1,5 +1,7 @@
 # -*- mode: python -*-
 
+from build_artifact_policy import RETIRED_UI_MODULES
+
 block_cipher = None
 
 a = Analysis(['PixelFlasher.py'],
@@ -23,6 +25,8 @@ a = Analysis(['PixelFlasher.py'],
                 ('android_versions.json', '.'),
                 ('android_devices.json', '.'),
                 ('testkey_rsa4096.pem', '.'),
+                ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
+                ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
             ],
             hiddenimports=[
@@ -49,6 +53,7 @@ a = Analysis(['PixelFlasher.py'],
             hookspath=['pyi-hooks-arm64'],
             runtime_hooks=[],
             excludes=[
+                *RETIRED_UI_MODULES,
                 'bin/busybox_arm64-v8a',
                 'bin/busybox_armeabi-v7a',
                 'bin/busybox_x86',

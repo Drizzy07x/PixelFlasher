@@ -1,131 +1,287 @@
-"""Translate validated bridge requests into typed core commands.
+"""Translate trusted bridge-v2 requests into typed core commands.
 
-Risk metadata is defined here and in the core SafetyPolicy, never accepted from
-the browser payload. The duplicated boundary is intentional defence in depth.
+Risk metadata and native-resource resolution live on this backend boundary.
+The browser can provide only opaque, purpose-bound grant tokens; filesystem
+paths are introduced here after the native selection is revalidated.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
 
-from pixelflasher_core import AppCommand, AppSnapshot
-from ui.bridge_contract import BridgeRequest
-
+from pixelflasher_core import (
+    AppCommand,
+    AppSnapshot,
+    GrantAccess,
+    GrantError,
+    GrantTarget,
+    PathGrantStore,
+    SecretGrantStore,
+)
+from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest
+from ui.command_registry import (
+    CONFIRMATION_COMMANDS,
+    DESTRUCTIVE_COMMANDS,
+    DEVICE_SCOPED_COMMANDS,
+)
 
 SnapshotProvider = Callable[[], AppSnapshot]
 
-DESTRUCTIVE_COMMANDS = frozenset(
-    {
-        "flash.execute",
-        "boot.flash",
-        "partitions.write",
-        "partitions.erase",
-        "device.bootloader.lock",
-        "device.bootloader.unlock",
-        "device.switchSlot",
-        # Action-specific metadata is recomputed from RootingCompilation by
-        # the engine.  The bridge boundary stays conservative because it must
-        # not trust a browser-provided action value.
-        "root.modules.action",
-    }
-)
 
-CONFIRMATION_COMMANDS = DESTRUCTIVE_COMMANDS | frozenset(
-    {
-        "boot.live",
-        "boot.patch",
-        "device.switchSlot",
+class SupportDestinationRegistrar(Protocol):
+    def __call__(
+        self,
+        destination: str | Path,
+        *,
+        allow_overwrite: bool = False,
+    ) -> str: ...
+
+
+class CommandFactoryError(ValueError):
+    """Stable, non-sensitive failure raised at the trusted command boundary."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class NativeGrantSpec:
+    picker_command: str
+    purpose: str
+    consumer_command: str
+    target: GrantTarget
+    access: GrantAccess
+    multiple: bool = False
+
+
+_NATIVE_GRANT_SPECS = (
+    NativeGrantSpec(
+        "native.pickDirectory",
+        "platformTools.setup.directory",
+        "platformTools.setup",
+        GrantTarget.DIRECTORY,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
+        "firmware.select",
+        "firmware.select",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
+        "root.modules.install",
+        "root.modules.action",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
+        "backups.restore.source",
         "backups.restore",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
+        "partitions.write.source",
+        "partitions.write",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
+        "apps.install.source",
         "apps.action",
-        "root.apps.install",
-        "root.modules.action",
-    }
-)
-
-DEVICE_SCOPED_COMMANDS = CONFIRMATION_COMMANDS | frozenset(
-    {
-        "device.reboot",
-        "boot.patch",
-        "backups.list",
-        "backups.create",
-        "backups.delete",
-        "partitions.list",
-        "partitions.read",
-        "root.modules.list",
-        "apps.list",
-        "tools.adbShell",
-        "tools.scrcpy",
-        "tools.wifi",
-        "tools.logcat",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
+        "boot.select.source",
+        "boot.select",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFiles",
+        "tools.pushFiles.sources",
         "tools.pushFiles",
-        "tools.pif",
-        "tools.piAnalysis",
-        "tools.sos",
-        "tools.dataAdb",
-        "tools.shizuku",
-        "tools.keybox",
-        "tools.xml",
-        "tools.avb",
-        "tools.myTools",
-    }
+        GrantTarget.FILE,
+        GrantAccess.READ,
+        multiple=True,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
+        "boot.patch.destination",
+        "boot.patch",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
+        "backups.create.destination",
+        "backups.create",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
+        "partitions.read.destination",
+        "partitions.read",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
+        "support.create.destination",
+        "support.create",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
 )
 
-SETTINGS_COMMANDS = frozenset({"settings.get", "settings.update"})
-LOCAL_COMMANDS = SETTINGS_COMMANDS | frozenset(
-    {"root.apps.list", "firmware.select", "firmware.process", "support.create"}
-)
-_LOCAL_FIRMWARE_PAYLOAD_FIELDS = {
-    "firmware.select": frozenset({"path"}),
-    "firmware.process": frozenset(),
+_SPECS_BY_PICKER = {
+    (spec.picker_command, spec.purpose): spec for spec in _NATIVE_GRANT_SPECS
 }
-_DEVICE_TOOL_PAYLOAD_FIELDS = {
-    "tools.scrcpy": frozenset({"serial"}),
-    "tools.wifi": frozenset({"serial", "action", "host", "port", "pairingCode"}),
-}
-_SUPPORT_PAYLOAD_FIELDS = frozenset(
-    {
-        "destinationId",
-        "includeConfig",
-        "includeLogs",
-        "includeState",
-        "includeSystemInfo",
-    }
-)
+_SPECS_BY_PURPOSE = {spec.purpose: spec for spec in _NATIVE_GRANT_SPECS}
+_SECRET_PURPOSES = frozenset({"wifi.pairingCode", "apatch.superkey"})
 
 
-def create_command_factory(snapshot_provider: SnapshotProvider):
-    def command_factory(request: BridgeRequest) -> AppCommand:
-        snapshot = snapshot_provider()
+class CoreCommandFactory:
+    """Session-owned bridge command factory and native grant authority."""
+
+    def __init__(
+        self,
+        snapshot_provider: SnapshotProvider,
+        *,
+        path_grants: PathGrantStore | None = None,
+        secret_grants: SecretGrantStore | None = None,
+    ) -> None:
+        self._snapshot_provider = snapshot_provider
+        self.path_grants = path_grants or PathGrantStore()
+        self.secret_grants = secret_grants or SecretGrantStore()
+        self._support_destination_registrar: SupportDestinationRegistrar | None = None
+
+    def bind_support_destination_registrar(
+        self,
+        registrar: SupportDestinationRegistrar,
+    ) -> None:
+        if self._support_destination_registrar is not None:
+            raise RuntimeError("support destination registrar is already bound")
+        self._support_destination_registrar = registrar
+
+    def validate_native_request(self, request: BridgeRequest) -> NativeGrantSpec:
+        request.validate()
+        purpose = request.payload.get("purpose")
+        spec = _SPECS_BY_PICKER.get((request.command, purpose))
+        if spec is None:
+            raise CommandFactoryError(
+                "native_purpose_not_allowed",
+                "The native picker purpose is not allow-listed for this picker.",
+            )
+        snapshot = self._snapshot_provider()
+        if request.expected_revision != snapshot.revision:
+            raise CommandFactoryError(
+                "revision_conflict",
+                "Application state changed before the native selection.",
+            )
+        return spec
+
+    def issue_native_grants(
+        self,
+        request: BridgeRequest,
+        selections: Sequence[str | Path],
+    ) -> dict[str, Any]:
+        spec = self.validate_native_request(request)
+        paths = tuple(Path(selection) for selection in selections)
+        if not paths or (not spec.multiple and len(paths) != 1):
+            raise CommandFactoryError(
+                "native_selection_invalid",
+                "The native picker returned an invalid selection count.",
+            )
+        if spec.multiple and len(paths) > 64:
+            raise CommandFactoryError(
+                "native_selection_invalid",
+                "The native picker returned too many selections.",
+            )
+
+        issued = []
+        try:
+            for path in paths:
+                if spec.target is GrantTarget.DIRECTORY:
+                    grant = self.path_grants.issue_directory(
+                        path,
+                        purpose=spec.purpose,
+                        access=spec.access,
+                    )
+                else:
+                    grant = self.path_grants.issue_file(
+                        path,
+                        purpose=spec.purpose,
+                        access=spec.access,
+                    )
+                issued.append(grant)
+        except Exception:
+            for grant in issued:
+                self.path_grants.revoke(grant.token)
+            raise
+
+        public = [
+            {**grant.to_public_dict(), "displayName": path.name}
+            for grant, path in zip(issued, paths, strict=True)
+        ]
+        if spec.multiple:
+            return {"grants": public, "purpose": spec.purpose}
+        return public[0]
+
+    def validate_secret_issue_request(self, request: BridgeRequest) -> str:
+        request.validate()
+        purpose = request.payload.get("purpose")
+        if request.command != "secret.issue" or purpose not in _SECRET_PURPOSES:
+            raise CommandFactoryError(
+                "native_purpose_not_allowed",
+                "The secret purpose is not allow-listed.",
+            )
+        if request.expected_revision != self._snapshot_provider().revision:
+            raise CommandFactoryError(
+                "revision_conflict",
+                "Application state changed before secret issuance.",
+            )
+        return str(purpose)
+
+    def issue_secret(self, request: BridgeRequest) -> dict[str, Any]:
+        purpose = self.validate_secret_issue_request(request)
+        secret = request.payload.get("secret")
+        if not isinstance(secret, str):
+            raise CommandFactoryError("secret_invalid", "The secret value is invalid.")
+        if purpose == "wifi.pairingCode" and (
+            len(secret) != 6 or not secret.isascii() or not secret.isdecimal()
+        ):
+            raise CommandFactoryError(
+                "native_secret_invalid", "The Wi-Fi pairing code must contain six digits."
+            )
+        if purpose == "apatch.superkey" and not 8 <= len(secret) <= 128:
+            raise CommandFactoryError(
+                "native_secret_invalid", "The APatch superkey length is invalid."
+            )
+        return self.secret_grants.issue(secret, purpose=purpose).to_public_dict()
+
+    def __call__(self, request: BridgeRequest) -> AppCommand:
+        # Defence in depth for direct Python callers that bypass from_json().
+        request.validate()
+        if request.version != BRIDGE_VERSION:  # explicit for static audits
+            raise CommandFactoryError("unsupported_version", "Bridge v2 is required.")
+
+        snapshot = self._snapshot_provider()
         payload = dict(request.payload)
-        allowed_firmware_fields = _LOCAL_FIRMWARE_PAYLOAD_FIELDS.get(request.command)
-        if allowed_firmware_fields is not None:
-            unknown = frozenset(payload) - allowed_firmware_fields
-            if unknown:
-                raise ValueError(
-                    f"{request.command} payload contains an unsupported field: "
-                    f"{sorted(unknown)[0]}"
-                )
-        allowed_device_tool_fields = _DEVICE_TOOL_PAYLOAD_FIELDS.get(request.command)
-        if allowed_device_tool_fields is not None:
-            unknown = frozenset(payload) - allowed_device_tool_fields
-            if unknown:
-                raise ValueError(
-                    f"{request.command} payload contains an unsupported field: "
-                    f"{sorted(unknown)[0]}"
-                )
-        if request.command == "support.create":
-            unknown = frozenset(payload) - _SUPPORT_PAYLOAD_FIELDS
-            if unknown:
-                raise ValueError(
-                    "support.create payload contains an unsupported field: "
-                    f"{sorted(unknown)[0]}"
-                )
-        target_serial = (
-            None
-            if request.command in LOCAL_COMMANDS
-            else _target_serial(payload, snapshot, request.command)
-        )
+        self._resolve_native_resources(request.command, payload)
+        target_serial = _target_serial(payload, snapshot, request.command)
         return AppCommand(
             kind=request.command,
             expected_revision=request.expected_revision,
@@ -135,7 +291,155 @@ def create_command_factory(snapshot_provider: SnapshotProvider):
             requires_confirmation=request.command in CONFIRMATION_COMMANDS,
         )
 
-    return command_factory
+    def _resolve_native_resources(self, command: str, payload: dict[str, Any]) -> None:
+        if command == "platformTools.setup":
+            source = payload.get("source")
+            if source == "official":
+                if "grant" in payload:
+                    raise CommandFactoryError(
+                        "grant_not_applicable",
+                        "Official Platform Tools setup does not accept a directory grant.",
+                    )
+            elif source == "directory":
+                self._resolve_one(payload, "platformTools.setup.directory", "path")
+            else:
+                raise CommandFactoryError(
+                    "platform_tools_source_invalid",
+                    "Platform Tools source must be official or directory.",
+                )
+        elif command == "firmware.select":
+            if "grant" in payload:
+                self._resolve_one(payload, "firmware.select", "path")
+        elif command == "boot.select" and "grant" in payload:
+            if "bootId" in payload:
+                raise CommandFactoryError(
+                    "resource_target_ambiguous", "Choose a boot ID or a native file, not both."
+                )
+            self._resolve_one(payload, "boot.select.source", "path")
+        elif command == "boot.patch":
+            self._resolve_one(payload, "boot.patch.destination", "destination")
+            secret_token = payload.pop("secretGrant", None)
+            if secret_token is not None:
+                if payload.get("flavor", payload.get("method")) != "apatch":
+                    raise CommandFactoryError(
+                        "secret_grant_not_applicable",
+                        "An APatch secret grant is valid only for APatch patching.",
+                    )
+                try:
+                    payload["superKey"] = self.secret_grants.consume(
+                        str(secret_token), purpose="apatch.superkey"
+                    )
+                except GrantError as exc:
+                    raise CommandFactoryError(exc.code, str(exc)) from exc
+        elif command == "root.modules.action":
+            if payload.get("action") == "install":
+                self._resolve_one(payload, "root.modules.install", "path")
+            elif "grant" in payload:
+                raise CommandFactoryError(
+                    "grant_not_applicable", "This module action does not accept a file grant."
+                )
+        elif command == "apps.action":
+            if payload.get("action") == "install":
+                self._resolve_one(payload, "apps.install.source", "path")
+            elif "grant" in payload:
+                raise CommandFactoryError(
+                    "grant_not_applicable", "This package action does not accept a file grant."
+                )
+        elif command == "backups.create":
+            self._resolve_one(payload, "backups.create.destination", "destination")
+        elif command == "backups.restore":
+            self._resolve_one(payload, "backups.restore.source", "path")
+        elif command == "partitions.read":
+            self._resolve_one(payload, "partitions.read.destination", "destination")
+        elif command == "partitions.write":
+            self._resolve_one(payload, "partitions.write.source", "path")
+        elif command == "tools.pushFiles":
+            raw_grants = payload.pop("grants", None)
+            if not isinstance(raw_grants, list):
+                raise CommandFactoryError(
+                    "grant_required", "Native file grants are required for this command."
+                )
+            spec = _SPECS_BY_PURPOSE["tools.pushFiles.sources"]
+            payload["paths"] = [
+                str(
+                    self.path_grants.resolve(
+                        token,
+                        purpose=spec.purpose,
+                        target=spec.target,
+                        access=spec.access,
+                    )
+                )
+                for token in raw_grants
+            ]
+        elif command == "tools.wifi":
+            secret_token = payload.pop("secretGrant", None)
+            if payload.get("action") == "pair":
+                if not isinstance(secret_token, str):
+                    raise CommandFactoryError(
+                        "secret_grant_required",
+                        "A native Wi-Fi pairing-code grant is required.",
+                    )
+                try:
+                    payload["pairingCode"] = self.secret_grants.consume(
+                        secret_token,
+                        purpose="wifi.pairingCode",
+                    )
+                except GrantError as exc:
+                    raise CommandFactoryError(exc.code, str(exc)) from exc
+            elif secret_token is not None:
+                raise CommandFactoryError(
+                    "secret_grant_not_applicable",
+                    "This Wi-Fi action does not accept a secret grant.",
+                )
+        elif command == "support.create":
+            registrar = self._support_destination_registrar
+            if registrar is None:
+                raise CommandFactoryError(
+                    "support_destination_unavailable",
+                    "Support destination registration is unavailable.",
+                )
+            path = self._pop_and_resolve(payload, "support.create.destination")
+            try:
+                destination_id = registrar(path, allow_overwrite=path.exists())
+            except Exception as exc:
+                raise CommandFactoryError(
+                    "support_destination_invalid",
+                    "The selected support destination is invalid.",
+                ) from exc
+            payload["destinationId"] = destination_id
+
+    def _resolve_one(self, payload: dict[str, Any], purpose: str, field: str) -> None:
+        payload[field] = str(self._pop_and_resolve(payload, purpose))
+
+    def _pop_and_resolve(self, payload: dict[str, Any], purpose: str) -> Path:
+        token = payload.pop("grant", None)
+        if not isinstance(token, str):
+            raise CommandFactoryError(
+                "grant_required", "A native resource grant is required for this command."
+            )
+        spec = _SPECS_BY_PURPOSE[purpose]
+        try:
+            return self.path_grants.resolve(
+                token,
+                purpose=spec.purpose,
+                target=spec.target,
+                access=spec.access,
+            )
+        except GrantError as exc:
+            raise CommandFactoryError(exc.code, str(exc)) from exc
+
+
+def create_command_factory(
+    snapshot_provider: SnapshotProvider,
+    *,
+    path_grants: PathGrantStore | None = None,
+    secret_grants: SecretGrantStore | None = None,
+) -> CoreCommandFactory:
+    return CoreCommandFactory(
+        snapshot_provider,
+        path_grants=path_grants,
+        secret_grants=secret_grants,
+    )
 
 
 def _target_serial(
@@ -143,10 +447,22 @@ def _target_serial(
     snapshot: AppSnapshot,
     command: str,
 ) -> str | None:
+    if command not in DEVICE_SCOPED_COMMANDS:
+        return None
     raw = payload.get("serial")
     if raw is not None and (not isinstance(raw, str) or not raw.strip()):
-        raise ValueError("payload.serial must be a non-empty string")
+        raise CommandFactoryError("target_serial_invalid", "payload.serial must be a non-empty string")
     serial = raw.strip() if isinstance(raw, str) else snapshot.selected_serial
-    if command in DEVICE_SCOPED_COMMANDS and not serial:
-        raise ValueError("A target serial is required for this command")
+    if not serial:
+        raise CommandFactoryError(
+            "target_serial_required", "A target serial is required for this command"
+        )
     return serial
+
+
+__all__ = [
+    "CommandFactoryError",
+    "CoreCommandFactory",
+    "NativeGrantSpec",
+    "create_command_factory",
+]

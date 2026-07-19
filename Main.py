@@ -1961,11 +1961,6 @@ class PixelFlasher(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_support_zip, support_zip_item)
         # separator
         help_menu.AppendSeparator()
-        # Modern UI
-        self.modern_ui_preview_item = help_menu.Append(wx.ID_ANY, _("Modern UI"), _("Open the modern PixelFlasher workspace"))
-        self.Bind(wx.EVT_MENU, self._on_modern_ui_preview, self.modern_ui_preview_item)
-        # separator
-        help_menu.AppendSeparator()
         # update check
         update_item = help_menu.Append(wx.ID_ANY, _('Check for New Version'), _('Check for New Version'))
         update_item.SetBitmap(images.update_check_24.GetBitmap())
@@ -2256,23 +2251,6 @@ class PixelFlasher(wx.Frame):
         about = AboutDlg(self)
         about.ShowModal()
         about.Destroy()
-
-    # -----------------------------------------------
-    #                  _on_modern_ui_preview
-    # -----------------------------------------------
-    def _on_modern_ui_preview(self, event):
-        from ui.pages.dashboard_app import show_dashboard_preview
-
-        frame = getattr(self, "_modern_ui_preview_frame", None)
-        try:
-            if frame:
-                frame.Show(True)
-                frame.Raise()
-                return
-        except RuntimeError:
-            frame = None
-
-        self._modern_ui_preview_frame = show_dashboard_preview(self)
 
     # -----------------------------------------------
     #                  _on_advanced_config
@@ -6436,64 +6414,6 @@ class PixelFlasher(wx.Frame):
     # -----------------------------------------------
     #                  _on_magisk_patch_boot
     # -----------------------------------------------
-    def _patched_boot_records_signature(self):
-        try:
-            con = get_db_con()
-            if con is None:
-                return ()
-            cursor = con.cursor()
-            cursor.execute(
-                "SELECT id, boot_hash, file_path, epoch FROM BOOT "
-                "WHERE is_patched = 1 ORDER BY id"
-            )
-            return tuple(cursor.fetchall())
-        except Exception:
-            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Could not inspect patched boot records")
-            traceback.print_exc()
-            return ()
-
-    def _modern_patch_boot_flavor(self, device):
-        if device is not None:
-            with contextlib.suppress(Exception):
-                if getattr(device, "ksu_app_version", "") or getattr(device, "ksu_path", None):
-                    return 'KernelSU_LKM'
-            with contextlib.suppress(Exception):
-                if getattr(device, "root_version", "").lower().startswith("kernelsu"):
-                    return 'KernelSU_LKM'
-        return 'Magisk'
-
-    def _on_modern_patch_boot(self, event):
-        before_records = self._patched_boot_records_signature()
-        self._last_patch_boot_id = None
-        try:
-            print("\n==============================================================================")
-            print(f" {datetime.now():%Y-%m-%d %H:%M:%S} User initiated Modern UI Patch boot")
-            print("==============================================================================")
-            self._on_spin('start')
-            self._ensure_runtime_device_loaded()
-            device = get_phone(True)
-            patch_flavor = self._modern_patch_boot_flavor(device)
-            print(f"Modern UI selected patch method: {patch_flavor}")
-            result = patch_boot_img(self, patch_flavor)
-            self.update_widget_states()
-            if result == -1:
-                return -1
-            after_records = self._patched_boot_records_signature()
-            patched_boot_id = getattr(self, "_last_patch_boot_id", None)
-            if patched_boot_id and not any(record[0] == patched_boot_id for record in after_records):
-                print("\n❌ ERROR: Patch boot completed but the selected patched BOOT record was not found.")
-                return -1
-            if not patched_boot_id and after_records == before_records:
-                print("\n❌ ERROR: Patch boot completed without creating a patched BOOT record.")
-                return -1
-            return 0
-        except Exception as e:
-            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered while patching from Modern UI")
-            traceback.print_exc()
-            return -1
-        finally:
-            self._on_spin('stop')
-
     def _on_magisk_patch_boot(self, event):
         try:
             print("\n==============================================================================")

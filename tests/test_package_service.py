@@ -1,31 +1,64 @@
 import hashlib
 import tempfile
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
 
+from pixelflasher_core.apk_inspection import (
+    ApkIdentity,
+    ApkInspectionCode,
+    ApkInspectionError,
+)
 from pixelflasher_core.contracts import (
     AppCommand,
     AppSnapshot,
     DeviceInfo,
+    InteractionDecision,
+    OperationRisk,
     ToolchainInfo,
 )
+from pixelflasher_core.executor import CommandExecutor, FakeProcessTransport, TransportOutcome
 from pixelflasher_core.packages import (
+    PackageCompilation,
     PackagePlanningError,
     PackageService,
     parse_package_list,
 )
+from pixelflasher_core.store import AppStateStore
+from tests.artifact_stage_assertions import assert_exact_or_staged_argv
+from tests.command_engine_factory import make_test_command_engine
+
+
+class StubApkInspector:
+    def inspect(self, path: str | Path) -> ApkIdentity:
+        source = Path(path)
+        return ApkIdentity(
+            "com.example.verified",
+            hashlib.sha256(source.read_bytes()).hexdigest(),
+            ("c" * 64,),
+            ("v2",),
+            True,
+        )
 
 
 class PackageServiceTests(unittest.TestCase):
     def setUp(self):
         self.snapshot = AppSnapshot(
-            devices=(DeviceInfo("SERIAL", mode="adb", online=True),),
+            revision=4,
+            devices=(DeviceInfo("SERIAL", codename="akita", mode="adb", online=True),),
             selected_serial="SERIAL",
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
-        self.service = PackageService(hash_chunk_size=2)
+        self.service = PackageService(
+            hash_chunk_size=2,
+            apk_inspector=StubApkInspector(),
+        )
 
-    def compile(self, kind, payload):
+    def compile(
+        self,
+        kind: str,
+        payload: Mapping[str, object],
+    ) -> PackageCompilation:
         return self.service.compile(
             AppCommand(
                 kind,
@@ -55,6 +88,8 @@ class PackageServiceTests(unittest.TestCase):
             compilation.plan.request.argv,
         )
         self.assertFalse(compilation.requires_confirmation)
+        self.assertIs(OperationRisk.READ_ONLY, compilation.plan.risk)
+        self.assertEqual((), compilation.plan.postconditions)
 
     def test_destructive_multi_package_action_is_deterministic(self):
         compilation = self.compile(
@@ -68,6 +103,14 @@ class PackageServiceTests(unittest.TestCase):
 
         self.assertTrue(compilation.destructive)
         self.assertTrue(compilation.requires_confirmation)
+        self.assertIs(OperationRisk.DESTRUCTIVE, compilation.plan.risk)
+        self.assertEqual(
+            ("package_state", {"packages": ("com.example.beta", "com.example.alpha"), "state": "absent"}),
+            (
+                compilation.plan.postconditions[0].kind,
+                dict(compilation.plan.postconditions[0].expected),
+            ),
+        )
         self.assertEqual(
             [
                 (
@@ -129,6 +172,8 @@ class PackageServiceTests(unittest.TestCase):
 
         self.assertFalse(compilation.destructive)
         self.assertFalse(compilation.requires_confirmation)
+        self.assertIs(OperationRisk.READ_ONLY, compilation.plan.risk)
+        self.assertEqual((), compilation.plan.postconditions)
         self.assertEqual(
             (
                 "ADB",
@@ -178,6 +223,79 @@ class PackageServiceTests(unittest.TestCase):
                 hashlib.sha256(b"verified apk").hexdigest(),
                 compilation.plan.artifacts[0].sha256,
             )
+            self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
+            self.assertEqual(
+                "package_state",
+                compilation.plan.postconditions[0].kind,
+            )
+            self.assertEqual(
+                {
+                    "packages": ("com.example.verified",),
+                    "state": "installed",
+                },
+                dict(compilation.plan.postconditions[0].expected),
+            )
+            self.assertIsNotNone(compilation.apk_identity)
+            self.assertEqual(
+                "com.example.verified",
+                compilation.to_dict()["apkIdentity"]["packageName"],
+            )
+
+    def test_mutating_actions_declare_observable_package_state(self):
+        cases = (
+            ("enable", "enabled", OperationRisk.MUTATING),
+            ("disable", "disabled", OperationRisk.MUTATING),
+            ("forceStop", "stopped", OperationRisk.MUTATING),
+            ("launch", "running", OperationRisk.MUTATING),
+        )
+        for action, expected_state, risk in cases:
+            with self.subTest(action=action):
+                compilation = self.compile(
+                    "apps.action",
+                    {"action": action, "package": "com.example.application"},
+                )
+
+                self.assertIs(risk, compilation.plan.risk)
+                self.assertEqual(4, compilation.plan.snapshot_revision)
+                self.assertEqual("akita", compilation.plan.expected_codename)
+                self.assertEqual("package_state", compilation.plan.postconditions[0].kind)
+                self.assertEqual(
+                    {
+                        "packages": ("com.example.application",),
+                        "state": expected_state,
+                    },
+                    dict(compilation.plan.postconditions[0].expected),
+                )
+
+    def test_clear_data_requires_exact_process_evidence_and_installed_state(self):
+        compilation = self.compile(
+            "apps.action",
+            {
+                "action": "clearData",
+                "packages": ["com.example.alpha", "com.example.beta"],
+            },
+        )
+
+        self.assertTrue(compilation.destructive)
+        self.assertIs(OperationRisk.DESTRUCTIVE, compilation.plan.risk)
+        self.assertEqual(
+            ("package_data_cleared", "package_state"),
+            tuple(item.kind for item in compilation.plan.postconditions),
+        )
+        self.assertEqual(
+            {
+                "packages": ("com.example.alpha", "com.example.beta"),
+                "successCount": 2,
+            },
+            dict(compilation.plan.postconditions[0].expected),
+        )
+        self.assertEqual(
+            {
+                "packages": ("com.example.alpha", "com.example.beta"),
+                "state": "installed",
+            },
+            dict(compilation.plan.postconditions[1].expected),
+        )
 
     def test_install_rejects_non_apk_and_non_boolean_options(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -200,6 +318,81 @@ class PackageServiceTests(unittest.TestCase):
                         "options": {"replace": "yes"},
                     },
                 )
+
+    def test_install_propagates_typed_signature_failure_without_compiling_argv(self):
+        class RejectingInspector:
+            def inspect(self, _path: str | Path) -> ApkIdentity:
+                raise ApkInspectionError(
+                    ApkInspectionCode.SIGNATURE_MISSING,
+                    "APK has no verified signature",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "unsigned.apk"
+            apk.write_bytes(b"not signed")
+            service = PackageService(apk_inspector=RejectingInspector())
+
+            with self.assertRaises(PackagePlanningError) as raised:
+                service.compile(
+                    AppCommand(
+                        "apps.action",
+                        expected_revision=self.snapshot.revision,
+                        target_serial="SERIAL",
+                        payload={"action": "install", "path": str(apk)},
+                    ),
+                    self.snapshot,
+                )
+
+            self.assertEqual("apk_signature_missing", raised.exception.code)
+
+    def test_verified_install_executes_and_observes_the_exact_manifest_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "verified.apk"
+            apk.write_bytes(b"signed fixture boundary")
+            transport = FakeProcessTransport([TransportOutcome(0, stdout="Success\n")])
+            observed: list[tuple[str, object]] = []
+
+            def observe(_plan, condition, _snapshot):
+                observed.append((condition.kind, dict(condition.expected)))
+                return True
+
+            engine = make_test_command_engine(
+                store=AppStateStore(self.snapshot),
+                executor=CommandExecutor(transport),
+                package_service=self.service,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+                postcondition_observer=observe,
+            )
+
+            result = engine.execute(
+                AppCommand(
+                    "apps.action",
+                    expected_revision=self.snapshot.revision,
+                    target_serial="SERIAL",
+                    payload={"action": "install", "path": str(apk)},
+                )
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual("apps_action_succeeded", result.code)
+            self.assertEqual("com.example.verified", result.value["apkIdentity"]["packageName"])
+            self.assertEqual(
+                [
+                    (
+                        "package_state",
+                        {
+                            "packages": ("com.example.verified",),
+                            "state": "installed",
+                        },
+                    )
+                ],
+                observed,
+            )
+            assert_exact_or_staged_argv(
+                self,
+                [("ADB", "-s", "SERIAL", "install", str(apk.resolve()))],
+                transport.calls,
+            )
 
     def test_requires_selected_online_adb_device_and_validated_toolchain(self):
         cases = (

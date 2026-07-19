@@ -12,12 +12,11 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 import polib
-
 
 EXPECTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
 DEFAULT_REACT_SOURCE = Path("ui/web/src/i18n.tsx")

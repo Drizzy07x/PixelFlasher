@@ -4,6 +4,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from pixelflasher_core.apk_inspection import ApkInspectionCode, ApkInspectionError
 from pixelflasher_core.contracts import (
     AppCommand,
     AppSnapshot,
@@ -23,6 +24,7 @@ from pixelflasher_core.rooting import (
     RootingService,
     parse_root_module_list,
 )
+from tests.apk_test_helpers import FakeVerifiedApkInspector
 
 
 def write_apk(path: Path, payload: bytes = b"manifest") -> bytes:
@@ -88,6 +90,7 @@ class RootingServiceTests(unittest.TestCase):
                     ),
                 ),
                 hash_chunk_size=2,
+                apk_inspector=FakeVerifiedApkInspector(),
             )
 
             compilation = service.compile(
@@ -111,8 +114,13 @@ class RootingServiceTests(unittest.TestCase):
                 ["user-import", "official"],
                 [item.provenance for item in compilation.root_apps],
             )
-            self.assertTrue(
-                all(len(item.id) == 64 for item in compilation.root_apps)
+            self.assertTrue(all(len(item.id) == 64 for item in compilation.root_apps))
+            self.assertTrue(all(item.signer_sha256 == ("a" * 64,) for item in compilation.root_apps))
+            self.assertTrue(all(item.schemes == ("v2",) for item in compilation.root_apps))
+            self.assertNotIn("path", compilation.root_apps[0].to_dict())
+            self.assertEqual(
+                ["a" * 64],
+                compilation.root_apps[0].to_dict()["signerSha256"],
             )
 
     def test_verified_inventory_requires_and_revalidates_backend_hash(self):
@@ -136,7 +144,8 @@ class RootingServiceTests(unittest.TestCase):
                                 "official",
                                 expected_hash,
                             ),
-                        )
+                        ),
+                        apk_inspector=FakeVerifiedApkInspector(),
                     )
                     with self.assertRaises(RootingPlanningError) as raised:
                         service.root_app_inventory()
@@ -156,8 +165,10 @@ class RootingServiceTests(unittest.TestCase):
                         "30.7",
                         "official",
                         digest,
+                        "com.topjohnwu.magisk",
                     ),
-                )
+                ),
+                apk_inspector=FakeVerifiedApkInspector("com.topjohnwu.magisk"),
             )
             app = service.root_app_inventory()[0]
 
@@ -182,6 +193,139 @@ class RootingServiceTests(unittest.TestCase):
             self.assertTrue(compilation.device_write)
             self.assertFalse(compilation.destructive)
             self.assertTrue(compilation.requires_confirmation)
+            self.assertEqual("mutating", compilation.plan.risk.value)
+            self.assertEqual(
+                ("root_app_installed",),
+                tuple(item.kind for item in compilation.plan.postconditions),
+            )
+            self.assertEqual(
+                "com.topjohnwu.magisk",
+                compilation.plan.postconditions[0].expected["packageName"],
+            )
+
+    def test_root_app_install_uses_verified_identity_when_metadata_omits_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "Magisk.apk"
+            digest = hashlib.sha256(
+                write_apk(
+                    apk,
+                    b'<manifest package="com.topjohnwu.magisk" />',
+                )
+            ).hexdigest()
+            service = RootingService(
+                (
+                    RootAppSource(
+                        str(apk),
+                        "Magisk",
+                        "stable",
+                        "30.7",
+                        "official",
+                        digest,
+                    ),
+                ),
+                apk_inspector=FakeVerifiedApkInspector("com.topjohnwu.magisk"),
+            )
+            app = service.root_app_inventory()[0]
+
+            compilation = service.compile(
+                self.command("root.apps.install", {"appId": app.id}),
+                self.snapshot,
+            )
+
+            self.assertEqual("com.topjohnwu.magisk", app.package_name)
+            self.assertEqual(
+                "com.topjohnwu.magisk",
+                compilation.plan.postconditions[0].expected["packageName"],
+            )
+
+    def test_root_app_metadata_package_must_match_verified_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "Magisk.apk"
+            digest = hashlib.sha256(write_apk(apk)).hexdigest()
+            service = RootingService(
+                (
+                    RootAppSource(
+                        str(apk),
+                        "Magisk",
+                        "stable",
+                        "30.7",
+                        "official",
+                        digest,
+                        "com.topjohnwu.magisk",
+                    ),
+                ),
+                apk_inspector=FakeVerifiedApkInspector("com.evil.repacked"),
+            )
+
+            with self.assertRaises(RootingPlanningError) as raised:
+                service.root_app_inventory()
+
+            self.assertEqual("root_app_package_mismatch", raised.exception.code)
+
+    def test_inventory_uses_inspector_digest_without_a_second_service_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "imported.apk"
+            write_apk(apk)
+            inspected_digest = "b" * 64
+            service = RootingService(
+                (
+                    RootAppSource(
+                        str(apk),
+                        "Magisk",
+                        "imported",
+                        "30.7",
+                        "user-import",
+                    ),
+                ),
+                apk_inspector=FakeVerifiedApkInspector(
+                    identity_sha256=inspected_digest,
+                ),
+            )
+
+            app = service.root_app_inventory()[0]
+
+            self.assertEqual(inspected_digest, app.sha256)
+            self.assertNotEqual(
+                hashlib.sha256(apk.read_bytes()).hexdigest(),
+                app.sha256,
+            )
+
+    def test_unsigned_apk_signature_failure_and_source_change_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "Magisk.apk"
+            digest = hashlib.sha256(
+                write_apk(
+                    apk,
+                    b'<manifest package="com.topjohnwu.magisk" />',
+                )
+            ).hexdigest()
+            source = RootAppSource(
+                str(apk),
+                "Magisk",
+                "stable",
+                "30.7",
+                "official",
+                digest,
+            )
+
+            with self.assertRaises(RootingPlanningError) as unsigned:
+                RootingService((source,)).root_app_inventory()
+            self.assertEqual("apk_signature_missing", unsigned.exception.code)
+
+            for inspection_code in (
+                ApkInspectionCode.SIGNATURE_INVALID,
+                ApkInspectionCode.SOURCE_CHANGED,
+            ):
+                with self.subTest(code=inspection_code.value):
+                    inspector = FakeVerifiedApkInspector(
+                        error=ApkInspectionError(inspection_code, "verification failed")
+                    )
+                    with self.assertRaises(RootingPlanningError) as raised:
+                        RootingService(
+                            (source,),
+                            apk_inspector=inspector,
+                        ).root_app_inventory()
+                    self.assertEqual(inspection_code.value, raised.exception.code)
 
     def test_root_app_install_rejects_ui_path_hash_and_unknown_id(self):
         service = RootingService()
@@ -229,10 +373,7 @@ class RootingServiceTests(unittest.TestCase):
 
     def test_module_state_actions_compile_exact_allowlisted_commands(self):
         expected = {
-            "enable": (
-                "rm -f /data/adb/modules/zygisk_next/disable "
-                "/data/adb/modules/zygisk_next/remove"
-            ),
+            "enable": ("rm -f /data/adb/modules/zygisk_next/disable /data/adb/modules/zygisk_next/remove"),
             "disable": "touch /data/adb/modules/zygisk_next/disable",
             "remove": "touch /data/adb/modules/zygisk_next/remove",
         }
@@ -260,6 +401,13 @@ class RootingServiceTests(unittest.TestCase):
                 self.assertTrue(compilation.device_write)
                 self.assertTrue(compilation.requires_confirmation)
                 self.assertEqual(action == "remove", compilation.destructive)
+                self.assertEqual(
+                    "destructive" if action == "remove" else "mutating",
+                    compilation.plan.risk.value,
+                )
+                postcondition = compilation.plan.postconditions[0]
+                self.assertEqual("root_module_state", postcondition.kind)
+                self.assertEqual("zygisk_next", postcondition.expected["moduleId"])
 
     def test_module_id_and_action_injection_are_rejected(self):
         service = RootingService()
@@ -320,6 +468,11 @@ class RootingServiceTests(unittest.TestCase):
             self.assertTrue(compilation.device_write)
             self.assertTrue(compilation.destructive)
             self.assertTrue(compilation.requires_confirmation)
+            self.assertEqual("destructive", compilation.plan.risk.value)
+            self.assertEqual(
+                ("root_module_state",),
+                tuple(item.kind for item in compilation.plan.postconditions),
+            )
 
     def test_module_zip_rejects_archive_traversal_and_missing_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -466,8 +619,7 @@ class RootingServiceTests(unittest.TestCase):
 class RootModuleParserTests(unittest.TestCase):
     def test_parser_sorts_deduplicates_and_drops_untrusted_rows(self):
         parsed = parse_root_module_list(
-            "zygisk_next\nplay_integrity_fix\n../escape\n"
-            "good;touch /tmp/pwn\nzygisk_next\n"
+            "zygisk_next\nplay_integrity_fix\n../escape\ngood;touch /tmp/pwn\nzygisk_next\n"
         )
 
         self.assertEqual(

@@ -3,6 +3,8 @@ from pathlib import Path
 
 import wx
 
+from build_artifact_policy import RETIRED_UI_MODULES
+
 wx_dir = Path(wx.__file__).resolve().parent
 
 block_cipher = None
@@ -21,7 +23,6 @@ a = Analysis(['PixelFlasher.py'],
                 ("images/icon-dark-256.ico", "images"),
                 ("images/icon-dark-256.icns", "images"),
                 ("windows-version-info.txt", "."),
-                ('assets/icons/symbolic', 'assets/icons/symbolic'),
                 ('ui/web/dist', 'ui/web/dist'),
                 ('bin/busybox_arm64-v8a', 'bin'),
                 ('bin/busybox_armeabi-v7a', 'bin'),
@@ -37,12 +38,15 @@ a = Analysis(['PixelFlasher.py'],
                 ('android_versions.json', '.'),
                 ('android_devices.json', '.'),
                 ('testkey_rsa4096.pem', '.'),
+                ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
+                ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
             ],
             hiddenimports=['_cffi_backend', 'wx.html2'],
             hookspath=[],
             runtime_hooks=[],
             excludes=[
+                *RETIRED_UI_MODULES,
                 'bin/busybox_arm64-v8a',
                 'bin/busybox_armeabi-v7a',
                 'bin/busybox_x86',

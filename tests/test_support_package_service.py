@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import threading
 import time
@@ -9,15 +8,18 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
 from pixelflasher_core import (
     AppCommand,
-    AppSnapshot,
     ApplicationRuntime,
+    AppSnapshot,
     CancellationToken,
     DeviceInfo,
+    GrantAccess,
     OperationPlan,
     OperationStatus,
-    PixelFlasherEngine,
     ProcessRequest,
     SafetyPolicy,
     SupportDestinationRegistry,
@@ -26,11 +28,24 @@ from pixelflasher_core import (
     SupportPackageService,
     SupportPackageStatus,
 )
+from pixelflasher_core.support_v2 import (
+    SUPPORT_V2_MAGIC,
+    SupportPackageReader,
+)
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
 from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
 from ui.core_command_factory import create_command_factory
 
-
 SERIAL = "1A2B3C4D5E6F7G8H"
+
+
+def support_keys():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return private_key, public_key
 
 
 def snapshot(revision: int = 0) -> AppSnapshot:
@@ -376,7 +391,12 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             config = root / "PixelFlasher.json"
             config.write_text(json.dumps({"device": SERIAL, "token": "PRIVATE"}), encoding="utf-8")
             destination = root / "runtime-support.zip"
-            runtime = ApplicationRuntime.open(config)
+            private_key, public_key = support_keys()
+            runtime = ApplicationRuntime.open(
+                config,
+                support_recipient_public_key=public_key,
+                support_key_id="support-test-2026",
+            )
             token = runtime.register_support_destination(destination)
 
             result = runtime.execute(
@@ -396,8 +416,13 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(OperationStatus.SUCCESS, result.status)
             self.assertEqual("support_package_created", result.code)
             self.assertEqual("runtime-support.zip", result.value["fileName"])
+            self.assertEqual(2, result.value["schemaVersion"])
+            self.assertEqual("support-test-2026", result.value["keyId"])
             self.assertNotIn("path", result.value)
             self.assertTrue(destination.is_file())
+            self.assertTrue(destination.read_bytes().startswith(SUPPORT_V2_MAGIC))
+            package = SupportPackageReader(private_key).read(destination)
+            self.assertEqual("support-test-2026", package.key_id)
             self.assertEqual(result, runtime.snapshot().last_result)
             runtime.shutdown()
 
@@ -406,7 +431,12 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             root = Path(directory)
             config = root / "PixelFlasher.json"
             config.write_text("{}", encoding="utf-8")
-            runtime = ApplicationRuntime.open(config)
+            _private_key, public_key = support_keys()
+            runtime = ApplicationRuntime.open(
+                config,
+                support_recipient_public_key=public_key,
+                support_key_id="support-test-2026",
+            )
             destination = root / "stale.zip"
             token = runtime.register_support_destination(destination)
 
@@ -430,6 +460,34 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             self.assertEqual("support_destination_not_granted", forged.code)
             runtime.shutdown()
 
+    def test_runtime_without_recipient_key_fails_closed_and_never_writes_v1(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "PixelFlasher.json"
+            config.write_text("{}", encoding="utf-8")
+            destination = root / "must-not-exist.zip"
+            runtime = ApplicationRuntime.open(config)
+
+            with self.assertRaises(SupportPackageError) as registration:
+                runtime.register_support_destination(destination)
+            self.assertEqual(
+                "support_encryption_key_missing",
+                registration.exception.code,
+            )
+
+            result = runtime.execute(
+                AppCommand(
+                    "support.create",
+                    expected_revision=runtime.snapshot().revision,
+                    payload={"destinationId": "x" * 43},
+                )
+            )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("support_encryption_key_missing", result.code)
+            self.assertFalse(destination.exists())
+            runtime.shutdown()
+
     def test_running_support_operation_is_cooperatively_cancelled_and_cleans_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -438,7 +496,7 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             destination = root / "engine-cancel.zip"
             service = SupportPackageService(config)
             token = service.register_destination(destination)
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=None,
                 support_package_service=service,
             )
@@ -491,27 +549,37 @@ class SupportEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("untrusted_operation_plan", policy.evaluate(planned, snapshot()).code)
 
     def test_bridge_and_factory_accept_only_opaque_destination_and_closed_options(self):
-        token = "A" * 43
-        parsed = request(
-            {
-                "destinationId": token,
-                "includeConfig": True,
-                "includeLogs": False,
-                "includeState": True,
-                "includeSystemInfo": True,
-            }
-        )
-        command = create_command_factory(lambda: snapshot())(parsed)
-        self.assertIsNone(command.target_serial)
-        self.assertFalse(command.destructive)
-        self.assertFalse(command.requires_confirmation)
-        self.assertIn("support.create", SafetyPolicy().revisioned_kinds)
+        with tempfile.TemporaryDirectory() as directory:
+            factory = create_command_factory(lambda: snapshot())
+            registry = SupportDestinationRegistry()
+            factory.bind_support_destination_registrar(registry.grant)
+            grant = factory.path_grants.issue_file(
+                Path(directory) / "support.zip",
+                purpose="support.create.destination",
+                access=GrantAccess.WRITE,
+            )
+            parsed = request(
+                {
+                    "grant": grant.token,
+                    "includeConfig": True,
+                    "includeLogs": False,
+                    "includeState": True,
+                    "includeSystemInfo": True,
+                }
+            )
+            command = factory(parsed)
+            self.assertIsNone(command.target_serial)
+            self.assertFalse(command.destructive)
+            self.assertFalse(command.requires_confirmation)
+            self.assertIn("destinationId", command.payload)
+            self.assertNotIn("grant", command.payload)
+            self.assertIn("support.create", SafetyPolicy().revisioned_kinds)
 
         for bad_payload in (
-            {"destination": "C:/forged/support.zip", "destinationId": token},
-            {"destinationId": "short"},
-            {"destinationId": token, "includeLogs": "yes"},
-            {"destinationId": token, "argv": ["zip"]},
+            {"destination": "C:/forged/support.zip"},
+            {"destinationId": "A" * 43},
+            {"grant": "short", "includeLogs": "yes"},
+            {"grant": "A" * 43, "argv": ["zip"]},
         ):
             with self.subTest(bad_payload=bad_payload):
                 with self.assertRaises(BridgeProtocolError) as rejected:
@@ -522,10 +590,10 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             BRIDGE_VERSION,
             "factory-bypass",
             "support.create",
-            {"destinationId": token, "path": "C:/forged.zip"},
+            {"destinationId": "A" * 43, "path": "C:/forged.zip"},
             0,
         )
-        with self.assertRaisesRegex(ValueError, "unsupported field"):
+        with self.assertRaises(BridgeProtocolError):
             create_command_factory(AppSnapshot)(bypass)
 
 

@@ -24,12 +24,14 @@ import tempfile
 import threading
 import time
 import zipfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Protocol, cast
 
+from .path_compat import is_reserved_path
 
 SUPPORT_COMMAND = "support.create"
 SUPPORT_PAYLOAD_FIELDS = frozenset(
@@ -101,7 +103,7 @@ class SupportPackageError(RuntimeError):
         self.code = code
 
 
-class SupportPackageStatus(str, Enum):
+class SupportPackageStatus(StrEnum):
     SUCCESS = "success"
     CANCELLED = "cancelled"
     FAILED = "failed"
@@ -228,7 +230,7 @@ class SupportDestinationRegistry:
                 "support_destination_invalid",
                 "support destination must be an absolute path without traversal",
             )
-        if not _SAFE_ZIP_NAME_PATTERN.fullmatch(raw.name) or raw.is_reserved():
+        if not _SAFE_ZIP_NAME_PATTERN.fullmatch(raw.name) or is_reserved_path(raw):
             raise SupportPackageError(
                 "support_destination_invalid",
                 "support destination must use a safe .zip file name",
@@ -327,7 +329,7 @@ class _Redactor:
         redacted = _IPV6_PATTERN.sub("<ip-redacted>", redacted)
         return redacted
 
-    def json_value(self, value: Any, *, key: str = "", depth: int = 0) -> Any:
+    def json_value(self, value: object, *, key: str = "", depth: int = 0) -> object:
         if depth > 40:
             return "<depth-redacted>"
         if key and _SECRET_KEY_PATTERN.fullmatch(key.strip()):
@@ -337,16 +339,18 @@ class _Redactor:
         if key and _PII_KEY_PATTERN.fullmatch(key.strip()):
             return "<pii-redacted>"
         if isinstance(value, Mapping):
+            items = cast(Mapping[object, object], value)
             return {
                 str(item_key): self.json_value(
                     item,
                     key=str(item_key),
                     depth=depth + 1,
                 )
-                for item_key, item in value.items()
+                for item_key, item in items.items()
             }
         if isinstance(value, (list, tuple)):
-            return [self.json_value(item, depth=depth + 1) for item in value]
+            items = cast(Sequence[object], value)
+            return [self.json_value(item, depth=depth + 1) for item in items]
         if isinstance(value, str):
             return self.text(value)
         if value is None or isinstance(value, (bool, int, float)):
@@ -384,7 +388,7 @@ class SupportPackageService:
 
     def create(
         self,
-        payload: Mapping[str, Any],
+        payload: Mapping[str, object],
         *,
         snapshot: object,
         cancellation: CancellationProbe | None = None,
@@ -453,7 +457,7 @@ class SupportPackageService:
         self.destination_registry.shutdown()
 
     @staticmethod
-    def _options(payload: Mapping[str, Any]) -> dict[str, bool]:
+    def _options(payload: Mapping[str, object]) -> dict[str, bool]:
         unknown = set(payload) - SUPPORT_PAYLOAD_FIELDS
         if unknown:
             raise SupportPackageError(
@@ -769,7 +773,7 @@ class SupportPackageService:
                 manifest = {
                     "schemaVersion": 1,
                     "format": "pixelflasher-redacted-support",
-                    "createdUtc": datetime.now(timezone.utc).isoformat(),
+                    "createdUtc": datetime.now(UTC).isoformat(),
                     "applicationVersion": self.app_version,
                     "redaction": "mandatory",
                     "options": dict(options),
@@ -830,31 +834,32 @@ class SupportPackageService:
         """Project canonical state onto bounded support-safe diagnostic fields."""
 
         converter = getattr(snapshot, "to_dict", None)
-        raw = converter() if callable(converter) else {}
-        if not isinstance(raw, Mapping):
+        raw_value: object = converter() if callable(converter) else {}
+        if not isinstance(raw_value, Mapping):
             return {}
-        projected = {
-            key: raw.get(key)
-            for key in (
-                "revision",
-                "devices",
-                "selected_serials",
-                "selected_serial",
-                "firmware",
-                "boot",
-                "plan",
-                "toolchain",
-                "active_operation",
-            )
-        }
+        raw = cast(Mapping[object, object], raw_value)
+        projected: dict[str, object] = {}
+        for key in (
+            "revision",
+            "devices",
+            "selected_serials",
+            "selected_serial",
+            "firmware",
+            "boot",
+            "plan",
+            "toolchain",
+            "active_operation",
+        ):
+            projected[key] = raw.get(key)
         devices = projected.get("devices")
         if isinstance(devices, list):
-            projected["devices"] = devices[:64]
+            projected["devices"] = cast(list[object], devices)[:64]
         serials = projected.get("selected_serials")
         if isinstance(serials, list):
-            projected["selected_serials"] = serials[:64]
-        last_result = raw.get("last_result")
-        if isinstance(last_result, Mapping):
+            projected["selected_serials"] = cast(list[object], serials)[:64]
+        last_result_value = raw.get("last_result")
+        if isinstance(last_result_value, Mapping):
+            last_result = cast(Mapping[object, object], last_result_value)
             projected["last_result"] = {
                 key: last_result.get(key)
                 for key in ("operation_id", "status", "code", "message", "exit_code")
@@ -866,11 +871,13 @@ class SupportPackageService:
     @staticmethod
     def _snapshot_serials(snapshot: object) -> tuple[str, ...]:
         values: list[str] = []
-        serials = getattr(snapshot, "selected_serials", ())
-        if isinstance(serials, (tuple, list)):
+        serials_value: object = getattr(snapshot, "selected_serials", ())
+        if isinstance(serials_value, (tuple, list)):
+            serials = cast(Sequence[object], serials_value)
             values.extend(item for item in serials if isinstance(item, str) and item)
-        devices = getattr(snapshot, "devices", ())
-        if isinstance(devices, (tuple, list)):
+        devices_value: object = getattr(snapshot, "devices", ())
+        if isinstance(devices_value, (tuple, list)):
+            devices = cast(Sequence[object], devices_value)
             values.extend(
                 serial
                 for device in devices

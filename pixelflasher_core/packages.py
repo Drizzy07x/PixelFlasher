@@ -8,27 +8,32 @@ then compiles exact ``adb`` argv tuples which are still evaluated by
 
 from __future__ import annotations
 
-import hashlib
+import os
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
+from .apk_inspection import (
+    ApkIdentity,
+    ApkInspectionError,
+    ApkInspector,
+)
 from .contracts import (
     AppCommand,
     AppSnapshot,
     DeviceInfo,
     FileArtifact,
     OperationPlan,
+    OperationPostcondition,
+    OperationRisk,
     ProcessRequest,
 )
 
-
 PACKAGE_COMMANDS = frozenset({"apps.list", "apps.action"})
 
-_PACKAGE_PATTERN = re.compile(
-    r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$"
-)
+_PACKAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$")
 _LIST_SCOPES = {
     "all": (),
     "user": ("-3",),
@@ -48,7 +53,7 @@ _PACKAGE_ACTIONS = frozenset(
         "install",
     }
 )
-_DESTRUCTIVE_ACTIONS = frozenset({"disable", "uninstall", "clearData"})
+_DESTRUCTIVE_ACTIONS = frozenset({"uninstall", "clearData"})
 _INSTALL_OPTIONS = {
     "replace": "-r",
     "grantPermissions": "-g",
@@ -63,6 +68,10 @@ class PackagePlanningError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class ApkIdentityInspector(Protocol):
+    def inspect(self, path: str | os.PathLike[str]) -> ApkIdentity: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,23 +94,39 @@ class PackageCompilation:
     action: str
     destructive: bool = False
     requires_confirmation: bool = False
+    apk_identity: ApkIdentity | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "action": self.action,
             "destructive": self.destructive,
             "requires_confirmation": self.requires_confirmation,
             "plan": self.plan.to_dict(),
         }
+        if self.apk_identity is not None:
+            value["apkIdentity"] = {
+                "packageName": self.apk_identity.package_name,
+                "sha256": self.apk_identity.sha256,
+                "signerSha256": list(self.apk_identity.signer_sha256),
+                "schemes": list(self.apk_identity.schemes),
+                "verified": self.apk_identity.verified,
+            }
+        return value
 
 
 class PackageService:
     """Compile modern package commands from canonical state and typed intent."""
 
-    def __init__(self, *, hash_chunk_size: int = 1024 * 1024) -> None:
+    def __init__(
+        self,
+        *,
+        hash_chunk_size: int = 1024 * 1024,
+        apk_inspector: ApkIdentityInspector | None = None,
+    ) -> None:
         if hash_chunk_size <= 0:
             raise ValueError("hash_chunk_size must be positive")
         self.hash_chunk_size = hash_chunk_size
+        self.apk_inspector = apk_inspector or ApkInspector()
 
     def compile(self, command: AppCommand, snapshot: AppSnapshot) -> PackageCompilation:
         if command.kind not in PACKAGE_COMMANDS:
@@ -174,7 +199,7 @@ class PackageService:
             return self._compile_install(command, snapshot, device, adb)
 
         options = self._options(command.payload.get("options"))
-        allowed_options = {"keepData"} if action == "uninstall" else set()
+        allowed_options: set[str] = {"keepData"} if action == "uninstall" else set()
         unknown_options = set(options) - allowed_options
         if unknown_options:
             raise PackagePlanningError(
@@ -190,12 +215,51 @@ class PackageService:
             for package in packages
         )
         destructive = action in _DESTRUCTIVE_ACTIONS
+        state_by_action = {
+            "enable": "enabled",
+            "disable": "disabled",
+            "uninstall": "absent",
+            "forceStop": "stopped",
+            "launch": "running",
+        }
+        risk = (
+            OperationRisk.READ_ONLY
+            if action == "permissions"
+            else OperationRisk.DESTRUCTIVE
+            if destructive
+            else OperationRisk.MUTATING
+        )
+        if action == "permissions":
+            postconditions: tuple[OperationPostcondition, ...] = ()
+        elif action == "clearData":
+            postconditions = (
+                OperationPostcondition(
+                    "package_data_cleared",
+                    {"packages": packages, "successCount": len(packages)},
+                    "pm clear reports one exact success record per selected package",
+                ),
+                OperationPostcondition(
+                    "package_state",
+                    {"packages": packages, "state": "installed"},
+                    "every cleared package remains installed after the mutation",
+                ),
+            )
+        else:
+            postconditions = (
+                OperationPostcondition(
+                    "package_state",
+                    {"packages": packages, "state": state_by_action[action]},
+                    "every selected package reports the requested lifecycle state",
+                ),
+            )
         plan = self._base_plan(
             snapshot,
             device,
             requests,
             label=f"{action} {len(packages)} package(s) on {device.serial}",
             data_behavior=action if destructive else "preserve",
+            risk=risk,
+            postconditions=postconditions,
         )
         return PackageCompilation(
             plan,
@@ -242,17 +306,22 @@ class PackageService:
                     f"install option {key} must be a boolean",
                 )
 
-        digest = hashlib.sha256()
         try:
-            with path.open("rb") as stream:
-                while chunk := stream.read(self.hash_chunk_size):
-                    digest.update(chunk)
-        except OSError as error:
-            raise PackagePlanningError("apk_read_failed", str(error)) from error
-        artifact = FileArtifact(str(path), digest.hexdigest(), "apk")
-        flags = tuple(
-            flag for key, flag in _INSTALL_OPTIONS.items() if options.get(key) is True
-        )
+            identity = self.apk_inspector.inspect(path)
+        except ApkInspectionError as error:
+            raise PackagePlanningError(error.code.value, str(error)) from error
+        except (OSError, TypeError, ValueError) as error:
+            raise PackagePlanningError(
+                "apk_inspection_failed",
+                "APK identity verification failed",
+            ) from error
+        if not isinstance(identity, ApkIdentity) or not identity.verified:
+            raise PackagePlanningError(
+                "apk_identity_unverified",
+                "APK inspection did not return a verified identity",
+            )
+        artifact = FileArtifact(str(path), identity.sha256, "apk")
+        flags = tuple(flag for key, flag in _INSTALL_OPTIONS.items() if options.get(key) is True)
         request = ProcessRequest(
             (adb, "-s", device.serial, "install", *flags, str(path)),
             timeout_seconds=600.0,
@@ -261,10 +330,23 @@ class PackageService:
             snapshot,
             device,
             (request,),
-            label=f"Install {path.name} on {device.serial}",
+            label=f"Install {identity.package_name} on {device.serial}",
             artifacts=(artifact,),
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "package_state",
+                    {"packages": (identity.package_name,), "state": "installed"},
+                    "the cryptographically verified APK package is installed on the device",
+                ),
+            ),
         )
-        return PackageCompilation(plan, "install", requires_confirmation=True)
+        return PackageCompilation(
+            plan,
+            "install",
+            requires_confirmation=True,
+            apk_identity=identity,
+        )
 
     @staticmethod
     def _package_argv(
@@ -306,7 +388,10 @@ class PackageService:
             return {}
         if not isinstance(raw_options, Mapping):
             raise PackagePlanningError("package_option_invalid", "options must be an object")
-        return raw_options
+        values = cast(Mapping[object, object], raw_options)
+        if any(not isinstance(key, str) for key in values):
+            raise PackagePlanningError("package_option_invalid", "option names must be strings")
+        return {cast(str, key): value for key, value in values.items()}
 
     @staticmethod
     def _packages(payload: Mapping[str, object]) -> tuple[str, ...]:
@@ -320,7 +405,7 @@ class PackageService:
         if raw_package is not None:
             values: Sequence[object] = (raw_package,)
         elif isinstance(raw_packages, Sequence) and not isinstance(raw_packages, (str, bytes)):
-            values = raw_packages
+            values = cast(Sequence[object], raw_packages)
         else:
             raise PackagePlanningError(
                 "package_target_required",
@@ -351,9 +436,7 @@ class PackageService:
     @staticmethod
     def _device(command: AppCommand, snapshot: AppSnapshot) -> DeviceInfo:
         raw_serial = command.payload.get("serial")
-        if raw_serial is not None and (
-            not isinstance(raw_serial, str) or not raw_serial.strip()
-        ):
+        if raw_serial is not None and (not isinstance(raw_serial, str) or not raw_serial.strip()):
             raise PackagePlanningError(
                 "target_serial_invalid",
                 "payload.serial must be a non-empty string",
@@ -407,11 +490,15 @@ class PackageService:
         label: str,
         data_behavior: str = "preserve",
         artifacts: tuple[FileArtifact, ...] = (),
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
             label=label,
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
@@ -419,6 +506,8 @@ class PackageService:
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
             artifacts=artifacts,
+            risk=risk,
+            postconditions=postconditions,
         )
 
     @staticmethod
@@ -465,6 +554,7 @@ __all__ = [
     "PACKAGE_COMMANDS",
     "PackageCompilation",
     "PackageInfo",
+    "ApkIdentityInspector",
     "PackagePlanningError",
     "PackageService",
     "parse_package_list",

@@ -11,9 +11,9 @@ from pathlib import Path
 
 from pixelflasher_core import (
     AppCommand,
+    ApplicationRuntime,
     AppSnapshot,
     AppStateStore,
-    ApplicationRuntime,
     BootInfo,
     DeviceInfo,
     FileArtifact,
@@ -28,10 +28,10 @@ from pixelflasher_core import (
     OperationPlanner,
     OperationResult,
     OperationStatus,
-    PixelFlasherEngine,
     ProcessRequest,
     SafetyPolicy,
 )
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
 
 
 def archive_bytes(entries: list[tuple[str, bytes]]) -> bytes:
@@ -68,7 +68,10 @@ def write_ota(path: Path) -> None:
                     "META-INF/com/android/metadata",
                     b"ota-type=AB\npre-device=husky\npost-build-incremental=12345\n",
                 ),
-                ("payload.bin", b"opaque OTA payload"),
+                (
+                    "META-INF/com/google/android/update-binary",
+                    b"never execute archive-provided code",
+                ),
             ]
         )
     )
@@ -78,7 +81,12 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def selected_snapshot(firmware: FirmwareInfo = FirmwareInfo(), boot: BootInfo = BootInfo()):
+def selected_snapshot(
+    firmware: FirmwareInfo | None = None,
+    boot: BootInfo | None = None,
+):
+    firmware = firmware or FirmwareInfo()
+    boot = boot or BootInfo()
     return AppSnapshot(
         devices=(
             DeviceInfo(
@@ -139,7 +147,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
     def make_engine(self, cache: Path, snapshot: AppSnapshot | None = None):
         planner = OperationPlanner()
         service = FirmwareArtifactService(planner.artifact_repository, cache)
-        engine = PixelFlasherEngine(
+        engine = CommandEngine(
             store=AppStateStore(snapshot or selected_snapshot()),
             operation_planner=planner,
             firmware_artifact_service=service,
@@ -301,7 +309,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 planner.artifact_repository,
                 root / "cancel-cache",
             )
-            cancel_engine = PixelFlasherEngine(
+            cancel_engine = CommandEngine(
                 store=AppStateStore(cancel_snapshot),
                 operation_planner=planner,
                 firmware_artifact_service=blocking,
@@ -347,7 +355,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 root / "cache",
             )
             store = AppStateStore(original)
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=store,
                 operation_planner=planner,
                 firmware_artifact_service=service,
@@ -460,7 +468,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "share one repository"):
-                PixelFlasherEngine(
+                CommandEngine(
                     operation_planner=planner,
                     firmware_artifact_service=service,
                 )
@@ -493,18 +501,38 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             self.assertTrue(Path(before.boot.path).is_relative_to(expected_cache))
             saved = json.loads(config.read_text(encoding="utf-8"))
             core = saved["_pixelflasher_core_state"]
-            self.assertEqual(before.boot.to_dict(), core["boot"])
-            self.assertTrue(core["processed_artifacts"])
+            self.assertEqual(before.firmware.hash, core["firmware"]["hash"])
+            self.assertEqual(before.boot.hash, core["boot"]["hash"])
+            self.assertNotIn("path", core["firmware"])
+            self.assertNotIn("path", core["boot"])
+            self.assertNotIn("processed_artifacts", core)
 
             reopened = ApplicationRuntime.open(config)
             restored = reopened.snapshot()
-            registered = reopened.engine.operation_planner.artifact_repository.resolve(restored)
-            self.assertEqual(before.firmware, restored.firmware)
-            self.assertEqual(before.boot, restored.boot)
+            registered = reopened.command_engine.operation_planner.artifact_repository.resolve(
+                restored
+            )
+            self.assertEqual(before.firmware.hash, restored.firmware.hash)
+            self.assertEqual(before.firmware.type, restored.firmware.type)
+            self.assertEqual(before.firmware.build, restored.firmware.build)
+            self.assertTrue(restored.firmware.verified)
+            self.assertTrue(restored.firmware.processed)
+            self.assertEqual(before.boot.hash, restored.boot.hash)
+            self.assertEqual(before.boot.flavor, restored.boot.flavor)
+            self.assertTrue(
+                Path(restored.firmware.path).is_relative_to(
+                    reopened.artifact_repository.objects_root
+                )
+            )
+            self.assertTrue(
+                Path(restored.boot.path).is_relative_to(
+                    reopened.artifact_repository.objects_root
+                )
+            )
             self.assertTrue(any(item.role == "partition:init_boot" for item in registered))
             self.assertIs(
-                reopened.engine.firmware_artifact_service.repository,
-                reopened.engine.operation_planner.artifact_repository,
+                reopened.command_engine.firmware_artifact_service.repository,
+                reopened.command_engine.operation_planner.artifact_repository,
             )
             reopened.shutdown()
 
@@ -543,7 +571,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
 
             runtime = ApplicationRuntime.open(config)
-            restored = runtime.engine.operation_planner.artifact_repository.resolve(
+            restored = runtime.command_engine.operation_planner.artifact_repository.resolve(
                 runtime.snapshot()
             )
 

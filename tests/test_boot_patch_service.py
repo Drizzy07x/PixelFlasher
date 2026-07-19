@@ -17,7 +17,9 @@ from pixelflasher_core.contracts import (
     DeviceInfo,
     FileArtifact,
     OperationResult,
+    OperationRisk,
     OperationStatus,
+    SensitiveText,
     ToolchainInfo,
 )
 from pixelflasher_core.executor import (
@@ -27,7 +29,7 @@ from pixelflasher_core.executor import (
     TransportOutcome,
 )
 from pixelflasher_core.rooting import RootAppSource, RootingService
-
+from tests.apk_test_helpers import FakeVerifiedApkInspector
 
 PROVIDERS = {
     "magisk": "Magisk",
@@ -69,6 +71,7 @@ class BootPatchServiceTests(unittest.TestCase):
                 ),
             ),
             hash_chunk_size=2,
+            apk_inspector=FakeVerifiedApkInspector(),
         )
         app = rooting.root_app_inventory()[0]
         runner = root / f"{flavor}-runner"
@@ -99,7 +102,14 @@ class BootPatchServiceTests(unittest.TestCase):
         digest = boot_hash if boot_hash is not None else sha256(boot.read_bytes())
         return AppSnapshot(
             revision=revision,
-            devices=(DeviceInfo("SERIAL", mode=mode, online=True),),
+            devices=(
+                DeviceInfo(
+                    "SERIAL",
+                    codename="akita",
+                    mode=mode,
+                    online=True,
+                ),
+            ),
             selected_serial="SERIAL",
             boot=BootInfo(
                 "stock",
@@ -108,11 +118,7 @@ class BootPatchServiceTests(unittest.TestCase):
                 partition,
                 patched,
             ),
-            toolchain=(
-                ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True)
-                if ready
-                else ToolchainInfo()
-            ),
+            toolchain=(ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True) if ready else ToolchainInfo()),
         )
 
     def command(self, flavor, app_id, destination, *, revision=5, payload=None):
@@ -121,6 +127,8 @@ class BootPatchServiceTests(unittest.TestCase):
             "appId": app_id,
             "destination": str(destination),
         }
+        if flavor == "apatch":
+            values["superKey"] = SensitiveText("correct-horse")
         values.update(payload or {})
         return AppCommand(
             "boot.patch",
@@ -158,7 +166,30 @@ class BootPatchServiceTests(unittest.TestCase):
                 )
 
                 self.assertEqual("SERIAL", compilation.plan.target_serial)
+                self.assertEqual(5, compilation.plan.snapshot_revision)
+                self.assertEqual("akita", compilation.plan.expected_codename)
                 self.assertEqual("adb", compilation.plan.expected_device_state)
+                self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
+                self.assertEqual(
+                    ("device_reachable", "host_artifact_written"),
+                    tuple(item.kind for item in compilation.plan.postconditions),
+                )
+                self.assertEqual(
+                    "adb",
+                    compilation.plan.postconditions[0].expected["mode"],
+                )
+                artifact_condition = compilation.plan.postconditions[1]
+                self.assertEqual(str(destination.resolve()), artifact_condition.expected["path"])
+                self.assertEqual(
+                    sha256(boot.read_bytes()),
+                    artifact_condition.expected["sourceSha256"],
+                )
+                self.assertIs(
+                    True,
+                    artifact_condition.expected["requireDifferentSha256"],
+                )
+                self.assertEqual(1, artifact_condition.expected["minimumBytes"])
+                self.assertEqual("device_temp_write", compilation.plan.data_behavior)
                 self.assertEqual(sha256(boot.read_bytes()), compilation.plan.boot_hash)
                 self.assertEqual(("boot",), compilation.plan.partitions)
                 self.assertEqual(flavor, compilation.flavor)
@@ -453,6 +484,15 @@ class BootPatchServiceTests(unittest.TestCase):
             self.assertEqual(OperationStatus.FAILED, explicit.status)
             self.assertEqual("process_failed", explicit.code)
             self.assertEqual("patch failed", explicit.stderr)
+
+            cancelled = OperationResult.cancelled(
+                "patch-operation",
+                code="cancelled",
+                message="patching was cancelled",
+            )
+            explicit_cancelled = service.finalize_result(compilation, cancelled)
+            self.assertIs(OperationStatus.CANCELLED, explicit_cancelled.status)
+            self.assertEqual("cancelled", explicit_cancelled.code)
 
 
 if __name__ == "__main__":

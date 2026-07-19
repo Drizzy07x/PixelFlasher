@@ -3,16 +3,220 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import math
+import ntpath
+import posixpath
+import re
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from types import MappingProxyType
-from typing import Any, ClassVar, Mapping
+from typing import Any, ClassVar, Never, cast
 from uuid import uuid4
-
 
 JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+
+PREFERENCES_SCHEMA_KEY = "schemaVersion"
+PREFERENCES_SCHEMA_VERSION = 1
+SUPPORTED_THEMES = ("dark", "light")
+SUPPORTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
+MIN_ZOOM = 80
+MAX_ZOOM = 200
+_SUPPORTED_THEME_SET = frozenset(SUPPORTED_THEMES)
+_SUPPORTED_LOCALE_SET = frozenset(SUPPORTED_LOCALES)
+_PREFERENCE_FIELDS = frozenset(
+    {
+        PREFERENCES_SCHEMA_KEY,
+        "theme",
+        "locale",
+        "highContrast",
+        "reducedMotion",
+        "zoom",
+    }
+)
+
+
+class PreferencesError(ValueError):
+    """Stable validation failure for public presentation preferences."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class ModernPreferences:
+    """Immutable, UI-independent public presentation configuration."""
+
+    theme: str = "dark"
+    locale: str = "en"
+    high_contrast: bool = False
+    reduced_motion: bool = False
+    zoom: int = 100
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
+            raise PreferencesError(
+                "theme_invalid",
+                "theme must be exactly dark or light",
+            )
+        if not isinstance(self.locale, str) or self.locale not in _SUPPORTED_LOCALE_SET:
+            raise PreferencesError(
+                "locale_invalid",
+                "locale must be one of en, es, fr, it, zh_CN, or zh_TW",
+            )
+        if not isinstance(self.high_contrast, bool):
+            raise PreferencesError(
+                "high_contrast_invalid",
+                "highContrast must be a boolean",
+            )
+        if not isinstance(self.reduced_motion, bool):
+            raise PreferencesError(
+                "reduced_motion_invalid",
+                "reducedMotion must be a boolean",
+            )
+        if not isinstance(self.zoom, int) or isinstance(self.zoom, bool):
+            raise PreferencesError(
+                "zoom_invalid",
+                "zoom must be an integer",
+            )
+        if not MIN_ZOOM <= self.zoom <= MAX_ZOOM:
+            raise PreferencesError(
+                "zoom_invalid",
+                f"zoom must be between {MIN_ZOOM} and {MAX_ZOOM}",
+            )
+
+    @classmethod
+    def from_mapping(
+        cls,
+        raw: Mapping[str, Any],
+        *,
+        require_schema: bool = False,
+    ) -> ModernPreferences:
+        if not isinstance(raw, Mapping):
+            raise PreferencesError(
+                "preferences_not_object",
+                "modern preferences must be an object",
+            )
+        unknown = set(raw) - _PREFERENCE_FIELDS
+        if unknown:
+            preference_field = min(
+                (repr(value) for value in unknown),
+                default="<unknown>",
+            )
+            raise PreferencesError(
+                "unknown_preference_field",
+                f"unsupported preference field: {preference_field}",
+            )
+        if require_schema and PREFERENCES_SCHEMA_KEY not in raw:
+            raise PreferencesError(
+                "preferences_schema_invalid",
+                "persisted modern preferences require schemaVersion",
+            )
+        schema = raw.get(PREFERENCES_SCHEMA_KEY, PREFERENCES_SCHEMA_VERSION)
+        if not isinstance(schema, int) or isinstance(schema, bool):
+            raise PreferencesError(
+                "preferences_schema_invalid",
+                "preference schema version must be an integer",
+            )
+        if schema != PREFERENCES_SCHEMA_VERSION:
+            raise PreferencesError(
+                "preferences_schema_unsupported",
+                (
+                    f"unsupported preference schema {schema}; "
+                    f"expected {PREFERENCES_SCHEMA_VERSION}"
+                ),
+            )
+        defaults = cls()
+        return cls(
+            theme=raw.get("theme", defaults.theme),
+            locale=raw.get("locale", defaults.locale),
+            high_contrast=raw.get("highContrast", defaults.high_contrast),
+            reduced_motion=raw.get("reducedMotion", defaults.reduced_motion),
+            zoom=raw.get("zoom", defaults.zoom),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            PREFERENCES_SCHEMA_KEY: PREFERENCES_SCHEMA_VERSION,
+            "theme": self.theme,
+            "locale": self.locale,
+            "highContrast": self.high_contrast,
+            "reducedMotion": self.reduced_motion,
+            "zoom": self.zoom,
+        }
+
+
+def _empty_object_mapping() -> Mapping[str, object]:
+    return {}
+
+
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)^[a-z]:[\\/]")
+_UNC_ABSOLUTE_PATH = re.compile(r"^\\\\[^\\/]+[\\/][^\\/]+")
+_WINDOWS_PATH_IN_TEXT = re.compile(r"(?i)(?:^|[^a-z0-9])(?:[a-z]:[\\/])")
+_UNC_PATH_IN_TEXT = re.compile(r"(?:^|[^a-zA-Z0-9])\\\\[^\\/\s]+[\\/][^\s\"']+")
+_POSIX_PATH_IN_TEXT = re.compile(r"(?:^|[\s\"'(\[=,;])(/(?!/)[^\s\"'\])},;]+)")
+_PUBLIC_ANDROID_PATH_PREFIXES = (
+    "/data/",
+    "/dev/",
+    "/metadata/",
+    "/mnt/",
+    "/odm/",
+    "/proc/",
+    "/product/",
+    "/sdcard/",
+    "/storage/",
+    "/sys/",
+    "/system/",
+    "/vendor/",
+)
+
+
+def _looks_like_host_absolute_path(value: str) -> bool:
+    normalized = value.strip()
+    if not normalized:
+        return False
+    if _WINDOWS_ABSOLUTE_PATH.match(normalized) or _UNC_ABSOLUTE_PATH.match(normalized):
+        return True
+    return normalized.startswith("/") and not any(
+        normalized == prefix[:-1] or normalized.startswith(prefix)
+        for prefix in _PUBLIC_ANDROID_PATH_PREFIXES
+    )
+
+
+def _message_contains_host_path(value: str) -> bool:
+    if (
+        _WINDOWS_PATH_IN_TEXT.search(value)
+        or _UNC_PATH_IN_TEXT.search(value)
+        or "WindowsPath(" in value
+        or "PosixPath(" in value
+        or "PurePath(" in value
+    ):
+        return True
+    return any(
+        _looks_like_host_absolute_path(match.group(1))
+        for match in _POSIX_PATH_IN_TEXT.finditer(value)
+    )
+
+
+def _public_basename(value: str) -> str:
+    """Return a cross-platform basename without exposing its parent path."""
+
+    return ntpath.basename(posixpath.basename(str(value).replace("\\", "/")))
+
+
+def _public_message(value: str, *, fallback: str = "") -> str:
+    """Reject path-bearing diagnostics at the public serialization boundary."""
+
+    if not isinstance(value, str):
+        return fallback
+    if _message_contains_host_path(value):
+        return fallback
+    return value
 
 
 class SensitiveText:
@@ -33,17 +237,58 @@ class SensitiveText:
     def reveal(self) -> str:
         return self.__value
 
+    def meets_policy(
+        self,
+        min_length: int,
+        max_length: int,
+        *,
+        nul_free: bool = True,
+    ) -> bool:
+        """Check a closed content policy without exposing the secret value."""
+
+        if (
+            not isinstance(min_length, int)
+            or isinstance(min_length, bool)
+            or not isinstance(max_length, int)
+            or isinstance(max_length, bool)
+            or min_length < 0
+            or max_length < min_length
+        ):
+            raise ValueError("secret policy bounds are invalid")
+        return min_length <= len(self.__value) <= max_length and (
+            not nul_free or "\x00" not in self.__value
+        )
+
+    def same_value(self, expected: SensitiveText) -> bool:
+        """Compare two opaque values without exposing or serializing either."""
+
+        if not isinstance(expected, SensitiveText):
+            return False
+        return hmac.compare_digest(
+            self.__value.encode("utf-8"),
+            expected.__value.encode("utf-8"),
+        )
+
+    def redact(self, text: str) -> str:
+        """Remove this value from untrusted process diagnostics."""
+
+        if not isinstance(text, str):
+            raise TypeError("redaction input must be a string")
+        if not self.__value:
+            return text
+        return text.replace(self.__value, "[REDACTED]")
+
     def __repr__(self) -> str:
         return "SensitiveText([REDACTED])"
 
     def __str__(self) -> str:
         return "[REDACTED]"
 
-    def __reduce__(self) -> object:
+    def __reduce__(self) -> Never:
         raise TypeError("sensitive text cannot be pickled")
 
 
-class CommandKind(str, Enum):
+class CommandKind(StrEnum):
     SNAPSHOT_GET = "snapshot.get"
     DEVICE_SCAN = "device.scan"
     DEVICE_SELECT = "device.select"
@@ -52,13 +297,24 @@ class CommandKind(str, Enum):
     FLASH_EXECUTE = "flash.execute"
 
 
-class OperationStatus(str, Enum):
+class OperationStatus(StrEnum):
     SUCCESS = "success"
     CANCELLED = "cancelled"
     FAILED = "failed"
 
 
-class ProgressPhase(str, Enum):
+class OperationRisk(StrEnum):
+    """Execution risk used by the v2 planner and operation runner."""
+
+    READ_ONLY = "read_only"
+    MUTATING = "mutating"
+    DESTRUCTIVE = "destructive"
+
+
+OPERATION_PLAN_TTL_SECONDS = 5 * 60.0
+
+
+class ProgressPhase(StrEnum):
     QUEUED = "queued"
     STARTED = "started"
     RUNNING = "running"
@@ -67,46 +323,114 @@ class ProgressPhase(str, Enum):
     FAILED = "failed"
 
 
-class InteractionKind(str, Enum):
+class InteractionKind(StrEnum):
     CONFIRM = "confirm"
     CHOICE = "choice"
     NOTIFY = "notify"
 
 
-class InteractionDecision(str, Enum):
+class InteractionDecision(StrEnum):
     ACCEPTED = "accepted"
     CANCELLED = "cancelled"
 
 
-def _freeze_mapping(values: Mapping[str, Any] | None) -> Mapping[str, Any]:
+@dataclass(frozen=True, slots=True)
+class CommandAck:
+    """Explicit acknowledgement for cancellation and interaction responses."""
+
+    accepted: bool
+    code: str
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.accepted, bool):
+            raise TypeError("accepted must be a boolean")
+        if not isinstance(self.code, str) or not self.code.strip():
+            raise ValueError("command acknowledgement code must not be empty")
+        if not isinstance(self.message, str):
+            raise TypeError("command acknowledgement message must be a string")
+
+    def __bool__(self) -> bool:
+        return self.accepted
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "accepted": self.accepted,
+            "code": self.code,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionResponse:
+    """One revision-bound response to a pending backend interaction."""
+
+    decision: InteractionDecision
+    expected_revision: int
+
+    def __post_init__(self) -> None:
+        decision = (
+            self.decision
+            if isinstance(self.decision, InteractionDecision)
+            else InteractionDecision(str(self.decision))
+        )
+        object.__setattr__(self, "decision", decision)
+        if (
+            not isinstance(self.expected_revision, int)
+            or isinstance(self.expected_revision, bool)
+            or self.expected_revision < 0
+        ):
+            raise ValueError("expected_revision must be a non-negative integer")
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "decision": self.decision.value,
+            "expected_revision": self.expected_revision,
+        }
+
+
+def _freeze_mapping(
+    values: Mapping[str, object] | None,
+) -> Mapping[str, object]:
+    raw_values = cast(Mapping[object, object], values or {})
     return MappingProxyType(
-        {str(key): _freeze_value(value) for key, value in (values or {}).items()}
+        {str(key): _freeze_value(value) for key, value in raw_values.items()}
     )
 
 
-def _freeze_value(value: Any) -> Any:
+def _freeze_value(value: object) -> object:
     if isinstance(value, Mapping):
+        values = cast(Mapping[object, object], value)
         return MappingProxyType(
-            {str(key): _freeze_value(item) for key, item in value.items()}
+            {str(key): _freeze_value(item) for key, item in values.items()}
         )
     if isinstance(value, (tuple, list)):
-        return tuple(_freeze_value(item) for item in value)
+        items = cast(tuple[object, ...] | list[object], value)
+        return tuple(_freeze_value(item) for item in items)
     if isinstance(value, (set, frozenset)):
-        return frozenset(_freeze_value(item) for item in value)
+        items = cast(set[object] | frozenset[object], value)
+        return frozenset(_freeze_value(item) for item in items)
     return value
 
 
-def _json_value(value: Any) -> JSONValue:
+def _json_value(value: object) -> JSONValue:
     if isinstance(value, SensitiveText):
         return "[REDACTED]"
     if isinstance(value, Enum):
-        return str(value.value)
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return value.to_dict()
+        return str(cast(object, value.value))
+    converter = getattr(value, "to_dict", None)
+    if callable(converter):
+        converted = cast(Callable[[], object], converter)()
+        return _json_value(converted)
     if isinstance(value, Mapping):
-        return {str(key): _json_value(item) for key, item in value.items()}
+        values = cast(Mapping[object, object], value)
+        return {str(key): _json_value(item) for key, item in values.items()}
     if isinstance(value, (tuple, list, set, frozenset)):
-        return [_json_value(item) for item in value]
+        items = cast(
+            tuple[object, ...] | list[object] | set[object] | frozenset[object],
+            value,
+        )
+        return [_json_value(item) for item in items]
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     return str(value)
@@ -121,6 +445,7 @@ class ProcessRequest:
     env: tuple[tuple[str, str], ...] | None = None
     timeout_seconds: float | None = None
     encoding: str = "utf-8"
+    stdin_secret_field: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.argv, str):
@@ -141,6 +466,19 @@ class ProcessRequest:
             raise ValueError("env must contain string key/value pairs")
         if not self.encoding:
             raise ValueError("encoding must not be empty")
+        if self.stdin_secret_field is not None and (
+            not isinstance(self.stdin_secret_field, str)
+            or not self.stdin_secret_field
+            or len(self.stdin_secret_field) > 64
+            or not self.stdin_secret_field[0].isalpha()
+            or not all(
+                character.isascii() and (character.isalnum() or character == "_")
+                for character in self.stdin_secret_field
+            )
+        ):
+            raise ValueError(
+                "stdin_secret_field must be a short ASCII identifier or null"
+            )
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -149,6 +487,35 @@ class ProcessRequest:
             "env": dict(self.env) if self.env is not None else None,
             "timeout_seconds": self.timeout_seconds,
             "encoding": self.encoding,
+            # This is only the backend payload field name. Secret material is
+            # deliberately absent from process requests and operation plans.
+            "stdin_secret_field": self.stdin_secret_field,
+        }
+
+    def to_public_dict(
+        self,
+        *,
+        artifact_references: Mapping[str, str] | None = None,
+    ) -> dict[str, JSONValue]:
+        """Serialize a display-only command without host paths, cwd, or env."""
+
+        references = artifact_references or {}
+        argv: list[JSONValue] = []
+        for index, argument in enumerate(self.argv):
+            reference = references.get(argument)
+            if reference is not None:
+                argv.append(reference)
+            elif index == 0:
+                argv.append(_public_basename(argument) or "tool")
+            elif _looks_like_host_absolute_path(argument):
+                argv.append("@host-resource")
+            else:
+                argv.append(argument)
+        return {
+            "argv": argv,
+            "timeout_seconds": self.timeout_seconds,
+            "encoding": self.encoding,
+            "stdin_secret_field": self.stdin_secret_field,
         }
 
 
@@ -169,12 +536,144 @@ class FileArtifact:
     def to_dict(self) -> dict[str, JSONValue]:
         return {"path": self.path, "sha256": self.sha256, "role": self.role}
 
+    def public_reference(self) -> str:
+        role = self.role.strip().replace(" ", "-") or "artifact"
+        return f"@artifact/{role}/{self.sha256[:12]}"
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "sha256": self.sha256,
+            "role": self.role,
+            "displayName": self.public_reference(),
+        }
+
+
+_SECRET_FIELD_FRAGMENTS = frozenset(
+    {"credential", "pairing", "passphrase", "password", "secret", "token"}
+)
+
+
+def _reject_sensitive_metadata(value: Any, *, path: str = "postcondition") -> None:
+    if isinstance(value, SensitiveText):
+        raise ValueError(f"{path} must not contain secrets")
+    if isinstance(value, Mapping):
+        values = cast(Mapping[object, object], value)
+        for raw_key, item in values.items():
+            if isinstance(raw_key, SensitiveText):
+                raise ValueError(f"{path} must not contain secret keys")
+            key = str(raw_key)
+            normalized = key.casefold().replace("-", "_")
+            if any(fragment in normalized for fragment in _SECRET_FIELD_FRAGMENTS):
+                raise ValueError(f"{path}.{key} is not allowed to contain secret material")
+            _reject_sensitive_metadata(item, path=f"{path}.{key}")
+    elif isinstance(value, (tuple, list, set, frozenset)):
+        items = cast(
+            tuple[object, ...] | list[object] | set[object] | frozenset[object],
+            value,
+        )
+        for index, item in enumerate(items):
+            _reject_sensitive_metadata(item, path=f"{path}[{index}]")
+
+
+@dataclass(frozen=True, slots=True)
+class OperationPostcondition:
+    """One observable condition that must hold before success is reported."""
+
+    kind: str
+    expected: Mapping[str, object] = field(default_factory=dict[str, object])
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind.strip():
+            raise ValueError("postcondition kind must be a non-empty string")
+        if not isinstance(self.expected, Mapping):
+            raise TypeError("postcondition expected value must be a mapping")
+        _reject_sensitive_metadata(self.expected)
+        object.__setattr__(self, "kind", self.kind.strip())
+        object.__setattr__(self, "expected", _freeze_mapping(self.expected))
+        if not isinstance(self.description, str):
+            raise TypeError("postcondition description must be a string")
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "kind": self.kind,
+            "expected": _json_value(self.expected),
+            "description": self.description,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        """Expose the observable contract, never backend evidence locations."""
+
+        return {
+            "kind": self.kind,
+            "description": _public_message(self.description),
+        }
+
+
+def _normalized_operation_risk(value: OperationRisk | str) -> OperationRisk:
+    if isinstance(value, OperationRisk):
+        return value
+    aliases = {
+        "none": OperationRisk.READ_ONLY,
+        "read": OperationRisk.READ_ONLY,
+        "read_only": OperationRisk.READ_ONLY,
+        "device_read": OperationRisk.READ_ONLY,
+        "mutating": OperationRisk.MUTATING,
+        "mutation": OperationRisk.MUTATING,
+        "device_write": OperationRisk.MUTATING,
+        "destructive": OperationRisk.DESTRUCTIVE,
+    }
+    normalized = str(value).strip().casefold().replace("-", "_")
+    try:
+        return aliases[normalized]
+    except KeyError as error:
+        raise ValueError(f"unsupported operation risk: {value}") from error
+
+
+def _normalized_postcondition(value: object) -> OperationPostcondition:
+    if isinstance(value, OperationPostcondition):
+        return value
+    if isinstance(value, str):
+        return OperationPostcondition(value)
+    if isinstance(value, Mapping):
+        values = cast(Mapping[object, object], value)
+        unknown = set(values) - {"kind", "expected", "description"}
+        if unknown:
+            raise ValueError(
+                f"unsupported postcondition field: {sorted(str(item) for item in unknown)[0]}"
+            )
+        expected = values.get("expected", {})
+        if not isinstance(expected, Mapping):
+            raise TypeError("postcondition expected value must be a mapping")
+        return OperationPostcondition(
+            kind=str(values.get("kind", "")),
+            expected=cast(Mapping[str, object], expected),
+            description=str(values.get("description", "")),
+        )
+    raise TypeError("postconditions must contain typed conditions, strings, or mappings")
+
+
+def confirmation_serial_suffix(serial: str) -> str:
+    """Return only the final six serial characters for confirmation text."""
+
+    normalized = str(serial).strip()
+    if not normalized:
+        raise ValueError("a real target serial is required for confirmation")
+    return normalized[-6:]
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class OperationPlan:
     requests: tuple[ProcessRequest, ...]
     label: str = ""
+    plan_id: str = ""
+    created: float = 0.0
+    expires: float = 0.0
+    risk: OperationRisk = OperationRisk.READ_ONLY
+    postconditions: tuple[OperationPostcondition, ...] = ()
+    snapshot_revision: int | None = None
     target_serial: str | None = None
+    expected_codename: str = ""
     expected_device_state: str = ""
     firmware_hash: str = ""
     boot_hash: str = ""
@@ -192,7 +691,16 @@ class OperationPlan:
         self,
         requests: tuple[ProcessRequest, ...] | list[ProcessRequest] | ProcessRequest | None = None,
         label: str = "",
+        plan_id: str | None = None,
+        created: float | None = None,
+        expires: float | None = None,
+        risk: OperationRisk | str = OperationRisk.READ_ONLY,
+        postconditions: tuple[
+            OperationPostcondition | str | Mapping[str, object], ...
+        ] = (),
+        snapshot_revision: int | None = None,
         target_serial: str | None = None,
+        expected_codename: str = "",
         expected_device_state: str = "",
         firmware_hash: str = "",
         boot_hash: str = "",
@@ -207,6 +715,7 @@ class OperationPlan:
         dry_run: bool = False,
         *,
         request: ProcessRequest | None = None,
+        planId: str | None = None,
     ) -> None:
         if isinstance(requests, ProcessRequest):
             normalized_requests = (requests,)
@@ -216,9 +725,31 @@ class OperationPlan:
             if normalized_requests:
                 raise ValueError("provide requests or request, not both")
             normalized_requests = (request,)
+        if plan_id is not None and planId is not None and plan_id != planId:
+            raise ValueError("plan_id and planId aliases disagree")
+        normalized_plan_id = plan_id or planId or uuid4().hex
+        created_value = time.time() if created is None else float(created)
+        expires_value = (
+            created_value + OPERATION_PLAN_TTL_SECONDS
+            if expires is None
+            else float(expires)
+        )
+        normalized_risk = _normalized_operation_risk(risk)
+        if dry_run:
+            normalized_risk = OperationRisk.READ_ONLY
+        normalized_postconditions = tuple(
+            _normalized_postcondition(item) for item in postconditions
+        )
         object.__setattr__(self, "requests", normalized_requests)
         object.__setattr__(self, "label", label)
+        object.__setattr__(self, "plan_id", normalized_plan_id)
+        object.__setattr__(self, "created", created_value)
+        object.__setattr__(self, "expires", expires_value)
+        object.__setattr__(self, "risk", normalized_risk)
+        object.__setattr__(self, "postconditions", normalized_postconditions)
+        object.__setattr__(self, "snapshot_revision", snapshot_revision)
         object.__setattr__(self, "target_serial", target_serial)
+        object.__setattr__(self, "expected_codename", expected_codename)
         object.__setattr__(self, "expected_device_state", expected_device_state)
         object.__setattr__(self, "firmware_hash", firmware_hash)
         object.__setattr__(self, "boot_hash", boot_hash)
@@ -240,6 +771,22 @@ class OperationPlan:
             raise TypeError("requests must contain only ProcessRequest values")
         if any(not isinstance(item, FileArtifact) for item in self.artifacts):
             raise TypeError("artifacts must contain only FileArtifact values")
+        if not isinstance(self.plan_id, str) or not self.plan_id.strip():
+            raise ValueError("plan_id must be a non-empty string")
+        if not math.isfinite(self.created) or not math.isfinite(self.expires):
+            raise ValueError("created and expires must be finite timestamps")
+        if self.created < 0 or self.expires <= self.created:
+            raise ValueError("expires must be later than created")
+        if self.expires - self.created > OPERATION_PLAN_TTL_SECONDS + 1e-6:
+            raise ValueError("operation plan TTL cannot exceed five minutes")
+        if self.risk is not OperationRisk.READ_ONLY and not self.postconditions:
+            raise ValueError("mutating plans require at least one postcondition")
+        if self.snapshot_revision is not None and (
+            not isinstance(self.snapshot_revision, int)
+            or isinstance(self.snapshot_revision, bool)
+            or self.snapshot_revision < 0
+        ):
+            raise ValueError("snapshot_revision must be a non-negative integer or null")
         if not isinstance(self.plan_revision, int) or isinstance(self.plan_revision, bool):
             raise TypeError("plan_revision must be an integer")
         if self.plan_revision < 0:
@@ -248,6 +795,8 @@ class OperationPlan:
             raise ValueError("partitions cannot contain empty names")
         if any(not isinstance(item, str) or not item for item in self.slots):
             raise ValueError("slots cannot contain empty names")
+        if not isinstance(self.expected_codename, str):
+            raise TypeError("expected_codename must be a string")
 
     @property
     def request(self) -> ProcessRequest:
@@ -257,23 +806,44 @@ class OperationPlan:
             raise AttributeError("a multi-command plan has no singular request")
         return self.requests[0]
 
-    def confirmation_challenge(self) -> str:
-        """Bind a reinforced confirmation token to every safety-critical field."""
+    @property
+    def planId(self) -> str:  # noqa: N802 - public bridge contract spelling
+        return self.plan_id
+
+    @property
+    def expired(self) -> bool:
+        return time.time() >= self.expires
+
+    def execution_fingerprint(self) -> str:
+        """Fingerprint stable execution semantics, excluding IDs and clocks."""
 
         material = {
             "requests": [request.to_dict() for request in self.requests],
             "target_serial": self.target_serial,
+            "expected_codename": self.expected_codename,
             "expected_device_state": self.expected_device_state,
             "firmware_hash": self.firmware_hash,
             "boot_hash": self.boot_hash,
             "partitions": self.partitions,
             "slots": self.slots,
             "data_behavior": self.data_behavior,
+            "snapshot_revision": self.snapshot_revision,
             "plan_revision": self.plan_revision,
             "fingerprint": self.fingerprint,
-            "confirmation_nonce": self.confirmation_nonce,
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
             "dry_run": self.dry_run,
+            "risk": self.risk.value,
+            "postconditions": [item.to_dict() for item in self.postconditions],
+        }
+        encoded = json.dumps(material, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def confirmation_challenge(self) -> str:
+        """Bind a reinforced confirmation token to every safety-critical field."""
+
+        material = {
+            "execution_fingerprint": self.execution_fingerprint(),
+            "confirmation_nonce": self.confirmation_nonce,
         }
         encoded = json.dumps(material, separators=(",", ":"), sort_keys=True).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -288,10 +858,18 @@ class OperationPlan:
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
+            "planId": self.plan_id,
+            "created": self.created,
+            "expires": self.expires,
+            "risk": self.risk.value,
+            "postconditions": [item.to_dict() for item in self.postconditions],
+            "snapshot_revision": self.snapshot_revision,
+            "execution_fingerprint": self.execution_fingerprint(),
             "requests": [request.to_dict() for request in self.requests],
             "request": self.requests[0].to_dict() if len(self.requests) == 1 else None,
             "label": self.label,
             "target_serial": self.target_serial,
+            "expected_codename": self.expected_codename,
             "expected_device_state": self.expected_device_state,
             "firmware_hash": self.firmware_hash,
             "boot_hash": self.boot_hash,
@@ -301,9 +879,199 @@ class OperationPlan:
             "plan_revision": self.plan_revision,
             "fingerprint": self.fingerprint,
             "confirmation_nonce": self.confirmation_nonce,
-            "confirmation_token": self.confirmation_token,
+            # Execution tokens are backend-only and must never cross JSON.
+            "confirmation_token": None,
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
             "dry_run": self.dry_run,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        artifact_references = {
+            artifact.path: artifact.public_reference() for artifact in self.artifacts
+        }
+        requests = [
+            request.to_public_dict(artifact_references=artifact_references)
+            for request in self.requests
+        ]
+        return cast(dict[str, JSONValue], {
+            "planId": self.plan_id,
+            "created": self.created,
+            "expires": self.expires,
+            "risk": self.risk.value,
+            "postconditions": [item.to_public_dict() for item in self.postconditions],
+            "snapshot_revision": self.snapshot_revision,
+            "execution_fingerprint": self.execution_fingerprint(),
+            "requests": requests,
+            "request": requests[0] if len(requests) == 1 else None,
+            "label": _public_message(self.label),
+            "target_serial": self.target_serial,
+            "expected_codename": self.expected_codename,
+            "expected_device_state": self.expected_device_state,
+            "firmware_hash": self.firmware_hash,
+            "boot_hash": self.boot_hash,
+            "partitions": list(self.partitions),
+            "slots": list(self.slots),
+            "data_behavior": self.data_behavior,
+            "plan_revision": self.plan_revision,
+            "fingerprint": self.fingerprint,
+            "confirmation_nonce": self.confirmation_nonce,
+            "confirmation_token": None,
+            "artifacts": [artifact.to_public_dict() for artifact in self.artifacts],
+            "dry_run": self.dry_run,
+        })
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class OperationBatch:
+    """An immutable, ordered, fail-fast group of flash plans."""
+
+    plans: tuple[OperationPlan, ...]
+    kind: str = CommandKind.FLASH_EXECUTE.value
+    batch_id: str = ""
+    created: float = 0.0
+    expires: float = 0.0
+    risk: OperationRisk = OperationRisk.DESTRUCTIVE
+    fingerprint: str = ""
+    confirmation_nonce: str | None = None
+    confirmation_token: str | None = None
+
+    def __init__(
+        self,
+        plans: tuple[OperationPlan, ...] | list[OperationPlan],
+        kind: str = CommandKind.FLASH_EXECUTE.value,
+        batch_id: str | None = None,
+        created: float | None = None,
+        expires: float | None = None,
+        risk: OperationRisk | str = OperationRisk.DESTRUCTIVE,
+        fingerprint: str = "",
+        confirmation_nonce: str | None = None,
+        confirmation_token: str | None = None,
+        *,
+        batchId: str | None = None,
+    ) -> None:
+        normalized_plans = tuple(plans)
+        if kind != CommandKind.FLASH_EXECUTE.value:
+            raise ValueError("OperationBatch supports only flash.execute")
+        if not normalized_plans:
+            raise ValueError("batch must contain at least one flash plan")
+        if any(not isinstance(plan, OperationPlan) for plan in normalized_plans):
+            raise TypeError("batch plans must contain only OperationPlan values")
+        if batch_id is not None and batchId is not None and batch_id != batchId:
+            raise ValueError("batch_id and batchId aliases disagree")
+        serials = tuple(plan.target_serial for plan in normalized_plans)
+        if any(not serial for serial in serials):
+            raise ValueError("every batch plan must name one target serial")
+        if len(serials) != len(set(serials)):
+            raise ValueError("batch plans must target unique serials")
+        if any(plan.dry_run or plan.risk is not OperationRisk.DESTRUCTIVE for plan in normalized_plans):
+            raise ValueError("batch flash plans must be destructive, non-dry-run plans")
+
+        created_value = time.time() if created is None else float(created)
+        maximum_expiry = min(plan.expires for plan in normalized_plans)
+        expires_value = (
+            min(created_value + OPERATION_PLAN_TTL_SECONDS, maximum_expiry)
+            if expires is None
+            else float(expires)
+        )
+        normalized_risk = _normalized_operation_risk(risk)
+        if normalized_risk is not OperationRisk.DESTRUCTIVE:
+            raise ValueError("flash batches must be destructive")
+        normalized_batch_id = batch_id or batchId or uuid4().hex
+
+        object.__setattr__(self, "plans", normalized_plans)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "batch_id", normalized_batch_id)
+        object.__setattr__(self, "created", created_value)
+        object.__setattr__(self, "expires", expires_value)
+        object.__setattr__(self, "risk", normalized_risk)
+        object.__setattr__(self, "confirmation_nonce", confirmation_nonce)
+        object.__setattr__(self, "confirmation_token", confirmation_token)
+        computed = self.compute_fingerprint()
+        if fingerprint and fingerprint != computed:
+            raise ValueError("batch fingerprint does not match its ordered plans")
+        object.__setattr__(self, "fingerprint", fingerprint or computed)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.batch_id, str) or not self.batch_id.strip():
+            raise ValueError("batch_id must be a non-empty string")
+        if not math.isfinite(self.created) or not math.isfinite(self.expires):
+            raise ValueError("batch timestamps must be finite")
+        if self.created < 0 or self.expires <= self.created:
+            raise ValueError("batch expires must be later than created")
+        if self.expires - self.created > OPERATION_PLAN_TTL_SECONDS + 1e-6:
+            raise ValueError("operation batch TTL cannot exceed five minutes")
+        if self.expires > min(plan.expires for plan in self.plans) + 1e-6:
+            raise ValueError("batch cannot outlive one of its plans")
+
+    @property
+    def batchId(self) -> str:  # noqa: N802 - public bridge contract spelling
+        return self.batch_id
+
+    @property
+    def target_serials(self) -> tuple[str, ...]:
+        return tuple(plan.target_serial or "" for plan in self.plans)
+
+    def compute_fingerprint(self) -> str:
+        material = {
+            "kind": self.kind,
+            "plans": [
+                {
+                    "serial": plan.target_serial,
+                    "fingerprint": plan.execution_fingerprint(),
+                }
+                for plan in self.plans
+            ],
+        }
+        encoded = json.dumps(material, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def confirmation_challenge(self) -> str:
+        material = {
+            "fingerprint": self.fingerprint,
+            "confirmation_nonce": self.confirmation_nonce,
+            "serials": self.target_serials,
+        }
+        encoded = json.dumps(material, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @property
+    def reinforced_confirmation_valid(self) -> bool:
+        return bool(
+            self.confirmation_nonce
+            and self.confirmation_token
+            and self.confirmation_token == self.confirmation_challenge()
+        )
+
+    def required_confirmation_text(self) -> str:
+        return f"FLASH {len(self.plans)} {self.fingerprint[:8]}"
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "batchId": self.batch_id,
+            "kind": self.kind,
+            "created": self.created,
+            "expires": self.expires,
+            "risk": self.risk.value,
+            "fingerprint": self.fingerprint,
+            "plans": [plan.to_dict() for plan in self.plans],
+            "confirmation_nonce": self.confirmation_nonce,
+            "confirmation_token": None,
+            "required_confirmation_text": self.required_confirmation_text(),
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "batchId": self.batch_id,
+            "kind": self.kind,
+            "created": self.created,
+            "expires": self.expires,
+            "risk": self.risk.value,
+            "fingerprint": self.fingerprint,
+            "plans": [plan.to_public_dict() for plan in self.plans],
+            "confirmation_nonce": self.confirmation_nonce,
+            "confirmation_token": None,
+            "required_confirmation_text": self.required_confirmation_text(),
         }
 
 
@@ -312,7 +1080,7 @@ class AppCommand:
     kind: CommandKind | str
     expected_revision: int | None = None
     target_serial: str | None = None
-    payload: Mapping[str, Any] = field(default_factory=dict)
+    payload: Mapping[str, object] = field(default_factory=_empty_object_mapping)
     operation_plan: OperationPlan | None = None
     operation_id: str = field(default_factory=lambda: uuid4().hex)
     destructive: bool = False
@@ -320,12 +1088,16 @@ class AppCommand:
 
     def __post_init__(self) -> None:
         kind = self.kind.value if isinstance(self.kind, CommandKind) else str(self.kind)
-        payload = dict(self.payload)
+        payload_values = self.payload
+        payload: dict[str, object] = {
+            key: value for key, value in payload_values.items()
+        }
         # Wireless pairing credentials are accepted only as ephemeral input.
         # Redact them before the command can be represented or serialized by
         # diagnostics, progress observers, or tests.
-        if kind == "tools.wifi" and isinstance(payload.get("pairingCode"), str):
-            payload["pairingCode"] = SensitiveText(payload["pairingCode"])
+        pairing_code = payload.get("pairingCode")
+        if kind == "tools.wifi" and isinstance(pairing_code, str):
+            payload["pairingCode"] = SensitiveText(pairing_code)
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "target_serial", str(self.target_serial) if self.target_serial else None)
         object.__setattr__(self, "payload", _freeze_mapping(payload))
@@ -381,7 +1153,7 @@ class OperationResult:
         stdout: str = "",
         stderr: str = "",
         value: Any = None,
-    ) -> "OperationResult":
+    ) -> OperationResult:
         return cls(operation_id, OperationStatus.SUCCESS, code, message, exit_code, stdout, stderr, value)
 
     @classmethod
@@ -393,7 +1165,7 @@ class OperationResult:
         message: str = "",
         stdout: str = "",
         stderr: str = "",
-    ) -> "OperationResult":
+    ) -> OperationResult:
         return cls(operation_id, OperationStatus.CANCELLED, code, message, None, stdout, stderr)
 
     @classmethod
@@ -406,7 +1178,7 @@ class OperationResult:
         exit_code: int | None = None,
         stdout: str = "",
         stderr: str = "",
-    ) -> "OperationResult":
+    ) -> OperationResult:
         return cls(operation_id, OperationStatus.FAILED, code, message, exit_code, stdout, stderr)
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -420,6 +1192,21 @@ class OperationResult:
             "stdout": self.stdout,
             "stderr": self.stderr,
             "value": _json_value(self.value),
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        """Return only terminal metadata safe for snapshots and generic events."""
+
+        return {
+            "event_type": self.event_type,
+            "operation_id": self.operation_id,
+            "status": self.status.value,
+            "code": self.code,
+            "message": _public_message(
+                self.message,
+                fallback="The operation could not be completed.",
+            ),
+            "exit_code": self.exit_code,
         }
 
 
@@ -446,6 +1233,15 @@ class ProgressEvent:
             "operation_id": self.operation_id,
             "phase": self.phase.value,
             "message": self.message,
+            "percent": self.percent,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "event_type": self.event_type,
+            "operation_id": self.operation_id,
+            "phase": self.phase.value,
+            "message": _public_message(self.message, fallback="Operation update."),
             "percent": self.percent,
         }
 
@@ -481,6 +1277,21 @@ class InteractionRequest:
             "kind": self.kind.value,
             "title": self.title,
             "message": self.message,
+            "expected_revision": self.expected_revision,
+            "target_serial": self.target_serial,
+            "destructive": self.destructive,
+            "choices": list(self.choices),
+            "reinforced": self.reinforced,
+            "confirmation_nonce": self.confirmation_nonce,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "event_type": self.event_type,
+            "operation_id": self.operation_id,
+            "kind": self.kind.value,
+            "title": _public_message(self.title, fallback="Confirm operation"),
+            "message": _public_message(self.message, fallback="Continue?"),
             "expected_revision": self.expected_revision,
             "target_serial": self.target_serial,
             "destructive": self.destructive,
@@ -550,6 +1361,23 @@ class FirmwareInfo:
             "processed": self.processed,
         }
 
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        kind = self.type.strip().casefold()
+        if kind in {"custom_rom", "customrom"}:
+            kind = "custom"
+        if kind not in {"factory", "ota", "custom"}:
+            kind = "factory"
+        identity = self.hash or self.build
+        return {
+            "id": identity,
+            "name": self.build or "Selected firmware",
+            "build": self.build,
+            "kind": kind,
+            "hash": self.hash,
+            "verified": self.verified,
+            "processed": self.processed,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class BootInfo:
@@ -566,6 +1394,17 @@ class BootInfo:
             "hash": self.hash,
             "flavor": self.flavor,
             "patched": self.patched,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        flavor = self.flavor or "boot"
+        return {
+            "id": self.id,
+            "image": f"{flavor}.img",
+            "hash": self.hash,
+            "flavor": flavor,
+            "patched": self.patched,
+            "verified": bool(self.id and self.hash),
         }
 
 
@@ -649,19 +1488,31 @@ class BootloaderLockEvidence:
             "slots": list(self.slots),
         }
 
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        """Expose eligibility, not the backend-owned relock proof."""
+
+        return {
+            "serial": self.serial,
+            "snapshot_revision": self.snapshot_revision,
+        }
+
 
 def _normalized_contract_tokens(values: object, field_name: str) -> tuple[str, ...]:
     if isinstance(values, str) or not isinstance(values, (tuple, list)):
         raise TypeError(f"{field_name} must be an array of strings")
-    if any(not isinstance(value, str) or not value.strip() for value in values):
-        raise ValueError(f"{field_name} must contain non-empty strings")
-    return tuple(dict.fromkeys(value.strip().casefold() for value in values))
+    items = cast(tuple[object, ...] | list[object], values)
+    normalized: list[str] = []
+    for value in items:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field_name} must contain non-empty strings")
+        normalized.append(value.strip().casefold())
+    return tuple(dict.fromkeys(normalized))
 
 
 @dataclass(frozen=True, slots=True)
 class FlashPlan:
     mode: str = "images"
-    options: Mapping[str, Any] = field(default_factory=dict)
+    options: Mapping[str, object] = field(default_factory=_empty_object_mapping)
     revision: int = 0
     fingerprint: str = ""
     dry_run: bool = True
@@ -675,7 +1526,10 @@ class FlashPlan:
             object.__setattr__(self, "dry_run", True)
         if not isinstance(self.options, Mapping):
             raise TypeError("options must be a mapping")
-        normalized = dict(self.options)
+        option_values = self.options
+        normalized: dict[str, object] = {
+            key: value for key, value in option_values.items()
+        }
         dry_values = [
             normalized.pop(key)
             for key in ("dryRun", "dry_run")
@@ -740,7 +1594,11 @@ class FlashPlan:
                 raise TypeError("partitions must be an array of strings")
             if not partitions:
                 raise ValueError("partitions must not be empty")
-            if any(not isinstance(item, str) or not item.strip() for item in partitions):
+            partition_items = cast(tuple[object, ...] | list[object], partitions)
+            if any(
+                not isinstance(item, str) or not item.strip()
+                for item in partition_items
+            ):
                 raise ValueError("partitions must contain non-empty strings")
         if "images" in normalized and not isinstance(normalized["images"], Mapping):
             raise TypeError("images must be an object")
@@ -762,6 +1620,20 @@ class FlashPlan:
             "dry_run": self.dry_run,
         }
 
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        public_options = {
+            key: value
+            for key, value in self.options.items()
+            if key != "images"
+        }
+        return {
+            "mode": self.mode,
+            "options": _json_value(public_options),
+            "revision": self.revision,
+            "fingerprint": self.fingerprint,
+            "dry_run": self.dry_run,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ToolchainInfo:
@@ -774,6 +1646,14 @@ class ToolchainInfo:
         return {
             "adb": self.adb,
             "fastboot": self.fastboot,
+            "version": self.version,
+            "ready": self.ready,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "adb": bool(self.adb),
+            "fastboot": bool(self.fastboot),
             "version": self.version,
             "ready": self.ready,
         }
@@ -792,12 +1672,20 @@ class ActiveOperation:
             "label": self.label,
         }
 
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "operation_id": self.operation_id,
+            "kind": self.kind,
+            "label": _public_message(self.label, fallback="Operation in progress"),
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class AppSnapshot:
     event_type: ClassVar[str] = "snapshot"
 
     revision: int = 0
+    preferences: ModernPreferences = field(default_factory=ModernPreferences)
     devices: tuple[DeviceInfo, ...] = ()
     selected_serials: tuple[str, ...] = ()
     selected_serial: str | None = None
@@ -810,6 +1698,8 @@ class AppSnapshot:
     bootloader_lock_evidence: tuple[BootloaderLockEvidence, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.preferences, ModernPreferences):
+            raise TypeError("preferences must be a ModernPreferences value")
         object.__setattr__(self, "devices", tuple(self.devices))
         if not isinstance(self.revision, int) or isinstance(self.revision, bool) or self.revision < 0:
             raise ValueError("revision must be a non-negative integer")
@@ -848,7 +1738,7 @@ class AppSnapshot:
         return self.plan.mode
 
     @property
-    def flash_options(self) -> Mapping[str, Any]:
+    def flash_options(self) -> Mapping[str, object]:
         return self.plan.options
 
     @property
@@ -861,6 +1751,7 @@ class AppSnapshot:
         return {
             "event_type": self.event_type,
             "revision": self.revision,
+            "preferences": self.preferences.to_dict(),
             "devices": [device.to_dict() for device in self.devices],
             "selected_serials": list(self.selected_serials),
             "selected_serial": self.selected_serial,
@@ -876,6 +1767,95 @@ class AppSnapshot:
                 evidence.to_dict() for evidence in self.bootloader_lock_evidence
             ],
         }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        has_firmware = bool(
+            self.firmware.path
+            or self.firmware.hash
+            or self.firmware.build
+            or self.firmware.type
+        )
+        has_boot = bool(self.boot.id or self.boot.hash or self.boot.path)
+        return {
+            "event_type": self.event_type,
+            "revision": self.revision,
+            "preferences": self.preferences.to_dict(),
+            "devices": [device.to_dict() for device in self.devices],
+            "selected_serials": list(self.selected_serials),
+            "selected_serial": self.selected_serial,
+            "firmware": self.firmware.to_public_dict() if has_firmware else None,
+            "boot": self.boot.to_public_dict() if has_boot else None,
+            "plan": self.plan.to_public_dict(),
+            "toolchain": self.toolchain.to_public_dict(),
+            "active_operation": (
+                self.active_operation.to_public_dict() if self.active_operation else None
+            ),
+            "last_result": (
+                self.last_result.to_public_dict() if self.last_result else None
+            ),
+            "bootloader_lock_evidence": [
+                evidence.to_public_dict() for evidence in self.bootloader_lock_evidence
+            ],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotChanged:
+    """A canonical-state publication from the application engine."""
+
+    event_type: ClassVar[str] = "snapshot"
+
+    snapshot: AppSnapshot
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.snapshot, AppSnapshot):
+            raise TypeError("snapshot must be an AppSnapshot")
+
+    @property
+    def revision(self) -> int:
+        return self.snapshot.revision
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "event_type": self.event_type,
+            "snapshot": self.snapshot.to_dict(),
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "event_type": self.event_type,
+            "snapshot": self.snapshot.to_public_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class OperationFinished:
+    """A terminal, explicit result publication from the application engine."""
+
+    event_type: ClassVar[str] = "runtime"
+
+    result: OperationResult
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.result, OperationResult):
+            raise TypeError("result must be an OperationResult")
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "event_type": self.event_type,
+            "result": self.result.to_dict(),
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "event_type": self.event_type,
+            "result": self.result.to_public_dict(),
+        }
+
+
+type AppEvent = (
+    SnapshotChanged | ProgressEvent | InteractionRequest | OperationFinished
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,8 +7,8 @@ import argparse
 import json
 import re
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Mapping, Sequence
 
 import polib
 
@@ -92,7 +92,7 @@ def apply_translation_map(path: Path, translations: Mapping[str, str]) -> int:
         )
         escaped_translation = polib.escape(translations[key])
         source, count = pattern.subn(
-            lambda match: f'{match.group(1)}"{escaped_translation}"',
+            lambda match, replacement=escaped_translation: f'{match.group(1)}"{replacement}"',
             source,
             count=1,
         )

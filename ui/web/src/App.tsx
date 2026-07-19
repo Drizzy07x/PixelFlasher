@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { assets, type AssetName } from './assets';
 import { BridgeError, bridge, interactionFromEvent, normalizeOperationStatus, operationFromEvent, snapshotFromEvent } from './bridge';
 import { commands, type BridgeCommand } from './commands';
-import { FlashWizard, type FlashPlan, type FlashPreview } from './components/FlashWizard';
+import { FlashWizard, type FlashPlan, type FlashPreview } from './pages/flash/FlashPage';
 import { Badge, Icon, PageHeader } from './components/ui';
 import { demoSnapshot } from './demoData';
 import { I18nProvider, localeOptions, useI18n } from './i18n';
@@ -95,6 +95,7 @@ function mockPreferences(): ModernPreferences {
 
 const emptyHostSnapshot: HostSnapshot = {
   revision: 0,
+  preferences: defaultPreferences,
   devices: [],
   selectedSerial: null,
   selected_serial: null,
@@ -361,7 +362,11 @@ function PixelFlasherApp({
     return () => previousFocus?.focus({ preventScroll: true });
   }, [interaction]);
 
-  const runCommand = useCallback(async (command: BridgeCommand, payload: Record<string, unknown> = {}): Promise<CommandResponse | null> => {
+  const runCommand = useCallback(async (
+    command: BridgeCommand,
+    payload: Record<string, unknown> = {},
+    options: { returnCancelled?: boolean } = {},
+  ): Promise<CommandResponse | null> => {
     setNotice(null);
     try {
       const response = await bridge.command<Record<string, unknown>>(command, payload, snapshot.revision);
@@ -378,8 +383,22 @@ function PixelFlasherApp({
       const code = error instanceof BridgeError && typeof error.response?.error === 'object'
         ? error.response.error.code
         : undefined;
+      const errorDetails = error instanceof BridgeError
+        ? objectValue(error.response?.error.details)
+        : {};
+      if (
+        options.returnCancelled
+        && error instanceof BridgeError
+        && normalizeOperationStatus(errorDetails.status) === 'cancelled'
+      ) {
+        const revision = typeof errorDetails.revision === 'number' ? errorDetails.revision : undefined;
+        if (revision !== undefined) {
+          setSnapshot((current) => ({ ...current, revision }));
+        }
+        return { result: errorDetails, revision };
+      }
       if (error instanceof BridgeError && code === 'confirmation_text_required') {
-        const result = objectValue(error.response?.result);
+        const result = errorDetails;
         const value = objectValue(result.value);
         const confirmation = objectValue(value.confirmation);
         const requiredText = typeof confirmation.required_text === 'string'
@@ -435,10 +454,14 @@ function PixelFlasherApp({
   }, [runCommand]);
 
   const changeFirmware = useCallback(async (firmware: HostSnapshot['firmware']) => {
-    if (!firmware?.path) throw new Error(t('notice.error'));
-    const response = await runCommand(commands.firmwareSelect, { path: firmware.path });
+    // Firmware paths are backend-only. A different local package can only be
+    // introduced through the native picker, which returns a purpose-bound grant.
+    if (!firmware) throw new Error(t('notice.error'));
+    if (firmware.id === snapshot.firmware?.id) return;
+    if (!window.pixelflasher?.__mock) throw new Error(t('notice.error'));
+    const response = await runCommand(commands.firmwareSelect, { firmwareId: firmware.id });
     if (!response) throw new Error(t('notice.error'));
-  }, [runCommand]);
+  }, [runCommand, snapshot.firmware?.id, t]);
 
   const prepareFlash = useCallback(async (plan: FlashPlan): Promise<FlashPreview> => {
     setNotice(null);

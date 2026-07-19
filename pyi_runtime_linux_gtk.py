@@ -71,7 +71,9 @@ def _filter_known_stderr_noise() -> None:
 
 if sys.platform.startswith("linux"):
     os.environ.setdefault("GIO_USE_VFS", "local")
-    os.environ.setdefault("NO_AT_BRIDGE", "1")
+# Keep AT-SPI enabled.  Disabling the accessibility bridge here makes the
+# packaged application invisible to Orca and invalidates Linux accessibility
+# testing.
     os.environ.setdefault("G_ENABLE_DIAGNOSTIC", "0")
 
     base = Path(getattr(sys, "_MEIPASS", tempfile.gettempdir()))

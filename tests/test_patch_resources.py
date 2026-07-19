@@ -12,6 +12,7 @@ from pixelflasher_core.patch_resources import (
     PatchResourceError,
     load_patch_resource_registry,
 )
+from tests.apk_test_helpers import FakeVerifiedApkInspector
 
 
 def sha256(contents: bytes) -> str:
@@ -52,6 +53,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
                     "flavor": "stable",
                     "version": "1.0",
                     "provenance": "bundled",
+                    "packageName": "com.topjohnwu.magisk",
                 }
             ],
             "bundles": [
@@ -75,11 +77,15 @@ class PatchResourceRegistryTests(unittest.TestCase):
 
     def load(self, root: Path, document: dict):
         manifest, digest = write_manifest(root, document)
+        package_names = {root / app["path"]: app["packageName"] for app in document["apps"]}
         return load_patch_resource_registry(
             manifest,
             expected_manifest_sha256=digest,
             resource_root=root,
             hash_chunk_size=2,
+            apk_inspector=FakeVerifiedApkInspector(
+                package_names=package_names,
+            ),
         )
 
     def test_pinned_manifest_builds_backend_rooting_service_and_bundle(self):
@@ -136,6 +142,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
                         "flavor": "stable",
                         "version": "1.0",
                         "provenance": "bundled",
+                        "packageName": f"org.pixelflasher.{flavor.replace('-', '_')}",
                     }
                 )
                 app_keys[flavor] = key
@@ -200,6 +207,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
                     manifest,
                     expected_manifest_sha256=digest,
                     resource_root=root,
+                    apk_inspector=FakeVerifiedApkInspector("com.topjohnwu.magisk"),
                 )
             self.assertEqual("resource_hash_mismatch", raised.exception.code)
 
@@ -208,9 +216,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
             root = Path(directory)
             document, _apk, runner, _support = self.resources(root)
             runner.write_bytes(b"ordinary busybox-like executable")
-            document["bundles"][0]["runner"]["sha256"] = sha256(
-                runner.read_bytes()
-            )
+            document["bundles"][0]["runner"]["sha256"] = sha256(runner.read_bytes())
 
             with self.assertRaises(PatchResourceError) as raised:
                 self.load(root, document)
@@ -244,8 +250,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
             document, _apk, _runner, _support = self.resources(root)
             manifest = root / "patch-resources.json"
             contents = (
-                '{"schemaVersion":1,"schemaVersion":1,'
-                f'"protocol":"{PATCH_RUNNER_PROTOCOL}","apps":[],"bundles":[]}}'
+                f'{{"schemaVersion":1,"schemaVersion":1,"protocol":"{PATCH_RUNNER_PROTOCOL}","apps":[],"bundles":[]}}'
             ).encode()
             manifest.write_bytes(contents)
             with self.assertRaises(PatchResourceError) as raised:

@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "baseline": {
     "date": "2026-07-18",
     "description": "Versioned behavior baseline for replacing the wxPython UI with the modern React UI without reducing PixelFlasher safety or functionality.",
@@ -47,974 +48,15 @@
       "ui/web/src/test/App.test.tsx"
     ]
   },
-  "capabilities": [
-    {
-      "id": "navigation.dashboard",
-      "area": "navigation",
-      "capability": "Dashboard and device summary",
-      "legacyEvidence": ["README.md:69-82"],
-      "modernActionIds": ["open_modern_dashboard"],
-      "modernCommandIds": ["app.ready", "snapshot.get"],
-      "modernEvidence": [
-        "PixelFlasher.py:_run_modern_primary",
-        "ui/pages/modern_primary_app.py:launch_modern_primary",
-        "ui/pages/modern_webview_host.py:ModernWebViewFrame",
-        "ui/web/src/App.tsx:PixelFlasherApp",
-        "tests/test_modern_primary_experience.py"
-      ],
-      "modernStatus": "native",
-      "risk": "none",
-      "exitContract": "Dashboard state, warnings and recommended next action are driven by the modern state store."
-    },
-    {
-      "id": "navigation.flash",
-      "area": "navigation",
-      "capability": "Guided stock/custom-ROM flash workspace",
-      "legacyEvidence": ["README.md:375-419", "README.md:431-469"],
-      "modernActionIds": ["open_modern_flash_wizard"],
-      "modernEvidence": [
-        "ui/web/src/components/FlashWizard.tsx",
-        "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "tests/test_flash_wizard_details.py",
-        "tests/test_flash_wizard_model.py"
-      ],
-      "modernStatus": "native",
-      "risk": "none",
-      "exitContract": "Every flash option and preflight state is reachable and reviewable without the legacy frame."
-    },
-    {
-      "id": "navigation.device",
-      "area": "navigation",
-      "capability": "Device state workspace",
-      "legacyEvidence": ["README.md:69-82"],
-      "modernActionIds": ["open_modern_shell"],
-      "modernStatus": "native",
-      "risk": "none",
-      "exitContract": "Device identity, connection mode, slot and root state have native modern presentation."
-    },
-    {
-      "id": "navigation.backups",
-      "area": "navigation",
-      "capability": "Backup workspace",
-      "legacyEvidence": ["README.md:101-106"],
-      "modernActionIds": ["open_backups"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:BackupsPage",
-        "pixelflasher_core/backups.py:BackupService",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_backup_service.py",
-        "tests/test_service_engine_integration.py"
-      ],
-      "modernStatus": "partial",
-      "risk": "none",
-      "exitContract": "The React workspace and backend-safe create/restore service exist, but the UI still needs native path, partition and slot inputs plus a canonical refreshed inventory; list/import/delete parity remains open."
-    },
-    {
-      "id": "navigation.downloads",
-      "area": "navigation",
-      "capability": "Firmware download workspace",
-      "legacyEvidence": ["README.md:81-83"],
-      "modernActionIds": ["open_downloads"],
-      "modernStatus": "read_only",
-      "risk": "none",
-      "exitContract": "Available builds, download integrity and selection are native modern state."
-    },
-    {
-      "id": "navigation.settings",
-      "area": "navigation",
-      "capability": "Settings workspace",
-      "legacyEvidence": ["Main.py:1611-1613"],
-      "modernActionIds": ["open_settings"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:SettingsPage",
-        "ui/web/src/App.tsx:applyPreferences/changePreferences",
-        "ui/web/src/bridge.ts:getPreferences/updatePreferences",
-        "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
-        "pixelflasher_core/runtime.py:_get_preferences/_update_preferences",
-        "tests/test_preferences.py",
-        "tests/test_runtime_preferences.py"
-      ],
-      "modernStatus": "partial",
-      "risk": "none",
-      "exitContract": "Theme, locale, contrast, reduced motion and zoom are loaded and updated by the real React host through strict atomic settings.get/settings.update contracts; the workspace remains partial because the broader 9.x application settings and expert-mode preference are not covered. Mock preview isolation still uses local storage by design."
-    },
-    {
-      "id": "navigation.tools",
-      "area": "navigation",
-      "capability": "Tool catalog workspace",
-      "legacyEvidence": ["README.md:216-226"],
-      "modernActionIds": ["open_tools"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage",
-        "pixelflasher_core/device_tools.py:DeviceToolsService",
-        "pixelflasher_core/partitions.py:PartitionService",
-        "pixelflasher_core/support.py:SupportPackageService",
-        "tests/test_device_tools_service.py",
-        "tests/test_partition_service.py",
-        "tests/test_support_package_service.py",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
-      ],
-      "modernStatus": "partial",
-      "risk": "none",
-      "exitContract": "The React workspace reaches managed scrcpy, secret-safe wireless ADB, a bounded logcat viewer, native file push, partition list/read/write/erase and atomic support export. Advanced utilities plus the per-capability packaging, progress, postcondition and legacy-data gaps remain open."
-    },
-    {
-      "id": "navigation.safety",
-      "area": "navigation",
-      "capability": "Safety policy and confirmation workspace",
-      "legacyEvidence": ["README.md:135", "README.md:378", "README.md:419"],
-      "modernActionIds": ["open_safety"],
-      "modernCommandIds": ["operation.cancel", "interaction.respond"],
-      "modernEvidence": [
-        "pixelflasher_core/interaction.py:InteractionBroker",
-        "pixelflasher_core/runtime.py:_on_interaction/respond_interaction",
-        "pixelflasher_core/engine.py:_execute_process",
-        "ui/pages/modern_webview_host.py:_handle_interaction_response",
-        "ui/web/src/App.tsx:interaction dialog",
-        "tests/test_headless_core.py:test_interaction_broker_checks_revision_and_releases_waiters"
-      ],
-      "modernStatus": "native",
-      "risk": "none",
-      "exitContract": "SafetyPolicy emits revision-bound interaction requests through the runtime broker; the accessible React modal returns accepted or cancelled over the single bridge before the engine revalidates the immutable plan."
-    },
-    {
-      "id": "navigation.about",
-      "area": "navigation",
-      "capability": "Version, licensing and project information",
-      "legacyEvidence": ["Main.py:1970-1978"],
-      "modernActionIds": ["open_about"],
-      "modernStatus": "native",
-      "risk": "none",
-      "exitContract": "Version, license, update and support information matches the packaged application."
-    },
-    {
-      "id": "device.discovery",
-      "area": "device",
-      "capability": "Scan, select and disambiguate multiple devices",
-      "legacyEvidence": ["README.md:67", "README.md:227", "Main.py:7285-7287"],
-      "modernActionIds": ["scan_devices"],
-      "modernCommandIds": ["device.scan", "device.select"],
-      "modernEvidence": [
-        "pixelflasher_core/devices.py:DeviceService",
-        "pixelflasher_core/engine.py:_scan_devices/_select_device",
-        "tests/test_headless_services.py:DeviceServiceTests/EngineServiceIntegrationTests"
-      ],
-      "modernStatus": "native",
-      "risk": "device_read",
-      "exitContract": "Headless adb/fastboot scanning returns typed, serial-keyed devices with cancellation and partial-source preservation. Fastboot enrichment reads only serial-bound current-slot, unlocked and is-userspace getvars, distinguishes fastbootd, and merges prior identity metadata without treating stale root, slot or bootloader state as fresh evidence; selection rejects serials absent from the latest inventory and remains stable across refreshes."
-    },
-    {
-      "id": "platform_tools.setup",
-      "area": "platform_tools",
-      "capability": "Locate, validate or install Android Platform Tools",
-      "legacyEvidence": ["README.md:127", "README.md:359-360"],
-      "modernActionIds": ["setup_platform_tools"],
-      "modernCommandIds": ["platformTools.setup"],
-      "modernEvidence": [
-        "pixelflasher_core/toolchain.py:ToolchainService",
-        "pixelflasher_core/engine.py:_setup_platform_tools",
-        "tests/test_headless_services.py:ToolchainServiceTests/EngineServiceIntegrationTests"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_write",
-      "exitContract": "Local path/PATH discovery natively validates a co-located executable adb/fastboot pair, equal parseable versions at or above the minimum, cancellation and typed failures; parity still requires checksum-verified atomic download/install, which currently returns network_setup_not_supported."
-    },
-    {
-      "id": "firmware.select_stock",
-      "area": "firmware",
-      "capability": "Select and identify a factory or full OTA package",
-      "legacyEvidence": ["README.md:375-378"],
-      "modernActionIds": ["select_firmware"],
-      "modernCommandIds": ["firmware.pick", "firmware.select"],
-      "modernEvidence": [
-        "pixelflasher_core/firmware.py:FirmwareInspector",
-        "pixelflasher_core/engine.py:_inspect_firmware",
-        "ui/web/src/pages/Pages.tsx:FirmwarePage",
-        "tests/test_headless_services.py:FirmwareInspectorTests/EngineServiceIntegrationTests",
-        "ui/web/src/test/App.test.tsx:firmware processing flow"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_read",
-      "exitContract": "The packaged React flow uses a native file picker and firmware.select; inspection canonicalizes the path, streams SHA-256, classifies factory/OTA/custom archives, rejects corruption, traversal and selected-device mismatch, and supports cancellation. Full parity still requires the official catalog/download-to-selection flow and complete user-facing diagnostics."
-    },
-    {
-      "id": "firmware.select_custom",
-      "area": "firmware",
-      "capability": "Select a custom ROM archive",
-      "legacyEvidence": ["README.md:231", "README.md:431-444"],
-      "modernActionIds": ["select_custom_rom"],
-      "modernCommandIds": ["firmware.pickCustomRom"],
-      "modernEvidence": [
-        "pixelflasher_core/firmware.py:FirmwareInspector",
-        "ui/web/src/pages/Pages.tsx:FirmwarePage",
-        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_custom",
-        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_read",
-      "exitContract": "The native picker and classifier accept custom direct-image archives and apply device compatibility checks before processing. A dedicated custom-ROM experience, payload.bin processing and the complete stock/custom substitution diagnostics remain open."
-    },
-    {
-      "id": "firmware.process_stock",
-      "area": "firmware",
-      "capability": "Validate and process factory/full OTA packages",
-      "legacyEvidence": ["README.md:379-380"],
-      "modernActionIds": ["process_firmware"],
-      "modernCommandIds": ["firmware.process"],
-      "modernEvidence": [
-        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService",
-        "pixelflasher_core/engine.py:_process_firmware",
-        "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
-        "ui/web/src/pages/Pages.tsx:FirmwarePage",
-        "tests/test_firmware_artifact_service.py",
-        "tests/test_firmware_engine_integration.py",
-        "ui/web/src/test/App.test.tsx:firmware processing flow"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_write",
-      "exitContract": "firmware.process accepts no browser-supplied paths, hashes, argv or staging locations. It performs bounded fail-closed factory extraction or verified OTA registration, builds typed hash-bound planner inventory, promotes firmware and stock boot atomically, and rehydrates only verified cached artifacts. Complete product diagnostics, retry UX and packaged cross-platform validation remain open."
-    },
-    {
-      "id": "firmware.process_custom",
-      "area": "firmware",
-      "capability": "Process custom ROM packages",
-      "legacyEvidence": ["README.md:431-444"],
-      "modernActionIds": ["process_custom_rom"],
-      "modernEvidence": [
-        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_custom",
-        "pixelflasher_core/engine.py:_process_firmware",
-        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility/test_payload_only_custom_rom_fails_explicitly_and_leaves_no_partial_files",
-        "tests/test_firmware_engine_integration.py:test_custom_direct_image_package_requires_and_promotes_stock_boot"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_write",
-      "exitContract": "Direct-image custom ROM archives are validated, compatibility-checked, extracted to fixed backend paths, hashed and registered as typed planner artifacts without a legacy handler; a verified boot/init_boot image is required before atomic promotion. Custom payload.bin processing is explicitly unsupported and remains the principal parity gap."
-    },
-    {
-      "id": "firmware.downloads",
-      "area": "firmware",
-      "capability": "Browse and download phone/watch factory, OTA, beta and canary images",
-      "legacyEvidence": ["README.md:81-83", "Main.py:424-655"],
-      "modernActionIds": ["firmware_downloads"],
-      "modernCommandIds": ["firmware.catalog.refresh"],
-      "modernStatus": "delegated",
-      "risk": "host_write",
-      "exitContract": "Native downloads preserve published SHA-256 metadata, progress, cancellation and final package selection."
-    },
-    {
-      "id": "flash.mode_keep_data",
-      "area": "flash",
-      "capability": "Factory flash while keeping user data",
-      "legacyEvidence": ["README.md:66", "README.md:410"],
-      "modernActionIds": ["set_flash_mode_keep_data"],
-      "modernEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
-        "ui/web/src/App.tsx:prepareFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._image_flash",
-        "tests/test_operation_planner.py:test_processed_factory_images_compile_deterministic_exact_sequence"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The React option is compiled by the backend into an immutable plan that omits -w, using the native service's verified, hash-bound factory or direct-image artifact inventory. Full parity still requires remaining runtime transition, mode and multi-device coverage."
-    },
-    {
-      "id": "flash.mode_wipe",
-      "area": "flash",
-      "capability": "Factory flash with explicit data wipe",
-      "legacyEvidence": ["README.md:66", "README.md:411-412", "README.md:245"],
-      "modernActionIds": ["set_flash_mode_wipe"],
-      "modernEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep/ReviewStep",
-        "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._image_flash/_bind_reinforced_confirmation",
-        "tests/test_operation_planner.py:test_wipe_preview_issues_nonce_and_exact_text_before_execution"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "Selecting wipe, reviewing exact argv and executing are separate backend-guarded decisions bound to revision, serial, plan fingerprint and firmware/artifact hashes. Verified factory artifacts are now produced and registered natively; complete transition orchestration, device-state recovery and packaged hardware coverage remain open."
-    },
-    {
-      "id": "flash.mode_dry_run",
-      "area": "flash",
-      "capability": "Generate and inspect a flash plan without device writes",
-      "legacyEvidence": ["README.md:414"],
-      "modernActionIds": ["set_flash_mode_dry_run"],
-      "modernEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
-        "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._flash",
-        "pixelflasher_core/executor.py:CommandExecutor",
-        "tests/test_operation_planner.py:test_explicit_dry_run_launches_zero_subprocesses"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_read",
-      "exitContract": "Dry-run is serialized into the canonical fingerprint and the executor launches zero subprocesses. Factory and direct-image custom plans now consume the same backend-produced artifact inventory as real execution; remaining parity gaps are the unsupported custom payload path and unimplemented transition/batch variants."
-    },
-    {
-      "id": "flash.mode_ota",
-      "area": "flash",
-      "capability": "Full OTA sideload to inactive slot",
-      "legacyEvidence": ["README.md:400-408"],
-      "modernActionIds": ["set_flash_mode_ota"],
-      "modernEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
-        "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._flash",
-        "tests/test_operation_planner.py:test_ota_sideload_uses_exact_adb_command_and_verified_archive"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "A verified processed OTA in sideload mode compiles to exact serial-bound adb sideload/reboot argv with incompatible options rejected explicitly; native recovery-to-sideload transition orchestration remains open."
-    },
-    {
-      "id": "flash.execute",
-      "area": "flash",
-      "capability": "Review and execute the complete flash plan",
-      "legacyEvidence": ["README.md:417-419"],
-      "modernActionIds": ["flash_device"],
-      "modernCommandIds": ["flash.plan.preview", "flash.execute"],
-      "modernEvidence": [
-        "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "ui/web/src/components/FlashWizard.tsx:ReviewStep",
-        "pixelflasher_core/engine.py:_preview_flash_plan/_plan_and_execute/_execute_process",
-        "pixelflasher_core/planner.py:OperationPlanner.compile/revalidate",
-        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService",
-        "tests/test_operation_planner.py",
-        "tests/test_firmware_engine_integration.py",
-        "ui/web/src/test/App.test.tsx"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "The browser updates canonical intent, previews backend-compiled exact argv and calls flash.execute without supplying an operation plan; the engine constructs the immutable plan, performs reinforced confirmation when required and revalidates revision, serial, device mode, plan fingerprint and artifact hashes immediately before execution. Factory, OTA and direct-image custom inputs now reach the planner through verified registered artifacts. Full parity remains open for custom payload processing, recovery/fastbootd transition orchestration, multi-device batch execution and complete packaged-platform validation."
-    },
-    {
-      "id": "boot.patch",
-      "area": "boot_images",
-      "capability": "Patch boot/init_boot/vendor_boot with supported rooting applications",
-      "legacyEvidence": ["README.md:46-64", "README.md:382-396"],
-      "modernActionIds": ["patch_boot"],
-      "modernCommandIds": ["boot.patch"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:RootPage",
-        "ui/web/src/commands.ts:bootPatch",
-        "pixelflasher_core/boot_patch.py:BootPatchService",
-        "pixelflasher_core/patch_resources.py:PatchResourceRegistry/load_patch_resource_registry",
-        "pixelflasher_core/engine.py:_plan_and_execute",
-        "tests/test_boot_patch_service.py",
-        "tests/test_boot_patch_engine_integration.py",
-        "tests/test_patch_resources.py",
-        "ui/web/src/test/App.test.tsx:root workflow"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The typed React/bridge/backend flow supports Magisk, APatch, KernelSU, KernelSU-Next, SukiSU, Wild_KSU and Legacy, accepts only an opaque verified app ID plus flavor and destination, and compiles serial-, revision-, source-, APK- and runner-hash-bound plans. PatchResourceRegistry rejects unpinned, unconstrained or incompatible resources. PixelFlasher currently packages no real provider APKs or compatible runners, so execution fails closed; APatch secret transport and KMI/architecture-based kernel selection also remain open."
-    },
-    {
-      "id": "boot.flash",
-      "area": "boot_images",
-      "capability": "Flash the selected boot/init_boot/vendor_boot image",
-      "legacyEvidence": ["README.md:65"],
-      "modernActionIds": ["flash_boot"],
-      "modernCommandIds": ["boot.flash"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:DeviceOperations",
-        "pixelflasher_core/planner.py:OperationPlanner._boot_flash",
-        "pixelflasher_core/engine.py:_plan_and_execute",
-        "tests/test_operation_planner.py:test_boot_flash_and_live_use_only_canonical_boot_artifact",
-        "ui/web/src/test/App.test.tsx:Device operations"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "The React control requires one unlocked fastboot device and a verified canonical image; the backend compiles and revalidates exact partition, slot, image hash and serial without accepting argv. A post-command scan that proves the resulting partition/slot/device state is still missing."
-    },
-    {
-      "id": "support.package",
-      "area": "support",
-      "capability": "Create a sanitized support package",
-      "legacyEvidence": ["README.md:517-521", "Main.py:1959-1961"],
-      "modernActionIds": ["create_support_package"],
-      "modernCommandIds": ["support.create"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage.createSupportPackage",
-        "ui/pages/modern_webview_host.py:_register_support_destination_result",
-        "pixelflasher_core/support.py:SupportPackageService",
-        "pixelflasher_core/runtime.py:ApplicationRuntime.register_support_destination",
-        "tests/test_support_package_service.py",
-        "tests/test_modern_webview_host_contract.py"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_write",
-      "exitContract": "The native host exchanges the chosen path for a one-use opaque grant; the core applies mandatory redaction, verifies an atomic ZIP and manifests included/omitted sources. The legacy database, recursive file listing and encrypted wrapper remain intentionally omitted until safely migrated."
-    },
-    {
-      "id": "backups.magisk",
-      "area": "backups",
-      "capability": "List, create, import and delete Magisk boot backups",
-      "legacyEvidence": ["README.md:101-106"],
-      "modernActionIds": ["backup_manager"],
-      "modernCommandIds": ["backups.list", "backups.create", "backups.restore", "backups.delete"],
-      "modernEvidence": [
-        "pixelflasher_core/backups.py:BackupService",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_backup_service.py",
-        "tests/test_service_engine_integration.py:test_backup_create_finalizes_output_and_returns_verified_artifact/test_backup_restore_uses_backend_risk_metadata_and_verified_artifact",
-        "ui/web/src/pages/Pages.tsx:BackupsPage"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "Backend-native bounded boot-chain create and restore use canonical paths, explicit slots, verified artifacts, typed failures and confirmation for restore. React now supplies native-picker paths plus partition and slot; persisted inventory/result presentation and Magisk list/import/delete contracts remain open."
-    },
-    {
-      "id": "settings.application",
-      "area": "settings",
-      "capability": "Edit PixelFlasher application settings",
-      "legacyEvidence": ["Main.py:1611-1613"],
-      "modernActionIds": ["settings_dialog"],
-      "modernCommandIds": ["settings.get", "settings.update"],
-      "modernEvidence": [
-        "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
-        "pixelflasher_core/runtime.py:_get_preferences/_update_preferences",
-        "pixelflasher_core/config_store.py:ConfigStore",
-        "tests/test_preferences.py",
-        "tests/test_runtime_preferences.py",
-        "ui/web/src/pages/Pages.tsx:SettingsPage",
-        "ui/web/src/App.tsx:applyPreferences/changePreferences",
-        "ui/web/src/bridge.ts:getPreferences/updatePreferences"
-      ],
-      "modernStatus": "partial",
-      "risk": "host_write",
-      "exitContract": "The real React form and runtime load, merge and atomically persist theme, locale, high contrast, reduced motion and zoom through settings.get/settings.update with revision checks. Expert Mode now controls advanced disclosure, but host persistence for it and the remaining supported 9.x settings are open."
-    },
-    {
-      "id": "root.apps",
-      "area": "root",
-      "capability": "Download/install Magisk, KernelSU variants, APatch, SukiSU and Wild_KSU",
-      "legacyEvidence": ["README.md:84-100"],
-      "modernActionIds": ["rooting_app"],
-      "modernCommandIds": ["root.apps.list", "root.apps.install"],
-      "modernEvidence": [
-        "pixelflasher_core/rooting.py:RootingService",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_rooting_service.py",
-        "tests/test_service_engine_integration.py"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The backend inventories canonical rooting APKs with provenance and hashes and installs only opaque backend-issued IDs. React inventory/install, verified download and channel/version selection remain open."
-    },
-    {
-      "id": "root.modules",
-      "area": "root",
-      "capability": "Manage Magisk-compatible modules and root settings",
-      "legacyEvidence": ["README.md:107-126"],
-      "modernActionIds": ["magisk_modules"],
-      "modernCommandIds": ["root.modules.list", "root.modules.action"],
-      "modernEvidence": [
-        "pixelflasher_core/rooting.py:RootingService",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_rooting_service.py",
-        "tests/test_service_engine_integration.py"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "Backend-native list, enable, disable, validated-ZIP install and remove return typed state with action-specific confirmations. The complete React manager and update workflow remain open."
-    },
-    {
-      "id": "partitions.manage",
-      "area": "partitions",
-      "capability": "List, dump and erase one or more partitions",
-      "legacyEvidence": ["README.md:246-248"],
-      "modernActionIds": ["partition_manager"],
-      "modernCommandIds": ["partitions.list", "partitions.read", "partitions.write", "partitions.erase"],
-      "modernEvidence": [
-        "pixelflasher_core/partitions.py:PartitionService",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_partition_service.py",
-        "tests/test_service_engine_integration.py:test_partition_list_parses_fastboot_stderr_after_success",
-        "ui/web/src/pages/Pages.tsx:ToolsPage",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "React exposes partition list/results plus native-picker read/write and guarded erase. The backend enforces a closed vocabulary, one current fastboot serial, canonical paths and exact argv; write requires confirmation and erase is reinforced. Device-side post-write/erase verification and richer progress/retry remain open."
-    },
-    {
-      "id": "device.reboot",
-      "area": "device",
-      "capability": "Reboot to system, bootloader, fastbootd, recovery, safe mode, download or sideload",
-      "legacyEvidence": ["README.md:237", "Main.py:1705-1730"],
-      "modernActionIds": ["disabled_reboot"],
-      "modernCommandIds": ["device.reboot"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:DashboardPage/DevicePage/ToolsPage",
-        "pixelflasher_core/planner.py:OperationPlanner._reboot",
-        "tests/test_operation_planner.py:test_reboot_chooses_adb_or_fastboot_and_binds_serial"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "System, recovery, bootloader and fastbootd are compiled to serial-bound argv with state validation and typed process results; safe mode, download and sideload destinations plus post-transition verification remain open."
-    },
-    {
-      "id": "flash.wipe_shortcut",
-      "area": "flash",
-      "capability": "Standalone wipe shortcut",
-      "legacyEvidence": ["README.md:245"],
-      "modernActionIds": ["disabled_wipe"],
-      "modernStatus": "blocked",
-      "risk": "destructive",
-      "exitContract": "No standalone wipe bypass exists; any supported wipe is part of a fully reviewed immutable plan."
-    },
-    {
-      "id": "device.switch_slot",
-      "area": "device",
-      "capability": "Change the active slot",
-      "legacyEvidence": ["README.md:235", "README.md:432"],
-      "modernActionIds": ["disabled_slot_switch"],
-      "modernCommandIds": ["device.switchSlot"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:DashboardPage/DevicePage",
-        "pixelflasher_core/planner.py:OperationPlanner._switch_slot",
-        "tests/test_operation_planner.py:test_slot_switch_requires_backend_challenge_and_exact_text",
-        "ui/web/src/test/App.test.tsx:Device operations"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The React flow submits an explicit target slot and the backend binds a reinforced challenge to serial, revision and plan before exact fastboot execution; a post-command scan that verifies the resulting active slot is still missing."
-    },
-    {
-      "id": "device.wireless",
-      "area": "device",
-      "capability": "Wireless ADB discovery, pairing and connection",
-      "legacyEvidence": ["README.md:131"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.wifi"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage.runWifi",
-        "pixelflasher_core/contracts.py:SensitiveText/AppCommand",
-        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_wifi/execute_special/finalize_result",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_device_tools_service.py",
-        "tests/test_service_engine_integration.py",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "React exposes status, pair, connect and disconnect for validated numeric endpoints; the pairing code crosses a secret-stdin boundary and verified responses never echo it. Wireless discovery/mDNS, operation without an already selected ADB device and robust post-scan handoff remain open."
-    },
-    {
-      "id": "apps.install_apk",
-      "area": "applications",
-      "capability": "Install APK with ownership and low-target-SDK options",
-      "legacyEvidence": ["README.md:128-130"],
-      "modernActionIds": [],
-      "modernEvidence": [
-        "pixelflasher_core/packages.py:PackageService._compile_install",
-        "pixelflasher_core/engine.py:_compile_service_command",
-        "tests/test_package_service.py:test_install_hashes_canonical_apk_and_orders_allowlisted_flags"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The backend validates and hashes one canonical APK and compiles allow-listed install flags with shell-free serial-bound argv and confirmation; no React APK picker/options flow emits this intent yet."
-    },
-    {
-      "id": "apps.package_manager",
-      "area": "applications",
-      "capability": "Package listing, filtering, enable/disable, uninstall, download, launch, permissions, clear/kill, denylist and SU controls",
-      "legacyEvidence": ["README.md:137-155"],
-      "modernActionIds": [],
-      "modernCommandIds": ["apps.list", "apps.action"],
-      "modernEvidence": [
-        "pixelflasher_core/packages.py:PackageService/parse_package_list",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_package_service.py",
-        "tests/test_service_engine_integration.py:test_apps_list_runs_through_executor_and_stores_parsed_result",
-        "ui/web/src/pages/Pages.tsx:AppsPage"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "The backend natively lists scopes and compiles enable, disable, uninstall, clear-data, force-stop, launch, permissions and install intents with typed targets and confirmation metadata. React invokes apps.list for canonical refresh and exposes enable/disable; download, denylist, SU controls and the remaining actions stay open."
-    },
-    {
-      "id": "device.adb_shell",
-      "area": "device_tools",
-      "capability": "Interactive ADB shell",
-      "legacyEvidence": ["README.md:133"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.adbShell"],
-      "modernEvidence": [
-        "pixelflasher_core/device_tools.py:DeviceToolsService.compile",
-        "tests/test_device_tools_service.py:test_arbitrary_adb_shell_has_an_explicit_unsupported_contract",
-        "tests/test_service_engine_integration.py:test_arbitrary_adb_shell_is_explicitly_disabled_without_execution"
-      ],
-      "modernStatus": "blocked",
-      "risk": "destructive",
-      "exitContract": "The visible tool is intentionally rejected with adb_shell_unsupported and launches no process; parity requires a separate explicit expert-only contract if arbitrary shell access is retained."
-    },
-    {
-      "id": "device.scrcpy",
-      "area": "device_tools",
-      "capability": "Launch scrcpy for the selected device",
-      "legacyEvidence": ["README.md:134"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.scrcpy"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage",
-        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_scrcpy/execute_special",
-        "tests/test_device_tools_service.py",
-        "tests/test_service_engine_integration.py",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The React action and managed launcher bind one selected ADB serial, validate a backend-owned executable artifact and report launch failure without shell execution. Runtime executable discovery/packaging, configurable options and cross-platform lifecycle smokes remain open."
-    },
-    {
-      "id": "device.inspect",
-      "area": "device_tools",
-      "capability": "Device info, props JSON, PIF print, screen XML, bootloader versions and open URL",
-      "legacyEvidence": ["README.md:69-82", "Main.py:1645-1659", "Main.py:1685-1695"],
-      "modernActionIds": [],
-      "modernStatus": "missing",
-      "risk": "device_read",
-      "exitContract": "Each report is native, cancellable, serial-bound and safely exportable."
-    },
-    {
-      "id": "device.ota_diagnostics",
-      "area": "device_tools",
-      "capability": "Cancel Google OTA, inspect otacerts and monitor update_engine",
-      "legacyEvidence": ["Main.py:1661-1667", "Main.py:1681-1683"],
-      "modernActionIds": [],
-      "modernStatus": "missing",
-      "risk": "device_write",
-      "exitContract": "Mutation and read-only diagnostics are separate typed flows with clear ownership and results."
-    },
-    {
-      "id": "device.logs",
-      "area": "device_tools",
-      "capability": "Logcat viewer and filtered update_engine logs",
-      "legacyEvidence": ["Main.py:1677-1683"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.logcat"],
-      "modernEvidence": [
-        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat",
-        "pixelflasher_core/engine.py:_parse_service_result",
-        "tests/test_device_tools_service.py",
-        "tests/test_service_engine_integration.py:test_logcat_returns_bounded_line_model_and_never_uses_shell",
-        "ui/web/src/pages/Pages.tsx:ToolsPage"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_read",
-      "exitContract": "The React workspace renders the shell-free, serial-bound, timeout/line-bounded line model in a bounded viewer. Streaming updates, cancellation while streaming, redaction, export and update_engine-specific views remain open."
-    },
-    {
-      "id": "device.push_files",
-      "area": "device_tools",
-      "capability": "Push files to /data/local/tmp or Downloads",
-      "legacyEvidence": ["Main.py:1732-1741"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.pushFiles"],
-      "modernEvidence": [
-        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_push_files",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "tests/test_device_tools_service.py",
-        "tests/test_service_engine_integration.py:test_push_files_confirms_revalidates_and_returns_verified_mapping",
-        "ui/web/src/pages/Pages.tsx:ToolsPage.pushFiles",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "React provides a native multi-file picker, closed destination selector and typed result. The backend restricts destinations to /data/local/tmp/ or Downloads, canonicalizes and hashes sources, confirms and revalidates; per-file progress/retry and device-side hash verification remain open."
-    },
-    {
-      "id": "boot.inventory",
-      "area": "boot_images",
-      "capability": "List, add, delete and inspect boot-image records and provenance",
-      "legacyEvidence": ["README.md:46-64", "Main.py:7308-7313"],
-      "modernActionIds": [],
-      "modernCommandIds": ["boot.select"],
-      "modernStatus": "read_only",
-      "risk": "host_write",
-      "exitContract": "Native store supports full metadata, import, delete and deterministic selection."
-    },
-    {
-      "id": "boot.live",
-      "area": "boot_images",
-      "capability": "Temporarily live-boot a selected image",
-      "legacyEvidence": ["README.md:64", "README.md:236"],
-      "modernActionIds": [],
-      "modernCommandIds": ["boot.live"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:DeviceOperations",
-        "pixelflasher_core/planner.py:OperationPlanner._boot_live",
-        "tests/test_operation_planner.py:test_boot_flash_and_live_use_only_canonical_boot_artifact",
-        "ui/web/src/test/App.test.tsx:Device operations"
-      ],
-      "modernStatus": "partial",
-      "risk": "device_write",
-      "exitContract": "The React control requires one unlocked fastboot device and a verified canonical image; the backend revalidates image hash and serial before exact fastboot boot execution. Reconnect/boot-outcome observation and typed postcondition reporting remain open."
-    },
-    {
-      "id": "flash.advanced_options",
-      "area": "flash",
-      "capability": "Both/inactive slots, verity/verification, force, no-reboot, downgrade and temporary-root options",
-      "legacyEvidence": ["README.md:232-244", "Main.py:7295-7304"],
-      "modernActionIds": [],
-      "modernCommandIds": ["flash.plan.update"],
-      "modernEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
-        "ui/web/src/App.tsx:prepareFlash",
-        "pixelflasher_core/planner.py:_normalized_flash_options/_validate_ota_options/_image_flash",
-        "tests/test_operation_planner.py:test_each_unsupported_image_option_fails_explicitly"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "The React wizard exposes slot, verity, verification, force, no-reboot, downgrade and temporary-root intent and the planner either serializes each option into exact argv or rejects it with option_not_supported_for_mode; downgrade artifact generation is still absent."
-    },
-    {
-      "id": "bootloader.manage",
-      "area": "bootloader",
-      "capability": "Lock and unlock the bootloader",
-      "legacyEvidence": ["README.md:240", "Main.py:1782-1789"],
-      "modernActionIds": [],
-      "modernCommandIds": ["device.bootloader.lock", "device.bootloader.unlock"],
-      "modernEvidence": [
-        "ui/web/src/pages/Pages.tsx:DeviceOperations",
-        "pixelflasher_core/planner.py:OperationPlanner._bootloader",
-        "pixelflasher_core/bootloader.py:BootloaderLockPolicy",
-        "pixelflasher_core/contracts.py:BootloaderLockEvidence",
-        "tests/test_operation_planner.py:test_bootloader_unlock_is_backend_compiled_and_lock_fails_without_stock_evidence",
-        "tests/test_bootloader_lock_policy.py:BootloaderLockPolicyTests",
-        "ui/web/src/test/App.test.tsx:Device operations"
-      ],
-      "modernStatus": "partial",
-      "risk": "destructive",
-      "exitContract": "Expert React controls reach exact serial-bound fastboot lock/unlock plans with reinforced confirmation and mandatory wipe metadata. Lock now fails closed unless revision-bound backend evidence proves a complete compatible stock factory flash across both slots; because no trusted evidence producer exists yet, the real host disables lock by default. Evidence production and post-operation bootloader-state verification remain open."
-    },
-    {
-      "id": "root.data_adb",
-      "area": "root",
-      "capability": "Backup, restore and clear /data/adb",
-      "legacyEvidence": ["Main.py:1757-1767"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.dataAdb"],
-      "modernStatus": "missing",
-      "risk": "destructive",
-      "exitContract": "Archive validation, exact target and clear/restore confirmations are enforced below the UI."
-    },
-    {
-      "id": "root.pif",
-      "area": "root",
-      "capability": "PIF/TargetedFix management and Play Integrity analysis",
-      "legacyEvidence": ["README.md:157-215"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.pif", "tools.piAnalysis"],
-      "modernStatus": "missing",
-      "risk": "device_write",
-      "exitContract": "All documented PIF, keybox, target, checker and analysis operations are inventoried and independently testable."
-    },
-    {
-      "id": "root.recovery_tools",
-      "area": "root",
-      "capability": "Start Shizuku and SOS-disable root modules",
-      "legacyEvidence": ["README.md:96-100", "README.md:242", "Main.py:1769-1779"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.sos", "tools.shizuku"],
-      "modernStatus": "missing",
-      "risk": "device_write",
-      "exitContract": "Both flows are serial-bound, explicit about effects and verify the resulting service/module state."
-    },
-    {
-      "id": "dev.tools",
-      "area": "developer_tools",
-      "capability": "Keybox validation, binary XML decode and AVB image/downgrade tools",
-      "legacyEvidence": ["README.md:217-226", "Main.py:1791-1808"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.keybox", "tools.xml", "tools.avb"],
-      "modernStatus": "missing",
-      "risk": "host_write",
-      "exitContract": "Inputs, outputs and validation errors are available without wx dialogs."
-    },
-    {
-      "id": "app.personal_tools",
-      "area": "application",
-      "capability": "Create, edit, delete and launch My Tools entries",
-      "legacyEvidence": ["README.md:216", "Main.py:5946-5975"],
-      "modernActionIds": [],
-      "modernCommandIds": ["tools.myTools"],
-      "modernStatus": "missing",
-      "risk": "destructive",
-      "exitContract": "User-defined commands remain an explicit advanced surface and are never confused with guarded built-in actions."
-    },
-    {
-      "id": "app.device_manager",
-      "area": "application",
-      "capability": "Enable/disable device scanning and manage connected devices",
-      "legacyEvidence": ["README.md:227", "Main.py:2144-2224"],
-      "modernActionIds": [],
-      "modernStatus": "missing",
-      "risk": "host_write",
-      "exitContract": "Scan policy and device toggles are editable and reflected by the native device store."
-    },
-    {
-      "id": "app.preferences_shell",
-      "area": "application",
-      "capability": "Toolbar layout, language selection, links, update checks, folders, about and exit",
-      "legacyEvidence": ["README.md:136", "README.md:156", "README.md:471-498", "Main.py:1815-2007"],
-      "modernActionIds": [],
-      "modernCommandIds": ["updates.check"],
-      "modernStatus": "partial",
-      "risk": "host_write",
-      "exitContract": "All application-shell commands are keyboard accessible and packaged locale JSON stays in parity with gettext."
-    },
-    {
-      "id": "native.file_dialogs",
-      "area": "native_host",
-      "capability": "Native open/save file and directory dialogs for the React UI",
-      "legacyEvidence": ["Main.py:7288-7289", "Main.py:7308", "Main.py:7319"],
-      "modernActionIds": [],
-      "modernCommandIds": ["native.pickFile", "native.pickFiles", "native.pickDirectory", "native.saveFile"],
-      "modernStatus": "native",
-      "risk": "host_write",
-      "exitContract": "The host constrains picker options, returns JSON-only canonical paths and never accepts executable callbacks from web content."
-    }
-  ],
-  "legacyBindings": [
-    {"source": "Main.py", "surface": "file_menu", "label": "Settings", "handler": "_on_advanced_config", "capabilityId": "settings.application"},
-    {"source": "Main.py", "surface": "file_menu", "label": "Exit", "handler": "_on_exit_app", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Install APK", "handler": "_on_install_apk", "capabilityId": "apps.install_apk"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Package Manager", "handler": "_on_package_manager", "capabilityId": "apps.package_manager"},
-    {"source": "Main.py", "surface": "device_menu", "label": "ADB Shell", "handler": "_on_adb_shell", "capabilityId": "device.adb_shell"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Scrcpy", "handler": "_on_scrcpy", "capabilityId": "device.scrcpy"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Device Info", "handler": "_on_device_info", "capabilityId": "device.inspect"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Pif Print", "handler": "_on_pif_info", "capabilityId": "device.inspect"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Props as Json", "handler": "_on_props_as_json", "capabilityId": "device.inspect"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Dump Screen XML", "handler": "_on_xml_view", "capabilityId": "device.inspect"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Cancel OTA Update", "handler": "_on_cancel_ota", "capabilityId": "device.ota_diagnostics"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Check otacerts", "handler": "_on_check_otacerts", "capabilityId": "device.ota_diagnostics"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Partitions Manager", "handler": "_on_partition_manager", "capabilityId": "partitions.manage"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Logcat", "handler": "_on_logcat", "capabilityId": "device.logs"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Logcat filter: update_engine", "handler": "_on_update_engine_logcat", "capabilityId": "device.logs"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Bootloader Versions", "handler": "_on_get_bootloader_versions", "capabilityId": "device.inspect"},
-    {"source": "Main.py", "surface": "device_menu", "label": "PI Analysis Report", "handler": "_on_pi_analysis_report", "capabilityId": "root.pif"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Open URL", "handler": "_on_open_url_on_device", "capabilityId": "device.inspect"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Switch Slot", "handler": "_on_switch_slot", "capabilityId": "device.switch_slot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "System", "handler": "_on_reboot_system", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Bootloader", "handler": "_on_reboot_bootloader", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Fastbootd", "handler": "_on_reboot_fastbootd", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Recovery", "handler": "_on_reboot_recovery", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Interactive Recovery", "handler": "_on_reboot_recovery_interactive", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Safe Mode", "handler": "_on_reboot_safemode", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Download", "handler": "_on_reboot_download", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "reboot_menu", "label": "Sideload", "handler": "_on_reboot_sideload", "capabilityId": "device.reboot"},
-    {"source": "Main.py", "surface": "push_menu", "label": "/data/local/tmp/", "handler": "_on_push_to_tmp", "capabilityId": "device.push_files"},
-    {"source": "Main.py", "surface": "push_menu", "label": "/sdcard/Download/", "handler": "_on_push_to_download", "capabilityId": "device.push_files"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Magisk", "handler": "_on_magisk", "capabilityId": "root.modules"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Rooting App", "handler": "_on_rooting_app", "capabilityId": "root.apps"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Magisk Backup Manager", "handler": "_on_backup_manager", "capabilityId": "backups.magisk"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Backup /data/adb", "handler": "_on_data_adb_backup", "capabilityId": "root.data_adb"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Restore /data/adb", "handler": "_on_data_adb_restore", "capabilityId": "root.data_adb"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Clear /data/adb/*", "handler": "_on_data_adb_clear", "capabilityId": "root.data_adb"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Start Shizuku", "handler": "_on_start_shizuku", "capabilityId": "root.recovery_tools"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Pif Manager", "handler": "_on_pif_manager", "capabilityId": "root.pif"},
-    {"source": "Main.py", "surface": "device_menu", "label": "SOS", "handler": "_on_sos", "capabilityId": "root.recovery_tools"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Lock Bootloader", "handler": "_on_lock_bootloader", "capabilityId": "bootloader.manage"},
-    {"source": "Main.py", "surface": "device_menu", "label": "Unlock Bootloader", "handler": "_on_unlock_bootloader", "capabilityId": "bootloader.manage"},
-    {"source": "Main.py", "surface": "dev_tools_menu", "label": "Check keybox.xml", "handler": "_on_check_keybox", "capabilityId": "dev.tools"},
-    {"source": "Main.py", "surface": "dev_tools_menu", "label": "Decode Binary XML", "handler": "_on_decode_binary_xml", "capabilityId": "dev.tools"},
-    {"source": "Main.py", "surface": "dev_tools_menu", "label": "AVB - Get Image Info", "handler": "_on_get_image_info", "capabilityId": "dev.tools"},
-    {"source": "Main.py", "surface": "dev_tools_menu", "label": "AVB - Prepare Downgrade Patch", "handler": "_on_prep_downgrade_patch", "capabilityId": "dev.tools"},
-    {"source": "Main.py", "surface": "toolbar_menu", "label": "Position/text/icons", "handler": "_on_tb_update", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "toolbar_menu", "label": "Show / Hide Buttons", "handler": "_on_button_menu", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "language_menu", "label": "Available language", "handler": "on_language_change", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "help_menu", "label": "Issue / Feature / Project / Forum / Links", "handler": "_on_link_clicked", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "help_menu", "label": "Open Configuration Folder", "handler": "_on_open_config_folder", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "help_menu", "label": "Open PixelFlasher Working Directory", "handler": "_on_open_pf_home", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "help_menu", "label": "Create a Sanitized support.zip", "handler": "_on_support_zip", "capabilityId": "support.package"},
-    {"source": "Main.py", "surface": "help_menu", "label": "Modern UI", "handler": "_on_modern_ui_preview", "capabilityId": "navigation.dashboard"},
-    {"source": "Main.py", "surface": "help_menu", "label": "Check for New Version / About", "handler": "_on_help_about", "capabilityId": "app.preferences_shell"},
-    {"source": "Main.py", "surface": "devices_menu", "label": "Scan enabled/all devices", "handler": "_on_scan_enabled_devices", "capabilityId": "app.device_manager"},
-    {"source": "Main.py", "surface": "devices_menu", "label": "Scan all devices", "handler": "_on_scan_all_devices", "capabilityId": "app.device_manager"},
-    {"source": "Main.py", "surface": "devices_menu", "label": "Manage Devices", "handler": "_on_manage_devices", "capabilityId": "app.device_manager"},
-    {"source": "Main.py", "surface": "devices_menu", "label": "Device toggle", "handler": "_on_device_toggle", "capabilityId": "app.device_manager"},
-    {"source": "Main.py", "surface": "google_images_menu", "label": "Generated firmware build", "handler": "on_download", "capabilityId": "firmware.downloads"},
-    {"source": "Main.py", "surface": "google_images_menu", "label": "Generated firmware download callback", "handler": "on_download_handler", "capabilityId": "firmware.downloads"},
-    {"source": "Main.py", "surface": "google_images_menu", "label": "Refresh images list", "handler": "on_refresh_google_images", "capabilityId": "firmware.downloads"},
-    {"source": "Main.py", "surface": "google_images_menu", "label": "Show progress window", "handler": "on_show_progress_window", "capabilityId": "firmware.downloads"},
-    {"source": "Main.py", "surface": "my_tools_menu", "label": "Generated user tool", "handler": "run_tool", "capabilityId": "app.personal_tools"},
-    {"source": "Main.py", "surface": "my_tools_menu", "label": "Customize My Tools", "handler": "_on_customize_my_tools", "capabilityId": "app.personal_tools"},
-    {"source": "Main.py", "surface": "developer_menu", "label": "Diagnostics", "handler": "Test", "capabilityId": "dev.tools"},
-    {"source": "backup_manager.py", "surface": "context_menu", "label": "Delete Backup", "handler": "OnpopupDelete", "capabilityId": "backups.magisk"},
-    {"source": "backup_manager.py", "surface": "context_menu", "label": "Refresh", "handler": "OnPopupRefresh", "capabilityId": "backups.magisk"},
-    {"source": "backup_manager.py", "surface": "context_menu", "label": "Check All", "handler": "OnCheckAllBoxes", "capabilityId": "backups.magisk"},
-    {"source": "backup_manager.py", "surface": "context_menu", "label": "UnCheck All", "handler": "OnUnCheckAllBoxes", "capabilityId": "backups.magisk"},
-    {"source": "backup_manager.py", "surface": "context_menu", "label": "Copy to Clipboard", "handler": "OnCopyClipboard", "capabilityId": "backups.magisk"},
-    {"source": "magisk_downloads.py", "surface": "context_menu", "label": "Copy URL", "handler": "_OnCopyURL", "capabilityId": "root.apps"},
-    {"source": "magisk_downloads.py", "surface": "context_menu", "label": "Copy Package ID", "handler": "_OnCopyPackageId", "capabilityId": "root.apps"},
-    {"source": "magisk_downloads.py", "surface": "context_menu", "label": "Download Selected Rooting App", "handler": "_OnDownloadMagisk", "capabilityId": "root.apps"},
-    {"source": "magisk_modules.py", "surface": "context_menu", "label": "Copy", "handler": "onCopy", "capabilityId": "root.modules"},
-    {"source": "magisk_modules.py", "surface": "context_menu", "label": "Select All", "handler": "onSelectAll", "capabilityId": "root.modules"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Disable Package", "handler": "OnPopupDisable", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Enable Package", "handler": "OnPopupEnable", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Uninstall Package", "handler": "OnPopupUninstall", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Add Package to Magisk Denylist", "handler": "OnPopupAddToDeny", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Remove Package from Magisk Denylist", "handler": "OnPopupRmFromDeny", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Download Package", "handler": "OnPopupDownload", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Launch Package", "handler": "OnPopupLaunch", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "View Application Permissions", "handler": "OnPopupPermissions", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Kill Application", "handler": "OnPopupKill", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Clear Application Data", "handler": "OnPopupClearData", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Refresh", "handler": "OnPopupRefresh", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Check All", "handler": "OnCheckAllBoxes", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "UnCheck All", "handler": "OnUnCheckAllBoxes", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "Copy to Clipboard", "handler": "OnCopyClipboard", "capabilityId": "apps.package_manager"},
-    {"source": "package_manager.py", "surface": "context_menu", "label": "SU Permission", "handler": "OnSuPermission", "capabilityId": "apps.package_manager"},
-    {"source": "partition_manager.py", "surface": "context_menu", "label": "Erase Partition", "handler": "OnpopupErase", "capabilityId": "partitions.manage"},
-    {"source": "partition_manager.py", "surface": "context_menu", "label": "Dump Partition", "handler": "OnPopupDump", "capabilityId": "partitions.manage"},
-    {"source": "partition_manager.py", "surface": "context_menu", "label": "Check All", "handler": "OnCheckAllBoxes", "capabilityId": "partitions.manage"},
-    {"source": "partition_manager.py", "surface": "context_menu", "label": "UnCheck All", "handler": "OnUnCheckAllBoxes", "capabilityId": "partitions.manage"},
-    {"source": "partition_manager.py", "surface": "context_menu", "label": "Copy to Clipboard", "handler": "OnCopyClipboard", "capabilityId": "partitions.manage"}
-  ],
-  "primaryControlBindings": [
-    {"label": "Flash mode radio selection", "handler": "_on_mode_changed", "capabilityId": "flash.advanced_options"},
-    {"label": "Device selection", "handler": "_on_select_device", "capabilityId": "device.discovery"},
-    {"label": "Scan", "handler": "_on_scan", "capabilityId": "device.discovery"},
-    {"label": "Scan all devices", "handler": "_on_scan_all_devices", "capabilityId": "device.discovery"},
-    {"label": "Firmware picker", "handler": "_on_select_firmware", "capabilityId": "firmware.select_stock"},
-    {"label": "Platform Tools picker", "handler": "_on_select_platform_tools", "capabilityId": "platform_tools.setup"},
-    {"label": "Restart ADB server", "handler": "_on_adb_kill_server", "capabilityId": "device.discovery"},
-    {"label": "Platform Tools link", "handler": "_open_sdk_link", "capabilityId": "platform_tools.setup"},
-    {"label": "Wireless Manager", "handler": "_on_wifi_manager", "capabilityId": "device.wireless"},
-    {"label": "Custom ROM mode", "handler": "_on_custom_rom", "capabilityId": "firmware.select_custom"},
-    {"label": "Custom ROM picker", "handler": "_on_select_custom_rom", "capabilityId": "firmware.select_custom"},
-    {"label": "Disable verification", "handler": "_on_disable_verification", "capabilityId": "flash.advanced_options"},
-    {"label": "Flash both slots", "handler": "_on_flash_both_slots", "capabilityId": "flash.advanced_options"},
-    {"label": "Flash inactive slot", "handler": "_on_flash_to_inactive_slot", "capabilityId": "flash.advanced_options"},
-    {"label": "No reboot", "handler": "_on_no_reboot", "capabilityId": "flash.advanced_options"},
-    {"label": "Wipe", "handler": "_on_wipe", "capabilityId": "flash.mode_wipe"},
-    {"label": "No-wipe downgrade", "handler": "_on_no_wipe_downgrade", "capabilityId": "flash.advanced_options"},
-    {"label": "Disable verity", "handler": "_on_disable_verity", "capabilityId": "flash.advanced_options"},
-    {"label": "Fastboot force", "handler": "_on_fastboot_force", "capabilityId": "flash.advanced_options"},
-    {"label": "Fastboot verbose", "handler": "_on_fastboot_verbose", "capabilityId": "flash.advanced_options"},
-    {"label": "Temporary root", "handler": "_on_temporary_root", "capabilityId": "flash.advanced_options"},
-    {"label": "Flash Device", "handler": "_on_flash", "capabilityId": "flash.execute"},
-    {"label": "Verbose console", "handler": "_on_verbose", "capabilityId": "app.preferences_shell"},
-    {"label": "Clear console", "handler": "_on_clear", "capabilityId": "app.preferences_shell"},
-    {"label": "Image picker", "handler": "_on_image_select", "capabilityId": "boot.inventory"},
-    {"label": "Boot image selection", "handler": "_on_image_choice", "capabilityId": "boot.inventory"},
-    {"label": "Boot list selection", "handler": "_on_boot_selected", "capabilityId": "boot.inventory"},
-    {"label": "Boot list sort", "handler": "OnColClick", "capabilityId": "boot.inventory"},
-    {"label": "Delete boot record", "handler": "_on_delete_boot", "capabilityId": "boot.inventory"},
-    {"label": "Add boot record", "handler": "_on_add_boot", "capabilityId": "boot.inventory"},
-    {"label": "Boot info", "handler": "_on_get_boot_info", "capabilityId": "boot.inventory"},
-    {"label": "Live Boot", "handler": "_on_live_boot", "capabilityId": "boot.live"},
-    {"label": "Flash Boot", "handler": "_on_flash_boot", "capabilityId": "boot.flash"},
-    {"label": "Process Firmware", "handler": "_on_process_firmware", "capabilityId": "firmware.process_stock"},
-    {"label": "Process ROM", "handler": "_on_process_rom", "capabilityId": "firmware.process_custom"},
-    {"label": "Show all boot records", "handler": "_on_show_all_boot", "capabilityId": "boot.inventory"},
-    {"label": "Paste selection", "handler": "_on_paste_selection", "capabilityId": "boot.inventory"},
-    {"label": "Support package", "handler": "_on_support_zip", "capabilityId": "support.package"},
-    {"label": "Firmware downloads", "handler": "_on_show_device_download", "capabilityId": "firmware.downloads"}
-  ],
+  "statusDefinitions": {
+    "native": "Implemented by modern state/use cases without opening or delegating to legacy UI handlers. Native is an implementation state; stable-release platform and accessibility validation is tracked separately by releaseGate.",
+    "read_only": "Modern UI renders current state but does not provide the complete native mutation flow.",
+    "delegated": "Reachable from the modern UI but execution still calls a legacy handler/frame.",
+    "partial": "Only a documented subset is present in the modern UI.",
+    "blocked": "A parity capability is intentionally unavailable because a named prerequisite or product decision prevents a safe native contract.",
+    "missing": "No equivalent modern control or flow exists.",
+    "policy_absent": "The behavior is intentionally excluded from PixelFlasher 10 by safety or product policy and is not a parity deficit."
+  },
   "riskDefinitions": {
     "none": "Navigation or presentation only.",
     "host_read": "Reads local files without modifying them.",
@@ -1023,13 +65,3004 @@
     "device_write": "Changes device state but is not inherently a data-erasing operation.",
     "destructive": "Can erase data, write boot-critical partitions, remove applications/data or execute arbitrary user commands."
   },
-  "schemaVersion": 1,
-  "statusDefinitions": {
-    "native": "Implemented by modern state/use cases without opening or delegating to legacy UI handlers.",
-    "read_only": "Modern UI renders current state but does not provide the complete native mutation flow.",
-    "delegated": "Reachable from the modern UI but execution still calls a legacy handler/frame.",
-    "partial": "Only a documented subset is present in the modern UI.",
-    "blocked": "Shown as intentionally unavailable until its safe native contract exists.",
-    "missing": "No equivalent modern control or flow exists."
-  }
+  "ownerDefinitions": {
+    "application": "Application shell, lifecycle and user-defined tools.",
+    "applications": "Installed-package and APK workflows.",
+    "backups": "Device backup repositories and restore workflows.",
+    "boot_images": "Boot-image inventory, patch, flash and live-boot workflows.",
+    "bootloader": "Bootloader lock-state mutations and evidence.",
+    "developer_tools": "Advanced developer and artifact utilities.",
+    "device": "Device discovery, selection, connectivity and state transitions.",
+    "device_tools": "Bounded device inspection and utility operations.",
+    "firmware": "Firmware selection, catalog, download and processing.",
+    "flash": "Flash intent, planning, review and execution.",
+    "native_host": "wx/WebView host-only operating-system integrations.",
+    "navigation": "React task routing and workspace shells only.",
+    "partitions": "Partition inventory, read, write and erase workflows.",
+    "platform_tools": "ADB/Fastboot discovery, validation and installation.",
+    "root": "Rooting applications, modules, integrity and recovery tools.",
+    "settings": "Versioned application preferences.",
+    "support": "Sanitized diagnostics and support artifacts."
+  },
+  "platformDefinitions": {
+    "windows": "Windows x64 and ARM64 packaged targets.",
+    "macos": "macOS Intel and Apple Silicon packaged targets.",
+    "linux": "Linux X11, Wayland and AppImage packaged targets."
+  },
+  "capabilities": [
+    {
+      "id": "navigation.dashboard",
+      "area": "navigation",
+      "capability": "Dashboard and device summary",
+      "owner": "navigation",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "PixelFlasher.py:_run_modern_primary",
+        "ui/pages/modern_primary_app.py:launch_modern_primary",
+        "ui/pages/modern_webview_host.py:ModernWebViewFrame",
+        "ui/web/src/App.tsx:PixelFlasherApp"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "The packaged React host opens Dashboard without importing or constructing Main.PixelFlasher, and dashboard state comes from the canonical snapshot."
+      ],
+      "dependsOn": [],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_modern_primary_experience.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:69-82"
+      ],
+      "modernActionIds": [
+        "open_modern_dashboard"
+      ],
+      "modernCommandIds": [
+        "app.ready",
+        "snapshot.get"
+      ]
+    },
+    {
+      "id": "navigation.flash",
+      "area": "navigation",
+      "capability": "Flash workspace navigation shell",
+      "owner": "navigation",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "ui/web/src/App.tsx:route flash"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "The Flash task route opens, preserves canonical application state and restores focus without claiming ownership of planning or execution.",
+        "All operational flash behavior remains owned and gated by flash.execute and its dependencies."
+      ],
+      "dependsOn": [],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "ui/web/src/test/App.test.tsx:Flash route"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:375-419",
+        "README.md:431-469"
+      ],
+      "modernActionIds": [
+        "open_modern_flash_wizard"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "navigation.device",
+      "area": "navigation",
+      "capability": "Device state workspace",
+      "owner": "navigation",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "ui/web/src/App.tsx:route device",
+        "ui/web/src/pages/Pages.tsx:DevicePage"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "The Device task route presents canonical identity, connection mode, slot and root state and preserves keyboard focus."
+      ],
+      "dependsOn": [
+        "device.discovery"
+      ],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "ui/web/src/test/App.test.tsx:Device operations"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:69-82"
+      ],
+      "modernActionIds": [
+        "open_modern_shell"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "navigation.backups",
+      "area": "navigation",
+      "capability": "Backup workspace",
+      "owner": "navigation",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:BackupsPage",
+        "pixelflasher_core/backups.py:BackupService",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result"
+      ],
+      "gap": "The workspace still lacks a canonical refreshed backup inventory, result and provenance presentation, and Magisk import/delete parity.",
+      "exitCriteria": [
+        "The React Backups workspace provides every supported create, restore, inventory, import and delete flow without a legacy dialog."
+      ],
+      "dependsOn": [
+        "backups.magisk"
+      ],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_backup_service.py",
+        "tests/test_service_engine_integration.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:101-106"
+      ],
+      "modernActionIds": [
+        "open_backups"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "navigation.settings",
+      "area": "navigation",
+      "capability": "Settings workspace",
+      "owner": "navigation",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:SettingsPage",
+        "ui/web/src/App.tsx:applyPreferences/changePreferences",
+        "ui/web/src/bridge.ts:getPreferences/updatePreferences",
+        "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
+        "pixelflasher_core/runtime.py:_get_preferences/_update_preferences"
+      ],
+      "gap": "Expert Mode is not host-persisted and most supported 9.x application preferences are not represented.",
+      "exitCriteria": [
+        "The React Settings workspace exposes every supported versioned preference and persists it through ConfigStore."
+      ],
+      "dependsOn": [
+        "settings.application"
+      ],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_preferences.py",
+        "tests/test_runtime_preferences.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1611-1613"
+      ],
+      "modernActionIds": [
+        "open_settings"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "navigation.tools",
+      "area": "navigation",
+      "capability": "Tool catalog workspace",
+      "owner": "navigation",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:ToolsPage",
+        "pixelflasher_core/device_tools.py:DeviceToolsService",
+        "pixelflasher_core/partitions.py:PartitionService",
+        "pixelflasher_core/support.py:SupportPackageService"
+      ],
+      "gap": "Advanced utilities and the documented packaging, progress, retry and postcondition work for individual tools remain incomplete.",
+      "exitCriteria": [
+        "Every supported Tools workspace action has a typed bridge contract, bounded result and explicit capability owner."
+      ],
+      "dependsOn": [
+        "device.scrcpy",
+        "device.wireless",
+        "device.logs",
+        "device.push_files",
+        "partitions.manage",
+        "support.package"
+      ],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_tools_service.py",
+        "tests/test_partition_service.py",
+        "tests/test_support_package_service.py",
+        "ui/web/src/test/App.test.tsx:Tools workspace"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:216-226"
+      ],
+      "modernActionIds": [
+        "open_tools"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "navigation.safety",
+      "area": "navigation",
+      "capability": "Safety policy and confirmation workspace",
+      "owner": "navigation",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "pixelflasher_core/interaction.py:InteractionBroker",
+        "pixelflasher_core/runtime.py:_on_interaction/respond_interaction",
+        "pixelflasher_core/engine.py:_execute_process",
+        "ui/pages/modern_webview_host.py:_handle_interaction_response",
+        "ui/web/src/App.tsx:interaction dialog"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "Revision-bound interaction requests retain focus, support cancellation and force engine revalidation before execution."
+      ],
+      "dependsOn": [],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_headless_core.py:test_interaction_broker_checks_revision_and_releases_waiters"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:135",
+        "README.md:378",
+        "README.md:419"
+      ],
+      "modernActionIds": [
+        "open_safety"
+      ],
+      "modernCommandIds": [
+        "operation.cancel",
+        "interaction.respond"
+      ]
+    },
+    {
+      "id": "navigation.about",
+      "area": "navigation",
+      "capability": "Version, licensing and project information",
+      "owner": "navigation",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "The live React task shell has no About/help route with packaged version, license, update and support information.",
+      "exitCriteria": [
+        "A keyboard-accessible React About/help surface shows packaged version, licensing, updates, support and project information."
+      ],
+      "dependsOn": [],
+      "risk": "none",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1970-1978"
+      ],
+      "modernActionIds": [
+        "open_about"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "device.discovery",
+      "area": "device",
+      "capability": "Scan, select and disambiguate multiple devices",
+      "owner": "device",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "pixelflasher_core/devices.py:DeviceService",
+        "pixelflasher_core/engine.py:_scan_devices/_select_device"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "ADB and Fastboot scans return serial-keyed typed devices, preserve partial-source results, reject stale selection and distinguish fastbootd.",
+        "Discovery success, cancellation, timeout and disconnect behavior is covered on every target platform."
+      ],
+      "dependsOn": [],
+      "risk": "device_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_headless_services.py:DeviceServiceTests/EngineServiceIntegrationTests"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:67",
+        "README.md:227",
+        "Main.py:7285-7287"
+      ],
+      "modernActionIds": [
+        "scan_devices"
+      ],
+      "modernCommandIds": [
+        "device.scan",
+        "device.select"
+      ]
+    },
+    {
+      "id": "platform_tools.setup",
+      "area": "platform_tools",
+      "capability": "Locate, validate or install Android Platform Tools",
+      "owner": "platform_tools",
+      "modernStatus": "partial",
+    "currentEvidence": [
+      "pixelflasher_core/toolchain.py:ToolchainService",
+      "pixelflasher_core/artifact_downloads.py:ArtifactDownloader",
+      "pixelflasher_core/platform_tools.py:PlatformToolsInstaller",
+      "pixelflasher_core/platform_tools_setup.py:PlatformToolsSetupService",
+      "pixelflasher_core/engine.py:_setup_platform_tools",
+      "ui/web/src/pages/dashboard/DashboardPage.tsx"
+    ],
+    "gap": "Signed official and opaque-grant directory setup are native, versioned and atomic. Production Ed25519 key/catalog provisioning plus packaged cross-platform installation smokes remain open; builds without a provisioned catalog fail closed.",
+      "exitCriteria": [
+        "Locate, validate or install Android Platform Tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+    "tests": [
+      "tests/test_headless_services.py:ToolchainServiceTests/EngineServiceIntegrationTests",
+      "tests/test_platform_tools_core.py",
+      "tests/test_platform_tools_manifest_install.py",
+      "tests/test_platform_tools_setup_service.py",
+      "tests/test_runtime_platform_tools_setup.py"
+    ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:127",
+        "README.md:359-360"
+      ],
+      "modernActionIds": [
+        "setup_platform_tools"
+      ],
+      "modernCommandIds": [
+        "platformTools.setup"
+      ]
+    },
+    {
+      "id": "firmware.select_stock",
+      "area": "firmware",
+      "capability": "Select and identify a factory or full OTA package",
+      "owner": "firmware",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/firmware.py:FirmwareInspector",
+        "pixelflasher_core/engine.py:_inspect_firmware",
+        "ui/web/src/pages/Pages.tsx:FirmwarePage"
+      ],
+      "gap": "Official catalog/download selection and complete user-facing diagnostics remain open.",
+      "exitCriteria": [
+        "Select and identify a factory or full OTA package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "native.file_dialogs"
+      ],
+      "risk": "host_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_headless_services.py:FirmwareInspectorTests/EngineServiceIntegrationTests",
+        "ui/web/src/test/App.test.tsx:firmware processing flow"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:375-378"
+      ],
+      "modernActionIds": [
+        "select_firmware"
+      ],
+      "modernCommandIds": [
+        "firmware.pick",
+        "firmware.select"
+      ]
+    },
+    {
+      "id": "firmware.select_custom",
+      "area": "firmware",
+      "capability": "Select a custom ROM archive",
+      "owner": "firmware",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/firmware.py:FirmwareInspector",
+        "ui/web/src/pages/Pages.tsx:FirmwarePage",
+        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_custom"
+      ],
+      "gap": "A dedicated custom-ROM flow, payload.bin support and complete stock/custom substitution diagnostics remain open.",
+      "exitCriteria": [
+        "Select a custom ROM archive is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "native.file_dialogs"
+      ],
+      "risk": "host_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:231",
+        "README.md:431-444"
+      ],
+      "modernActionIds": [
+        "select_custom_rom"
+      ],
+      "modernCommandIds": [
+        "firmware.pickCustomRom"
+      ]
+    },
+    {
+      "id": "firmware.process_stock",
+      "area": "firmware",
+      "capability": "Validate and process factory/full OTA packages",
+      "owner": "firmware",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService",
+        "pixelflasher_core/engine.py:_process_firmware",
+        "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
+        "ui/web/src/pages/Pages.tsx:FirmwarePage"
+      ],
+      "gap": "Complete product diagnostics, retry UX and packaged cross-platform validation remain open.",
+      "exitCriteria": [
+        "Validate and process factory/full OTA packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "firmware.select_stock"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_firmware_artifact_service.py",
+        "tests/test_firmware_engine_integration.py",
+        "ui/web/src/test/App.test.tsx:firmware processing flow"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:379-380"
+      ],
+      "modernActionIds": [
+        "process_firmware"
+      ],
+      "modernCommandIds": [
+        "firmware.process"
+      ]
+    },
+    {
+      "id": "firmware.process_custom",
+      "area": "firmware",
+      "capability": "Process custom ROM packages",
+      "owner": "firmware",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_custom",
+        "pixelflasher_core/engine.py:_process_firmware"
+      ],
+      "gap": "Custom payload.bin processing is unsupported.",
+      "exitCriteria": [
+        "Process custom ROM packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "firmware.select_custom"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility/test_payload_only_custom_rom_fails_explicitly_and_leaves_no_partial_files",
+        "tests/test_firmware_engine_integration.py:test_custom_direct_image_package_requires_and_promotes_stock_boot"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:431-444"
+      ],
+      "modernActionIds": [
+        "process_custom_rom"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "firmware.downloads",
+      "area": "firmware",
+      "capability": "Browse and download phone/watch factory, OTA, beta and canary images",
+      "owner": "firmware",
+      "modernStatus": "missing",
+      "currentEvidence": [
+        "ui/command_registry.py:firmware.catalog.refresh is reserved and unimplemented"
+      ],
+      "gap": "The live React shell has no native catalog/download flow and firmware.catalog.refresh has no native implementation; the retired wx preview delegate is no longer shipped.",
+      "exitCriteria": [
+        "One firmware-owned React flow browses, downloads, verifies and selects official artifacts with progress and cancellation and no legacy delegate."
+      ],
+      "dependsOn": [],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_command_registry.py",
+        "tests/test_modern_artifact_boundary.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:81-83",
+        "Main.py:424-655"
+      ],
+      "modernActionIds": [
+        "open_downloads",
+        "firmware_downloads"
+      ],
+      "modernCommandIds": [
+        "firmware.catalog.refresh"
+      ]
+    },
+    {
+      "id": "flash.mode_keep_data",
+      "area": "flash",
+      "capability": "Factory flash while keeping user data",
+      "owner": "flash",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/App.tsx:prepareFlash",
+        "pixelflasher_core/planner.py:OperationPlanner._image_flash"
+      ],
+      "gap": "Runtime state transitions, remaining option interactions and multi-device coverage remain incomplete.",
+      "exitCriteria": [
+        "Factory flash while keeping user data is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "firmware.process_stock"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_processed_factory_images_compile_deterministic_exact_sequence"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:66",
+        "README.md:410"
+      ],
+      "modernActionIds": [
+        "set_flash_mode_keep_data"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "flash.mode_wipe",
+      "area": "flash",
+      "capability": "Factory flash with explicit data wipe",
+      "owner": "flash",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/components/FlashWizard.tsx:OptionsStep/ReviewStep",
+        "ui/web/src/App.tsx:prepareFlash/startFlash",
+        "pixelflasher_core/planner.py:OperationPlanner._image_flash/_bind_reinforced_confirmation"
+      ],
+      "gap": "Transition orchestration, disconnect recovery, postconditions and packaged hardware coverage remain incomplete.",
+      "exitCriteria": [
+        "Factory flash with explicit data wipe is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "firmware.process_stock"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_wipe_preview_issues_nonce_and_exact_text_before_execution"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:66",
+        "README.md:411-412",
+        "README.md:245"
+      ],
+      "modernActionIds": [
+        "set_flash_mode_wipe"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "flash.mode_dry_run",
+      "area": "flash",
+      "capability": "Generate and inspect a flash plan without device writes",
+      "owner": "flash",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/App.tsx:prepareFlash/startFlash",
+        "pixelflasher_core/planner.py:OperationPlanner._flash",
+        "pixelflasher_core/executor.py:CommandExecutor"
+      ],
+      "gap": "Custom payload packages and remaining transition and batch variants are unsupported.",
+      "exitCriteria": [
+        "Generate and inspect a flash plan without device writes is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "firmware.process_stock"
+      ],
+      "risk": "device_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_explicit_dry_run_launches_zero_subprocesses"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:414"
+      ],
+      "modernActionIds": [
+        "set_flash_mode_dry_run"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "flash.mode_ota",
+      "area": "flash",
+      "capability": "Full OTA sideload to inactive slot",
+      "owner": "flash",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/App.tsx:prepareFlash/startFlash",
+        "pixelflasher_core/planner.py:OperationPlanner._flash"
+      ],
+      "gap": "Recovery-to-sideload transition orchestration and verified postconditions remain open.",
+      "exitCriteria": [
+        "Full OTA sideload to inactive slot is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "firmware.process_stock"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_ota_sideload_uses_exact_adb_command_and_verified_archive"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:400-408"
+      ],
+      "modernActionIds": [
+        "set_flash_mode_ota"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "flash.execute",
+      "area": "flash",
+      "capability": "Review and execute the complete flash plan",
+      "owner": "flash",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/App.tsx:prepareFlash/startFlash",
+        "ui/web/src/components/FlashWizard.tsx:ReviewStep",
+        "pixelflasher_core/engine.py:_preview_flash_plan/_plan_and_execute/_execute_process",
+        "pixelflasher_core/planner.py:OperationPlanner.compile/revalidate",
+        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService"
+      ],
+      "gap": "Custom payload processing, recovery/fastbootd transitions, multi-device batch execution and packaged-platform validation remain open.",
+      "exitCriteria": [
+        "React submits semantic intent only; the backend previews and executes an immutable hash-bound plan after revision, serial, mode and artifact revalidation.",
+        "Factory, OTA and supported custom-ROM flows cover success, cancellation, timeout, disconnect and recovery transitions without legacy code."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "firmware.process_stock",
+        "firmware.process_custom",
+        "flash.advanced_options"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py",
+        "tests/test_firmware_engine_integration.py",
+        "ui/web/src/test/App.test.tsx"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:417-419"
+      ],
+      "modernActionIds": [
+        "flash_device"
+      ],
+      "modernCommandIds": [
+        "flash.plan.preview",
+        "flash.execute"
+      ]
+    },
+    {
+      "id": "boot.patch",
+      "area": "boot_images",
+      "capability": "Patch boot/init_boot/vendor_boot with supported rooting applications",
+      "owner": "boot_images",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:RootPage",
+        "ui/web/src/commands.ts:bootPatch",
+        "pixelflasher_core/boot_patch.py:BootPatchService",
+        "pixelflasher_core/patch_resources.py:PatchResourceRegistry/load_patch_resource_registry",
+        "pixelflasher_core/executor.py:SecretProcessTransport/SubprocessTransport.run_secret",
+        "pixelflasher_core/engine.py:_plan_and_execute"
+      ],
+      "gap": "No real verified provider APKs or compatible runners are packaged; KMI/architecture selection remains open.",
+      "exitCriteria": [
+        "Each supported patch flavor executes only with backend-pinned compatible APK and runner resources and returns a verified registered image.",
+        "Secret transport, architecture/KMI selection, cancellation and failure are typed and tested."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "boot.inventory",
+        "root.apps"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_boot_patch_service.py",
+        "tests/test_boot_patch_engine_integration.py",
+        "tests/test_apatch_secret_transport.py",
+        "tests/test_patch_resources.py",
+        "ui/web/src/test/App.test.tsx:root workflow"
+      ],
+      "blockReason": "Execution fails closed because the shipped patch-resource registry intentionally contains no real provider APKs or compatible runners.",
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:46-64",
+        "README.md:382-396"
+      ],
+      "modernActionIds": [
+        "patch_boot"
+      ],
+      "modernCommandIds": [
+        "boot.patch"
+      ]
+    },
+    {
+      "id": "boot.flash",
+      "area": "boot_images",
+      "capability": "Flash the selected boot/init_boot/vendor_boot image",
+      "owner": "boot_images",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:DeviceOperations",
+        "pixelflasher_core/planner.py:OperationPlanner._boot_flash",
+        "pixelflasher_core/engine.py:_plan_and_execute"
+      ],
+      "gap": "A post-command scan does not yet prove the resulting partition, slot and device state.",
+      "exitCriteria": [
+        "Flash the selected boot/init_boot/vendor_boot image is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "boot.inventory"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_boot_flash_and_live_use_only_canonical_boot_artifact",
+        "ui/web/src/test/App.test.tsx:Device operations"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:65"
+      ],
+      "modernActionIds": [
+        "flash_boot"
+      ],
+      "modernCommandIds": [
+        "boot.flash"
+      ]
+    },
+    {
+      "id": "support.package",
+      "area": "support",
+      "capability": "Create a sanitized support package",
+      "owner": "support",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:ToolsPage.createSupportPackage",
+        "ui/pages/modern_webview_host.py:_register_support_destination_result",
+        "pixelflasher_core/support_v2.py:SupportPackageV2Writer/SupportPackageReader",
+        "pixelflasher_core/support_v2_service.py:SupportPackageV2Service",
+        "pixelflasher_core/runtime.py:ApplicationRuntime.register_support_destination"
+      ],
+      "gap": "Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation remain open.",
+      "exitCriteria": [
+        "Create a sanitized support package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "native.file_dialogs"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_support_package_service.py",
+        "tests/test_support_package_v2.py",
+        "tests/test_support_v2_service.py",
+        "tests/test_modern_webview_host_contract.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:517-521",
+        "Main.py:1959-1961"
+      ],
+      "modernActionIds": [
+        "create_support_package"
+      ],
+      "modernCommandIds": [
+        "support.create"
+      ]
+    },
+    {
+      "id": "support.updates_help",
+      "area": "support",
+      "capability": "Manual and opt-in update checks, help, links and About information",
+      "owner": "support",
+      "modernStatus": "missing",
+      "currentEvidence": [
+        "ui/bridge_contract.py:updates.check",
+        "ui/web/src/commands.ts:updatesCheck"
+      ],
+      "gap": "The modern backend has no update service and React has no complete Help, About, release-notes or support-link surface.",
+      "exitCriteria": [
+        "Manual update checks and opt-in automatic checks run only in the backend, Help and About are fully available in React, and every external link is opened through reviewed native chrome without enabling WebView network access."
+      ],
+      "dependsOn": [
+        "settings.application"
+      ],
+      "risk": "host_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:Help/About/update handlers",
+        "README.md:Support"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "updates.check"
+      ]
+    },
+    {
+      "id": "backups.magisk",
+      "area": "backups",
+      "capability": "List, create, import and delete Magisk boot backups",
+      "owner": "backups",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/backups.py:BackupService",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:BackupsPage"
+      ],
+      "gap": "Persisted raw-backup inventory/result presentation and Magisk list/import/delete contracts remain open.",
+      "exitCriteria": [
+        "React and the backend provide canonical create, restore, list, import and delete workflows with provenance, typed results and guarded restore."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "native.file_dialogs"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_backup_service.py",
+        "tests/test_service_engine_integration.py:test_backup_create_finalizes_output_and_returns_verified_artifact/test_backup_restore_uses_backend_risk_metadata_and_verified_artifact"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:101-106"
+      ],
+      "modernActionIds": [
+        "backup_manager"
+      ],
+      "modernCommandIds": [
+        "backups.list",
+        "backups.create",
+        "backups.restore",
+        "backups.delete"
+      ]
+    },
+    {
+      "id": "settings.application",
+      "area": "settings",
+      "capability": "Edit PixelFlasher application settings",
+      "owner": "settings",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
+        "pixelflasher_core/runtime.py:_get_preferences/_update_preferences",
+        "pixelflasher_core/config_store.py:ConfigStore",
+        "ui/web/src/pages/Pages.tsx:SettingsPage",
+        "ui/web/src/App.tsx:applyPreferences/changePreferences",
+        "ui/web/src/bridge.ts:getPreferences/updatePreferences"
+      ],
+      "gap": "Expert Mode is not host-persisted and the remaining supported 9.x settings are absent.",
+      "exitCriteria": [
+        "Edit PixelFlasher application settings is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_preferences.py",
+        "tests/test_runtime_preferences.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1611-1613"
+      ],
+      "modernActionIds": [
+        "settings_dialog"
+      ],
+      "modernCommandIds": [
+        "settings.get",
+        "settings.update"
+      ]
+    },
+    {
+      "id": "root.apps",
+      "area": "root",
+      "capability": "Download/install Magisk, KernelSU variants, APatch, SukiSU and Wild_KSU",
+      "owner": "root",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/rooting.py:RootingService",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:RootPage"
+      ],
+      "gap": "Verified download plus channel/version selection remain open; the React inventory/install flow covers only backend-owned artifacts.",
+      "exitCriteria": [
+        "React lists, obtains, verifies and installs every supported rooting-app channel using opaque backend-owned artifact identifiers."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_rooting_service.py",
+        "tests/test_service_engine_integration.py",
+        "ui/web/src/test/App.test.tsx:root workflow"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:84-100"
+      ],
+      "modernActionIds": [
+        "rooting_app"
+      ],
+      "modernCommandIds": [
+        "root.apps.list",
+        "root.apps.install"
+      ]
+    },
+    {
+      "id": "root.modules",
+      "area": "root",
+      "capability": "Manage Magisk-compatible modules and root settings",
+      "owner": "root",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/rooting.py:RootingService",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:RootPage"
+      ],
+      "gap": "Module update discovery and the remaining legacy root-settings workflow are absent.",
+      "exitCriteria": [
+        "React lists, installs, updates, enables, disables and removes validated modules with action-specific confirmation and refreshed state."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "native.file_dialogs"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_rooting_service.py",
+        "tests/test_service_engine_integration.py",
+        "ui/web/src/test/App.test.tsx:root workflow"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:107-126"
+      ],
+      "modernActionIds": [
+        "magisk_modules"
+      ],
+      "modernCommandIds": [
+        "root.modules.list",
+        "root.modules.action"
+      ]
+    },
+    {
+      "id": "partitions.manage",
+      "area": "partitions",
+      "capability": "List, dump and erase one or more partitions",
+      "owner": "partitions",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/partitions.py:PartitionService",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:ToolsPage"
+      ],
+      "gap": "Device-side post-write/erase verification and richer progress/retry behavior remain open.",
+      "exitCriteria": [
+        "List, dump and erase one or more partitions is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "native.file_dialogs"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_partition_service.py",
+        "tests/test_service_engine_integration.py:test_partition_list_parses_fastboot_stderr_after_success",
+        "ui/web/src/test/App.test.tsx:Tools workspace"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:246-248"
+      ],
+      "modernActionIds": [
+        "partition_manager"
+      ],
+      "modernCommandIds": [
+        "partitions.list",
+        "partitions.read",
+        "partitions.write",
+        "partitions.erase"
+      ]
+    },
+    {
+      "id": "device.reboot",
+      "area": "device",
+      "capability": "Reboot to system, bootloader, fastbootd, recovery, safe mode, download or sideload",
+      "owner": "device",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:DashboardPage/DevicePage/ToolsPage",
+        "pixelflasher_core/planner.py:OperationPlanner._reboot"
+      ],
+      "gap": "Safe mode, download and sideload destinations plus post-transition verification remain open.",
+      "exitCriteria": [
+        "Reboot to system, bootloader, fastbootd, recovery, safe mode, download or sideload is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_reboot_chooses_adb_or_fastboot_and_binds_serial"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:237",
+        "Main.py:1705-1730"
+      ],
+      "modernActionIds": [
+        "disabled_reboot"
+      ],
+      "modernCommandIds": [
+        "device.reboot"
+      ]
+    },
+    {
+      "id": "flash.wipe_shortcut",
+      "area": "flash",
+      "capability": "Standalone wipe shortcut",
+      "owner": "flash",
+      "modernStatus": "policy_absent",
+      "currentEvidence": [
+        "pixelflasher_core/planner.py:OperationPlanner._flash"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "No standalone wipe command, delegate or navigation action can bypass a reviewed immutable flash plan.",
+        "Tests prove the disabled historical action never executes device mutation."
+      ],
+      "dependsOn": [],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_wipe_preview_issues_nonce_and_exact_text_before_execution",
+        "tests/test_modern_parity_inventory.py:test_standalone_wipe_is_policy_absent"
+      ],
+      "blockReason": "Standalone wipe is intentionally prohibited; data wipe is allowed only inside a reviewed immutable flash plan with reinforced confirmation.",
+      "releaseGate": false,
+      "legacyEvidence": [
+        "README.md:245"
+      ],
+      "modernActionIds": [
+        "disabled_wipe"
+      ],
+      "modernCommandIds": []
+    },
+    {
+      "id": "device.switch_slot",
+      "area": "device",
+      "capability": "Change the active slot",
+      "owner": "device",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:DashboardPage/DevicePage",
+        "pixelflasher_core/planner.py:OperationPlanner._switch_slot",
+        "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec/_verify_with_polling_observer",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._observe_fastboot/PostconditionObserver.verify"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "Change the active slot is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_slot_switch_requires_backend_challenge_and_exact_text",
+        "tests/test_slot_switch_postcondition.py:test_zero_exit_without_slot_change_is_typed_mismatch",
+        "tests/test_slot_switch_postcondition.py:test_missing_current_slot_evidence_is_typed_unverified",
+        "tests/test_operation_runner_v2.py:test_cancellation_before_mutation_is_cancelled_after_boundary_is_unknown",
+        "ui/web/src/test/App.test.tsx:Device operations"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:235",
+        "README.md:432"
+      ],
+      "modernActionIds": [
+        "disabled_slot_switch"
+      ],
+      "modernCommandIds": [
+        "device.switchSlot"
+      ]
+    },
+    {
+      "id": "device.wireless",
+      "area": "device",
+      "capability": "Wireless ADB discovery, pairing and connection",
+      "owner": "device",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:ToolsPage.runWifi",
+        "pixelflasher_core/contracts.py:SensitiveText/AppCommand",
+        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_wifi/execute_special/finalize_result",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result"
+      ],
+      "gap": "Wireless discovery/mDNS, operation without a selected ADB device and robust post-scan handoff remain open.",
+      "exitCriteria": [
+        "Wireless ADB discovery, pairing and connection is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_tools_service.py",
+        "tests/test_service_engine_integration.py",
+        "ui/web/src/test/App.test.tsx:Tools workspace"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:131"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "secret.issue",
+        "tools.wifi"
+      ]
+    },
+    {
+      "id": "apps.install_apk",
+      "area": "applications",
+      "capability": "Install APK with ownership and low-target-SDK options",
+      "owner": "applications",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/packages.py:PackageService._compile_install",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/apps/AppsPage.tsx:installApk",
+        "ui/pages/modern_webview_host.py:_handle_native_request"
+      ],
+      "gap": "The React flow now covers the six install flags admitted by PackageService through an opaque native grant, explicit terminal states and a success-gated inventory refresh. Legacy Play Store ownership is not yet represented by a typed backend option, so the capability remains partial.",
+      "exitCriteria": [
+        "Install APK with ownership and low-target-SDK options is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "apps.package_manager",
+        "native.file_dialogs"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_package_service.py:test_install_hashes_canonical_apk_and_orders_allowlisted_flags",
+        "ui/web/src/test/apps-install.test.tsx"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:128-130"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": []
+    },
+    {
+      "id": "apps.package_manager",
+      "area": "applications",
+      "capability": "Package listing, filtering, enable/disable, uninstall, download, launch, permissions, clear/kill, denylist and SU controls",
+      "owner": "applications",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/packages.py:PackageService/parse_package_list",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:AppsPage"
+      ],
+      "gap": "Download, denylist, SU controls and most native package actions are not exposed by React.",
+      "exitCriteria": [
+        "Package listing, filtering, enable/disable, uninstall, download, launch, permissions, clear/kill, denylist and SU controls is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_package_service.py",
+        "tests/test_service_engine_integration.py:test_apps_list_runs_through_executor_and_stores_parsed_result"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:137-155"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "apps.list",
+        "apps.action"
+      ]
+    },
+    {
+      "id": "device.adb_shell",
+      "area": "device_tools",
+      "capability": "Interactive ADB shell",
+      "owner": "device_tools",
+      "modernStatus": "blocked",
+      "currentEvidence": [
+        "pixelflasher_core/device_tools.py:DeviceToolsService.compile"
+      ],
+      "gap": "No approved expert-only arbitrary-shell product contract exists.",
+      "exitCriteria": [
+        "Interactive ADB shell is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_tools_service.py:test_arbitrary_adb_shell_has_an_explicit_unsupported_contract",
+        "tests/test_service_engine_integration.py:test_arbitrary_adb_shell_is_explicitly_disabled_without_execution"
+      ],
+      "blockReason": "Arbitrary shell execution has no approved expert-mode safety boundary, so tools.adbShell returns adb_shell_unsupported without launching a process.",
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:133"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.adbShell"
+      ]
+    },
+    {
+      "id": "device.scrcpy",
+      "area": "device_tools",
+      "capability": "Launch scrcpy for the selected device",
+      "owner": "device_tools",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:ToolsPage",
+        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_scrcpy/execute_special"
+      ],
+      "gap": "Runtime executable discovery/packaging, configurable options and cross-platform lifecycle smokes remain open.",
+      "exitCriteria": [
+        "Launch scrcpy for the selected device is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_tools_service.py",
+        "tests/test_service_engine_integration.py",
+        "ui/web/src/test/App.test.tsx:Tools workspace"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:134"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.scrcpy"
+      ]
+    },
+    {
+      "id": "device.inspect",
+      "area": "device_tools",
+      "capability": "Device info, props JSON, PIF print, screen XML, bootloader versions and open URL",
+      "owner": "device_tools",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/device_tools.py",
+        "pixelflasher_core/engine.py",
+        "ui/command_registry.py",
+        "ui/web/src/pages/device/DeviceInspectionPanel.tsx"
+      ],
+      "gap": "The bounded backend and React workspace now provide typed redacted properties/device summary, PIF profile, sanitized screen XML and the current ADB-reported bootloader version. Safe URL opening and independently extracted per-slot bootloader versions remain open.",
+      "exitCriteria": [
+        "Device info, props JSON, PIF print, screen XML, bootloader versions and open URL is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_inspection_service.py",
+        "ui/web/src/test/device-inspection.test.tsx"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:69-82",
+        "Main.py:1645-1659",
+        "Main.py:1685-1695"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "device.inspect"
+      ]
+    },
+    {
+      "id": "device.ota_diagnostics",
+      "area": "device_tools",
+      "capability": "Cancel Google OTA, inspect otacerts and monitor update_engine",
+      "owner": "device_tools",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No typed modern flow exists for OTA cancellation, otacerts or update_engine diagnostics.",
+      "exitCriteria": [
+        "Cancel Google OTA, inspect otacerts and monitor update_engine is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1661-1667",
+        "Main.py:1681-1683"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": []
+    },
+    {
+      "id": "device.logs",
+      "area": "device_tools",
+      "capability": "Logcat viewer and filtered update_engine logs",
+      "owner": "device_tools",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat",
+        "pixelflasher_core/engine.py:_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:ToolsPage"
+      ],
+      "gap": "Streaming, in-flight cancellation, redaction, export and update_engine-specific views remain open.",
+      "exitCriteria": [
+        "Logcat viewer and filtered update_engine logs is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_read",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_tools_service.py",
+        "tests/test_service_engine_integration.py:test_logcat_returns_bounded_line_model_and_never_uses_shell"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1677-1683"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.logcat"
+      ]
+    },
+    {
+      "id": "device.push_files",
+      "area": "device_tools",
+      "capability": "Push files to /data/local/tmp or Downloads",
+      "owner": "device_tools",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_push_files",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/web/src/pages/Pages.tsx:ToolsPage.pushFiles"
+      ],
+      "gap": "Per-file progress/retry and device-side hash verification remain open.",
+      "exitCriteria": [
+        "Push files to /data/local/tmp or Downloads is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "native.file_dialogs"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_device_tools_service.py",
+        "tests/test_service_engine_integration.py:test_push_files_confirms_revalidates_and_returns_verified_mapping",
+        "ui/web/src/test/App.test.tsx:Tools workspace"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1732-1741"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.pushFiles"
+      ]
+    },
+    {
+      "id": "boot.inventory",
+      "area": "boot_images",
+      "capability": "List, add, delete and inspect boot-image records and provenance",
+      "owner": "boot_images",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/boot_inventory.py:BootInventoryService",
+        "pixelflasher_core/repositories.py:BootRepository",
+        "pixelflasher_core/engine.py:CommandEngine._select_boot",
+        "ui/web/src/pages/root/RootPage.tsx:Boot image inventory"
+      ],
+      "gap": "Listing, opaque-grant import, SHA-256 verification and deterministic revisioned selection are native. Deletion remains deliberately unregistered until repository reference/selection semantics and rollback behavior have a dedicated safety contract.",
+      "exitCriteria": [
+        "A native BootRepository lists, imports, verifies and selects boot images with complete provenance and deterministic selection.",
+        "Deletion removes only the selected metadata record, preserves shared content-addressed objects and cannot invalidate canonical or in-flight plans."
+      ],
+      "dependsOn": [
+        "firmware.process_stock"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_boot_inventory_service.py",
+        "ui/web/src/test/boot-inventory.test.tsx"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:46-64",
+        "Main.py:7308-7313"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "boot.inventory",
+        "boot.select"
+      ]
+    },
+    {
+      "id": "boot.live",
+      "area": "boot_images",
+      "capability": "Temporarily live-boot a selected image",
+      "owner": "boot_images",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:DeviceOperations",
+        "pixelflasher_core/planner.py:OperationPlanner._boot_live"
+      ],
+      "gap": "Reconnect observation and a typed verified boot outcome remain open.",
+      "exitCriteria": [
+        "Temporarily live-boot a selected image is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "boot.inventory"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_boot_flash_and_live_use_only_canonical_boot_artifact",
+        "ui/web/src/test/App.test.tsx:Device operations"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:64",
+        "README.md:236"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "boot.live"
+      ]
+    },
+    {
+      "id": "flash.advanced_options",
+      "area": "flash",
+      "capability": "Both/inactive slots, verity/verification, force, no-reboot, downgrade and temporary-root options",
+      "owner": "flash",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/App.tsx:prepareFlash",
+        "pixelflasher_core/planner.py:_normalized_flash_options/_validate_ota_options/_image_flash"
+      ],
+      "gap": "Downgrade artifact generation and complete option/mode execution coverage remain open.",
+      "exitCriteria": [
+        "Both/inactive slots, verity/verification, force, no-reboot, downgrade and temporary-root options is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "firmware.process_stock",
+        "firmware.process_custom"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_each_unsupported_image_option_fails_explicitly"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:232-244",
+        "Main.py:7295-7304"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "flash.plan.update"
+      ]
+    },
+    {
+      "id": "bootloader.manage",
+      "area": "bootloader",
+      "capability": "Lock and unlock the bootloader",
+      "owner": "bootloader",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/Pages.tsx:DeviceOperations",
+        "pixelflasher_core/planner.py:OperationPlanner._bootloader",
+        "pixelflasher_core/bootloader.py:BootloaderLockPolicy",
+        "pixelflasher_core/contracts.py:BootloaderLockEvidence"
+      ],
+      "gap": "No trusted producer creates the stock-flash evidence required for locking, and post-operation state is not verified.",
+      "exitCriteria": [
+        "Unlock and lock use exact serial-bound reinforced plans; lock requires trusted revision-bound stock evidence and both operations verify final state."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "tests/test_operation_planner.py:test_bootloader_unlock_is_backend_compiled_and_lock_fails_without_stock_evidence",
+        "tests/test_bootloader_lock_policy.py:BootloaderLockPolicyTests",
+        "ui/web/src/test/App.test.tsx:Device operations"
+      ],
+      "blockReason": "Lock remains disabled because no trusted producer emits the required revision-bound complete-stock-flash evidence.",
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:240",
+        "Main.py:1782-1789"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "device.bootloader.lock",
+        "device.bootloader.unlock"
+      ]
+    },
+    {
+      "id": "root.data_adb",
+      "area": "root",
+      "capability": "Backup, restore and clear /data/adb",
+      "owner": "root",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No modern backup, restore or clear flow exists for /data/adb.",
+      "exitCriteria": [
+        "Backup, restore and clear /data/adb is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup",
+        "native.file_dialogs"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:1757-1767"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.dataAdb"
+      ]
+    },
+    {
+      "id": "root.pif",
+      "area": "root",
+      "capability": "PIF/TargetedFix management and Play Integrity analysis",
+      "owner": "root",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No modern PIF/TargetedFix, keybox or Play Integrity analysis flow exists.",
+      "exitCriteria": [
+        "PIF/TargetedFix management and Play Integrity analysis is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:157-215"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.pif",
+        "tools.piAnalysis"
+      ]
+    },
+    {
+      "id": "root.recovery_tools",
+      "area": "root",
+      "capability": "Start Shizuku and SOS-disable root modules",
+      "owner": "root",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No modern Shizuku or SOS module-recovery flow exists.",
+      "exitCriteria": [
+        "Start Shizuku and SOS-disable root modules is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+      ],
+      "dependsOn": [
+        "device.discovery",
+        "platform_tools.setup"
+      ],
+      "risk": "device_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:96-100",
+        "README.md:242",
+        "Main.py:1769-1779"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.sos",
+        "tools.shizuku"
+      ]
+    },
+    {
+      "id": "dev.tools",
+      "area": "developer_tools",
+      "capability": "Keybox validation, binary XML decode and AVB image/downgrade tools",
+      "owner": "developer_tools",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No modern keybox validation, binary XML decode or AVB/downgrade flow exists.",
+      "exitCriteria": [
+        "Keybox validation, binary XML decode and AVB image/downgrade tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "native.file_dialogs"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:217-226",
+        "Main.py:1791-1808"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.keybox",
+        "tools.xml",
+        "tools.avb"
+      ]
+    },
+    {
+      "id": "app.personal_tools",
+      "area": "application",
+      "capability": "Create, edit, delete and launch My Tools entries",
+      "owner": "application",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No explicit expert-only My Tools editor and launcher exists.",
+      "exitCriteria": [
+        "Create, edit, delete and launch My Tools entries is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+      ],
+      "dependsOn": [
+        "native.file_dialogs"
+      ],
+      "risk": "destructive",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:216",
+        "Main.py:5946-5975"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "tools.myTools"
+      ]
+    },
+    {
+      "id": "app.device_manager",
+      "area": "application",
+      "capability": "Enable/disable device scanning and manage connected devices",
+      "owner": "application",
+      "modernStatus": "missing",
+      "currentEvidence": [],
+      "gap": "No modern scan-policy and device-toggle manager exists.",
+      "exitCriteria": [
+        "Enable/disable device scanning and manage connected devices is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "device.discovery"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:227",
+        "Main.py:2144-2224"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": []
+    },
+    {
+      "id": "app.preferences_shell",
+      "area": "application",
+      "capability": "Toolbar layout, language selection, folders, console controls and exit",
+      "owner": "application",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/App.tsx:task navigation and toolbar preferences"
+      ],
+      "gap": "Toolbar customization, folders, console controls and the remaining shell commands are absent.",
+      "exitCriteria": [
+        "Toolbar layout, language selection, folders, console controls and exit are available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
+      ],
+      "dependsOn": [
+        "settings.application"
+      ],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "ui/web/src/test/App.test.tsx:supports keyboard task navigation and interface zoom"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "README.md:136",
+        "README.md:156",
+        "README.md:471-498",
+        "Main.py:1815-2007"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": []
+    },
+    {
+      "id": "native.file_dialogs",
+      "area": "native_host",
+      "capability": "Native open/save file and directory dialogs for the React UI",
+      "owner": "native_host",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "ui/pages/modern_webview_host.py:_dispatch_native_picker",
+        "ui/web/src/commands.ts:native picker commands"
+      ],
+      "gap": "",
+      "exitCriteria": [
+        "The host constrains picker options, returns JSON-only canonical paths and never accepts executable callbacks from web content."
+      ],
+      "dependsOn": [],
+      "risk": "host_write",
+      "platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "tests": [
+        "ui/web/src/test/App.test.tsx:native picker payloads",
+        "tests/test_modern_webview_host_contract.py"
+      ],
+      "blockReason": null,
+      "releaseGate": true,
+      "legacyEvidence": [
+        "Main.py:7288-7289",
+        "Main.py:7308",
+        "Main.py:7319"
+      ],
+      "modernActionIds": [],
+      "modernCommandIds": [
+        "native.pickFile",
+        "native.pickFiles",
+        "native.pickDirectory",
+        "native.saveFile"
+      ]
+    }
+  ],
+  "legacyBindings": [
+    {
+      "source": "Main.py",
+      "surface": "file_menu",
+      "label": "Settings",
+      "handler": "_on_advanced_config",
+      "capabilityId": "settings.application"
+    },
+    {
+      "source": "Main.py",
+      "surface": "file_menu",
+      "label": "Exit",
+      "handler": "_on_exit_app",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Install APK",
+      "handler": "_on_install_apk",
+      "capabilityId": "apps.install_apk"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Package Manager",
+      "handler": "_on_package_manager",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "ADB Shell",
+      "handler": "_on_adb_shell",
+      "capabilityId": "device.adb_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Scrcpy",
+      "handler": "_on_scrcpy",
+      "capabilityId": "device.scrcpy"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Device Info",
+      "handler": "_on_device_info",
+      "capabilityId": "device.inspect"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Pif Print",
+      "handler": "_on_pif_info",
+      "capabilityId": "device.inspect"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Props as Json",
+      "handler": "_on_props_as_json",
+      "capabilityId": "device.inspect"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Dump Screen XML",
+      "handler": "_on_xml_view",
+      "capabilityId": "device.inspect"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Cancel OTA Update",
+      "handler": "_on_cancel_ota",
+      "capabilityId": "device.ota_diagnostics"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Check otacerts",
+      "handler": "_on_check_otacerts",
+      "capabilityId": "device.ota_diagnostics"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Partitions Manager",
+      "handler": "_on_partition_manager",
+      "capabilityId": "partitions.manage"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Logcat",
+      "handler": "_on_logcat",
+      "capabilityId": "device.logs"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Logcat filter: update_engine",
+      "handler": "_on_update_engine_logcat",
+      "capabilityId": "device.logs"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Bootloader Versions",
+      "handler": "_on_get_bootloader_versions",
+      "capabilityId": "device.inspect"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "PI Analysis Report",
+      "handler": "_on_pi_analysis_report",
+      "capabilityId": "root.pif"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Open URL",
+      "handler": "_on_open_url_on_device",
+      "capabilityId": "device.inspect"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Switch Slot",
+      "handler": "_on_switch_slot",
+      "capabilityId": "device.switch_slot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "System",
+      "handler": "_on_reboot_system",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Bootloader",
+      "handler": "_on_reboot_bootloader",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Fastbootd",
+      "handler": "_on_reboot_fastbootd",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Recovery",
+      "handler": "_on_reboot_recovery",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Interactive Recovery",
+      "handler": "_on_reboot_recovery_interactive",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Safe Mode",
+      "handler": "_on_reboot_safemode",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Download",
+      "handler": "_on_reboot_download",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "reboot_menu",
+      "label": "Sideload",
+      "handler": "_on_reboot_sideload",
+      "capabilityId": "device.reboot"
+    },
+    {
+      "source": "Main.py",
+      "surface": "push_menu",
+      "label": "/data/local/tmp/",
+      "handler": "_on_push_to_tmp",
+      "capabilityId": "device.push_files"
+    },
+    {
+      "source": "Main.py",
+      "surface": "push_menu",
+      "label": "/sdcard/Download/",
+      "handler": "_on_push_to_download",
+      "capabilityId": "device.push_files"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Magisk",
+      "handler": "_on_magisk",
+      "capabilityId": "root.modules"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Rooting App",
+      "handler": "_on_rooting_app",
+      "capabilityId": "root.apps"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Magisk Backup Manager",
+      "handler": "_on_backup_manager",
+      "capabilityId": "backups.magisk"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Backup /data/adb",
+      "handler": "_on_data_adb_backup",
+      "capabilityId": "root.data_adb"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Restore /data/adb",
+      "handler": "_on_data_adb_restore",
+      "capabilityId": "root.data_adb"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Clear /data/adb/*",
+      "handler": "_on_data_adb_clear",
+      "capabilityId": "root.data_adb"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Start Shizuku",
+      "handler": "_on_start_shizuku",
+      "capabilityId": "root.recovery_tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Pif Manager",
+      "handler": "_on_pif_manager",
+      "capabilityId": "root.pif"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "SOS",
+      "handler": "_on_sos",
+      "capabilityId": "root.recovery_tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Lock Bootloader",
+      "handler": "_on_lock_bootloader",
+      "capabilityId": "bootloader.manage"
+    },
+    {
+      "source": "Main.py",
+      "surface": "device_menu",
+      "label": "Unlock Bootloader",
+      "handler": "_on_unlock_bootloader",
+      "capabilityId": "bootloader.manage"
+    },
+    {
+      "source": "Main.py",
+      "surface": "dev_tools_menu",
+      "label": "Check keybox.xml",
+      "handler": "_on_check_keybox",
+      "capabilityId": "dev.tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "dev_tools_menu",
+      "label": "Decode Binary XML",
+      "handler": "_on_decode_binary_xml",
+      "capabilityId": "dev.tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "dev_tools_menu",
+      "label": "AVB - Get Image Info",
+      "handler": "_on_get_image_info",
+      "capabilityId": "dev.tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "dev_tools_menu",
+      "label": "AVB - Prepare Downgrade Patch",
+      "handler": "_on_prep_downgrade_patch",
+      "capabilityId": "dev.tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "toolbar_menu",
+      "label": "Position/text/icons",
+      "handler": "_on_tb_update",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "toolbar_menu",
+      "label": "Show / Hide Buttons",
+      "handler": "_on_button_menu",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "language_menu",
+      "label": "Available language",
+      "handler": "on_language_change",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "help_menu",
+      "label": "Issue / Feature / Project / Forum / Links",
+      "handler": "_on_link_clicked",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "help_menu",
+      "label": "Open Configuration Folder",
+      "handler": "_on_open_config_folder",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "help_menu",
+      "label": "Open PixelFlasher Working Directory",
+      "handler": "_on_open_pf_home",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "help_menu",
+      "label": "Create a Sanitized support.zip",
+      "handler": "_on_support_zip",
+      "capabilityId": "support.package"
+    },
+    {
+      "source": "Main.py",
+      "surface": "help_menu",
+      "label": "Check for New Version / About",
+      "handler": "_on_help_about",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "source": "Main.py",
+      "surface": "devices_menu",
+      "label": "Scan enabled/all devices",
+      "handler": "_on_scan_enabled_devices",
+      "capabilityId": "app.device_manager"
+    },
+    {
+      "source": "Main.py",
+      "surface": "devices_menu",
+      "label": "Scan all devices",
+      "handler": "_on_scan_all_devices",
+      "capabilityId": "app.device_manager"
+    },
+    {
+      "source": "Main.py",
+      "surface": "devices_menu",
+      "label": "Manage Devices",
+      "handler": "_on_manage_devices",
+      "capabilityId": "app.device_manager"
+    },
+    {
+      "source": "Main.py",
+      "surface": "devices_menu",
+      "label": "Device toggle",
+      "handler": "_on_device_toggle",
+      "capabilityId": "app.device_manager"
+    },
+    {
+      "source": "Main.py",
+      "surface": "google_images_menu",
+      "label": "Generated firmware build",
+      "handler": "on_download",
+      "capabilityId": "firmware.downloads"
+    },
+    {
+      "source": "Main.py",
+      "surface": "google_images_menu",
+      "label": "Generated firmware download callback",
+      "handler": "on_download_handler",
+      "capabilityId": "firmware.downloads"
+    },
+    {
+      "source": "Main.py",
+      "surface": "google_images_menu",
+      "label": "Refresh images list",
+      "handler": "on_refresh_google_images",
+      "capabilityId": "firmware.downloads"
+    },
+    {
+      "source": "Main.py",
+      "surface": "google_images_menu",
+      "label": "Show progress window",
+      "handler": "on_show_progress_window",
+      "capabilityId": "firmware.downloads"
+    },
+    {
+      "source": "Main.py",
+      "surface": "my_tools_menu",
+      "label": "Generated user tool",
+      "handler": "run_tool",
+      "capabilityId": "app.personal_tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "my_tools_menu",
+      "label": "Customize My Tools",
+      "handler": "_on_customize_my_tools",
+      "capabilityId": "app.personal_tools"
+    },
+    {
+      "source": "Main.py",
+      "surface": "developer_menu",
+      "label": "Diagnostics",
+      "handler": "Test",
+      "capabilityId": "dev.tools"
+    },
+    {
+      "source": "backup_manager.py",
+      "surface": "context_menu",
+      "label": "Delete Backup",
+      "handler": "OnpopupDelete",
+      "capabilityId": "backups.magisk"
+    },
+    {
+      "source": "backup_manager.py",
+      "surface": "context_menu",
+      "label": "Refresh",
+      "handler": "OnPopupRefresh",
+      "capabilityId": "backups.magisk"
+    },
+    {
+      "source": "backup_manager.py",
+      "surface": "context_menu",
+      "label": "Check All",
+      "handler": "OnCheckAllBoxes",
+      "capabilityId": "backups.magisk"
+    },
+    {
+      "source": "backup_manager.py",
+      "surface": "context_menu",
+      "label": "UnCheck All",
+      "handler": "OnUnCheckAllBoxes",
+      "capabilityId": "backups.magisk"
+    },
+    {
+      "source": "backup_manager.py",
+      "surface": "context_menu",
+      "label": "Copy to Clipboard",
+      "handler": "OnCopyClipboard",
+      "capabilityId": "backups.magisk"
+    },
+    {
+      "source": "magisk_downloads.py",
+      "surface": "context_menu",
+      "label": "Copy URL",
+      "handler": "_OnCopyURL",
+      "capabilityId": "root.apps"
+    },
+    {
+      "source": "magisk_downloads.py",
+      "surface": "context_menu",
+      "label": "Copy Package ID",
+      "handler": "_OnCopyPackageId",
+      "capabilityId": "root.apps"
+    },
+    {
+      "source": "magisk_downloads.py",
+      "surface": "context_menu",
+      "label": "Download Selected Rooting App",
+      "handler": "_OnDownloadMagisk",
+      "capabilityId": "root.apps"
+    },
+    {
+      "source": "magisk_modules.py",
+      "surface": "context_menu",
+      "label": "Copy",
+      "handler": "onCopy",
+      "capabilityId": "root.modules"
+    },
+    {
+      "source": "magisk_modules.py",
+      "surface": "context_menu",
+      "label": "Select All",
+      "handler": "onSelectAll",
+      "capabilityId": "root.modules"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Disable Package",
+      "handler": "OnPopupDisable",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Enable Package",
+      "handler": "OnPopupEnable",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Uninstall Package",
+      "handler": "OnPopupUninstall",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Add Package to Magisk Denylist",
+      "handler": "OnPopupAddToDeny",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Remove Package from Magisk Denylist",
+      "handler": "OnPopupRmFromDeny",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Download Package",
+      "handler": "OnPopupDownload",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Launch Package",
+      "handler": "OnPopupLaunch",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "View Application Permissions",
+      "handler": "OnPopupPermissions",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Kill Application",
+      "handler": "OnPopupKill",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Clear Application Data",
+      "handler": "OnPopupClearData",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Refresh",
+      "handler": "OnPopupRefresh",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Check All",
+      "handler": "OnCheckAllBoxes",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "UnCheck All",
+      "handler": "OnUnCheckAllBoxes",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "Copy to Clipboard",
+      "handler": "OnCopyClipboard",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "package_manager.py",
+      "surface": "context_menu",
+      "label": "SU Permission",
+      "handler": "OnSuPermission",
+      "capabilityId": "apps.package_manager"
+    },
+    {
+      "source": "partition_manager.py",
+      "surface": "context_menu",
+      "label": "Erase Partition",
+      "handler": "OnpopupErase",
+      "capabilityId": "partitions.manage"
+    },
+    {
+      "source": "partition_manager.py",
+      "surface": "context_menu",
+      "label": "Dump Partition",
+      "handler": "OnPopupDump",
+      "capabilityId": "partitions.manage"
+    },
+    {
+      "source": "partition_manager.py",
+      "surface": "context_menu",
+      "label": "Check All",
+      "handler": "OnCheckAllBoxes",
+      "capabilityId": "partitions.manage"
+    },
+    {
+      "source": "partition_manager.py",
+      "surface": "context_menu",
+      "label": "UnCheck All",
+      "handler": "OnUnCheckAllBoxes",
+      "capabilityId": "partitions.manage"
+    },
+    {
+      "source": "partition_manager.py",
+      "surface": "context_menu",
+      "label": "Copy to Clipboard",
+      "handler": "OnCopyClipboard",
+      "capabilityId": "partitions.manage"
+    }
+  ],
+  "primaryControlBindings": [
+    {
+      "label": "Flash mode radio selection",
+      "handler": "_on_mode_changed",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Device selection",
+      "handler": "_on_select_device",
+      "capabilityId": "device.discovery"
+    },
+    {
+      "label": "Scan",
+      "handler": "_on_scan",
+      "capabilityId": "device.discovery"
+    },
+    {
+      "label": "Scan all devices",
+      "handler": "_on_scan_all_devices",
+      "capabilityId": "device.discovery"
+    },
+    {
+      "label": "Firmware picker",
+      "handler": "_on_select_firmware",
+      "capabilityId": "firmware.select_stock"
+    },
+    {
+      "label": "Platform Tools picker",
+      "handler": "_on_select_platform_tools",
+      "capabilityId": "platform_tools.setup"
+    },
+    {
+      "label": "Restart ADB server",
+      "handler": "_on_adb_kill_server",
+      "capabilityId": "device.discovery"
+    },
+    {
+      "label": "Platform Tools link",
+      "handler": "_open_sdk_link",
+      "capabilityId": "platform_tools.setup"
+    },
+    {
+      "label": "Wireless Manager",
+      "handler": "_on_wifi_manager",
+      "capabilityId": "device.wireless"
+    },
+    {
+      "label": "Custom ROM mode",
+      "handler": "_on_custom_rom",
+      "capabilityId": "firmware.select_custom"
+    },
+    {
+      "label": "Custom ROM picker",
+      "handler": "_on_select_custom_rom",
+      "capabilityId": "firmware.select_custom"
+    },
+    {
+      "label": "Disable verification",
+      "handler": "_on_disable_verification",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Flash both slots",
+      "handler": "_on_flash_both_slots",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Flash inactive slot",
+      "handler": "_on_flash_to_inactive_slot",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "No reboot",
+      "handler": "_on_no_reboot",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Wipe",
+      "handler": "_on_wipe",
+      "capabilityId": "flash.mode_wipe"
+    },
+    {
+      "label": "No-wipe downgrade",
+      "handler": "_on_no_wipe_downgrade",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Disable verity",
+      "handler": "_on_disable_verity",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Fastboot force",
+      "handler": "_on_fastboot_force",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Fastboot verbose",
+      "handler": "_on_fastboot_verbose",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Temporary root",
+      "handler": "_on_temporary_root",
+      "capabilityId": "flash.advanced_options"
+    },
+    {
+      "label": "Flash Device",
+      "handler": "_on_flash",
+      "capabilityId": "flash.execute"
+    },
+    {
+      "label": "Verbose console",
+      "handler": "_on_verbose",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "label": "Clear console",
+      "handler": "_on_clear",
+      "capabilityId": "app.preferences_shell"
+    },
+    {
+      "label": "Image picker",
+      "handler": "_on_image_select",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Boot image selection",
+      "handler": "_on_image_choice",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Boot list selection",
+      "handler": "_on_boot_selected",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Boot list sort",
+      "handler": "OnColClick",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Delete boot record",
+      "handler": "_on_delete_boot",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Add boot record",
+      "handler": "_on_add_boot",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Boot info",
+      "handler": "_on_get_boot_info",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Live Boot",
+      "handler": "_on_live_boot",
+      "capabilityId": "boot.live"
+    },
+    {
+      "label": "Flash Boot",
+      "handler": "_on_flash_boot",
+      "capabilityId": "boot.flash"
+    },
+    {
+      "label": "Process Firmware",
+      "handler": "_on_process_firmware",
+      "capabilityId": "firmware.process_stock"
+    },
+    {
+      "label": "Process ROM",
+      "handler": "_on_process_rom",
+      "capabilityId": "firmware.process_custom"
+    },
+    {
+      "label": "Show all boot records",
+      "handler": "_on_show_all_boot",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Paste selection",
+      "handler": "_on_paste_selection",
+      "capabilityId": "boot.inventory"
+    },
+    {
+      "label": "Support package",
+      "handler": "_on_support_zip",
+      "capabilityId": "support.package"
+    },
+    {
+      "label": "Firmware downloads",
+      "handler": "_on_show_device_download",
+      "capabilityId": "firmware.downloads"
+    }
+  ]
 }

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 
 from .contracts import (
     AppCommand,
@@ -10,13 +12,12 @@ from .contracts import (
     CommandKind,
     InteractionKind,
     InteractionRequest,
+    OperationBatch,
+    OperationRisk,
     SafetyDecision,
 )
 
-
-_HIGH_RISK_ACTIONS = frozenset(
-    {"wipe", "erase", "switch", "unlock", "set_active", "set-active"}
-)
+_HIGH_RISK_ACTIONS = frozenset({"wipe", "erase", "switch", "lock", "unlock", "set_active", "set-active"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,8 @@ class SafetyPolicy:
             "boot.flash",
             "boot.live",
             "boot.patch",
+            "boot.inventory",
+            "boot.select",
             "apps.list",
             "apps.action",
             "partitions.list",
@@ -52,6 +55,7 @@ class SafetyPolicy:
             "tools.adbShell",
             "tools.scrcpy",
             "tools.wifi",
+            "device.inspect",
             "backups.create",
             "backups.restore",
             "root.apps.list",
@@ -60,11 +64,17 @@ class SafetyPolicy:
             "root.modules.action",
         }
     )
+    clock: Callable[[], float] = field(default=time.time, repr=False, compare=False)
 
     def is_destructive(self, command: AppCommand) -> bool:
         if command.operation_plan is not None and command.operation_plan.dry_run:
             return False
-        return command.destructive or command.kind == CommandKind.FLASH_EXECUTE.value
+        return bool(
+            command.destructive
+            or command.kind == CommandKind.FLASH_EXECUTE.value
+            or command.operation_plan is not None
+            and command.operation_plan.risk is OperationRisk.DESTRUCTIVE
+        )
 
     def evaluate(self, command: AppCommand, snapshot: AppSnapshot) -> SafetyDecision:
         reinforced = False
@@ -103,16 +113,11 @@ class SafetyPolicy:
         if (
             command.kind == CommandKind.FLASH_EXECUTE.value
             or self.is_destructive(command)
-            or (
-                command.operation_plan is not None
-                and command.operation_plan.target_serial is not None
-            )
+            or (command.operation_plan is not None and command.operation_plan.target_serial is not None)
         ):
             if not snapshot.selected_serials:
                 return SafetyDecision(False, "device_not_selected", "no target device is selected")
-            plan_target = (
-                command.operation_plan.target_serial if command.operation_plan is not None else None
-            )
+            plan_target = command.operation_plan.target_serial if command.operation_plan is not None else None
             if not plan_target:
                 return SafetyDecision(
                     False,
@@ -142,10 +147,31 @@ class SafetyPolicy:
                 )
             plan = command.operation_plan
             assert plan is not None
+            now = self.clock()
+            if plan.expires <= now:
+                return SafetyDecision(
+                    False,
+                    "plan_expired",
+                    "operation plan expired before execution",
+                )
+            if plan.created > now + 1.0:
+                return SafetyDecision(
+                    False,
+                    "plan_created_in_future",
+                    "operation plan creation time is invalid",
+                )
             target_device = next(
                 (device for device in snapshot.devices if device.serial == plan_target),
                 None,
             )
+            if target_device is not None and (
+                not target_device.online or target_device.mode in {"offline", "unauthorized"}
+            ):
+                return SafetyDecision(
+                    False,
+                    "device_disconnected",
+                    f"device {plan_target!r} is not online",
+                )
             if plan.expected_device_state:
                 if target_device is None:
                     return SafetyDecision(
@@ -157,19 +183,26 @@ class SafetyPolicy:
                     return SafetyDecision(
                         False,
                         "device_state_changed",
-                        (
-                            f"device state changed from {plan.expected_device_state!r} "
-                            f"to {target_device.mode!r}"
-                        ),
+                        (f"device state changed from {plan.expected_device_state!r} to {target_device.mode!r}"),
+                    )
+            if plan.expected_codename:
+                if target_device is None or not target_device.codename:
+                    return SafetyDecision(
+                        False,
+                        "device_codename_unavailable",
+                        f"current codename for device {plan_target!r} is unavailable",
+                    )
+                if target_device.codename.casefold() != plan.expected_codename.casefold():
+                    return SafetyDecision(
+                        False,
+                        "device_codename_changed",
+                        "device codename no longer matches the operation plan",
                     )
             if plan.plan_revision != snapshot.plan.revision:
                 return SafetyDecision(
                     False,
                     "plan_revision_changed",
-                    (
-                        f"flash plan revision changed from {plan.plan_revision} "
-                        f"to {snapshot.plan.revision}"
-                    ),
+                    (f"flash plan revision changed from {plan.plan_revision} to {snapshot.plan.revision}"),
                 )
             if plan.fingerprint != snapshot.plan.fingerprint:
                 return SafetyDecision(
@@ -189,15 +222,18 @@ class SafetyPolicy:
                     "boot_hash_changed",
                     "boot image hash no longer matches the operation plan",
                 )
+            if plan.snapshot_revision is not None and plan.snapshot_revision != snapshot.revision:
+                return SafetyDecision(
+                    False,
+                    "snapshot_revision_changed",
+                    (f"application revision changed from {plan.snapshot_revision} to {snapshot.revision}"),
+                )
             reinforced = self.requires_reinforced_confirmation(command)
             if reinforced and not plan.reinforced_confirmation_valid:
                 return SafetyDecision(
                     False,
                     "reinforced_confirmation_required",
-                    (
-                        "wipe, erase, slot switching, and unlock operations require "
-                        "a nonce-bound confirmation token"
-                    ),
+                    ("wipe, erase, slot switching, and unlock operations require a nonce-bound confirmation token"),
                 )
 
         if command.kind in self.revisioned_kinds:
@@ -207,10 +243,7 @@ class SafetyPolicy:
                 return SafetyDecision(
                     False,
                     "stale_revision",
-                    (
-                        f"state revision changed: expected {command.expected_revision}, "
-                        f"current {snapshot.revision}"
-                    ),
+                    (f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
                 )
 
         if self.is_destructive(command) or command.requires_confirmation:
@@ -219,11 +252,7 @@ class SafetyPolicy:
             request = InteractionRequest(
                 operation_id=command.operation_id,
                 kind=InteractionKind.CONFIRM,
-                title=(
-                    "Confirm high-risk destructive operation"
-                    if reinforced
-                    else "Confirm destructive operation"
-                ),
+                title=("Confirm high-risk destructive operation" if reinforced else "Confirm destructive operation"),
                 message=(
                     f"Run {command.kind!r} on device {interaction_target!r}?"
                     if interaction_target
@@ -239,20 +268,98 @@ class SafetyPolicy:
 
         return SafetyDecision(True, "allowed")
 
+    def evaluate_batch(
+        self,
+        batch: OperationBatch,
+        snapshots: Mapping[str, AppSnapshot] | AppSnapshot,
+    ) -> SafetyDecision:
+        """Revalidate a confirmed flash batch and each device-bound plan."""
+
+        now = self.clock()
+        if batch.expires <= now:
+            return SafetyDecision(False, "batch_expired", "operation batch expired")
+        if batch.created > now + 1.0:
+            return SafetyDecision(
+                False,
+                "batch_created_in_future",
+                "operation batch creation time is invalid",
+            )
+        if batch.fingerprint != batch.compute_fingerprint():
+            return SafetyDecision(
+                False,
+                "batch_fingerprint_changed",
+                "operation batch fingerprint no longer matches its ordered plans",
+            )
+        if not batch.reinforced_confirmation_valid:
+            return SafetyDecision(
+                False,
+                "batch_confirmation_required",
+                "the flash batch requires one nonce-bound confirmation",
+            )
+
+        for plan in batch.plans:
+            if isinstance(snapshots, AppSnapshot):
+                snapshot = snapshots
+            else:
+                snapshot = snapshots.get(plan.target_serial or "")
+            if snapshot is None:
+                return SafetyDecision(
+                    False,
+                    "batch_snapshot_unavailable",
+                    f"current state is unavailable for {plan.target_serial!r}",
+                )
+            authorized = replace(
+                plan,
+                confirmation_nonce=batch.confirmation_nonce,
+                confirmation_token=None,
+            )
+            authorized = replace(
+                authorized,
+                confirmation_token=authorized.confirmation_challenge(),
+            )
+            command = AppCommand(
+                CommandKind.FLASH_EXECUTE,
+                expected_revision=snapshot.revision,
+                target_serial=authorized.target_serial,
+                operation_plan=authorized,
+                operation_id=f"{batch.batch_id}:{authorized.target_serial}",
+                destructive=True,
+                requires_confirmation=True,
+            )
+            decision = self.evaluate(command, snapshot)
+            if not decision.allowed:
+                return SafetyDecision(
+                    False,
+                    decision.code,
+                    f"{authorized.target_serial}: {decision.message}",
+                )
+
+        expected_revision = (
+            snapshots.revision
+            if isinstance(snapshots, AppSnapshot)
+            else max(item.revision for item in snapshots.values())
+        )
+        return SafetyDecision(
+            True,
+            "confirmation_required",
+            interaction=InteractionRequest(
+                operation_id=batch.batch_id,
+                kind=InteractionKind.CONFIRM,
+                title="Confirm destructive flash batch",
+                message=batch.required_confirmation_text(),
+                expected_revision=expected_revision,
+                destructive=True,
+                reinforced=True,
+                confirmation_nonce=batch.confirmation_nonce,
+            ),
+        )
+
     @staticmethod
     def requires_reinforced_confirmation(command: AppCommand) -> bool:
         plan = command.operation_plan
         if plan is None or plan.dry_run:
             return False
-        safety_tokens = [
-            plan.data_behavior.lower().replace("-", "_")
-        ] + [
-            argument.lower().lstrip("-").replace("-", "_")
-            for request in plan.requests
-            for argument in request.argv
+        safety_tokens = [plan.data_behavior.lower().replace("-", "_")] + [
+            argument.lower().lstrip("-").replace("-", "_") for request in plan.requests for argument in request.argv
         ]
-        return any(
-            action in token
-            for token in safety_tokens
-            for action in _HIGH_RISK_ACTIONS
-        )
+        return any(action in token for token in safety_tokens for action in _HIGH_RISK_ACTIONS)

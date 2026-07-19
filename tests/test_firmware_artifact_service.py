@@ -53,10 +53,14 @@ class FirmwareArtifactServiceTests(unittest.TestCase):
         self,
         output: Path,
         *,
-        limits: FirmwareArtifactLimits = FirmwareArtifactLimits(),
+        limits: FirmwareArtifactLimits | None = None,
     ) -> tuple[FirmwareArtifactService, ProcessedArtifactRepository]:
         repository = ProcessedArtifactRepository()
-        return FirmwareArtifactService(repository, output, limits=limits), repository
+        return FirmwareArtifactService(
+            repository,
+            output,
+            limits=limits or FirmwareArtifactLimits(),
+        ), repository
 
     def test_factory_images_are_extracted_to_fixed_names_hashed_and_registered(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -152,7 +156,7 @@ class FirmwareArtifactServiceTests(unittest.TestCase):
             )
             self.assertEqual("firmware_artifacts_ready", result.to_dict()["code"])
 
-    def test_ota_registers_the_verified_source_without_extracting_payload(self):
+    def test_legacy_ota_registers_verified_source_without_executing_update_binary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             firmware = root / "ota.zip"
@@ -163,7 +167,10 @@ class FirmwareArtifactServiceTests(unittest.TestCase):
                         "META-INF/com/android/metadata",
                         b"ota-type=AB\npre-device=akita|husky\npost-build-incremental=12345\n",
                     ),
-                    ("payload.bin", b"opaque signed payload"),
+                    (
+                        "META-INF/com/google/android/update-binary",
+                        b"this archive-provided program must never execute",
+                    ),
                 ],
             )
             service, repository = self.make_service(root / "processed")
@@ -377,7 +384,7 @@ class FirmwareArtifactServiceTests(unittest.TestCase):
                     self.assertFalse(result.ok)
                     self.assertFalse(output.exists())
 
-    def test_payload_only_custom_rom_fails_explicitly_and_leaves_no_partial_files(self):
+    def test_malformed_custom_payload_fails_explicitly_and_leaves_no_partial_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             firmware = root / "custom-payload.zip"
@@ -391,7 +398,7 @@ class FirmwareArtifactServiceTests(unittest.TestCase):
             result = service.process(firmware)
 
             self.assertEqual(
-                FirmwareProcessingCode.CUSTOM_PAYLOAD_UNSUPPORTED,
+                FirmwareProcessingCode.PAYLOAD_INVALID,
                 result.code,
             )
             self.assertEqual(FirmwareProcessingStatus.FAILED, result.status)

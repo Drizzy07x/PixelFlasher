@@ -1,0 +1,156 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.generate_bridge_contracts import (
+    DEFAULT_OUTPUT,
+    render_typescript,
+    write_or_check,
+)
+from scripts.verify_react_bridge_commands import load_react_commands
+from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
+from ui.command_registry import (
+    ALLOWED_COMMANDS,
+    COMMAND_REGISTRY,
+    FUTURE_COMMANDS,
+    PAYLOAD_FIELDS,
+    REGISTERED_COMMANDS,
+    REGISTERED_PAYLOAD_FIELDS,
+    ExpectedRevision,
+)
+
+
+def _request(command, payload=None, revision=1):
+    return json.dumps(
+        {
+            "version": BRIDGE_VERSION,
+            "requestId": "registry-test",
+            "command": command,
+            "payload": payload or {},
+            "expectedRevision": revision,
+        }
+    )
+
+
+class CommandRegistryTests(unittest.TestCase):
+    def test_production_allow_list_contains_only_owned_implemented_commands(self):
+        self.assertEqual(set(COMMAND_REGISTRY), set(REGISTERED_COMMANDS))
+        self.assertEqual(set(REGISTERED_PAYLOAD_FIELDS), set(REGISTERED_COMMANDS))
+        self.assertEqual(set(PAYLOAD_FIELDS), set(ALLOWED_COMMANDS))
+        self.assertTrue(FUTURE_COMMANDS)
+        self.assertEqual(set(REGISTERED_COMMANDS) - set(FUTURE_COMMANDS), set(ALLOWED_COMMANDS))
+
+        for command in ALLOWED_COMMANDS:
+            with self.subTest(command=command):
+                spec = COMMAND_REGISTRY[command]
+                self.assertTrue(spec.implemented)
+                self.assertTrue(spec.exposed)
+                self.assertTrue(spec.owner.value)
+                self.assertTrue(spec.planner)
+                self.assertGreater(spec.timeout_ms, 0)
+                self.assertTrue(spec.valid_device_states)
+
+        for command in FUTURE_COMMANDS:
+            with self.subTest(command=command):
+                spec = COMMAND_REGISTRY[command]
+                self.assertFalse(spec.implemented)
+                self.assertFalse(spec.exposed)
+                self.assertIsNone(spec.planner)
+
+    def test_future_commands_are_documented_but_rejected_by_production_bridge(self):
+        for command in FUTURE_COMMANDS:
+            with self.subTest(command=command), self.assertRaises(BridgeProtocolError) as rejected:
+                BridgeRequest.from_json(_request(command))
+            self.assertEqual("command_not_allowed", rejected.exception.code)
+
+    def test_registry_payload_schema_rejects_missing_wrong_and_unknown_fields(self):
+        cases = (
+            ("device.select", {}, "required"),
+            ("device.select", {"serials": "SERIAL"}, "string_array"),
+            ("platformTools.setup", {}, "source"),
+            ("platformTools.setup", {"source": 1}, "string"),
+            (
+                "platformTools.setup",
+                {"source": "directory", "path": "C:/browser/platform-tools"},
+                "unsupported",
+            ),
+            ("settings.update", {"zoom": True}, "integer"),
+            ("tools.wifi", {"action": "connect", "port": "37123"}, "integer"),
+            ("snapshot.get", {"alias": True}, "unsupported"),
+        )
+        for command, payload, detail in cases:
+            revision = None if command == "snapshot.get" else 1
+            with self.subTest(command=command), self.assertRaises(BridgeProtocolError) as rejected:
+                BridgeRequest.from_json(_request(command, payload, revision))
+            self.assertEqual("invalid_payload", rejected.exception.code)
+            self.assertIn(detail, str(rejected.exception))
+
+    def test_platform_tools_payload_shape_is_closed_and_source_driven(self):
+        fields = COMMAND_REGISTRY["platformTools.setup"].payload.fields
+        self.assertEqual({"grant", "source"}, set(fields))
+        self.assertFalse(fields["grant"].required)
+        self.assertTrue(fields["source"].required)
+
+    def test_expected_revision_policy_is_registry_owned(self):
+        optional = {
+            command
+            for command in ALLOWED_COMMANDS
+            if COMMAND_REGISTRY[command].expected_revision is ExpectedRevision.OPTIONAL
+        }
+        self.assertEqual({"app.ready", "settings.get", "snapshot.get"}, optional)
+
+        for command in ALLOWED_COMMANDS - optional:
+            spec = COMMAND_REGISTRY[command]
+            payload = {
+                name: _valid_value(field.kind.value)
+                for name, field in spec.payload.fields.items()
+                if field.required
+            }
+            # Conditional semantic rules are irrelevant here; revision is
+            # checked after shape validation, so use a direct request object.
+            request = BridgeRequest(
+                version=BRIDGE_VERSION,
+                request_id="revision-test",
+                command=command,
+                payload=payload,
+                expected_revision=None,
+            )
+            with self.subTest(command=command), self.assertRaises(BridgeProtocolError) as rejected:
+                request.validate()
+            self.assertIn(
+                rejected.exception.code,
+                {"invalid_payload", "revision_required"},
+            )
+
+    def test_generated_typescript_is_current_and_exactly_matches_allow_list(self):
+        self.assertEqual(render_typescript(), DEFAULT_OUTPUT.read_text(encoding="utf-8"))
+        self.assertTrue(write_or_check(DEFAULT_OUTPUT, check=True))
+        self.assertEqual(
+            set(ALLOWED_COMMANDS),
+            set(load_react_commands(DEFAULT_OUTPUT).values()),
+        )
+
+    def test_generator_check_detects_a_stale_artifact_without_overwriting_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "commands.ts"
+            target.write_text("stale\n", encoding="utf-8")
+            self.assertFalse(write_or_check(target, check=True))
+            self.assertEqual("stale\n", target.read_text(encoding="utf-8"))
+
+
+def _valid_value(kind):
+    return {
+        "string": "value",
+        "boolean": False,
+        "integer": 1,
+        "number": 1,
+        "object": {},
+        "array": [],
+        "string_array": [],
+        "filter_array": [],
+    }[kind]
+
+
+if __name__ == "__main__":
+    unittest.main()

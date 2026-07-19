@@ -1,9 +1,8 @@
 import ast
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from ui.bridge_contract import ALLOWED_COMMANDS, BRIDGE_CHANNEL, BRIDGE_VERSION
-
 
 ROOT = Path(__file__).resolve().parents[1]
 PIXELFLASHER_SOURCE = ROOT / "PixelFlasher.py"
@@ -31,6 +30,11 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertIn("_run_modern_primary(sys.argv)", self.entry_source)
         self.assertIn("ApplicationRuntime.open", self.primary_source)
         self.assertIn("create_modern_webview_frame", self.primary_source)
+        self.assertIn("runtime.engine", self.primary_source)
+        self.assertIn(
+            "support_destination_registrar=runtime.register_support_destination",
+            self.primary_source,
+        )
 
         forbidden = (
             "import Main",
@@ -54,8 +58,33 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertNotIn("wx.NO_BORDER", self.host_source)
         self.assertNotIn("wx.MessageDialog", self.host_source)
 
+    def test_webview_uses_the_exact_synchronous_engine_contract(self):
+        self.assertIn("def execute(self, command: AppCommand) -> OperationResult", self.host_source)
+        self.assertIn("def cancel(self, operation_id: str) -> CommandAck", self.host_source)
+        self.assertIn("def respond_interaction(", self.host_source)
+        self.assertIn("response: InteractionResponse", self.host_source)
+        self.assertIn("class _SerialCommandWorker", self.host_source)
+        self.assertIn("self._engine.execute(item.command)", self.host_source)
+        for forbidden in (
+            "getattr(self._engine",
+            "cancel_operation",
+            "Future",
+            "ThreadPoolExecutor",
+            ".result()",
+            "waiter =",
+            "result_getter =",
+        ):
+            with self.subTest(snippet=forbidden):
+                self.assertNotIn(forbidden, self.host_source)
+
+    def test_host_shutdown_is_bounded_and_drops_queued_work(self):
+        self.assertIn("daemon=True", self.host_source)
+        self.assertIn("self._thread.join(timeout_seconds)", self.host_source)
+        self.assertIn("self._queue.get_nowait()", self.host_source)
+        self.assertNotIn("self._thread.join()", self.host_source)
+
     def test_bridge_is_versioned_single_channel_and_allow_listed(self):
-        self.assertEqual(1, BRIDGE_VERSION)
+        self.assertEqual(2, BRIDGE_VERSION)
         self.assertEqual("pixelflasher", BRIDGE_CHANNEL)
         self.assertIn("snapshot.get", ALLOWED_COMMANDS)
         self.assertIn("device.scan", ALLOWED_COMMANDS)

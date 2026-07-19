@@ -10,34 +10,22 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, cast
 
-from .config_store import ConfigError, ConfigStore
-
+from .config_store import ConfigDocument, ConfigStore
+from .contracts import (
+    MAX_ZOOM,
+    MIN_ZOOM,
+    PREFERENCES_SCHEMA_KEY,
+    PREFERENCES_SCHEMA_VERSION,
+    SUPPORTED_LOCALES,
+    SUPPORTED_THEMES,
+    ModernPreferences,
+    PreferencesError,
+)
 
 PREFERENCES_KEY = "_pixelflasher_modern_preferences"
-PREFERENCES_SCHEMA_KEY = "schemaVersion"
-PREFERENCES_SCHEMA_VERSION = 1
-
-SUPPORTED_THEMES = ("dark", "light")
-SUPPORTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
-_SUPPORTED_THEME_SET = frozenset(SUPPORTED_THEMES)
-_SUPPORTED_LOCALE_SET = frozenset(SUPPORTED_LOCALES)
-MIN_ZOOM = 80
-MAX_ZOOM = 200
-
-_PREFERENCE_FIELDS = frozenset(
-    {
-        PREFERENCES_SCHEMA_KEY,
-        "theme",
-        "locale",
-        "highContrast",
-        "reducedMotion",
-        "zoom",
-    }
-)
 _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "theme": ("theme", "ui_theme", "uiTheme"),
     "locale": ("locale", "language"),
@@ -46,127 +34,30 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "zoom": ("zoom", "ui_zoom", "uiZoom"),
 }
 
-StoreLike: TypeAlias = ConfigStore | str | os.PathLike[str]
-
-
-class PreferencesError(ConfigError):
-    """Stable validation error for persisted or proposed preferences."""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-
-
-@dataclass(frozen=True, slots=True)
-class ModernPreferences:
-    """Canonical modern preferences with fail-safe defaults."""
-
-    theme: str = "dark"
-    locale: str = "en"
-    high_contrast: bool = False
-    reduced_motion: bool = False
-    zoom: int = 100
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
-            raise PreferencesError(
-                "theme_invalid",
-                "theme must be exactly dark or light",
-            )
-        if not isinstance(self.locale, str) or self.locale not in _SUPPORTED_LOCALE_SET:
-            raise PreferencesError(
-                "locale_invalid",
-                "locale must be one of en, es, fr, it, zh_CN, or zh_TW",
-            )
-        if not isinstance(self.high_contrast, bool):
-            raise PreferencesError(
-                "high_contrast_invalid",
-                "highContrast must be a boolean",
-            )
-        if not isinstance(self.reduced_motion, bool):
-            raise PreferencesError(
-                "reduced_motion_invalid",
-                "reducedMotion must be a boolean",
-            )
-        if not isinstance(self.zoom, int) or isinstance(self.zoom, bool):
-            raise PreferencesError(
-                "zoom_invalid",
-                "zoom must be an integer",
-            )
-        if not MIN_ZOOM <= self.zoom <= MAX_ZOOM:
-            raise PreferencesError(
-                "zoom_invalid",
-                f"zoom must be between {MIN_ZOOM} and {MAX_ZOOM}",
-            )
-
-    @classmethod
-    def from_mapping(
-        cls,
-        raw: Mapping[str, Any],
-        *,
-        require_schema: bool = False,
-    ) -> "ModernPreferences":
-        if not isinstance(raw, Mapping):
-            raise PreferencesError(
-                "preferences_not_object",
-                "modern preferences must be an object",
-            )
-        unknown = set(raw) - _PREFERENCE_FIELDS
-        if unknown:
-            field = min((repr(value) for value in unknown), default="<unknown>")
-            raise PreferencesError(
-                "unknown_preference_field",
-                f"unsupported preference field: {field}",
-            )
-        if require_schema and PREFERENCES_SCHEMA_KEY not in raw:
-            raise PreferencesError(
-                "preferences_schema_invalid",
-                "persisted modern preferences require schemaVersion",
-            )
-        schema = raw.get(PREFERENCES_SCHEMA_KEY, PREFERENCES_SCHEMA_VERSION)
-        if not isinstance(schema, int) or isinstance(schema, bool):
-            raise PreferencesError(
-                "preferences_schema_invalid",
-                "preference schema version must be an integer",
-            )
-        if schema != PREFERENCES_SCHEMA_VERSION:
-            raise PreferencesError(
-                "preferences_schema_unsupported",
-                (
-                    f"unsupported preference schema {schema}; "
-                    f"expected {PREFERENCES_SCHEMA_VERSION}"
-                ),
-            )
-        defaults = cls()
-        return cls(
-            theme=raw.get("theme", defaults.theme),
-            locale=raw.get("locale", defaults.locale),
-            high_contrast=raw.get("highContrast", defaults.high_contrast),
-            reduced_motion=raw.get("reducedMotion", defaults.reduced_motion),
-            zoom=raw.get("zoom", defaults.zoom),
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            PREFERENCES_SCHEMA_KEY: PREFERENCES_SCHEMA_VERSION,
-            "theme": self.theme,
-            "locale": self.locale,
-            "highContrast": self.high_contrast,
-            "reducedMotion": self.reduced_motion,
-            "zoom": self.zoom,
-        }
+type StoreLike = ConfigStore | str | os.PathLike[str]
 
 
 def load_preferences(store: StoreLike) -> ModernPreferences:
     """Load canonical preferences or migrate recognized flat 9.x values.
 
-    The function has no UI side effects and does not write during a successful
-    load.  ``ConfigStore`` may still create its one-time legacy backup while it
-    opens a schema-0 file, as required by its migration contract.
+    The function has no UI side effects. ConfigStore performs its idempotent
+    schema-v2 migration only after durable legacy backups exist.
     """
 
     config_store = _config_store(store)
     document = config_store.load()
+    return preferences_from_document(document)
+
+
+def preferences_from_document(document: ConfigDocument) -> ModernPreferences:
+    """Decode canonical preferences from an already loaded document.
+
+    Runtime composition uses this form so one immutable configuration read is
+    the source for both the initial :class:`AppSnapshot` and backend services.
+    """
+
+    if not isinstance(document, ConfigDocument):
+        raise TypeError("document must be a ConfigDocument")
     values = document.values
     if PREFERENCES_KEY in values:
         return _modern_preferences(values[PREFERENCES_KEY])
@@ -179,8 +70,8 @@ def save_preferences(
 ) -> ModernPreferences:
     """Validate and atomically persist modern preferences.
 
-    Existing configuration values are preserved.  The two fields understood by
-    the 9.x host are mirrored at the top level for one-major compatibility;
+    Existing configuration values are preserved. Every recognized 9.x field is
+    mirrored at the top level for one-major compatibility;
     the nested versioned object remains canonical for the modern application.
     """
 
@@ -191,19 +82,35 @@ def save_preferences(
     )
     config_store = _config_store(store)
     document = config_store.load()
+    updated = document_with_preferences(document, canonical)
+    config_store.save(updated)
+    return canonical
+
+
+def document_with_preferences(
+    document: ConfigDocument,
+    preferences: ModernPreferences | Mapping[str, Any],
+) -> ConfigDocument:
+    """Return a validated document with canonical and 9.x mirror values.
+
+    This pure preparation step lets a caller construct the exact durable
+    document before entering a fail-closed state-store transaction.
+    """
+
+    if not isinstance(document, ConfigDocument):
+        raise TypeError("document must be a ConfigDocument")
+    canonical = (
+        preferences
+        if isinstance(preferences, ModernPreferences)
+        else ModernPreferences.from_mapping(preferences)
+    )
     if PREFERENCES_KEY in document.values:
         # Never erase fields from a newer or malformed persisted preference
         # object merely because the caller supplied a valid replacement.
         _modern_preferences(document.values[PREFERENCES_KEY])
-    updated = document.with_values(
-        **{
-            PREFERENCES_KEY: canonical.to_dict(),
-            "theme": canonical.theme,
-            "language": canonical.locale,
-        }
-    )
-    config_store.save(updated)
-    return canonical
+    mirrors = _legacy_mirrors(document.values, canonical)
+    mirrors[PREFERENCES_KEY] = canonical.to_dict()
+    return document.with_values(**mirrors)
 
 
 def _modern_preferences(raw: object) -> ModernPreferences:
@@ -212,7 +119,16 @@ def _modern_preferences(raw: object) -> ModernPreferences:
             "preferences_not_object",
             f"{PREFERENCES_KEY} must be an object",
         )
-    return ModernPreferences.from_mapping(raw, require_schema=True)
+    values = cast(Mapping[object, object], raw)
+    if any(not isinstance(key, str) for key in values):
+        raise PreferencesError(
+            "preferences_key_invalid",
+            f"{PREFERENCES_KEY} keys must be strings",
+        )
+    return ModernPreferences.from_mapping(
+        cast(Mapping[str, Any], values),
+        require_schema=True,
+    )
 
 
 def _legacy_preferences(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -232,6 +148,34 @@ def _legacy_preferences(values: Mapping[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _legacy_mirrors(
+    values: Mapping[str, object],
+    preferences: ModernPreferences,
+) -> dict[str, object]:
+    field_values: Mapping[str, object] = {
+        "theme": preferences.theme,
+        "locale": preferences.locale,
+        "highContrast": preferences.high_contrast,
+        "reducedMotion": preferences.reduced_motion,
+        "zoom": preferences.zoom,
+    }
+    preferred_keys = {
+        "theme": "theme",
+        "locale": "language",
+        "highContrast": "high_contrast",
+        "reducedMotion": "reduced_motion",
+        "zoom": "ui_zoom",
+    }
+    mirrors: dict[str, object] = {}
+    for field, aliases in _LEGACY_ALIASES.items():
+        value = field_values[field]
+        mirrors[preferred_keys[field]] = value
+        for alias in aliases:
+            if alias in values:
+                mirrors[alias] = value
+    return mirrors
+
+
 def _config_store(store: StoreLike) -> ConfigStore:
     return store if isinstance(store, ConfigStore) else ConfigStore(Path(store))
 
@@ -246,6 +190,8 @@ __all__ = [
     "SUPPORTED_THEMES",
     "ModernPreferences",
     "PreferencesError",
+    "document_with_preferences",
     "load_preferences",
+    "preferences_from_document",
     "save_preferences",
 ]

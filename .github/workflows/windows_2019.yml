@@ -45,15 +45,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.8'
 
       - name: Set up the locked React toolchain
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.14.0'
 
@@ -123,7 +123,7 @@ jobs:
         run: ls dist
 
       - name: Sign Windows Executable
-        uses: skymatic/code-sign-action@v3
+        uses: skymatic/code-sign-action@6d68ef9679c6778de22bc1cf52e44f454de3604e # v3
         with:
           certificate: '${{ secrets.CERTIFICATE }}'
           password: '${{ secrets.CERT_PASSWORD }}'
@@ -144,7 +144,7 @@ jobs:
 
       # Upload artifacts Windows 2019
       - name: Upload Windows 2019 Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         id: upload_artifacts_windows_2019
         with:
           name: PixelFlasher_Win_2019.exe Artifacts

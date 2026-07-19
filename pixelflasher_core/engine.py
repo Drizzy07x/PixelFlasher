@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tempfile
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, Protocol, cast
+from uuid import uuid4
 
 from .backups import (
     BACKUP_COMMANDS,
@@ -16,39 +17,59 @@ from .backups import (
     BackupPlanningError,
     BackupService,
 )
+from .boot_inventory import (
+    BOOT_INVENTORY_COMMAND,
+    BOOT_SELECT_COMMAND,
+    BootInventoryError,
+    BootInventoryService,
+)
 from .boot_patch import (
     BOOT_PATCH_COMMAND,
     BootPatchCompilation,
     BootPatchPlanningError,
     BootPatchService,
-    PatchToolBundle,
 )
 from .contracts import (
     AppCommand,
+    AppEvent,
     AppSnapshot,
     BootInfo,
+    CommandAck,
     CommandKind,
     FileArtifact,
     FirmwareInfo,
     FlashPlan,
     InteractionDecision,
     InteractionRequest,
+    InteractionResponse,
+    OperationFinished,
     OperationPlan,
     OperationResult,
+    ProgressEvent,
+    ProgressPhase,
+    SnapshotChanged,
+    ToolchainInfo,
 )
-from .devices import DeviceService
 from .device_tools import (
     DEVICE_TOOL_COMMANDS,
     DeviceToolCompilation,
     DeviceToolPlanningError,
     DeviceToolsService,
 )
+from .devices import DeviceService
 from .executor import CancellationToken, CommandExecutor
 from .firmware import FirmwareInspector
 from .firmware_artifacts import (
     FirmwareArtifactService,
     FirmwareProcessingResult,
     FirmwareProcessingStatus,
+)
+from .operation_runner import (
+    ExecutionBoundaryAck,
+    OperationExecutor,
+    OperationRunner,
+    PostconditionObserverLike,
+    SnapshotProvider,
 )
 from .packages import (
     PACKAGE_COMMANDS,
@@ -65,6 +86,9 @@ from .partitions import (
     parse_fastboot_partition_list,
 )
 from .planner import PLANNED_COMMANDS, OperationPlanner
+from .platform_tools import PlatformToolsStatus
+from .platform_tools_setup import PlatformToolsSetupService
+from .repositories import FirmwareRepository, RepositoryError
 from .rooting import (
     ROOTING_COMMANDS,
     RootingCompilation,
@@ -73,23 +97,49 @@ from .rooting import (
     parse_root_module_list,
 )
 from .safety import SafetyPolicy
-from .store import AppStateStore, StaleRevisionError
+from .store import AppStateStore, StaleRevisionError, Subscription
 from .support import (
     SUPPORT_COMMAND,
-    SupportPackageService,
+    SupportPackageResult,
     SupportPackageStatus,
+)
+from .support_v2_service import (
+    CancellationProbe as SupportCancellationProbe,
 )
 from .toolchain import ToolchainService
 
-
 InteractionHandler = Callable[[InteractionRequest], InteractionDecision | bool]
+EngineListener = Callable[[AppEvent], None]
+EngineSubscriber = Callable[[EngineListener, bool], Callable[[], None]]
+EnginePublisher = Callable[[AppEvent], None]
+CommandHandler = Callable[[AppCommand], OperationResult]
+CancellationHandler = Callable[[str], CommandAck]
+InteractionResponder = Callable[[str, InteractionResponse], CommandAck]
+ShutdownHandler = Callable[[], None]
 ResultParser = Callable[[OperationResult], OperationResult]
 ResultFinalizer = Callable[[OperationResult, CancellationToken], OperationResult]
 CompletionBoot = Callable[[OperationResult], BootInfo | None]
-OperationExecutor = Callable[
-    [AppCommand, OperationPlan, CancellationToken],
-    OperationResult,
-]
+ToolchainStateUpdater = Callable[[AppCommand, ToolchainInfo], OperationResult]
+
+
+class SupportPackageBackend(Protocol):
+    def register_destination(
+        self,
+        destination: str | Path,
+        *,
+        allow_overwrite: bool = False,
+    ) -> str: ...
+
+    def create(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        snapshot: object,
+        cancellation: SupportCancellationProbe | None = None,
+    ) -> SupportPackageResult: ...
+
+    def shutdown(self) -> None: ...
+
 
 _SERVICE_COMMANDS = (
     PACKAGE_COMMANDS
@@ -115,75 +165,79 @@ def deny_interaction(_request: InteractionRequest) -> InteractionDecision:
     return InteractionDecision.CANCELLED
 
 
-class PixelFlasherEngine:
-    """Execute one typed command and synchronously return one explicit result."""
+class CommandEngine:
+    """Compile and execute typed commands below the public application facade."""
 
     def __init__(
         self,
-        store: AppStateStore | None = None,
-        executor: CommandExecutor | None = None,
-        safety_policy: SafetyPolicy | None = None,
-        interaction_handler: InteractionHandler | None = None,
-        toolchain_service: ToolchainService | None = None,
-        device_service: DeviceService | None = None,
-        firmware_inspector: FirmwareInspector | None = None,
-        operation_planner: OperationPlanner | None = None,
-        package_service: PackageService | None = None,
-        partition_service: PartitionService | None = None,
-        device_tools_service: DeviceToolsService | None = None,
-        backup_service: BackupService | None = None,
-        rooting_service: RootingService | None = None,
-        boot_patch_bundles: Sequence[PatchToolBundle] = (),
-        firmware_artifact_service: FirmwareArtifactService | None = None,
-        firmware_artifact_cache_root: str | Path | None = None,
-        support_package_service: SupportPackageService | None = None,
-        support_config_path: str | Path | None = None,
+        *,
+        store: AppStateStore,
+        executor: CommandExecutor,
+        safety_policy: SafetyPolicy,
+        interaction_handler: InteractionHandler,
+        toolchain_service: ToolchainService,
+        platform_tools_setup_service: PlatformToolsSetupService,
+        device_service: DeviceService,
+        firmware_inspector: FirmwareInspector,
+        operation_planner: OperationPlanner,
+        package_service: PackageService,
+        partition_service: PartitionService,
+        device_tools_service: DeviceToolsService,
+        backup_service: BackupService,
+        rooting_service: RootingService,
+        boot_patch_service: BootPatchService,
+        firmware_artifact_service: FirmwareArtifactService,
+        support_package_service: SupportPackageBackend,
+        operation_runner: OperationRunner,
+        snapshot_provider: SnapshotProvider,
+        postcondition_observer: PostconditionObserverLike,
+        boot_inventory_service: BootInventoryService | None,
+        firmware_repository: FirmwareRepository | None,
+        toolchain_state_updater: ToolchainStateUpdater | None,
     ) -> None:
-        self.store = store or AppStateStore()
-        self.executor = executor or CommandExecutor()
-        self.safety_policy = safety_policy or SafetyPolicy()
-        self.interaction_handler = interaction_handler or deny_interaction
-        self.toolchain_service = toolchain_service or ToolchainService(self.executor.transport)
-        self.device_service = device_service or DeviceService(self.executor.transport)
-        self.firmware_inspector = firmware_inspector or FirmwareInspector()
-        self.operation_planner = operation_planner or OperationPlanner()
-        if firmware_artifact_service is not None and (
-            firmware_artifact_service.repository
-            is not self.operation_planner.artifact_repository
-        ):
+        if firmware_artifact_service.repository is not operation_planner.artifact_repository:
+            raise ValueError("firmware artifact service and operation planner must share one repository")
+        if operation_runner.executor is not executor:
+            raise ValueError("operation runner and command engine must share one executor")
+        if operation_runner.safety_policy is not safety_policy:
+            raise ValueError("operation runner and command engine must share one safety policy")
+        if operation_runner.snapshot_provider is not snapshot_provider:
+            raise ValueError("operation runner and command engine must share one snapshot provider")
+        if operation_runner.postcondition_observer is not postcondition_observer:
+            raise ValueError("operation runner and command engine must share one postcondition observer")
+        if toolchain_service.transport is not executor.transport:
+            raise ValueError("toolchain service and command engine must share one process transport")
+        if platform_tools_setup_service.toolchain_service is not toolchain_service:
             raise ValueError(
-                "firmware artifact service and operation planner must share one repository"
+                "Platform Tools setup and command engine must share one toolchain service"
             )
-        if firmware_artifact_service is None:
-            cache_root = (
-                Path(firmware_artifact_cache_root)
-                if firmware_artifact_cache_root is not None
-                else Path(tempfile.gettempdir())
-                / "pixelflasher-core"
-                / "firmware-artifacts"
-            )
-            firmware_artifact_service = FirmwareArtifactService(
-                self.operation_planner.artifact_repository,
-                cache_root,
-            )
+        if device_service.transport is not executor.transport:
+            raise ValueError("device service and command engine must share one process transport")
+        if boot_patch_service.rooting_service is not rooting_service:
+            raise ValueError("boot patch service and command engine must share one rooting service")
+        self.store = store
+        self.executor = executor
+        self.safety_policy = safety_policy
+        self.interaction_handler = interaction_handler
+        self.toolchain_service = toolchain_service
+        self.platform_tools_setup_service = platform_tools_setup_service
+        self.toolchain_state_updater = toolchain_state_updater
+        self.device_service = device_service
+        self.firmware_inspector = firmware_inspector
+        self.operation_planner = operation_planner
         self.firmware_artifact_service = firmware_artifact_service
-        self.package_service = package_service or PackageService()
-        self.partition_service = partition_service or PartitionService()
-        self.device_tools_service = device_tools_service or DeviceToolsService()
-        self.backup_service = backup_service or BackupService()
-        self.rooting_service = rooting_service or RootingService()
-        self.support_package_service = support_package_service or SupportPackageService(
-            support_config_path
-            if support_config_path is not None
-            else Path(tempfile.gettempdir()) / "pixelflasher-core" / "PixelFlasher.json"
-        )
-        # Patch tooling is a backend-owned dependency.  Browser commands can
-        # select only a verified app ID and flavor; they can never register a
-        # runner path, hash, or support artifact.
-        self.boot_patch_service = BootPatchService(
-            self.rooting_service,
-            boot_patch_bundles,
-        )
+        self.package_service = package_service
+        self.partition_service = partition_service
+        self.device_tools_service = device_tools_service
+        self.backup_service = backup_service
+        self.rooting_service = rooting_service
+        self.boot_patch_service = boot_patch_service
+        self.boot_inventory_service = boot_inventory_service
+        self.firmware_repository = firmware_repository
+        self.support_package_service = support_package_service
+        self.snapshot_provider = snapshot_provider
+        self.postcondition_observer = postcondition_observer
+        self.operation_runner = operation_runner
         # The canonical snapshot exposes one active operation, so process-backed
         # operations share this lock. In particular, destructive operations can
         # never overlap.
@@ -231,6 +285,10 @@ class PixelFlasherEngine:
             return self._scan_devices(command)
         if command.kind == CommandKind.FIRMWARE_SELECT.value:
             return self._inspect_firmware(command)
+        if command.kind == BOOT_INVENTORY_COMMAND:
+            return self._list_boot_inventory(command)
+        if command.kind == BOOT_SELECT_COMMAND:
+            return self._select_boot(command)
         if command.kind == "firmware.process":
             return self._process_firmware(command)
         if command.kind == SUPPORT_COMMAND:
@@ -241,7 +299,7 @@ class PixelFlasherEngine:
             return self._preview_flash_plan(command)
         return OperationResult.failed(
             command.operation_id,
-            code="not_implemented",
+            code="command_unknown",
             message=f"unsupported command kind: {command.kind}",
         )
 
@@ -259,10 +317,7 @@ class PixelFlasherEngine:
             return self._denied(
                 command,
                 "stale_revision",
-                (
-                    f"state revision changed: expected {command.expected_revision}, "
-                    f"current {snapshot.revision}"
-                ),
+                (f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
             )
 
         planning_token: CancellationToken | None = None
@@ -294,11 +349,7 @@ class PixelFlasherEngine:
                 if command.kind == "partitions.erase" and "confirmationText" in command.payload:
                     partition_command = replace(
                         command,
-                        payload={
-                            key: value
-                            for key, value in command.payload.items()
-                            if key != "confirmationText"
-                        },
+                        payload={key: value for key, value in command.payload.items() if key != "confirmationText"},
                     )
                 compilation = self.partition_service.compile(partition_command, snapshot)
             elif command.kind in BACKUP_COMMANDS:
@@ -361,10 +412,7 @@ class PixelFlasherEngine:
                 return self._denied(
                     command,
                     "stale_revision",
-                    (
-                        f"state revision changed: expected {snapshot.revision}, "
-                        f"current {current.revision}"
-                    ),
+                    (f"state revision changed: expected {snapshot.revision}, current {current.revision}"),
                 )
             result = OperationResult.success(
                 command.operation_id,
@@ -379,10 +427,7 @@ class PixelFlasherEngine:
             return result
 
         execution_plan = compilation.plan
-        if (
-            isinstance(compilation, PartitionCompilation)
-            and compilation.reinforced_confirmation
-        ):
+        if isinstance(compilation, PartitionCompilation) and compilation.reinforced_confirmation:
             reinforced = self.operation_planner.bind_reinforced_confirmation(
                 command,
                 snapshot,
@@ -419,45 +464,40 @@ class PixelFlasherEngine:
             assert planning_token is not None
             return self._execute_process(
                 planned,
-                result_finalizer=lambda result, cancellation: (
-                    self.boot_patch_service.finalize_result(
-                        compilation,
-                        result,
-                        cancellation,
+                result_finalizer=(
+                    lambda result, cancellation: self.boot_patch_service.finalize_result(
+                        compilation, result, cancellation
                     )
                 ),
                 completion_boot=self._boot_info_from_patch_result,
                 cancellation=planning_token,
             )
-        if (
-            isinstance(compilation, DeviceToolCompilation)
-            and compilation.execution != "process"
-        ):
+        if isinstance(compilation, DeviceToolCompilation) and compilation.execution != "process":
             return self._execute_process(
                 planned,
                 operation_executor=(
-                    lambda _command, _plan, cancellation: (
-                        self.device_tools_service.execute_special(
-                            compilation,
-                            command.operation_id,
-                            cancellation,
-                        )
+                    lambda _command, _plan, cancellation: self.device_tools_service.execute_special(
+                        compilation,
+                        command.operation_id,
+                        cancellation,
                     )
                 ),
             )
-        if (
-            isinstance(compilation, DeviceToolCompilation)
-            and compilation.action.startswith("wifi.")
-        ):
+        if isinstance(compilation, DeviceToolCompilation) and compilation.action.startswith("inspect."):
             return self._execute_process(
                 planned,
                 result_finalizer=(
-                    lambda result, _cancellation: (
-                        self.device_tools_service.finalize_result(
-                            compilation,
-                            result,
-                        )
+                    lambda result, _cancellation: self.device_tools_service.finalize_inspection(
+                        compilation,
+                        result,
                     )
+                ),
+            )
+        if isinstance(compilation, DeviceToolCompilation) and compilation.action.startswith("wifi."):
+            return self._execute_process(
+                planned,
+                result_finalizer=(
+                    lambda result, _cancellation: self.device_tools_service.finalize_result(compilation, result)
                 ),
             )
         return self._execute_process(
@@ -477,6 +517,14 @@ class PixelFlasherEngine:
     ) -> OperationResult:
         """Convert successful process output into bridge-safe domain values."""
 
+        plan = compilation.plan
+        if plan is None:
+            return OperationResult.failed(
+                result.operation_id,
+                code="service_plan_missing",
+                message=f"{kind} has no executable plan",
+            )
+
         if kind == "apps.list":
             packages = parse_package_list(result.stdout)
             return replace(
@@ -487,6 +535,36 @@ class PixelFlasherEngine:
                     "count": len(packages),
                     "packages": [package.to_dict() for package in packages],
                 },
+            )
+        if kind == "apps.action" and isinstance(compilation, PackageCompilation):
+            value: dict[str, object] = {}
+            raw_result_value = cast(object, result.value)
+            if isinstance(raw_result_value, Mapping):
+                value.update(
+                    {
+                        key: item
+                        for key, item in cast(
+                            Mapping[object, object],
+                            raw_result_value,
+                        ).items()
+                        if isinstance(key, str)
+                    }
+                )
+            value["action"] = compilation.action
+            if compilation.apk_identity is not None:
+                identity = compilation.apk_identity
+                value["apkIdentity"] = {
+                    "packageName": identity.package_name,
+                    "sha256": identity.sha256,
+                    "signerSha256": list(identity.signer_sha256),
+                    "schemes": list(identity.schemes),
+                    "verified": identity.verified,
+                }
+            return replace(
+                result,
+                code="apps_action_succeeded",
+                message=f"package action {compilation.action} succeeded",
+                value=value,
             )
         if kind == "partitions.list":
             partitions = parse_fastboot_partition_list(result.stdout, result.stderr)
@@ -519,8 +597,8 @@ class PixelFlasherEngine:
                     "sha256": artifact.sha256,
                 }
                 for artifact, request in zip(
-                    compilation.plan.artifacts,
-                    compilation.plan.requests,
+                    plan.artifacts,
+                    plan.requests,
                     strict=True,
                 )
             ]
@@ -569,17 +647,17 @@ class PixelFlasherEngine:
             return replace(
                 result,
                 code="backup_created",
-                message=f"created and verified backup of {compilation.plan.partitions[0]}",
+                message=f"created and verified backup of {plan.partitions[0]}",
                 value={
                     "action": "create",
-                    "targetSerial": compilation.plan.target_serial,
-                    "partition": compilation.plan.partitions[0],
-                    "slot": compilation.plan.slots[0],
+                    "targetSerial": plan.target_serial,
+                    "partition": plan.partitions[0],
+                    "slot": plan.slots[0],
                     "artifact": artifact.to_dict(),
                 },
             )
         if kind == "backups.restore":
-            if not isinstance(compilation, BackupCompilation) or not compilation.plan.artifacts:
+            if not isinstance(compilation, BackupCompilation) or not plan.artifacts:
                 return OperationResult.failed(
                     result.operation_id,
                     code="backup_compilation_invalid",
@@ -588,16 +666,16 @@ class PixelFlasherEngine:
                     stdout=result.stdout,
                     stderr=result.stderr,
                 )
-            artifact = compilation.plan.artifacts[0]
+            artifact = plan.artifacts[0]
             return replace(
                 result,
                 code="backup_restored",
-                message=f"restored {compilation.plan.partitions[0]}",
+                message=f"restored {plan.partitions[0]}",
                 value={
                     "action": "restore",
-                    "targetSerial": compilation.plan.target_serial,
-                    "partition": compilation.plan.partitions[0],
-                    "slot": compilation.plan.slots[0],
+                    "targetSerial": plan.target_serial,
+                    "partition": plan.partitions[0],
+                    "slot": plan.slots[0],
                     "artifact": artifact.to_dict(),
                 },
             )
@@ -618,7 +696,7 @@ class PixelFlasherEngine:
                 message=f"installed {app.provider} {app.flavor}",
                 value={
                     "action": "install",
-                    "targetSerial": compilation.plan.target_serial,
+                    "targetSerial": plan.target_serial,
                     "app": app.to_dict(),
                 },
             )
@@ -660,28 +738,30 @@ class PixelFlasherEngine:
                     stdout=result.stdout,
                     stderr=result.stderr,
                 )
-            artifact = (
-                compilation.plan.artifacts[0].to_dict()
-                if compilation.plan.artifacts
-                else None
-            )
+            artifact = plan.artifacts[0].to_dict() if plan.artifacts else None
             return replace(
                 result,
                 code=result_code,
                 message=f"{action} Magisk module {compilation.module_id}",
                 value={
                     "action": action,
-                    "targetSerial": compilation.plan.target_serial,
+                    "targetSerial": plan.target_serial,
                     "moduleId": compilation.module_id,
                     "artifact": artifact,
                 },
+            )
+        if isinstance(compilation, BootPatchCompilation):
+            return OperationResult.failed(
+                result.operation_id,
+                code="boot_patch_result_unexpected",
+                message="boot patch results require their dedicated finalizer",
             )
         return replace(
             result,
             code=f"{kind.replace('.', '_')}_succeeded",
             value={
                 "action": compilation.action,
-                "targetSerial": compilation.plan.target_serial,
+                "targetSerial": plan.target_serial,
             },
         )
 
@@ -737,24 +817,26 @@ class PixelFlasherEngine:
         )
 
     def _select_device(self, command: AppCommand) -> OperationResult:
-        serial = command.payload.get("serial")
+        serial: object = command.payload.get("serial")
         if serial is not None and not isinstance(serial, str):
             return self._invalid(command, "payload.serial must be a string or null")
         if isinstance(serial, str) and not serial.strip():
             return self._invalid(command, "payload.serial must not be blank")
-        raw_serials = command.payload.get("serials")
+        raw_serials: object = command.payload.get("serials")
         if raw_serials is None:
             serials = (serial,) if serial else ()
-        elif isinstance(raw_serials, (list, tuple)) and all(
-            isinstance(item, str) and item.strip() for item in raw_serials
-        ):
-            serials = tuple(dict.fromkeys(item.strip() for item in raw_serials))
+        elif isinstance(raw_serials, (list, tuple)):
+            serial_items = cast(list[object] | tuple[object, ...], raw_serials)
+            if not all(isinstance(item, str) and item.strip() for item in serial_items):
+                return self._invalid(
+                    command,
+                    "payload.serials must be an array of strings",
+                )
+            serials = tuple(dict.fromkeys(item.strip() for item in serial_items if isinstance(item, str)))
         else:
             return self._invalid(command, "payload.serials must be an array of strings")
-        serials = tuple(dict.fromkeys(item.strip() for item in serials if item.strip()))
-        primary = serial.strip() if isinstance(serial, str) and serial.strip() else (
-            serials[0] if serials else None
-        )
+        serials = tuple(dict.fromkeys(item.strip() for item in serials if isinstance(item, str) and item.strip()))
+        primary = serial.strip() if isinstance(serial, str) and serial.strip() else (serials[0] if serials else None)
         inventory = {device.serial for device in self.store.snapshot().devices}
         desired = tuple(dict.fromkeys(((primary,) if primary else ()) + serials))
         missing = tuple(item for item in desired if inventory and item not in inventory)
@@ -823,6 +905,22 @@ class PixelFlasherEngine:
                 code=inspection.code,
                 message=inspection.message,
             )
+        if self.firmware_repository is not None:
+            try:
+                record = self.firmware_repository.import_selection(
+                    inspection.path,
+                    firmware_type=inspection.kind.value,
+                    build=inspection.build,
+                    expected_sha256=inspection.sha256,
+                    device_codenames=(inspection.device,) if inspection.device else (),
+                )
+            except (OSError, RepositoryError, TypeError, ValueError):
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="firmware_repository_import_failed",
+                    message="the inspected firmware could not be stored safely",
+                )
+            inspection = replace(inspection, path=str(record.path))
         result = self._update_state(
             command,
             firmware=inspection.to_firmware_info(processed=False),
@@ -837,6 +935,126 @@ class PixelFlasherEngine:
             code="firmware_selected",
             message=f"{inspection.kind.value} firmware inspected successfully",
             value={"snapshot": self.store.snapshot().to_dict(), "inspection": inspection.to_dict()},
+        )
+
+    def _list_boot_inventory(self, command: AppCommand) -> OperationResult:
+        if command.payload:
+            return self._invalid(command, "boot.inventory does not accept payload fields")
+        service = self.boot_inventory_service
+        if service is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="boot_repository_unavailable",
+                message="the boot image repository is not configured",
+            )
+        snapshot = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        try:
+            entries = service.list_public()
+        except BootInventoryError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        return OperationResult.success(
+            command.operation_id,
+            code="boot_inventory_listed",
+            message=f"found {len(entries)} boot image(s)",
+            value={
+                "boots": [entry.to_public_dict() for entry in entries],
+                "selectedBootId": snapshot.boot.id or None,
+                "revision": snapshot.revision,
+            },
+        )
+
+    def _select_boot(self, command: AppCommand) -> OperationResult:
+        unknown = set(command.payload) - {"bootId", "path", "partition"}
+        if unknown:
+            return self._invalid(
+                command,
+                f"unsupported boot.select field: {sorted(unknown)[0]}",
+            )
+        boot_id = command.payload.get("bootId")
+        path = command.payload.get("path")
+        partition = command.payload.get("partition")
+        selecting_existing = isinstance(boot_id, str) and bool(boot_id)
+        importing = isinstance(path, str) and bool(path)
+        if selecting_existing == importing:
+            return self._invalid(
+                command,
+                "boot.select requires exactly one bootId or opaque file grant",
+            )
+        if selecting_existing and partition is not None:
+            return self._invalid(
+                command,
+                "partition is accepted only when importing a granted boot image",
+            )
+        if importing and (not isinstance(partition, str) or not partition):
+            return self._invalid(
+                command,
+                "partition is required when importing a granted boot image",
+            )
+        service = self.boot_inventory_service
+        if service is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="boot_repository_unavailable",
+                message="the boot image repository is not configured",
+            )
+
+        with self._operation_lock:
+            snapshot = self.store.snapshot()
+            decision = self.safety_policy.evaluate(command, snapshot)
+            if not decision.allowed:
+                return self._denied(command, decision.code, decision.message)
+            try:
+                if selecting_existing:
+                    selection = service.select(cast(str, boot_id))
+                    code = "boot_selected"
+                    message = "verified boot image selected"
+                else:
+                    selection = service.import_image(
+                        cast(str, path),
+                        partition=cast(str, partition),
+                    )
+                    code = "boot_imported"
+                    message = "boot image imported and selected"
+            except BootInventoryError as error:
+                return OperationResult.failed(
+                    command.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            try:
+                updated = self.store.update(
+                    expected_revision=command.expected_revision,
+                    boot=selection.info,
+                )
+            except StaleRevisionError as error:
+                if selection.imported:
+                    try:
+                        service.rollback_import(selection.info.id)
+                    except BootInventoryError:
+                        pass
+                return self._denied(command, "stale_revision", str(error))
+            except (TypeError, ValueError) as error:
+                if selection.imported:
+                    try:
+                        service.rollback_import(selection.info.id)
+                    except BootInventoryError:
+                        pass
+                return self._invalid(command, str(error))
+        return OperationResult.success(
+            command.operation_id,
+            code=code,
+            message=message,
+            value={
+                "selected": selection.entry.to_public_dict(),
+                "revision": updated.revision,
+            },
         )
 
     def _process_firmware(self, command: AppCommand) -> OperationResult:
@@ -913,12 +1131,10 @@ class PixelFlasherEngine:
                         promoted_firmware = None
                         promoted_boot = None
                     else:
-                        result, promoted_firmware, promoted_boot = (
-                            self._firmware_processing_result(
-                                command,
-                                snapshot,
-                                processing,
-                            )
+                        result, promoted_firmware, promoted_boot = self._firmware_processing_result(
+                            command,
+                            snapshot,
+                            processing,
                         )
                 except Exception as error:
                     processing = None
@@ -1131,9 +1347,7 @@ class PixelFlasherEngine:
             # their payload is not partially unpacked by this service.
             if processing.inspection.kind.value == "ota":
                 return None
-            raise ValueError(
-                "processed factory/custom firmware has no verified init_boot or boot image"
-            )
+            raise ValueError("processed factory/custom firmware has no verified init_boot or boot image")
         partition = artifact.role.partition(":")[2]
         return BootInfo(
             id=f"stock:{partition}:{artifact.sha256}",
@@ -1144,29 +1358,31 @@ class PixelFlasherEngine:
         )
 
     def _setup_platform_tools(self, command: AppCommand) -> OperationResult:
-        if command.payload.get("download"):
-            return OperationResult.failed(
-                command.operation_id,
-                code="network_setup_not_supported",
-                message="automatic downloads are not available in this milestone",
+        unknown = set(command.payload) - {"source", "path"}
+        if unknown:
+            return self._invalid(
+                command,
+                f"unsupported platformTools.setup field: {sorted(unknown)[0]}",
             )
-        path = command.payload.get("path", command.payload.get("platformToolsPath"))
-        if path is not None and (not isinstance(path, str) or not path.strip()):
-            return self._invalid(command, "payload.path must be a non-empty string")
-        if isinstance(path, str):
-            try:
-                if not Path(path).expanduser().resolve().is_dir():
-                    return OperationResult.failed(
-                        command.operation_id,
-                        code="toolchain_path_invalid",
-                        message="platform-tools path must be an existing directory",
-                    )
-            except (OSError, ValueError) as error:
-                return OperationResult.failed(
-                    command.operation_id,
-                    code="toolchain_path_invalid",
-                    message=str(error),
-                )
+        source = command.payload.get("source")
+        path = command.payload.get("path")
+        if not isinstance(source, str) or source not in {"official", "directory"}:
+            return self._invalid(
+                command,
+                "payload.source must be exactly official or directory",
+            )
+        if source == "directory" and (
+            not isinstance(path, str) or not path.strip()
+        ):
+            return self._invalid(
+                command,
+                "payload.path must contain the resolved native directory grant",
+            )
+        if source == "official" and path is not None:
+            return self._invalid(
+                command,
+                "official Platform Tools setup does not accept a local path",
+            )
         decision = self.safety_policy.evaluate(command, self.store.snapshot())
         if not decision.allowed:
             return self._denied(command, decision.code, decision.message)
@@ -1174,37 +1390,82 @@ class PixelFlasherEngine:
         if token is None:
             return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            try:
-                check = self.toolchain_service.discover(
-                    path.strip() if isinstance(path, str) else None,
+            with self._operation_lock:
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                setup = self.platform_tools_setup_service.setup(
+                    source=source,
+                    directory=path.strip() if isinstance(path, str) else None,
                     cancellation=token,
+                    progress=lambda phase, message, percent: self._publish_progress(
+                        command,
+                        phase,
+                        message,
+                        percent,
+                    ),
                 )
-            except Exception as error:
-                return OperationResult.failed(
-                    command.operation_id,
-                    code="toolchain_setup_failed",
-                    message=str(error),
+                if setup.status is PlatformToolsStatus.CANCELLED:
+                    return OperationResult.cancelled(
+                        command.operation_id,
+                        code=setup.code,
+                        message=setup.message,
+                    )
+                if not setup.ok or setup.toolchain is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=setup.code,
+                        message=setup.message,
+                    )
+                if self.toolchain_state_updater is None:
+                    result = self._update_state(command, toolchain=setup.toolchain)
+                else:
+                    result = self.toolchain_state_updater(command, setup.toolchain)
+                if not result.ok:
+                    return result
+                self.toolchain_service.configured_path = Path(
+                    setup.toolchain.adb
+                ).parent
+                return replace(
+                    result,
+                    code=setup.code,
+                    message=setup.message,
+                    value={
+                        **setup.to_public_dict(),
+                        "revision": self.store.snapshot().revision,
+                    },
                 )
-        finally:
-            self._unregister_cancellation(command.operation_id)
-        if check.code == "cancelled":
-            return OperationResult.cancelled(
-                command.operation_id,
-                code="cancelled",
-                message=check.message,
-            )
-        if not check.ok:
+        except Exception:
             return OperationResult.failed(
                 command.operation_id,
-                code=check.code,
-                message=check.message,
+                code="toolchain_setup_failed",
+                message="Platform Tools setup could not be completed.",
             )
-        if isinstance(path, str):
-            self.toolchain_service.configured_path = Path(check.info.adb).parent
-        result = self._update_state(command, toolchain=check.info)
-        if not result.ok:
-            return result
-        return replace(result, code="toolchain_ready", message="platform-tools validated")
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _publish_progress(
+        self,
+        command: AppCommand,
+        phase: ProgressPhase,
+        message: str,
+        percent: int | None,
+    ) -> None:
+        listener = self.executor.progress_listener
+        if listener is None:
+            return
+        try:
+            listener(
+                ProgressEvent(
+                    command.operation_id,
+                    phase,
+                    message,
+                    percent,
+                )
+            )
+        except Exception:
+            pass
 
     def _scan_devices(self, command: AppCommand) -> OperationResult:
         snapshot = self.store.snapshot()
@@ -1287,8 +1548,8 @@ class PixelFlasherEngine:
         devices = tuple(scanned_devices[key] for key in sorted(scanned_devices, key=str.casefold))
         available = {device.serial for device in devices}
         selected = tuple(serial for serial in snapshot.selected_serials if serial in available)
-        primary = snapshot.selected_serial if snapshot.selected_serial in available else (
-            selected[0] if selected else None
+        primary = (
+            snapshot.selected_serial if snapshot.selected_serial in available else (selected[0] if selected else None)
         )
         result = self._update_state(
             command,
@@ -1386,31 +1647,31 @@ class PixelFlasherEngine:
 
     def _update_flash_plan(self, command: AppCommand) -> OperationResult:
         snapshot = self.store.snapshot()
-        mode = command.payload.get("mode", snapshot.plan.mode)
-        raw_options = command.payload.get("options", snapshot.plan.options)
-        dry_run = command.payload.get("dryRun", snapshot.plan.dry_run)
+        mode: object = command.payload.get("mode", snapshot.plan.mode)
+        raw_options: object = command.payload.get("options", snapshot.plan.options)
+        dry_run: object = command.payload.get("dryRun", snapshot.plan.dry_run)
         if not isinstance(mode, str) or not mode:
             return self._invalid(command, "payload.mode must be a non-empty string")
         if not isinstance(raw_options, Mapping):
             return self._invalid(command, "payload.options must be an object")
-        options = dict(raw_options)
+        raw_option_mapping = cast(Mapping[object, object], raw_options)
+        if any(not isinstance(key, str) for key in raw_option_mapping):
+            return self._invalid(command, "payload.options keys must be strings")
+        options: dict[str, object] = {key: value for key, value in raw_option_mapping.items() if isinstance(key, str)}
         if "images" in options:
             return OperationResult.failed(
                 command.operation_id,
                 code="untrusted_artifact_metadata",
                 message="image paths and hashes are accepted only from the backend artifact repository",
             )
-        option_dry_values = [
-            options.pop(key)
-            for key in ("dryRun", "dry_run")
-            if key in options
-        ]
+        option_dry_values = [options.pop(key) for key in ("dryRun", "dry_run") if key in options]
         if option_dry_values:
             if any(not isinstance(value, bool) for value in option_dry_values):
                 return self._invalid(command, "payload.options.dryRun must be a boolean")
-            if len(set(option_dry_values)) > 1:
+            boolean_dry_values = [value for value in option_dry_values if isinstance(value, bool)]
+            if len(set(boolean_dry_values)) > 1:
                 return self._invalid(command, "payload.options dryRun aliases disagree")
-            option_dry_run = option_dry_values[0]
+            option_dry_run = boolean_dry_values[0]
             if "dryRun" in command.payload and dry_run != option_dry_run:
                 return self._invalid(command, "payload dryRun fields disagree")
             dry_run = option_dry_run
@@ -1496,19 +1757,37 @@ class PixelFlasherEngine:
                     )
 
         def finalize(result: OperationResult) -> OperationResult:
-            if result_finalizer is None:
-                return result
+            # Domain finalization is executed inside OperationRunner after the
+            # typed process result and before postcondition verification. This
+            # local identity keeps early lifecycle exits free of domain side effects.
+            return result
+
+        operation_started = False
+
+        def begin_at_validated_boundary(
+            boundary_command: AppCommand,
+            boundary_plan: OperationPlan,
+            snapshot: AppSnapshot,
+        ) -> ExecutionBoundaryAck:
+            """Open lifecycle state only after the runner's final revalidation."""
+
+            nonlocal operation_started
+            issue = self.operation_planner.revalidate(boundary_plan, snapshot)
+            if issue is not None:
+                return ExecutionBoundaryAck.rejected(issue[0], issue[1])
             try:
-                return result_finalizer(result, token)
-            except Exception as error:
-                return OperationResult.failed(
-                    command.operation_id,
-                    code="result_finalize_failed",
-                    message=str(error),
-                    exit_code=result.exit_code,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
+                self.store.begin_operation(
+                    boundary_command.operation_id,
+                    expected_revision=snapshot.revision,
+                    kind=str(boundary_command.kind),
+                    label=boundary_plan.label,
                 )
+            except StaleRevisionError as error:
+                return ExecutionBoundaryAck.rejected("stale_revision", str(error))
+            except ValueError as error:
+                return ExecutionBoundaryAck.rejected("operation_busy", str(error))
+            operation_started = True
+            return ExecutionBoundaryAck.accepted()
 
         try:
             with self._operation_lock:
@@ -1523,9 +1802,7 @@ class PixelFlasherEngine:
                 snapshot = self.store.snapshot()
                 decision = self.safety_policy.evaluate(command, snapshot)
                 if not decision.allowed:
-                    return finalize(
-                        self._denied(command, decision.code, decision.message)
-                    )
+                    return finalize(self._denied(command, decision.code, decision.message))
 
                 if decision.interaction is not None:
                     try:
@@ -1560,9 +1837,7 @@ class PixelFlasherEngine:
                     snapshot = self.store.snapshot()
                     decision = self.safety_policy.evaluate(command, snapshot)
                     if not decision.allowed:
-                        return finalize(
-                            self._denied(command, decision.code, decision.message)
-                        )
+                        return finalize(self._denied(command, decision.code, decision.message))
 
                 issue = self.operation_planner.revalidate(command.operation_plan, snapshot)
                 if issue is not None:
@@ -1576,32 +1851,17 @@ class PixelFlasherEngine:
                         )
                     )
 
-                try:
-                    self.store.begin_operation(
-                        command.operation_id,
-                        expected_revision=snapshot.revision,
-                        kind=str(command.kind),
-                        label=command.operation_plan.label,
-                    )
-                except StaleRevisionError as error:
-                    return finalize(self._denied(command, "stale_revision", str(error)))
-                except ValueError as error:
-                    return finalize(self._denied(command, "operation_busy", str(error)))
-
-                try:
-                    result = (
-                        operation_executor(command, command.operation_plan, token)
-                        if operation_executor is not None
-                        else self.executor.execute(command, command.operation_plan, token)
-                    )
-                    if not isinstance(result, OperationResult):
-                        raise TypeError("operation executor returned an invalid result")
-                except Exception as error:
-                    result = OperationResult.failed(
-                        command.operation_id,
-                        code="executor_error",
-                        message=str(error),
-                    )
+                result = self.operation_runner.execute(
+                    command,
+                    command.operation_plan,
+                    snapshot,
+                    cancellation=token,
+                    snapshot_provider=self.snapshot_provider,
+                    postcondition_observer=self.postcondition_observer,
+                    operation_executor=operation_executor,
+                    result_transformer=result_finalizer,
+                    before_execution=begin_at_validated_boundary,
+                )
                 if result.ok and result_parser is not None:
                     try:
                         result = result_parser(result)
@@ -1628,7 +1888,20 @@ class PixelFlasherEngine:
                             stdout=result.stdout,
                             stderr=result.stderr,
                         )
-                self.store.complete_operation(result, boot=promoted_boot)
+                if operation_started:
+                    try:
+                        self.store.complete_operation(result, boot=promoted_boot)
+                    except (StaleRevisionError, TypeError, ValueError) as error:
+                        fallback = OperationResult.failed(
+                            command.operation_id,
+                            code="operation_state_completion_failed",
+                            message=str(error),
+                        )
+                        try:
+                            self.store.complete_operation(fallback)
+                        except (TypeError, ValueError):
+                            pass
+                        return fallback
                 return result
         finally:
             self._unregister_cancellation(command.operation_id)
@@ -1649,24 +1922,35 @@ class PixelFlasherEngine:
     def _boot_info_from_patch_result(result: OperationResult) -> BootInfo:
         """Recover the typed canonical boot state from a verified patch result."""
 
-        if not result.ok or not isinstance(result.value, Mapping):
+        raw_result_value: object = result.value
+        if not result.ok or not isinstance(raw_result_value, Mapping):
             raise ValueError("successful boot patch result is missing state")
-        raw_boot = result.value.get("boot")
-        raw_patched = result.value.get("patchedBoot")
+        result_value = cast(Mapping[object, object], raw_result_value)
+        raw_boot: object = result_value.get("boot")
+        raw_patched: object = result_value.get("patchedBoot")
         if not isinstance(raw_boot, Mapping) or not isinstance(raw_patched, Mapping):
             raise ValueError("successful boot patch result is missing boot metadata")
-        raw_artifact = raw_patched.get("artifact")
+        boot_mapping = cast(Mapping[object, object], raw_boot)
+        patched_mapping = cast(Mapping[object, object], raw_patched)
+        raw_artifact: object = patched_mapping.get("artifact")
         if not isinstance(raw_artifact, Mapping):
             raise ValueError("successful boot patch result is missing its artifact")
+        artifact_mapping = cast(Mapping[object, object], raw_artifact)
 
-        boot_id = raw_boot.get("id")
-        path = raw_boot.get("path")
-        digest = raw_boot.get("hash")
-        partition = raw_boot.get("flavor")
-        patched = raw_boot.get("patched")
-        if any(
-            not isinstance(value, str) or not value
-            for value in (boot_id, path, digest, partition)
+        boot_id: object = boot_mapping.get("id")
+        path: object = boot_mapping.get("path")
+        digest: object = boot_mapping.get("hash")
+        partition: object = boot_mapping.get("flavor")
+        patched: object = boot_mapping.get("patched")
+        if (
+            not isinstance(boot_id, str)
+            or not boot_id
+            or not isinstance(path, str)
+            or not path
+            or not isinstance(digest, str)
+            or not digest
+            or not isinstance(partition, str)
+            or not partition
         ):
             raise ValueError("successful boot patch result contains invalid boot fields")
         if (
@@ -1677,7 +1961,7 @@ class PixelFlasherEngine:
             raise ValueError("successful boot patch result contains invalid boot identity")
         if partition not in {"boot", "init_boot"}:
             raise ValueError("successful boot patch result contains an invalid partition")
-        if raw_artifact.get("path") != path or raw_artifact.get("sha256") != digest:
+        if artifact_mapping.get("path") != path or artifact_mapping.get("sha256") != digest:
             raise ValueError("boot state does not match the verified patch artifact")
         return BootInfo(boot_id, path, digest.casefold(), partition, True)
 
@@ -1692,3 +1976,185 @@ class PixelFlasherEngine:
     @staticmethod
     def _denied(command: AppCommand, code: str, message: str) -> OperationResult:
         return OperationResult.failed(command.operation_id, code=code, message=message)
+
+
+class PixelFlasherEngine:
+    """Public, synchronous application-engine facade.
+
+    ``CommandEngine`` owns command compilation and process execution.  This
+    facade is the only boundary exposed to UI hosts: it adds canonical state,
+    event subscription, cancellation, interaction response, and lifecycle
+    methods while guaranteeing an explicit :class:`OperationResult`.
+    """
+
+    def __init__(
+        self,
+        command_engine: CommandEngine,
+        *,
+        command_handler: CommandHandler | None = None,
+        event_subscriber: EngineSubscriber | None = None,
+        event_publisher: EnginePublisher | None = None,
+        cancellation_handler: CancellationHandler | None = None,
+        interaction_responder: InteractionResponder | None = None,
+        shutdown_handler: ShutdownHandler | None = None,
+    ) -> None:
+        self._listener_lock = threading.RLock()
+        self._lifecycle_lock = threading.RLock()
+        self._listeners: dict[str, EngineListener] = {}
+        self._shutdown = False
+        self._owned_state_subscription: Subscription | None = None
+        self._snapshot_provider = command_engine.store.snapshot
+
+        if (event_subscriber is None) != (event_publisher is None):
+            raise ValueError("event_subscriber and event_publisher must be provided together")
+        if event_subscriber is None or event_publisher is None:
+            event_subscriber = self._subscribe_local
+            event_publisher = self._publish_local
+            self._owned_state_subscription = command_engine.store.subscribe(self._publish_snapshot)
+
+        self._command_handler = command_handler or command_engine.execute
+        self._event_subscriber = event_subscriber
+        self._event_publisher = event_publisher
+        if cancellation_handler is None:
+
+            def cancel_command(operation_id: str) -> CommandAck:
+                return self._cancellation_ack(command_engine.cancel(operation_id))
+
+            self._cancellation_handler = cancel_command
+        else:
+            self._cancellation_handler = cancellation_handler
+        self._interaction_responder = interaction_responder
+        self._shutdown_handler = shutdown_handler or command_engine.shutdown
+
+    def snapshot(self) -> AppSnapshot:
+        return self._snapshot_provider()
+
+    def subscribe(
+        self,
+        listener: EngineListener,
+        *,
+        emit_current: bool = False,
+    ) -> Callable[[], None]:
+        return self._event_subscriber(listener, emit_current)
+
+    def execute(self, command: AppCommand) -> OperationResult:
+        """Execute synchronously and always return a typed terminal result."""
+
+        with self._lifecycle_lock:
+            if self._shutdown:
+                result = OperationResult.failed(
+                    command.operation_id,
+                    code="engine_shutdown",
+                    message="the application engine has shut down",
+                )
+                self._event_publisher(OperationFinished(result))
+                return result
+        try:
+            result = self._command_handler(command)
+        except Exception:
+            result = OperationResult.failed(
+                command.operation_id,
+                code="engine_error",
+                message="The command could not be completed.",
+            )
+        if not isinstance(result, OperationResult):
+            result = OperationResult.failed(
+                command.operation_id,
+                code="invalid_engine_result",
+                message="the command engine returned an invalid result",
+            )
+        self._event_publisher(OperationFinished(result))
+        return result
+
+    def cancel(self, operation_id: str) -> CommandAck:
+        if not isinstance(operation_id, str) or not operation_id:
+            return CommandAck(False, "invalid_operation_id", "Operation ID is required.")
+        with self._lifecycle_lock:
+            if self._shutdown:
+                return CommandAck(False, "engine_shutdown", "The engine has shut down.")
+        acknowledgement = self._cancellation_handler(operation_id)
+        if not isinstance(acknowledgement, CommandAck):
+            return CommandAck(
+                False,
+                "invalid_cancellation_ack",
+                "The cancellation handler returned an invalid acknowledgement.",
+            )
+        return acknowledgement
+
+    def respond_interaction(
+        self,
+        request_id: str,
+        response: InteractionResponse,
+    ) -> CommandAck:
+        if not isinstance(request_id, str) or not request_id:
+            return CommandAck(False, "invalid_request_id", "Request ID is required.")
+        if not isinstance(response, InteractionResponse):
+            return CommandAck(
+                False,
+                "invalid_interaction_response",
+                "A typed interaction response is required.",
+            )
+        if self._interaction_responder is None:
+            return CommandAck(
+                False,
+                "interaction_unsupported",
+                "No interaction responder is available.",
+            )
+        with self._lifecycle_lock:
+            if self._shutdown:
+                return CommandAck(False, "engine_shutdown", "The engine has shut down.")
+        acknowledgement = self._interaction_responder(request_id, response)
+        if not isinstance(acknowledgement, CommandAck):
+            return CommandAck(
+                False,
+                "invalid_interaction_ack",
+                "The interaction responder returned an invalid acknowledgement.",
+            )
+        return acknowledgement
+
+    def shutdown(self) -> None:
+        with self._lifecycle_lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
+        try:
+            self._shutdown_handler()
+        finally:
+            if self._owned_state_subscription is not None:
+                self._owned_state_subscription.cancel()
+
+    def _subscribe_local(
+        self,
+        listener: EngineListener,
+        emit_current: bool = False,
+    ) -> Callable[[], None]:
+        listener_id = uuid4().hex
+        with self._listener_lock:
+            self._listeners[listener_id] = listener
+            current = self._snapshot_provider()
+        if emit_current:
+            listener(SnapshotChanged(current))
+
+        def cancel() -> None:
+            with self._listener_lock:
+                self._listeners.pop(listener_id, None)
+
+        return Subscription(cancel)
+
+    def _publish_snapshot(self, snapshot: AppSnapshot) -> None:
+        self._publish_local(SnapshotChanged(snapshot))
+
+    def _publish_local(self, event: AppEvent) -> None:
+        with self._listener_lock:
+            listeners = tuple(self._listeners.values())
+        for listener in listeners:
+            try:
+                listener(event)
+            except Exception:
+                continue
+
+    @staticmethod
+    def _cancellation_ack(accepted: bool) -> CommandAck:
+        if accepted:
+            return CommandAck(True, "cancellation_requested", "Cancellation requested.")
+        return CommandAck(False, "operation_not_active", "Operation is not active.")

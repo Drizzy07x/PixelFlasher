@@ -18,9 +18,10 @@ import hmac
 import json
 import os
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping, Sequence
+from typing import cast
 
 from .boot_patch import (
     SUPPORTED_BOOT_PATCH_FLAVORS,
@@ -28,12 +29,12 @@ from .boot_patch import (
 )
 from .contracts import FileArtifact
 from .rooting import (
+    RootApkInspector,
     RootAppInfo,
     RootAppSource,
     RootingPlanningError,
     RootingService,
 )
-
 
 PATCH_RESOURCE_SCHEMA_VERSION = 1
 PATCH_RUNNER_PROTOCOL = "pixelflasher.boot-patch.v1"
@@ -101,6 +102,7 @@ def load_patch_resource_registry(
     expected_manifest_sha256: str,
     resource_root: str | Path | None = None,
     hash_chunk_size: int = 1024 * 1024,
+    apk_inspector: RootApkInspector | None = None,
 ) -> PatchResourceRegistry:
     """Load only hash-pinned, relative backend resources.
 
@@ -143,7 +145,7 @@ def load_patch_resource_registry(
     root = _resource_root(resource_root, manifest)
     try:
         raw_manifest = manifest_bytes.decode("utf-8", errors="strict")
-        document = json.loads(
+        document_value: object = json.loads(
             raw_manifest,
             object_pairs_hook=_reject_duplicate_keys,
         )
@@ -151,11 +153,12 @@ def load_patch_resource_registry(
         raise PatchResourceError("manifest_duplicate_key", str(error)) from error
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise PatchResourceError("manifest_json_invalid", str(error)) from error
-    if not isinstance(document, Mapping):
+    if not isinstance(document_value, Mapping):
         raise PatchResourceError(
             "manifest_schema_invalid",
             "patch resource manifest must be a JSON object",
         )
+    document = cast(Mapping[str, object], document_value)
     _exact_fields(
         document,
         {"schemaVersion", "protocol", "apps", "bundles"},
@@ -189,27 +192,37 @@ def load_patch_resource_registry(
                 "manifest_schema_invalid",
                 f"apps[{index}] must be an object",
             )
+        app_values = cast(Mapping[str, object], raw_app)
         _exact_fields(
-            raw_app,
-            {"key", "path", "sha256", "provider", "flavor", "version", "provenance"},
+            app_values,
+            {
+                "key",
+                "path",
+                "sha256",
+                "provider",
+                "flavor",
+                "version",
+                "provenance",
+                "packageName",
+            },
             f"apps[{index}]",
         )
-        key = _key(raw_app["key"], f"apps[{index}].key")
+        key = _key(app_values["key"], f"apps[{index}].key")
         if key in source_by_key:
             raise PatchResourceError(
                 "root_app_key_duplicate",
                 f"duplicate root app key: {key}",
             )
-        provenance = _text(raw_app["provenance"], f"apps[{index}].provenance").casefold()
+        provenance = _text(app_values["provenance"], f"apps[{index}].provenance").casefold()
         if provenance not in _TRUSTED_PROVENANCE:
             raise PatchResourceError(
                 "root_app_provenance_untrusted",
                 f"manifest root app uses unsupported provenance: {provenance}",
             )
-        path = _resource_file(root, raw_app["path"], suffix=".apk")
+        path = _resource_file(root, app_values["path"], suffix=".apk")
         _claim_path(path, app_paths)
         expected_hash = _sha256_value(
-            raw_app["sha256"],
+            app_values["sha256"],
             "resource_hash_invalid",
         )
         digest = _sha256_stable(path, hash_chunk_size, "resource_read_failed")
@@ -219,25 +232,30 @@ def load_patch_resource_registry(
                 f"root app does not match pinned SHA-256: {path}",
             )
         source = RootAppSource(
-            str(path),
-            _text(raw_app["provider"], f"apps[{index}].provider"),
-            _text(raw_app["flavor"], f"apps[{index}].flavor"),
-            _text(raw_app["version"], f"apps[{index}].version"),
-            provenance,
-            digest,
+            path=str(path),
+            provider=_text(app_values["provider"], f"apps[{index}].provider"),
+            flavor=_text(app_values["flavor"], f"apps[{index}].flavor"),
+            version=_text(app_values["version"], f"apps[{index}].version"),
+            provenance=provenance,
+            expected_sha256=digest,
+            package_name=_text(
+                app_values["packageName"],
+                f"apps[{index}].packageName",
+            ),
         )
         sources.append(source)
         source_by_key[key] = source
 
-    rooting_service = RootingService(tuple(sources), hash_chunk_size=hash_chunk_size)
+    rooting_service = RootingService(
+        tuple(sources),
+        hash_chunk_size=hash_chunk_size,
+        apk_inspector=apk_inspector,
+    )
     try:
         inventory = rooting_service.root_app_inventory()
     except RootingPlanningError as error:
         raise PatchResourceError(error.code, str(error)) from error
-    app_by_path = {
-        os.path.normcase(item.path): item
-        for item in inventory
-    }
+    app_by_path = {os.path.normcase(item.path): item for item in inventory}
     app_by_key: dict[str, RootAppInfo] = {}
     for key, source in source_by_key.items():
         app = app_by_path.get(os.path.normcase(source.path))
@@ -256,12 +274,13 @@ def load_patch_resource_registry(
                 "manifest_schema_invalid",
                 f"bundles[{index}] must be an object",
             )
+        bundle_values = cast(Mapping[str, object], raw_bundle)
         _exact_fields(
-            raw_bundle,
+            bundle_values,
             {"flavor", "app", "runner", "support"},
             f"bundles[{index}]",
         )
-        flavor = _text(raw_bundle["flavor"], f"bundles[{index}].flavor").casefold()
+        flavor = _text(bundle_values["flavor"], f"bundles[{index}].flavor").casefold()
         if flavor not in SUPPORTED_BOOT_PATCH_FLAVORS:
             raise PatchResourceError(
                 "patch_flavor_unsupported",
@@ -272,7 +291,7 @@ def load_patch_resource_registry(
                 "patch_flavor_duplicate",
                 f"manifest defines multiple runners for {flavor}",
             )
-        app_key = _key(raw_bundle["app"], f"bundles[{index}].app")
+        app_key = _key(bundle_values["app"], f"bundles[{index}].app")
         app = app_by_key.get(app_key)
         if app is None:
             raise PatchResourceError(
@@ -290,7 +309,7 @@ def load_patch_resource_registry(
         bundle_paths = set(app_paths)
         runner = _manifest_artifact(
             root,
-            raw_bundle["runner"],
+            bundle_values["runner"],
             role=f"patch-runner:{flavor}",
             seen_paths=bundle_paths,
             hash_chunk_size=hash_chunk_size,
@@ -298,7 +317,7 @@ def load_patch_resource_registry(
         )
         _require_runner_marker(Path(runner.path), hash_chunk_size)
         raw_support = _bounded_list(
-            raw_bundle["support"],
+            bundle_values["support"],
             f"bundles[{index}].support",
             _MAX_SUPPORT_ARTIFACTS,
         )
@@ -340,10 +359,11 @@ def _manifest_artifact(
             "manifest_schema_invalid",
             f"{field} must be an object",
         )
-    _exact_fields(value, {"path", "sha256"}, field)
-    path = _resource_file(root, value["path"], suffix=None)
+    values = cast(Mapping[str, object], value)
+    _exact_fields(values, {"path", "sha256"}, field)
+    path = _resource_file(root, values["path"], suffix=None)
     _claim_path(path, seen_paths)
-    expected = _sha256_value(value["sha256"], "resource_hash_invalid")
+    expected = _sha256_value(values["sha256"], "resource_hash_invalid")
     digest = _sha256_stable(path, hash_chunk_size, "resource_read_failed")
     if not hmac.compare_digest(digest, expected):
         raise PatchResourceError(
@@ -399,11 +419,7 @@ def _resource_file(root: Path, raw_path: object, *, suffix: str | None) -> Path:
             "resource path contains unsupported characters",
         )
     relative = PurePosixPath(raw_path)
-    if (
-        relative.is_absolute()
-        or not relative.parts
-        or any(part in {"", ".", ".."} for part in relative.parts)
-    ):
+    if relative.is_absolute() or not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
         raise PatchResourceError(
             "resource_path_invalid",
             "resource paths must stay below the configured resource root",
@@ -508,8 +524,8 @@ def _require_runner_marker(path: Path, chunk_size: int) -> None:
     )
 
 
-def _reject_duplicate_keys(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
+def _reject_duplicate_keys(pairs: Sequence[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
             raise _DuplicateManifestKey(f"duplicate JSON key: {key}")
@@ -517,12 +533,12 @@ def _reject_duplicate_keys(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _exact_fields(value: Mapping[str, Any], expected: set[str], field: str) -> None:
+def _exact_fields(value: Mapping[str, object], expected: set[str], field: str) -> None:
     actual = set(value)
     if actual != expected:
         missing = sorted(expected - actual)
         unknown = sorted(actual - expected)
-        details = []
+        details: list[str] = []
         if missing:
             details.append(f"missing {missing[0]}")
         if unknown:
@@ -533,18 +549,19 @@ def _exact_fields(value: Mapping[str, Any], expected: set[str], field: str) -> N
         )
 
 
-def _bounded_list(value: object, field: str, limit: int) -> list[Any]:
+def _bounded_list(value: object, field: str, limit: int) -> list[object]:
     if not isinstance(value, list):
         raise PatchResourceError(
             "manifest_schema_invalid",
             f"{field} must be an array",
         )
-    if len(value) > limit:
+    values = cast(list[object], value)
+    if len(values) > limit:
         raise PatchResourceError(
             "manifest_limit_exceeded",
             f"{field} exceeds its limit of {limit}",
         )
-    return value
+    return values
 
 
 def _text(value: object, field: str) -> str:

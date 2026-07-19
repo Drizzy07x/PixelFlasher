@@ -4055,6 +4055,14 @@ msgctxt "web.dashboard.toolsSetup"
 msgid "Set up Platform Tools"
 msgstr "設定 Platform Tools"
 
+msgctxt "web.dashboard.toolsInstallOfficial"
+msgid "Install official tools"
+msgstr "安裝官方工具"
+
+msgctxt "web.dashboard.toolsChooseDirectory"
+msgid "Use existing folder"
+msgstr "使用現有資料夾"
+
 msgctxt "web.flash.prepare"
 msgid "Prepare review"
 msgstr "準備檢閱"
@@ -4392,3 +4400,277 @@ msgstr "選擇檔案"
 msgctxt "web.tools.results"
 msgid "Result"
 msgstr "結果"
+
+##############################################################################
+# React Web UI source fallbacks 2026-07-18
+##############################################################################
+
+msgctxt "web.apps.apkFiles"
+msgid "Android application packages"
+msgstr ""
+
+msgctxt "web.apps.chooseApk"
+msgid "Choose APK and install"
+msgstr ""
+
+msgctxt "web.apps.replace"
+msgid "Replace an installed application"
+msgstr ""
+
+msgctxt "web.apps.replaceDetail"
+msgid "Preserve app data while replacing an existing package with the selected APK."
+msgstr ""
+
+msgctxt "web.apps.grantPermissions"
+msgid "Grant runtime permissions"
+msgstr ""
+
+msgctxt "web.apps.grantPermissionsDetail"
+msgid "Grant every runtime permission requested by the package after installation."
+msgstr ""
+
+msgctxt "web.apps.allowDowngrade"
+msgid "Allow version downgrade"
+msgstr ""
+
+msgctxt "web.apps.allowDowngradeDetail"
+msgid "Permit an older version code when Android accepts the package signature."
+msgstr ""
+
+msgctxt "web.apps.allowTest"
+msgid "Allow test-only packages"
+msgstr ""
+
+msgctxt "web.apps.allowTestDetail"
+msgid "Permit APKs whose manifest marks them as test-only."
+msgstr ""
+
+msgctxt "web.apps.forceQueryable"
+msgid "Make package queryable"
+msgstr ""
+
+msgctxt "web.apps.forceQueryableDetail"
+msgid "Ask Android to make the installed package visible to package queries."
+msgstr ""
+
+msgctxt "web.apps.bypassLowTargetSdk"
+msgid "Bypass low target SDK block"
+msgstr ""
+
+msgctxt "web.apps.bypassLowTargetSdkDetail"
+msgid "Allow installation when Android blocks the APK because its target SDK is too old."
+msgstr ""
+
+msgctxt "web.apps.installOptions"
+msgid "APK install options"
+msgstr ""
+
+msgctxt "web.apps.installGuard"
+msgid "Select exactly one device in ADB mode and set up Platform Tools to install an APK."
+msgstr ""
+
+msgctxt "web.apps.picking"
+msgid "Choosing APK..."
+msgstr ""
+
+msgctxt "web.apps.installing"
+msgid "Installing APK..."
+msgstr ""
+
+msgctxt "web.apps.cancelling"
+msgid "Cancelling installation..."
+msgstr ""
+
+msgctxt "web.apps.cancelInstall"
+msgid "Cancel installation"
+msgstr ""
+
+msgctxt "web.apps.installCancelled"
+msgid "APK installation cancelled"
+msgstr ""
+
+msgctxt "web.apps.installFailed"
+msgid "The APK was not installed."
+msgstr ""
+
+msgctxt "web.apps.installSucceeded"
+msgid "Installed {package}"
+msgstr ""
+
+msgctxt "web.apps.inventoryRefreshFailed"
+msgid "The install was verified, but the package inventory could not be refreshed."
+msgstr ""
+
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.inspectTitle"
+msgid "Device inspection"
+msgstr ""
+
+msgctxt "web.device.inspectDetail"
+msgid "Run bounded read-only reports from the selected ADB device."
+msgstr ""
+
+msgctxt "web.device.inspectGuard"
+msgid "Select exactly one device in ADB mode to inspect it."
+msgstr ""
+
+msgctxt "web.device.inspectProperties"
+msgid "Properties"
+msgstr ""
+
+msgctxt "web.device.inspectPropertiesDetail"
+msgid "Review redacted Android properties and a typed device summary."
+msgstr ""
+
+msgctxt "web.device.inspectScreenXml"
+msgid "Screen XML"
+msgstr ""
+
+msgctxt "web.device.inspectScreenXmlDetail"
+msgid ""
+"Capture a bounded accessibility hierarchy with password fields redacted."
+msgstr ""
+
+msgctxt "web.device.inspectBootloaderVersions"
+msgid "Bootloader versions"
+msgstr ""
+
+msgctxt "web.device.inspectBootloaderVersionsDetail"
+msgid ""
+"Read the current bootloader version reported through Android properties."
+msgstr ""
+
+msgctxt "web.device.inspectPifProfile"
+msgid "PIF profile"
+msgstr ""
+
+msgctxt "web.device.inspectPifProfileDetail"
+msgid "Build a sanitized Play Integrity Fork compatible profile."
+msgstr ""
+
+msgctxt "web.device.inspectRunning"
+msgid "Inspecting device..."
+msgstr ""
+
+msgctxt "web.device.inspectCancelling"
+msgid "Cancelling inspection..."
+msgstr ""
+
+msgctxt "web.device.inspectCancel"
+msgid "Cancel inspection"
+msgstr ""
+
+msgctxt "web.device.inspectCancelled"
+msgid "Inspection cancelled"
+msgstr ""
+
+msgctxt "web.device.inspectFailed"
+msgid "The inspection did not return a valid typed report."
+msgstr ""
+
+msgctxt "web.device.inspectCopy"
+msgid "Copy report"
+msgstr ""
+
+msgctxt "web.device.inspectCopied"
+msgid "Copied"
+msgstr ""
+
+msgctxt "web.device.inspectCopyFailed"
+msgid "The report could not be copied."
+msgstr ""
+
+msgctxt "web.device.inspectManufacturer"
+msgid "Manufacturer"
+msgstr ""
+
+msgctxt "web.device.inspectSecurityPatch"
+msgid "Security patch"
+msgstr ""
+
+msgctxt "web.device.inspectEntries"
+msgid "{count} properties"
+msgstr ""
+
+msgctxt "web.device.inspectRedacted"
+msgid "{count} redacted"
+msgstr ""
+
+msgctxt "web.device.inspectNodes"
+msgid "Nodes"
+msgstr ""
+
+msgctxt "web.device.inspectRedactedFields"
+msgid "Redacted fields"
+msgstr ""
+
+msgctxt "web.device.inspectDigest"
+msgid "Report digest"
+msgstr ""
+
+msgctxt "web.device.inspectCurrentVersion"
+msgid "Current version"
+msgstr ""
+
+msgctxt "web.device.inspectSource"
+msgid "Source"
+msgstr ""
+
+msgctxt "web.device.inspectActiveSlot"
+msgid "Active slot"
+msgstr ""
+
+
+msgctxt "web.boot.inventoryTitle"
+msgid "Boot image inventory"
+msgstr ""
+
+msgctxt "web.boot.inventoryDetail"
+msgid ""
+"Import and select SHA-256 verified boot-chain images without exposing host "
+"paths."
+msgstr ""
+
+msgctxt "web.boot.inventoryEmpty"
+msgid "No boot images are stored in the local repository."
+msgstr ""
+
+msgctxt "web.boot.inventoryLoad"
+msgid "Refresh to load boot images from the local repository."
+msgstr ""
+
+msgctxt "web.boot.import"
+msgid "Import boot image"
+msgstr ""
+
+msgctxt "web.boot.imageFiles"
+msgid "Android boot images"
+msgstr ""
+
+msgctxt "web.boot.partition"
+msgid "Image partition"
+msgstr ""
+
+msgctxt "web.boot.use"
+msgid "Use image"
+msgstr ""
+
+msgctxt "web.boot.patched"
+msgid "Patched"
+msgstr ""
+
+msgctxt "web.boot.stock"
+msgid "Stock"
+msgstr ""
+
+msgctxt "web.boot.integrityFailed"
+msgid "Integrity failed"
+msgstr ""
+
+msgctxt "web.boot.provenance"
+msgid "Provenance: {value}"
+msgstr ""

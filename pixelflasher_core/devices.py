@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 import threading
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Callable
+from math import isfinite
 
 from .contracts import DeviceInfo, ProcessRequest, ToolchainInfo
 from .executor import CancellationToken, ProcessTransport, SubprocessTransport, TransportOutcome
-
 
 _GETPROP_PATTERN = re.compile(r"^\[([^]]+)]\s*:\s*\[(.*)]$")
 _BATTERY_LEVEL_PATTERN = re.compile(r"^\s*level\s*:\s*(\d+)\s*$", re.IGNORECASE)
@@ -19,6 +19,7 @@ _FASTBOOT_GETVAR_PATTERN = re.compile(
 )
 _ADB_ONLINE_MODES = frozenset({"adb", "recovery", "sideload"})
 _PROPERTY_SAFE_MODES = frozenset({"adb", "recovery"})
+_FASTBOOT_MODES = frozenset({"fastboot", "fastbootd"})
 _FASTBOOT_GETVARS = ("current-slot", "unlocked", "is-userspace")
 
 
@@ -68,7 +69,7 @@ def parse_fastboot_devices(output: str) -> tuple[DeviceInfo, ...]:
         if len(fields) < 2:
             continue
         serial, state = fields[0], fields[1].lower()
-        if state not in {"fastboot", "offline"}:
+        if state not in {"fastboot", "fastbootd", "offline"}:
             continue
         attributes = _parse_attributes(fields[2:])
         devices[serial] = DeviceInfo(
@@ -76,7 +77,7 @@ def parse_fastboot_devices(output: str) -> tuple[DeviceInfo, ...]:
             model=attributes.get("product", "").replace("_", " "),
             codename=attributes.get("product", ""),
             mode=state,
-            online=state == "fastboot",
+            online=state in _FASTBOOT_MODES,
             name=(attributes.get("product", "").replace("_", " ") or serial),
             connection="USB",
         )
@@ -162,7 +163,7 @@ def merge_device_history(
         if previous is None:
             merged.append(device)
             continue
-        is_fastboot = device.mode in {"fastboot", "fastbootd"}
+        is_fastboot = device.mode in _FASTBOOT_MODES
         name = device.name
         if not name or name == device.serial or (is_fastboot and previous.name):
             name = previous.name or previous.model or previous.codename or name
@@ -181,6 +182,59 @@ def merge_device_history(
             )
         )
     return tuple(merged)
+
+
+def canonicalize_device_inventory(
+    devices: Sequence[DeviceInfo],
+) -> tuple[DeviceInfo, ...]:
+    """Validate and deterministically order one record per exact serial."""
+
+    if isinstance(devices, (str, bytes)):
+        raise TypeError("devices must be a sequence of DeviceInfo values")
+    by_serial: dict[str, DeviceInfo] = {}
+    for device in devices:
+        if not isinstance(device, DeviceInfo):
+            raise TypeError("devices must contain only DeviceInfo values")
+        if not device.serial or device.serial != device.serial.strip():
+            raise ValueError("device serials must be non-empty and trimmed")
+        if device.serial in by_serial:
+            raise ValueError(f"duplicate device serial: {device.serial}")
+        by_serial[device.serial] = device
+    return tuple(
+        by_serial[serial]
+        for serial in sorted(by_serial, key=lambda value: (value.casefold(), value))
+    )
+
+
+def reconcile_device_selection(
+    devices: Sequence[DeviceInfo],
+    selected_serials: Sequence[str],
+    primary_serial: str | None,
+) -> tuple[tuple[str, ...], str | None]:
+    """Drop vanished selections while retaining deterministic user order.
+
+    Newly discovered devices are never selected implicitly. If the previous
+    primary vanished, the first still-present serial in the user's prior
+    selection order becomes primary.
+    """
+
+    if isinstance(selected_serials, (str, bytes)):
+        raise TypeError("selected_serials must be a sequence of strings")
+    inventory = canonicalize_device_inventory(devices)
+    available = frozenset(device.serial for device in inventory)
+    retained: list[str] = []
+    for serial in selected_serials:
+        if not isinstance(serial, str):
+            raise TypeError("selected_serials must contain only strings")
+        if serial and serial in available and serial not in retained:
+            retained.append(serial)
+
+    primary = primary_serial if primary_serial in available else None
+    if primary is not None and primary not in retained:
+        retained.insert(0, primary)
+    if primary is None and retained:
+        primary = retained[0]
+    return tuple(retained), primary
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,7 +348,7 @@ class DeviceService:
     ) -> tuple[DeviceInfo, ...]:
         enriched: list[DeviceInfo] = []
         for device in devices:
-            if token.cancelled or not device.online or device.mode != "fastboot":
+            if token.cancelled or not device.online or device.mode not in _FASTBOOT_MODES:
                 enriched.append(device)
                 continue
             values: dict[str, str] = {}
@@ -333,7 +387,12 @@ class DeviceService:
             enriched.append(
                 replace(
                     device,
-                    mode="fastbootd" if userspace is True else "fastboot",
+                    mode=(
+                        "fastbootd"
+                        if userspace is True
+                        or (userspace is None and device.mode == "fastbootd")
+                        else "fastboot"
+                    ),
                     slot=slot,
                     bootloader=bootloader,
                 )
@@ -367,6 +426,8 @@ class DeviceService:
                 enriched.append(device)
                 continue
             properties = parse_getprop(outcome.stdout)
+            boot_mode = properties.get("ro.bootmode", "").strip().casefold()
+            mode = "recovery" if boot_mode == "recovery" else device.mode
             model = properties.get("ro.product.model", "").strip() or device.model
             codename = (
                 properties.get("ro.product.device", "").strip()
@@ -412,6 +473,7 @@ class DeviceService:
             enriched.append(
                 replace(
                     device,
+                    mode=mode,
                     model=model,
                     codename=codename,
                     slot=slot,
@@ -447,7 +509,12 @@ class DeviceService:
 
 
 class DevicePoller:
-    """Poll device state on a worker thread until stopped; never imports wx."""
+    """Poll device state on a worker thread until stopped; never imports wx.
+
+    The poller retains identity-only history across disconnects, suppresses
+    duplicate observations, and does not turn a failed scanner into a false
+    hot-unplug event.
+    """
 
     def __init__(
         self,
@@ -457,17 +524,27 @@ class DevicePoller:
         *,
         interval_seconds: float = 2.0,
         include_properties: bool = False,
+        history_limit: int = 256,
     ) -> None:
-        if interval_seconds <= 0:
+        if not isfinite(interval_seconds) or interval_seconds <= 0:
             raise ValueError("interval_seconds must be positive")
+        if (
+            not isinstance(history_limit, int)
+            or isinstance(history_limit, bool)
+            or history_limit <= 0
+        ):
+            raise ValueError("history_limit must be a positive integer")
         self.service = service
         self.toolchain_provider = toolchain_provider
         self.listener = listener
         self.interval_seconds = interval_seconds
         self.include_properties = include_properties
+        self.history_limit = history_limit
         self._cancellation = CancellationToken()
         self._thread: threading.Thread | None = None
         self._lock = threading.RLock()
+        self._identity_history: dict[str, DeviceInfo] = {}
+        self._last_devices: tuple[DeviceInfo, ...] | None = None
 
     def start(self) -> bool:
         with self._lock:
@@ -484,34 +561,97 @@ class DevicePoller:
             return True
 
     def stop(self, timeout_seconds: float = 5.0) -> bool:
+        if not isfinite(timeout_seconds) or timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be finite and non-negative")
         self._cancellation.cancel()
         with self._lock:
             thread = self._thread
-        if thread is not None and thread is not threading.current_thread():
+        if thread is threading.current_thread():
+            return True
+        if thread is not None:
             thread.join(timeout_seconds)
         return thread is None or not thread.is_alive()
 
+    def close(self, timeout_seconds: float = 5.0) -> bool:
+        """Bounded lifecycle alias suitable for composition-root shutdown."""
+
+        return self.stop(timeout_seconds)
+
+    @property
+    def running(self) -> bool:
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
+
     def run(self) -> None:
-        history: tuple[DeviceInfo, ...] = ()
-        previous_observation: tuple[DeviceInfo, ...] | None = None
-        while not self._cancellation.cancelled:
-            result = self.service.scan(
-                self.toolchain_provider(),
-                include_properties=self.include_properties,
-                previous_devices=history,
-                cancellation=self._cancellation,
-            )
-            if result.cancelled:
-                break
-            history = result.devices
-            if result.devices != previous_observation:
-                previous_observation = result.devices
+        try:
+            while not self._cancellation.cancelled:
+                with self._lock:
+                    history = tuple(self._identity_history.values())
+                    previous_observation = self._last_devices
                 try:
-                    self.listener(result)
+                    result = self.service.scan(
+                        self.toolchain_provider(),
+                        include_properties=self.include_properties,
+                        previous_devices=history,
+                        cancellation=self._cancellation,
+                    )
                 except Exception:
-                    pass
-            if self._cancellation.wait(self.interval_seconds):
-                break
+                    if self._cancellation.wait(self.interval_seconds):
+                        break
+                    continue
+                if result.cancelled:
+                    break
+                if not result.successful_sources:
+                    if self._cancellation.wait(self.interval_seconds):
+                        break
+                    continue
+
+                devices = _preserve_failed_source_inventory(
+                    result.devices,
+                    previous_observation or (),
+                    result.successful_sources,
+                )
+                result = replace(result, devices=devices)
+                self._remember_identity(devices)
+                if devices != previous_observation:
+                    with self._lock:
+                        self._last_devices = devices
+                    try:
+                        self.listener(result)
+                    except Exception:
+                        pass
+                if self._cancellation.wait(self.interval_seconds):
+                    break
+        finally:
+            with self._lock:
+                if self._thread is threading.current_thread():
+                    self._thread = None
+
+    def _remember_identity(self, devices: tuple[DeviceInfo, ...]) -> None:
+        with self._lock:
+            for device in devices:
+                self._identity_history.pop(device.serial, None)
+                self._identity_history[device.serial] = device
+            while len(self._identity_history) > self.history_limit:
+                oldest = next(iter(self._identity_history))
+                del self._identity_history[oldest]
+
+
+def _preserve_failed_source_inventory(
+    devices: tuple[DeviceInfo, ...],
+    previous_devices: tuple[DeviceInfo, ...],
+    successful_sources: tuple[str, ...],
+) -> tuple[DeviceInfo, ...]:
+    """Retain only the source family that was not observed successfully."""
+
+    by_serial = {device.serial: device for device in devices}
+    successful = frozenset(successful_sources)
+    for previous in previous_devices:
+        is_fastboot = previous.mode in _FASTBOOT_MODES
+        source = "fastboot" if is_fastboot else "adb"
+        if source not in successful:
+            by_serial.setdefault(previous.serial, previous)
+    return canonicalize_device_inventory(tuple(by_serial.values()))
 
 
 def _parse_attributes(fields: list[str]) -> dict[str, str]:

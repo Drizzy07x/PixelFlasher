@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "name": "pixelflasher-builtin-full-payload",
+  "version": "1",
+  "source": "payload_extractor.py",
+  "canonicalSourceSha256": "58ef80a04eaa355b3db36c4d18cef815112dd41aa383a60643c07f56f64fe097"
+}

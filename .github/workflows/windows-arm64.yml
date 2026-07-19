@@ -41,14 +41,18 @@ on:
 
 jobs:
   build_windows_arm64:
-    runs-on: windows-latest
+    runs-on: windows-11-arm
+    env:
+      VENV: myenv
+      PYTHON_EXE: ${{ github.workspace }}\myenv\Scripts\python.exe
+      SIGN_WINDOWS: ${{ github.event_name != 'pull_request' && secrets.CERTIFICATE != '' && secrets.CERT_PASSWORD != '' && secrets.CERTHASH != '' && secrets.CERTNAME != '' }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up the locked React toolchain
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.14.0'
 
@@ -59,47 +63,28 @@ jobs:
           corepack prepare pnpm@11.9.0 --activate
           pnpm --version
 
-      - name: Download ARM64 Python
-        shell: pwsh
-        run: |
-          curl https://www.python.org/ftp/python/3.13.0/python-3.13.0-arm64.exe --output python-arm64.exe
-          ./python-arm64.exe /quiet InstallAllUsers=1 PrependPath=1
+      - name: Set up native ARM64 Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+          architecture: 'arm64'
 
       - name: Install Windows SDK
-        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2.4
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@9979bedbf6ae74f038cc338622ba015942ed2408 # v2.4
         with:
           sdk-version: 26100
 
       - name: Create virtual environment and install wxPython
         shell: pwsh
         run: |
-          python -m venv myenv
+          python -m venv $env:VENV
           $venvPython = ".\myenv\Scripts\python.exe"
           $venvPip = ".\myenv\Scripts\pip.exe"
-
-          # Upgrade pip in venv
           & $venvPython -m pip install --upgrade pip
           & $venvPip install --upgrade setuptools wheel build delvewheel requests
-
-          # Download and manually extract ARM64 wheel to bypass pip platform checks
-          # Use explicit site-packages path in venv
-          $sitePackages = ".\myenv\Lib\site-packages"
-          Write-Host "Site-packages: $sitePackages"
-          curl -L -o wxpython.whl "https://wxpython.org/Phoenix/snapshot-builds/wxpython-4.2.45988+6573a469-cp313-cp313-win_arm64.whl"
-          # Extract wheel directly to site-packages
-          Expand-Archive -Path wxpython.whl -DestinationPath $sitePackages -Force
+          & $venvPip install --only-binary=:all: "https://wxpython.org/Phoenix/snapshot-builds/wxpython-4.2.45988+6573a469-cp313-cp313-win_arm64.whl"
           & $venvPip install pillow numpy six
-
-          # Verify extraction and show wx contents
-          Write-Host "wx contents in site-packages:"
-          Get-ChildItem $sitePackages | Where-Object { $_.Name -like '*wx*' }
-          if (Test-Path "$sitePackages\wx") {
-            Write-Host "SUCCESS: wx directory found at $sitePackages\wx"
-            Get-ChildItem "$sitePackages\wx" | Select-Object -First 10
-          } else {
-            Write-Error "FAIL: wx directory not found in $sitePackages"
-            exit 1
-          }
+          & $venvPython -c "import platform, wx; assert platform.machine().upper() in {'ARM64','AARCH64'}; print(platform.machine(), wx.version())"
 
       - name: Install requirements
         shell: pwsh
@@ -119,6 +104,9 @@ jobs:
         shell: pwsh
         run: |
           $python = ".\myenv\Scripts\python.exe"
+          if ($env:GITHUB_REF -like 'refs/tags/v10.*') {
+            & $python scripts/release_version.py --apply $env:GITHUB_REF_NAME
+          }
           & $python scripts/build_frontend.py
 
       - name: Build ARM64 application
@@ -134,6 +122,11 @@ jobs:
         run: |
           if (!(Test-Path "dist/PixelFlasher-arm64.exe")) {
             Write-Error "ARM64 executable not found"
+            exit 1
+          }
+          $headers = (& dumpbin.exe /headers "dist/PixelFlasher-arm64.exe") -join "`n"
+          if ($headers -notmatch 'AA64|ARM64') {
+            Write-Error "Packaged executable is not a native ARM64 PE image."
             exit 1
           }
 
@@ -160,9 +153,8 @@ jobs:
           }
 
       - name: Sign Windows ARM64 Executable
-        # Skip signing for pull requests as secrets aren't available
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: skymatic/code-sign-action@v3
+        if: ${{ env.SIGN_WINDOWS == 'true' }}
+        uses: skymatic/code-sign-action@6d68ef9679c6778de22bc1cf52e44f454de3604e # v3
         with:
           certificate: '${{ secrets.CERTIFICATE }}'
           password: '${{ secrets.CERT_PASSWORD }}'
@@ -173,6 +165,30 @@ jobs:
           folder: 'dist'
           recursive: false
 
+      - name: Refuse an unsigned v10 ARM64 release artifact
+        if: ${{ startsWith(github.ref, 'refs/tags/v10.') && env.SIGN_WINDOWS != 'true' }}
+        shell: pwsh
+        run: |
+          Write-Error "Windows ARM64 signing secrets are mandatory for v10 release tags."
+          exit 1
+
+      - name: Verify Authenticode and launch on native ARM64
+        shell: pwsh
+        run: |
+          if ($env:SIGN_WINDOWS -eq 'true') {
+            $signature = Get-AuthenticodeSignature -LiteralPath "dist/PixelFlasher-arm64.exe"
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              Write-Error "Authenticode verification failed: $($signature.StatusMessage)"
+              exit 1
+            }
+          }
+          & "dist/PixelFlasher-arm64.exe" --version
+          & "dist/PixelFlasher-arm64.exe" --self-test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Native ARM64 packaged self-test failed."
+            exit $LASTEXITCODE
+          }
+
       - name: Generate SHA256
         shell: pwsh
         run: |
@@ -180,7 +196,7 @@ jobs:
           Get-Content dist/PixelFlasher-arm64.exe.sha256
 
       - name: Upload ARM64 Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: PixelFlasher-ARM64.exe Artifacts
           path: |

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from .contracts import AppSnapshot, DeviceInfo, OperationStatus
 
-
 LOCK_STOCK_EVIDENCE_REQUIRED_MESSAGE = (
     "Bootloader locking is blocked because PixelFlasher has not verified a complete "
     "compatible stock factory flash for this device with no subsequent state changes."

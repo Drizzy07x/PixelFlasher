@@ -17,16 +17,20 @@ from pixelflasher_core import (
     FakeProcessTransport,
     FakeTransportStep,
     FileArtifact,
+    GrantAccess,
     InteractionDecision,
     OperationStatus,
     PatchToolBundle,
-    PixelFlasherEngine,
     RootAppSource,
     RootingService,
     SafetyPolicy,
     ToolchainInfo,
     TransportOutcome,
 )
+from tests.apk_test_helpers import FakeVerifiedApkInspector
+from tests.artifact_stage_assertions import assert_exact_or_staged_argv
+from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
 from ui.core_command_factory import create_command_factory
 
@@ -79,6 +83,7 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
                 ),
             ),
             hash_chunk_size=2,
+            apk_inspector=FakeVerifiedApkInspector("com.topjohnwu.magisk"),
         )
         app = rooting.root_app_inventory()[0]
         runner = root / "magisk-runner"
@@ -122,9 +127,10 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
         )
 
     def engine(self, snapshot, rooting, bundle, transport, interaction_handler=None):
-        return PixelFlasherEngine(
+        return CommandEngine(
             store=AppStateStore(snapshot),
             executor=CommandExecutor(transport),
+            postcondition_observer=StatefulPostconditionObserver(transport),
             interaction_handler=(
                 interaction_handler
                 if interaction_handler is not None
@@ -221,16 +227,17 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
             )
 
             self.assertTrue(flashed.ok)
-            self.assertEqual(
-                (
+            assert_exact_or_staged_argv(
+                self,
+                [(
                     "FASTBOOT",
                     "-s",
                     "SERIAL",
                     "flash",
                     "init_boot",
                     str(destination.resolve()),
-                ),
-                transport.calls[-1].argv,
+                )],
+                [transport.calls[-1]],
             )
 
     def test_missing_backend_bundle_fails_closed_without_processes(self):
@@ -238,7 +245,7 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
             root = Path(directory)
             snapshot, rooting, app, _bundle, _runner = self.backend(root)
             transport = FakeProcessTransport()
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=AppStateStore(snapshot),
                 executor=CommandExecutor(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
@@ -256,9 +263,7 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             snapshot, rooting, app, bundle, _runner = self.backend(root)
-            transport = FakeProcessTransport(
-                [TransportOutcome(0) for _ in range(7)]
-            )
+            transport = FakeProcessTransport([TransportOutcome(0) for _ in range(7)])
             engine = self.engine(snapshot, rooting, bundle, transport)
 
             result = engine.execute(self.command(app.id, root / "missing.img"))
@@ -281,7 +286,7 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
                 store.update(expected_revision=4, firmware=snapshot.firmware)
                 return InteractionDecision.ACCEPTED
 
-            engine = PixelFlasherEngine(
+            engine = CommandEngine(
                 store=store,
                 executor=CommandExecutor(transport),
                 interaction_handler=change_revision,
@@ -289,7 +294,7 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
                 boot_patch_bundles=(bundle,),
             )
             result = engine.execute(self.command(app.id, root / "stale.img"))
-            self.assertEqual("stale_revision", result.code)
+            self.assertEqual("snapshot_revision_changed", result.code)
             self.assertEqual([], transport.calls)
             self.assertEqual(snapshot.boot, engine.store.snapshot().boot)
 
@@ -314,7 +319,7 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
             self.assertEqual([], transport.calls)
             self.assertEqual(snapshot.boot, engine.store.snapshot().boot)
 
-    def test_process_cancellation_is_passed_through_finalize_result(self):
+    def test_process_cancellation_after_boundary_is_an_unknown_outcome(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             snapshot, rooting, app, bundle, _runner = self.backend(root)
@@ -348,7 +353,8 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
                 release.set()
                 result = future.result(timeout=5)
 
-            self.assertEqual(OperationStatus.CANCELLED, result.status)
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("outcome_unknown", result.code)
             self.assertEqual([OperationStatus.CANCELLED], seen)
             self.assertFalse(engine.cancel(intent.operation_id))
             self.assertEqual(snapshot.boot, engine.store.snapshot().boot)
@@ -388,45 +394,53 @@ class BootPatchEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(snapshot.boot, engine.store.snapshot().boot)
 
     def test_bridge_and_factory_allow_only_semantic_patch_fields(self):
-        allowed = BridgeRequest.from_json(
-            json.dumps(
-                {
-                    "version": BRIDGE_VERSION,
-                    "requestId": "boot-patch",
-                    "command": "boot.patch",
-                    "payload": {
-                        "serial": "SERIAL",
-                        "method": "magisk",
-                        "appId": "0" * 64,
-                        "destination": "C:/chosen/patched.img",
-                    },
-                    "expectedRevision": 4,
-                }
+        with tempfile.TemporaryDirectory() as directory:
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL"))
+            grant = factory.path_grants.issue_file(
+                Path(directory) / "patched.img",
+                purpose="boot.patch.destination",
+                access=GrantAccess.WRITE,
             )
-        )
-        factory = create_command_factory(
-            lambda: AppSnapshot(selected_serial="SERIAL")
-        )
-        command = factory(allowed)
-        self.assertEqual("SERIAL", command.target_serial)
-        self.assertFalse(command.destructive)
-        self.assertTrue(command.requires_confirmation)
-        self.assertIn("boot.patch", SafetyPolicy().revisioned_kinds)
+            allowed = BridgeRequest.from_json(
+                json.dumps(
+                    {
+                        "version": BRIDGE_VERSION,
+                        "requestId": "boot-patch",
+                        "command": "boot.patch",
+                        "payload": {
+                            "serial": "SERIAL",
+                            "method": "magisk",
+                            "appId": "0" * 64,
+                            "grant": grant.token,
+                        },
+                        "expectedRevision": 4,
+                    }
+                )
+            )
+            command = factory(allowed)
+            self.assertEqual("SERIAL", command.target_serial)
+            self.assertFalse(command.destructive)
+            self.assertTrue(command.requires_confirmation)
+            self.assertEqual(
+                str((Path(directory) / "patched.img").resolve()),
+                command.payload["destination"],
+            )
+            self.assertIn("boot.patch", SafetyPolicy().revisioned_kinds)
 
-        for field in ("runnerPath", "runnerSha256", "supportArtifacts", "argv"):
-            with self.subTest(field=field):
-                payload = dict(allowed.payload)
-                payload[field] = "browser-controlled"
-                message = {
-                    "version": BRIDGE_VERSION,
-                    "requestId": f"reject-{field}",
-                    "command": "boot.patch",
-                    "payload": payload,
-                    "expectedRevision": 4,
-                }
-                with self.assertRaises(BridgeProtocolError) as raised:
-                    BridgeRequest.from_json(json.dumps(message))
-                self.assertEqual("invalid_payload", raised.exception.code)
+            for field in ("destination", "runnerPath", "runnerSha256", "supportArtifacts", "argv"):
+                with self.subTest(field=field):
+                    payload = dict(allowed.payload)
+                    payload[field] = "browser-controlled"
+                    message = {
+                        "version": BRIDGE_VERSION,
+                        "requestId": f"reject-{field}",
+                        "command": "boot.patch",
+                        "payload": payload,
+                        "expectedRevision": 4,
+                    }
+                    with self.assertRaises(BridgeProtocolError) as raised:
+                        BridgeRequest.from_json(json.dumps(message))
+                    self.assertEqual("invalid_payload", raised.exception.code)
 
 
 if __name__ == "__main__":

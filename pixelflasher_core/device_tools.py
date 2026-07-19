@@ -10,16 +10,18 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import json
 import os
 import re
 import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ElementTree
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from .contracts import (
     AppCommand,
@@ -27,12 +29,14 @@ from .contracts import (
     DeviceInfo,
     FileArtifact,
     OperationPlan,
+    OperationPostcondition,
     OperationResult,
+    OperationRisk,
+    OperationStatus,
     ProcessRequest,
     SensitiveText,
 )
 from .executor import CancellationToken, TransportOutcome
-
 
 DEVICE_TOOL_COMMANDS = frozenset(
     {
@@ -41,6 +45,7 @@ DEVICE_TOOL_COMMANDS = frozenset(
         "tools.adbShell",
         "tools.scrcpy",
         "tools.wifi",
+        "device.inspect",
     }
 )
 
@@ -81,6 +86,64 @@ _LOGCAT_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _PUSH_DESTINATIONS = frozenset({"/data/local/tmp/", "/sdcard/Download/"})
 _REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _PAIRING_CODE_PATTERN = re.compile(r"^[0-9]{6}$")
+_GETPROP_LINE_PATTERN = re.compile(r"^\[([A-Za-z0-9_.-]{1,128})\]: \[(.*)\]$")
+_INSPECTION_ACTIONS = frozenset({"properties", "screenXml", "bootloaderVersions", "pifPrint"})
+_GETPROP_OUTPUT_LIMIT = 1024 * 1024
+_SCREEN_XML_OUTPUT_LIMIT = 2 * 1024 * 1024
+_GETPROP_PROPERTY_LIMIT = 8192
+_GETPROP_VALUE_LIMIT = 16 * 1024
+_SCREEN_XML_NODE_LIMIT = 20_000
+_SCREEN_XML_DEPTH_LIMIT = 128
+_SCREEN_XML_ATTRIBUTE_LIMIT = 64
+_SCREEN_XML_ATTRIBUTE_VALUE_LIMIT = 16 * 1024
+_SCREEN_XML_STATUS_LINES = frozenset(
+    {
+        "UI hierarchy dumped to: /dev/tty",
+        # Android's uiautomator has emitted this typo for years.
+        "UI hierchary dumped to: /dev/tty",
+    }
+)
+_SENSITIVE_PROPERTY_FRAGMENTS = frozenset(
+    {
+        "android_id",
+        "bluetooth.address",
+        "iccid",
+        "imei",
+        "imsi",
+        "mac_address",
+        "macaddr",
+        "meid",
+        "pairing",
+        "password",
+        "serialno",
+        "subscriber",
+        "token",
+        "wifi.mac",
+    }
+)
+_PIF_PROPERTY_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("MANUFACTURER", ("ro.product.manufacturer", "ro.product.system.manufacturer", "ro.product.vendor.manufacturer")),
+    ("MODEL", ("ro.product.model", "ro.product.system.model", "ro.product.vendor.model")),
+    ("FINGERPRINT", ("ro.build.fingerprint", "ro.system.build.fingerprint", "ro.vendor.build.fingerprint")),
+    ("BRAND", ("ro.product.brand", "ro.product.system.brand", "ro.product.vendor.brand")),
+    ("PRODUCT", ("ro.product.name", "ro.product.system.name", "ro.product.vendor.name")),
+    ("DEVICE", ("ro.product.device", "ro.product.system.device", "ro.product.vendor.device", "ro.build.product")),
+    ("RELEASE", ("ro.build.version.release",)),
+    ("ID", ("ro.build.id",)),
+    ("INCREMENTAL", ("ro.build.version.incremental",)),
+    ("TYPE", ("ro.build.type",)),
+    ("TAGS", ("ro.build.tags",)),
+    ("SECURITY_PATCH", ("ro.build.version.security_patch", "ro.vendor.build.security_patch")),
+    (
+        "DEVICE_INITIAL_SDK_INT",
+        (
+            "ro.product.first_api_level",
+            "ro.board.first_api_level",
+            "ro.board.api_level",
+            "ro.build.version.sdk",
+        ),
+    ),
+)
 _SCRCPY_EXECUTABLE_NAMES = frozenset({"scrcpy", "scrcpy.exe"})
 _MACH_EXECUTABLE_MAGICS = frozenset(
     {
@@ -145,11 +208,7 @@ class ManagedProcessLauncher:
         if request.env:
             environment = os.environ.copy()
             environment.update(dict(request.env))
-        creationflags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            if sys.platform.startswith("win")
-            else 0
-        )
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if sys.platform.startswith("win") else 0
         with self._lock:
             if self._closed:
                 raise RuntimeError("process launcher has shut down")
@@ -171,9 +230,7 @@ class ManagedProcessLauncher:
             except subprocess.TimeoutExpired:
                 returncode = None
             if returncode is not None:
-                raise RuntimeError(
-                    f"managed process exited during launch with status {returncode}"
-                )
+                raise RuntimeError(f"managed process exited during launch with status {returncode}")
             self._children[process.pid] = process
         return LaunchOutcome(process.pid)
 
@@ -241,11 +298,7 @@ class SubprocessSecretRunner:
                 pass
             process.stdin = None
 
-        deadline = (
-            time.monotonic() + request.timeout_seconds
-            if request.timeout_seconds is not None
-            else None
-        )
+        deadline = time.monotonic() + request.timeout_seconds if request.timeout_seconds is not None else None
         while True:
             if cancellation.cancelled:
                 stdout, stderr = self._terminate(process)
@@ -275,6 +328,302 @@ class DeviceToolPlanningError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class DeviceInspectionParseError(ValueError):
+    """A bounded inspection response failed its typed parser."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _bounded_output_bytes(value: str, *, maximum: int, kind: str) -> None:
+    if not isinstance(value, str):
+        raise DeviceInspectionParseError(
+            f"{kind}_output_invalid",
+            f"{kind} output must be decoded text",
+        )
+    if "\x00" in value:
+        raise DeviceInspectionParseError(
+            f"{kind}_output_invalid",
+            f"{kind} output contains a NUL byte",
+        )
+    if len(value.encode("utf-8")) > maximum:
+        raise DeviceInspectionParseError(
+            f"{kind}_output_too_large",
+            f"{kind} output exceeds the backend limit",
+        )
+
+
+def parse_bounded_getprop(output: str) -> dict[str, str]:
+    """Parse one full ``getprop`` response without accepting ambiguous lines."""
+
+    _bounded_output_bytes(output, maximum=_GETPROP_OUTPUT_LIMIT, kind="getprop")
+    lines = output.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    if len(lines) > _GETPROP_PROPERTY_LIMIT:
+        raise DeviceInspectionParseError(
+            "getprop_property_limit_exceeded",
+            "getprop returned too many property lines",
+        )
+
+    properties: dict[str, str] = {}
+    for raw_line in lines:
+        if not raw_line:
+            continue
+        match = _GETPROP_LINE_PATTERN.fullmatch(raw_line)
+        if match is None:
+            raise DeviceInspectionParseError(
+                "getprop_format_invalid",
+                "getprop returned a malformed property line",
+            )
+        key, value = match.groups()
+        if key in properties:
+            raise DeviceInspectionParseError(
+                "getprop_property_duplicate",
+                "getprop returned a duplicate property name",
+            )
+        if len(value.encode("utf-8")) > _GETPROP_VALUE_LIMIT or any(ord(character) < 32 for character in value):
+            raise DeviceInspectionParseError(
+                "getprop_value_invalid",
+                "getprop returned an invalid property value",
+            )
+        properties[key] = value
+
+    if not properties:
+        raise DeviceInspectionParseError(
+            "getprop_empty",
+            "getprop returned no properties",
+        )
+    return dict(sorted(properties.items()))
+
+
+def _property_is_sensitive(key: str) -> bool:
+    normalized = key.casefold().replace("-", "_")
+    return any(fragment in normalized for fragment in _SENSITIVE_PROPERTY_FRAGMENTS)
+
+
+def _first_property(properties: Mapping[str, str], candidates: Sequence[str]) -> str:
+    for candidate in candidates:
+        value = properties.get(candidate, "").strip()
+        if value and value.casefold() not in {"generic", "mainline", "unknown"}:
+            return value
+    return ""
+
+
+def _properties_inspection_value(properties: Mapping[str, str]) -> dict[str, object]:
+    redacted_keys = tuple(key for key in properties if _property_is_sensitive(key))
+    public_properties = {key: "[REDACTED]" if key in redacted_keys else value for key, value in properties.items()}
+    summary = {
+        "manufacturer": _first_property(
+            properties,
+            ("ro.product.manufacturer", "ro.product.vendor.manufacturer"),
+        ),
+        "model": _first_property(
+            properties,
+            ("ro.product.model", "ro.product.vendor.model"),
+        ),
+        "codename": _first_property(
+            properties,
+            ("ro.product.device", "ro.build.product"),
+        ),
+        "androidVersion": _first_property(properties, ("ro.build.version.release",)),
+        "build": _first_property(
+            properties,
+            ("ro.build.display.id", "ro.build.id"),
+        ),
+        "securityPatch": _first_property(
+            properties,
+            ("ro.build.version.security_patch",),
+        ),
+        "bootloader": _first_property(
+            properties,
+            ("ro.bootloader", "ro.boot.bootloader", "ro.bootloader.version"),
+        ),
+    }
+    return {
+        "action": "properties",
+        "count": len(public_properties),
+        "properties": public_properties,
+        "redactedKeys": list(redacted_keys),
+        "summary": summary,
+    }
+
+
+def _bootloader_versions_value(properties: Mapping[str, str]) -> dict[str, object]:
+    candidates = (
+        "ro.bootloader",
+        "ro.boot.bootloader",
+        "ro.bootloader.version",
+        "ro.product.bootloader",
+    )
+    versions = {
+        key: properties[key].strip()
+        for key in candidates
+        if properties.get(key, "").strip() and properties[key].strip().casefold() != "unknown"
+    }
+    if not versions:
+        raise DeviceInspectionParseError(
+            "bootloader_version_unavailable",
+            "the device did not report a bootloader version through ADB properties",
+        )
+    return {
+        "action": "bootloaderVersions",
+        "source": "adb_getprop",
+        "current": next(iter(versions.values())),
+        "versions": versions,
+        "slot": _first_property(
+            properties,
+            ("ro.boot.slot_suffix", "ro.boot.slot"),
+        ).removeprefix("_"),
+    }
+
+
+def _pif_print_value(properties: Mapping[str, str]) -> dict[str, object]:
+    profile = {field: _first_property(properties, candidates) for field, candidates in _PIF_PROPERTY_CANDIDATES}
+    first_api = profile["DEVICE_INITIAL_SDK_INT"]
+    if not first_api.isdecimal() or not 1 <= int(first_api) <= 10_000:
+        raise DeviceInspectionParseError(
+            "pif_print_invalid_api_level",
+            "the device did not report a valid initial API level",
+        )
+    # Play Integrity Fork's v5 profile format deliberately caps this field.
+    profile["DEVICE_INITIAL_SDK_INT"] = str(min(int(first_api), 32))
+    required = {
+        "MANUFACTURER",
+        "MODEL",
+        "FINGERPRINT",
+        "PRODUCT",
+        "DEVICE",
+        "SECURITY_PATCH",
+        "DEVICE_INITIAL_SDK_INT",
+    }
+    missing = sorted(field for field in required if not profile[field])
+    if missing:
+        raise DeviceInspectionParseError(
+            "pif_print_incomplete",
+            f"the device is missing required PIF property {missing[0]}",
+        )
+    filtered = {key: value for key, value in profile.items() if value}
+    return {
+        "action": "pifPrint",
+        "format": "playintegrityfork-v5-compatible",
+        "profile": filtered,
+        "json": json.dumps(filtered, ensure_ascii=False, indent=2),
+    }
+
+
+def parse_bounded_screen_xml(output: str) -> dict[str, object]:
+    """Validate and sanitize one fixed uiautomator ``/dev/tty`` response."""
+
+    _bounded_output_bytes(
+        output,
+        maximum=_SCREEN_XML_OUTPUT_LIMIT,
+        kind="screen_xml",
+    )
+    normalized = output.lstrip("\ufeff")
+    normalized_lower = normalized.casefold()
+    if "<!doctype" in normalized_lower or "<!entity" in normalized_lower:
+        raise DeviceInspectionParseError(
+            "screen_xml_declaration_forbidden",
+            "uiautomator XML declarations are not allowed",
+        )
+    declaration_start = normalized.find("<?xml")
+    hierarchy_start = normalized.find("<hierarchy")
+    starts = tuple(index for index in (declaration_start, hierarchy_start) if index >= 0)
+    if not starts:
+        raise DeviceInspectionParseError(
+            "screen_xml_missing",
+            "uiautomator did not return a hierarchy document",
+        )
+    xml_start = min(starts)
+    closing = "</hierarchy>"
+    closing_index = normalized.rfind(closing)
+    if closing_index < xml_start:
+        raise DeviceInspectionParseError(
+            "screen_xml_incomplete",
+            "uiautomator returned an incomplete hierarchy document",
+        )
+    xml_end = closing_index + len(closing)
+    outside_lines = normalized[:xml_start].splitlines() + normalized[xml_end:].splitlines()
+    if any(line.strip() not in _SCREEN_XML_STATUS_LINES for line in outside_lines if line.strip()):
+        raise DeviceInspectionParseError(
+            "screen_xml_wrapper_invalid",
+            "uiautomator returned unexpected text outside the hierarchy document",
+        )
+    xml_text = normalized[xml_start:xml_end]
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError as error:
+        raise DeviceInspectionParseError(
+            "screen_xml_invalid",
+            "uiautomator returned malformed XML",
+        ) from error
+    if root.tag != "hierarchy":
+        raise DeviceInspectionParseError(
+            "screen_xml_root_invalid",
+            "uiautomator XML must use a hierarchy root",
+        )
+
+    node_count = 0
+    redacted_fields = 0
+    pending: list[tuple[ElementTree.Element, int]] = [(root, 0)]
+    while pending:
+        element, depth = pending.pop()
+        node_count += 1
+        if node_count > _SCREEN_XML_NODE_LIMIT:
+            raise DeviceInspectionParseError(
+                "screen_xml_node_limit_exceeded",
+                "uiautomator XML contains too many nodes",
+            )
+        if depth > _SCREEN_XML_DEPTH_LIMIT:
+            raise DeviceInspectionParseError(
+                "screen_xml_depth_limit_exceeded",
+                "uiautomator XML is nested too deeply",
+            )
+        if len(element.attrib) > _SCREEN_XML_ATTRIBUTE_LIMIT:
+            raise DeviceInspectionParseError(
+                "screen_xml_attribute_limit_exceeded",
+                "uiautomator XML contains too many attributes on one node",
+            )
+        for name, value in element.attrib.items():
+            if (
+                not name
+                or len(name) > 128
+                or any(ord(character) < 32 for character in name)
+                or len(value.encode("utf-8")) > _SCREEN_XML_ATTRIBUTE_VALUE_LIMIT
+                or any(ord(character) < 32 for character in value)
+            ):
+                raise DeviceInspectionParseError(
+                    "screen_xml_attribute_invalid",
+                    "uiautomator XML contains an invalid attribute",
+                )
+        if element.attrib.get("password", "").casefold() == "true":
+            for name in ("text", "content-desc"):
+                if element.attrib.get(name):
+                    element.attrib[name] = "[REDACTED]"
+                    redacted_fields += 1
+        children = list(element)
+        pending.extend((child, depth + 1) for child in reversed(children))
+
+    serialized = ElementTree.tostring(
+        root,
+        encoding="unicode",
+        short_empty_elements=True,
+    )
+    document = f'<?xml version="1.0" encoding="UTF-8"?>\n{serialized}'
+    _bounded_output_bytes(
+        document,
+        maximum=_SCREEN_XML_OUTPUT_LIMIT,
+        kind="screen_xml",
+    )
+    return {
+        "action": "screenXml",
+        "xml": document,
+        "sha256": hashlib.sha256(document.encode("utf-8")).hexdigest(),
+        "nodeCount": node_count,
+        "redactedFields": redacted_fields,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,11 +667,7 @@ class DeviceToolsService:
         if hash_chunk_size <= 0:
             raise ValueError("hash_chunk_size must be positive")
         self.hash_chunk_size = hash_chunk_size
-        self.scrcpy_executable = (
-            Path(scrcpy_executable).expanduser()
-            if scrcpy_executable is not None
-            else None
-        )
+        self.scrcpy_executable = Path(scrcpy_executable).expanduser() if scrcpy_executable is not None else None
         self.process_launcher = process_launcher or ManagedProcessLauncher()
         self.secret_runner = secret_runner or SubprocessSecretRunner()
 
@@ -342,15 +687,62 @@ class DeviceToolsService:
                 "arbitrary ADB shell input is not supported by the typed device-tools service",
             )
 
+        self._revision(command, snapshot)
         device = self._device(command, snapshot)
         adb = self._adb(snapshot)
         if command.kind == "tools.scrcpy":
             return self._compile_scrcpy(command, snapshot, device)
+        if command.kind == "device.inspect":
+            return self._compile_inspection(command, snapshot, device, adb)
         if command.kind == "tools.wifi":
             return self._compile_wifi(command, snapshot, device, adb)
         if command.kind == "tools.logcat":
             return self._compile_logcat(command, snapshot, device, adb)
         return self._compile_push_files(command, snapshot, device, adb)
+
+    def _compile_inspection(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> DeviceToolCompilation:
+        self._validate_payload(command, {"serial", "action"})
+        action = command.payload.get("action")
+        if not isinstance(action, str) or action not in _INSPECTION_ACTIONS:
+            raise DeviceToolPlanningError(
+                "device_inspection_action_invalid",
+                "action must be exactly properties, screenXml, bootloaderVersions, or pifPrint",
+            )
+        if action == "screenXml":
+            request = ProcessRequest(
+                (
+                    adb,
+                    "-s",
+                    device.serial,
+                    "exec-out",
+                    "uiautomator",
+                    "dump",
+                    "/dev/tty",
+                ),
+                timeout_seconds=30.0,
+            )
+        else:
+            # One complete getprop call is safer and more consistent than
+            # constructing shell expressions for each report field.
+            request = ProcessRequest(
+                (adb, "-s", device.serial, "shell", "getprop"),
+                timeout_seconds=15.0,
+            )
+        return DeviceToolCompilation(
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Inspect {action} for {device.serial}",
+            ),
+            f"inspect.{action}",
+        )
 
     def _compile_scrcpy(
         self,
@@ -371,6 +763,10 @@ class DeviceToolsService:
             label=f"Launch scrcpy for {device.serial}",
             artifacts=(artifact,),
         )
+        # This typed command owns only the local client launch, not subsequent
+        # interactive input inside scrcpy.  It is therefore read-only with
+        # respect to PixelFlasher's canonical device state. execute_special()
+        # still refuses SUCCESS unless the managed process returns a live PID.
         return DeviceToolCompilation(
             plan,
             "scrcpy",
@@ -436,9 +832,8 @@ class DeviceToolsService:
         pairing_code: SensitiveText | None = None
         execution = _EXECUTION_PROCESS
         if action == "pair":
-            if (
-                not isinstance(raw_pairing_code, SensitiveText)
-                or not _PAIRING_CODE_PATTERN.fullmatch(raw_pairing_code.reveal())
+            if not isinstance(raw_pairing_code, SensitiveText) or not _PAIRING_CODE_PATTERN.fullmatch(
+                raw_pairing_code.reveal()
             ):
                 raise DeviceToolPlanningError(
                     "wifi_pairing_code_invalid",
@@ -451,14 +846,34 @@ class DeviceToolsService:
             (adb, action, endpoint),
             timeout_seconds=30.0,
         )
+        postcondition = (
+            OperationPostcondition(
+                "adb_wifi_pairing_recorded",
+                {"endpoint": endpoint},
+                "the ADB pairing record is independently observable",
+            )
+            if action == "pair"
+            else OperationPostcondition(
+                "adb_wifi_endpoint_state",
+                {
+                    "endpoint": endpoint,
+                    "connected": action == "connect",
+                },
+                "the requested ADB-over-Wi-Fi endpoint state is observable",
+            )
+        )
         return DeviceToolCompilation(
             self._base_plan(
                 snapshot,
                 device,
                 (request,),
                 label=f"ADB Wi-Fi {action} {endpoint}",
+                risk=OperationRisk.MUTATING,
+                postconditions=(postcondition,),
+                data_behavior=("pairing_state" if action == "pair" else "connection_state"),
             ),
             f"wifi.{action}",
+            device_write=action == "pair",
             execution=execution,
             endpoint=endpoint,
             pairing_code=pairing_code,
@@ -579,6 +994,12 @@ class DeviceToolsService:
         if not compilation.action.startswith("wifi."):
             return result
         action = compilation.action.partition(".")[2]
+        if result.status is OperationStatus.CANCELLED or result.code in {
+            "outcome_unknown",
+            "postcondition_mismatch",
+            "postcondition_unverified",
+        }:
+            return result
         if not result.ok:
             return OperationResult.failed(
                 result.operation_id,
@@ -596,35 +1017,21 @@ class DeviceToolsService:
         )
         endpoint = compilation.endpoint.casefold()
         failure_tokens = ("failed", "cannot", "unable", "error")
-        has_failure = any(
-            token in line
-            for line in output_lines
-            for token in failure_tokens
-        )
+        has_failure = any(token in line for line in output_lines for token in failure_tokens)
         if action == "status":
-            succeeded = (
-                result.stdout.strip().casefold() == "device"
-                and not result.stderr.strip()
-            )
+            succeeded = result.stdout.strip().casefold() == "device" and not result.stderr.strip()
         elif action == "pair":
             success_pattern = re.compile(
                 rf"^(?:enter pairing code:\s*)?successfully paired to "
                 rf"{re.escape(endpoint)}(?:\s+\[[^\r\n]*\])?$"
             )
-            succeeded = any(
-                success_pattern.fullmatch(line) is not None
-                for line in output_lines
-            )
+            succeeded = any(success_pattern.fullmatch(line) is not None for line in output_lines)
         elif action == "connect":
             succeeded = any(
-                line in {f"connected to {endpoint}", f"already connected to {endpoint}"}
-                for line in output_lines
+                line in {f"connected to {endpoint}", f"already connected to {endpoint}"} for line in output_lines
             )
         else:
-            succeeded = any(
-                line == f"disconnected {endpoint}"
-                for line in output_lines
-            )
+            succeeded = any(line == f"disconnected {endpoint}" for line in output_lines)
         succeeded = succeeded and not has_failure
         if not succeeded:
             return OperationResult.failed(
@@ -642,6 +1049,12 @@ class DeviceToolsService:
         }
         if compilation.endpoint:
             value["endpoint"] = compilation.endpoint
+        if action == "pair":
+            # The secret-bearing protocol output has been validated above and
+            # is deliberately discarded. This boolean is the only evidence
+            # handed to OperationRunner; it contains neither the code nor raw
+            # stdout/stderr.
+            value["protocolVerified"] = True
         if action == "status":
             value["state"] = "device"
         return OperationResult.success(
@@ -651,6 +1064,73 @@ class DeviceToolsService:
             exit_code=result.exit_code,
             stdout="" if redact_output else result.stdout,
             stderr="" if redact_output else result.stderr,
+            value=value,
+        )
+
+    def finalize_inspection(
+        self,
+        compilation: DeviceToolCompilation,
+        result: OperationResult,
+    ) -> OperationResult:
+        """Parse one inspection response and discard raw device output."""
+
+        if not compilation.action.startswith("inspect."):
+            return OperationResult.failed(
+                result.operation_id,
+                code="device_inspection_compilation_invalid",
+                message="inspection finalization received a non-inspection plan",
+            )
+        if result.status is OperationStatus.CANCELLED:
+            return OperationResult.cancelled(
+                result.operation_id,
+                code=result.code,
+                message=result.message,
+            )
+        if not result.ok:
+            return OperationResult.failed(
+                result.operation_id,
+                code=result.code,
+                message=result.message,
+                exit_code=result.exit_code,
+            )
+        if result.stderr.strip():
+            return OperationResult.failed(
+                result.operation_id,
+                code="device_inspection_stderr_unexpected",
+                message="the device inspection command returned unexpected diagnostics",
+                exit_code=result.exit_code,
+            )
+
+        action = compilation.action.removeprefix("inspect.")
+        try:
+            if action == "screenXml":
+                value = parse_bounded_screen_xml(result.stdout)
+            else:
+                properties = parse_bounded_getprop(result.stdout)
+                if action == "properties":
+                    value = _properties_inspection_value(properties)
+                elif action == "bootloaderVersions":
+                    value = _bootloader_versions_value(properties)
+                elif action == "pifPrint":
+                    value = _pif_print_value(properties)
+                else:
+                    raise DeviceInspectionParseError(
+                        "device_inspection_action_invalid",
+                        "the compiled inspection action is unsupported",
+                    )
+        except DeviceInspectionParseError as error:
+            return OperationResult.failed(
+                result.operation_id,
+                code=error.code,
+                message=str(error),
+                exit_code=result.exit_code,
+            )
+        value["targetSerial"] = compilation.plan.target_serial
+        return OperationResult.success(
+            result.operation_id,
+            code=f"device_inspection_{action}_succeeded",
+            message=f"device {action} inspection succeeded",
+            exit_code=result.exit_code,
             value=value,
         )
 
@@ -752,6 +1232,21 @@ class DeviceToolsService:
             requests,
             label=f"Push {len(paths)} file(s) to {device.serial}",
             artifacts=artifacts,
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "remote_files_written",
+                    {
+                        "mode": "adb",
+                        "hashes": {
+                            f"{destination}{path.name}": artifact.sha256
+                            for path, artifact in zip(paths, artifacts, strict=True)
+                        },
+                    },
+                    "every remote file matches its backend-verified source hash",
+                ),
+            ),
+            data_behavior="user_file_write",
         )
         return DeviceToolCompilation(
             plan,
@@ -769,13 +1264,14 @@ class DeviceToolsService:
                 "logcat_buffer_invalid",
                 "buffers must be an array of allow-listed buffer names",
             )
-        if not 1 <= len(raw_buffers) <= 6:
+        buffer_values = cast(Sequence[object], raw_buffers)
+        if not 1 <= len(buffer_values) <= 6:
             raise DeviceToolPlanningError(
                 "logcat_buffer_invalid",
                 "between 1 and 6 log buffers are required",
             )
         normalized: list[str] = []
-        for raw_buffer in raw_buffers:
+        for raw_buffer in buffer_values:
             if not isinstance(raw_buffer, str):
                 raise DeviceToolPlanningError(
                     "logcat_buffer_invalid",
@@ -826,16 +1322,15 @@ class DeviceToolsService:
                 "logcat_filter_invalid",
                 "filters must be an object mapping tags to priorities",
             )
-        if len(raw_filters) > 32:
+        filter_values = cast(Mapping[object, object], raw_filters)
+        if len(filter_values) > 32:
             raise DeviceToolPlanningError(
                 "logcat_filter_invalid",
                 "at most 32 logcat filters are allowed",
             )
         normalized: dict[str, tuple[str, str]] = {}
-        for raw_tag, raw_priority in raw_filters.items():
-            if not isinstance(raw_tag, str) or (
-                raw_tag != "*" and not _LOGCAT_TAG_PATTERN.fullmatch(raw_tag)
-            ):
+        for raw_tag, raw_priority in filter_values.items():
+            if not isinstance(raw_tag, str) or (raw_tag != "*" and not _LOGCAT_TAG_PATTERN.fullmatch(raw_tag)):
                 raise DeviceToolPlanningError(
                     "logcat_filter_invalid",
                     f"invalid logcat tag: {raw_tag!r}",
@@ -875,7 +1370,8 @@ class DeviceToolsService:
                 "push_paths_invalid",
                 "paths must be an array containing between 1 and 32 files",
             )
-        if not 1 <= len(raw_paths) <= 32:
+        path_values = cast(Sequence[object], raw_paths)
+        if not 1 <= len(path_values) <= 32:
             raise DeviceToolPlanningError(
                 "push_paths_invalid",
                 "between 1 and 32 file paths are required",
@@ -884,7 +1380,7 @@ class DeviceToolsService:
         canonical_paths: list[Path] = []
         seen_paths: set[str] = set()
         seen_remote_names: set[str] = set()
-        for raw_path in raw_paths:
+        for raw_path in path_values:
             if not isinstance(raw_path, str) or not raw_path.strip():
                 raise DeviceToolPlanningError(
                     "push_path_invalid",
@@ -962,11 +1458,7 @@ class DeviceToolsService:
         valid_header = (
             header.startswith(b"MZ")
             if sys.platform.startswith("win")
-            else (
-                header == b"\x7fELF"
-                or header.startswith(b"#!")
-                or header in _MACH_EXECUTABLE_MAGICS
-            )
+            else (header == b"\x7fELF" or header.startswith(b"#!") or header in _MACH_EXECUTABLE_MAGICS)
         )
         if not valid_header:
             raise DeviceToolPlanningError(
@@ -1000,21 +1492,13 @@ class DeviceToolsService:
                 "wifi_host_invalid",
                 "unspecified and multicast addresses are not valid ADB endpoints",
             )
-        if (
-            not isinstance(raw_port, int)
-            or isinstance(raw_port, bool)
-            or not 1 <= raw_port <= 65535
-        ):
+        if not isinstance(raw_port, int) or isinstance(raw_port, bool) or not 1 <= raw_port <= 65535:
             raise DeviceToolPlanningError(
                 "wifi_port_invalid",
                 "port must be an integer between 1 and 65535",
             )
         normalized_host = address.compressed
-        return (
-            f"[{normalized_host}]:{raw_port}"
-            if address.version == 6
-            else f"{normalized_host}:{raw_port}"
-        )
+        return f"[{normalized_host}]:{raw_port}" if address.version == 6 else f"{normalized_host}:{raw_port}"
 
     def _file_artifact(self, path: Path, *, role: str) -> FileArtifact:
         code_prefix = "scrcpy" if role == "scrcpy-executable" else "push"
@@ -1064,10 +1548,7 @@ class DeviceToolsService:
         minimum: float,
         maximum: float,
     ) -> float:
-        if (
-            not isinstance(raw_value, (int, float))
-            or isinstance(raw_value, bool)
-        ):
+        if not isinstance(raw_value, (int, float)) or isinstance(raw_value, bool):
             raise DeviceToolPlanningError(
                 "logcat_timeout_invalid",
                 f"{field} must be a number",
@@ -1083,9 +1564,7 @@ class DeviceToolsService:
     @staticmethod
     def _device(command: AppCommand, snapshot: AppSnapshot) -> DeviceInfo:
         raw_serial = command.payload.get("serial")
-        if raw_serial is not None and (
-            not isinstance(raw_serial, str) or not raw_serial.strip()
-        ):
+        if raw_serial is not None and (not isinstance(raw_serial, str) or not raw_serial.strip()):
             raise DeviceToolPlanningError(
                 "target_serial_invalid",
                 "payload.serial must be a non-empty string",
@@ -1130,6 +1609,19 @@ class DeviceToolsService:
         return snapshot.toolchain.adb
 
     @staticmethod
+    def _revision(command: AppCommand, snapshot: AppSnapshot) -> None:
+        if command.expected_revision is None:
+            raise DeviceToolPlanningError(
+                "revision_required",
+                "expected_revision is required",
+            )
+        if command.expected_revision != snapshot.revision:
+            raise DeviceToolPlanningError(
+                "stale_revision",
+                (f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
+            )
+
+    @staticmethod
     def _base_plan(
         snapshot: AppSnapshot,
         device: DeviceInfo,
@@ -1137,15 +1629,22 @@ class DeviceToolsService:
         *,
         label: str,
         artifacts: tuple[FileArtifact, ...] = (),
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
+        data_behavior: str = "preserve",
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
             label=label,
+            risk=risk,
+            postconditions=postconditions,
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
-            data_behavior="preserve",
+            data_behavior=data_behavior,
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
             artifacts=artifacts,
@@ -1166,9 +1665,12 @@ __all__ = [
     "DeviceToolCompilation",
     "DeviceToolPlanningError",
     "DeviceToolsService",
+    "DeviceInspectionParseError",
     "LaunchOutcome",
     "ManagedProcessLauncher",
     "ProcessLauncher",
     "SecretProcessRunner",
     "SubprocessSecretRunner",
+    "parse_bounded_getprop",
+    "parse_bounded_screen_xml",
 ]

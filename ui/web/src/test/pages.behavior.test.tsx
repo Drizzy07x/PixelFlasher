@@ -1,0 +1,347 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BridgeCommand } from '../commands';
+import { demoSnapshot } from '../demoData';
+import { I18nProvider } from '../i18n';
+import {
+  AppsPage,
+  BackupsPage,
+  DashboardPage,
+  DevicePage,
+  FirmwarePage,
+  SettingsPage,
+} from '../pages/Pages';
+import type { HostSnapshot } from '../types';
+
+type CommandResult = { result: Record<string, unknown>; revision?: number } | null;
+
+function freshSnapshot(): HostSnapshot {
+  return structuredClone(demoSnapshot);
+}
+
+function page(ui: React.ReactNode) {
+  return render(<I18nProvider locale="en">{ui}</I18nProvider>);
+}
+
+function commandHost(
+  handler: (command: BridgeCommand, payload: Record<string, unknown>) => CommandResult | Promise<CommandResult>,
+) {
+  return vi.fn(async (command: BridgeCommand, payload: Record<string, unknown> = {}) => handler(command, payload));
+}
+
+const selection = vi.fn();
+
+beforeEach(() => {
+  window.pixelflasher = { postMessage: vi.fn() };
+  selection.mockReset();
+});
+
+describe('dashboard and firmware host-backed states', () => {
+  it('offers official setup or an existing folder without exposing host paths', async () => {
+    const user = userEvent.setup();
+    const snapshot: HostSnapshot = {
+      revision: 0,
+      preferences: demoSnapshot.preferences,
+      devices: [],
+      selectedSerials: [],
+      firmware: null,
+      toolchain: { adb: false, fastboot: false, ready: false },
+    };
+    let pickCount = 0;
+    const onCommand = commandHost((command) => {
+      if (command === 'native.pickDirectory') {
+        pickCount += 1;
+        return pickCount === 1
+          ? null
+          : { result: { value: { data: { grant: 'directory-grant' } } } };
+      }
+      return { result: { status: 'SUCCESS' } };
+    });
+    page(
+      <DashboardPage
+        snapshot={snapshot}
+        selectedSerials={[]}
+        onSelectionChange={selection}
+        onCommand={onCommand}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Platform Tools need attention');
+    expect(screen.getAllByText('OFFLINE')).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /Scan Devices|Reboot Device|Switch Slot/ })).toHaveLength(3);
+    for (const action of screen.getAllByRole('button', { name: /Scan Devices|Reboot Device|Switch Slot/ })) {
+      expect(action).toBeDisabled();
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Install official tools' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('platformTools.setup', { source: 'official' }));
+
+    const existingFolder = screen.getByRole('button', { name: 'Use existing folder' });
+    await user.click(existingFolder);
+    await user.click(existingFolder);
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('native.pickDirectory', {
+      purpose: 'platformTools.setup.directory',
+      title: 'Use existing folder',
+    }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('platformTools.setup', {
+      source: 'directory',
+      grant: 'directory-grant',
+    }));
+    expect(JSON.stringify(onCommand.mock.calls)).not.toContain('C:\\');
+  });
+
+  it('renders the real-host empty firmware library and imports through a read grant', async () => {
+    const user = userEvent.setup();
+    const snapshot = { ...freshSnapshot(), firmware: null };
+    let picks = 0;
+    const onCommand = commandHost((command) => {
+      if (command === 'native.pickFile') {
+        picks += 1;
+        return picks === 1 ? null : { result: { data: { grant: 'firmware-grant' } } };
+      }
+      return { result: { status: 'SUCCESS' } };
+    });
+    page(
+      <FirmwarePage
+        snapshot={snapshot}
+        selectedSerials={[]}
+        onSelectionChange={selection}
+        onCommand={onCommand}
+      />,
+    );
+    expect(screen.getByText('None')).toBeVisible();
+    const importButton = screen.getByRole('button', { name: 'Import package' });
+    await user.click(importButton);
+    await user.click(importButton);
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.select', { grant: 'firmware-grant' }));
+  });
+
+  it('processes an unprocessed real-host firmware and shows verified ready state after rerender', async () => {
+    const user = userEvent.setup();
+    const snapshot = freshSnapshot();
+    snapshot.firmware = { ...snapshot.firmware!, processed: false, channel: 'beta', kind: 'ota' };
+    const onCommand = commandHost(() => ({ result: { status: 'SUCCESS' } }));
+    const { rerender } = page(
+      <FirmwarePage snapshot={snapshot} selectedSerials={[]} onSelectionChange={selection} onCommand={onCommand} />,
+    );
+    expect(screen.getByText('beta')).toHaveClass('badge--warning');
+    await user.click(screen.getByRole('button', { name: 'Process package' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.process'));
+
+    snapshot.firmware = { ...snapshot.firmware, processed: true };
+    rerender(<I18nProvider locale="en"><FirmwarePage snapshot={snapshot} selectedSerials={[]} onSelectionChange={selection} onCommand={onCommand} /></I18nProvider>);
+    expect(screen.getByText('Ready')).toBeVisible();
+  });
+});
+
+describe('device operation guards and evidence', () => {
+  it('shows a single-target guard when selection is ambiguous', () => {
+    const snapshot = freshSnapshot();
+    const onCommand = commandHost(() => ({ result: {} }));
+    page(
+      <DevicePage
+        snapshot={snapshot}
+        selectedSerials={snapshot.devices.slice(0, 2).map((device) => device.serial)}
+        onSelectionChange={selection}
+        onCommand={onCommand}
+        expertMode
+      />,
+    );
+    expect(screen.getByText('Select exactly one device to run an operation.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Reboot now' })).toBeDisabled();
+  });
+
+  it('unlocks a locked fastboot target and exercises reboot mode selection', async () => {
+    const user = userEvent.setup();
+    const snapshot = freshSnapshot();
+    const locked = { ...snapshot.devices[1], bootloader: 'locked' as const, slot: 'unknown' as const };
+    snapshot.devices = [locked];
+    snapshot.boot = { id: 'unverified-boot', image: 'boot.img', hash: 'not-a-hash', flavor: 'unknown' };
+    const onCommand = commandHost(() => ({ result: { status: 'SUCCESS' } }));
+    page(
+      <DevicePage snapshot={snapshot} selectedSerials={[locked.serial]} onSelectionChange={selection} onCommand={onCommand} expertMode />,
+    );
+    expect(screen.getByRole('button', { name: 'Unlock bootloader' })).toBeEnabled();
+    expect(screen.getByText('Select or patch a verified boot image first.')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Switch to slot/ })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Unlock bootloader' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('device.bootloader.unlock', { serial: locked.serial }));
+
+    await user.selectOptions(screen.getByLabelText('Reboot destination'), 'recovery');
+    await user.click(screen.getByRole('button', { name: 'Reboot now' }));
+    expect(onCommand).toHaveBeenCalledWith('device.reboot', { serial: locked.serial, mode: 'recovery' });
+  });
+
+  it('allows relock only with current backend evidence and includes an explicit flash slot', async () => {
+    const user = userEvent.setup();
+    const snapshot = freshSnapshot();
+    const fastboot = snapshot.devices[1];
+    snapshot.devices = [fastboot];
+    snapshot.boot = { id: 'stock-init-boot', image: 'init_boot.img', hash: 'c'.repeat(64), flavor: 'init_boot', patched: false, verified: true };
+    snapshot.bootloaderLockEvidence = [{
+      serial: fastboot.serial,
+      snapshot_revision: snapshot.revision,
+    }];
+    const onCommand = commandHost(() => ({ result: { status: 'SUCCESS' } }));
+    page(
+      <DevicePage snapshot={snapshot} selectedSerials={[fastboot.serial]} onSelectionChange={selection} onCommand={onCommand} expertMode />,
+    );
+    expect(screen.getByRole('button', { name: 'Lock bootloader' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Lock bootloader' }));
+    await user.selectOptions(screen.getByLabelText('Target slot'), 'a');
+    await user.click(screen.getByRole('button', { name: 'Flash image' }));
+    await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledWith('device.bootloader.lock', { serial: fastboot.serial });
+      expect(onCommand).toHaveBeenCalledWith('boot.flash', { serial: fastboot.serial, partition: 'init_boot', slot: 'a' });
+    });
+    expect(screen.getByRole('button', { name: 'Live boot' })).toBeDisabled();
+  });
+});
+
+describe('apps, backups and settings workflows', () => {
+  it('refreshes, filters, selects and updates host package inventory', async () => {
+    const user = userEvent.setup();
+    const snapshot = freshSnapshot();
+    const serial = snapshot.devices[0].serial;
+    const onCommand = commandHost((command) => {
+      if (command === 'apps.list') {
+        return { result: { status: 'SUCCESS', value: { packages: [
+          { package: 'com.example.system', apk_path: '/system/app/example.apk' },
+          { package: 'com.example.user', apk_path: '/data/app/example.apk' },
+          { package: '', apk_path: '/bad' },
+          null,
+        ] } } };
+      }
+      if (command === 'native.pickFile') {
+        return { result: { status: 'SUCCESS', value: { data: { grant: 'apk-read-grant' } } } };
+      }
+      if (command === 'apps.action') {
+        return { result: {
+          status: 'SUCCESS',
+          value: {
+            action: 'install',
+            apkIdentity: {
+              packageName: 'com.example.installed',
+              sha256: 'a'.repeat(64),
+              verified: true,
+            },
+          },
+        } };
+      }
+      return { result: { status: 'SUCCESS' } };
+    });
+    page(
+      <AppsPage snapshot={snapshot} selectedSerials={[serial]} onSelectionChange={selection} onCommand={onCommand} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findAllByText('com.example.system')).toHaveLength(2);
+    expect(screen.getAllByText('System').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('User').length).toBeGreaterThan(0);
+
+    await user.type(screen.getByPlaceholderText('Filter packages'), 'user');
+    expect(screen.queryByText('com.example.system')).not.toBeInTheDocument();
+    const packageToggle = screen.getByRole('checkbox', { name: /com.example.user/ });
+    await user.click(packageToggle);
+    await user.selectOptions(screen.getByLabelText('Apply changes'), 'enable');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('apps.action', {
+      serial,
+      packages: ['com.example.user'],
+      action: 'enable',
+    }));
+
+    await user.click(screen.getByRole('checkbox', { name: /^Allow version downgrade/ }));
+    await user.click(screen.getByRole('button', { name: 'Choose APK and install' }));
+    await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledWith('native.pickFile', {
+        purpose: 'apps.install.source',
+        title: 'Install APK',
+        filters: [{ label: 'Android application packages', extensions: ['apk'] }],
+      }, { returnCancelled: true });
+      expect(onCommand).toHaveBeenCalledWith('apps.action', {
+        serial,
+        action: 'install',
+        grant: 'apk-read-grant',
+        options: {
+          replace: true,
+          grantPermissions: false,
+          allowDowngrade: true,
+          allowTest: false,
+          forceQueryable: false,
+          bypassLowTargetSdk: false,
+        },
+      }, { returnCancelled: true });
+    });
+  });
+
+  it('creates and restores boot-chain backups only through picker grants', async () => {
+    const user = userEvent.setup();
+    const snapshot = freshSnapshot();
+    const fastboot = snapshot.devices[1];
+    (snapshot as HostSnapshot & { backups: unknown[] }).backups = [{
+      id: 'backup-1', device: fastboot.name, serial: fastboot.serial,
+      date: '2026-07-18', size: '64 MiB', contents: 'init_boot',
+    }];
+    const onCommand = commandHost((command) => {
+      if (command === 'native.saveFile') return { result: { value: { data: { grant: 'write-once' } } } };
+      if (command === 'native.pickFile') return { result: { value: { data: { grant: 'read-session' } } } };
+      return { result: { status: 'SUCCESS' } };
+    });
+    page(
+      <BackupsPage snapshot={snapshot} selectedSerials={[fastboot.serial]} onSelectionChange={selection} onCommand={onCommand} />,
+    );
+    await user.selectOptions(screen.getByLabelText('Partition manager'), 'init_boot');
+    await user.selectOptions(screen.getByLabelText('Target slot'), 'a');
+    await user.click(screen.getByRole('button', { name: 'Create backup' }));
+    await user.click(screen.getAllByRole('button', { name: 'Restore backup' })[0]);
+    await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledWith('backups.create', {
+        serial: fastboot.serial, partition: 'init_boot', slot: 'a', grant: 'write-once',
+      });
+      expect(onCommand).toHaveBeenCalledWith('backups.restore', {
+        serial: fastboot.serial, partition: 'init_boot', slot: 'a', grant: 'read-session',
+      });
+    });
+    expect(JSON.stringify(onCommand.mock.calls)).not.toContain('/safe/');
+  });
+
+  it('exposes bounded appearance and accessibility controls', async () => {
+    const user = userEvent.setup();
+    const callbacks = {
+      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(),
+    };
+    const { rerender } = page(
+      <SettingsPage
+        theme="dark" onThemeChange={callbacks.theme}
+        locale="en" onLocaleChange={callbacks.locale}
+        highContrast={false} onHighContrastChange={callbacks.contrast}
+        reducedMotion={false} onReducedMotionChange={callbacks.motion}
+        zoom={80} onZoomChange={callbacks.zoom}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Light' }));
+    await user.selectOptions(screen.getByLabelText('Language'), 'zh_TW');
+    await user.click(screen.getByRole('checkbox', { name: /High contrast/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Reduce motion/ }));
+    await user.click(screen.getByRole('button', { name: 'Zoom out' }));
+    await user.click(screen.getByRole('button', { name: 'Reset zoom' }));
+    expect(callbacks.theme).toHaveBeenCalledWith('light');
+    expect(callbacks.locale).toHaveBeenCalledWith('zh_TW');
+    expect(callbacks.contrast).toHaveBeenCalledWith(true);
+    expect(callbacks.motion).toHaveBeenCalledWith(true);
+    expect(callbacks.zoom).toHaveBeenCalledWith(80);
+    expect(callbacks.zoom).toHaveBeenCalledWith(100);
+
+    rerender(<I18nProvider locale="en"><SettingsPage
+      theme="light" onThemeChange={callbacks.theme}
+      locale="en" onLocaleChange={callbacks.locale}
+      highContrast onHighContrastChange={callbacks.contrast}
+      reducedMotion onReducedMotionChange={callbacks.motion}
+      zoom={200} onZoomChange={callbacks.zoom}
+    /></I18nProvider>);
+    await user.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(callbacks.zoom).toHaveBeenCalledWith(200);
+    expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});

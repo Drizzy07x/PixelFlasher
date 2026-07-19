@@ -11,14 +11,16 @@ from pathlib import Path
 from .contracts import ProcessRequest, ToolchainInfo
 from .executor import CancellationToken, ProcessTransport, SubprocessTransport
 
-
 _VERSION_PATTERN = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:[-\w.]*)?")
 
 
 def parse_platform_tools_version(output: str) -> tuple[int, int, int] | None:
     """Return the most relevant semantic version from adb/fastboot output."""
 
-    matches = [tuple(int(part) for part in match.groups()) for match in _VERSION_PATTERN.finditer(output)]
+    matches = [
+        (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        for match in _VERSION_PATTERN.finditer(output)
+    ]
     if not matches:
         return None
     # adb prints protocol version 1.0.41 before the package version. The
@@ -137,6 +139,12 @@ class ToolchainService:
                 "tool_missing",
                 "adb and fastboot must both be present in the same configured toolchain or PATH",
             )
+        if adb.parent != fastboot.parent:
+            return ToolchainCheck(
+                ToolchainInfo(str(adb), str(fastboot), "", False),
+                "toolchain_directory_mismatch",
+                "adb and fastboot must come from the same Platform Tools directory",
+            )
         if os.name != "nt" and (not os.access(adb, os.X_OK) or not os.access(fastboot, os.X_OK)):
             return ToolchainCheck(
                 ToolchainInfo(str(adb), str(fastboot), "", False),
@@ -185,12 +193,24 @@ class ToolchainService:
                 "tool_version_failed",
                 f"{executable.name} version check exited with status {outcome.returncode}",
             )
-        version = parse_platform_tools_version(f"{outcome.stdout}\n{outcome.stderr}")
+        output = f"{outcome.stdout}\n{outcome.stderr}"
+        expected_marker = (
+            "Android Debug Bridge version"
+            if executable.stem.casefold() == "adb"
+            else "fastboot version"
+        )
+        version = parse_platform_tools_version(output)
         if version is None:
             return ToolchainCheck(
                 empty,
                 "tool_version_malformed",
                 f"could not parse {executable.name} version output",
+            )
+        if expected_marker.casefold() not in output.casefold():
+            return ToolchainCheck(
+                empty,
+                "tool_version_unverified",
+                f"{executable.name} did not provide recognizable version evidence",
             )
         return version
 

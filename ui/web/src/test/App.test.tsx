@@ -30,14 +30,11 @@ function installPreferencesHost(
         let result: Record<string, unknown>;
         if (request.command === 'snapshot.get') {
           result = {
-            status: 'SUCCESS',
-            snapshot: {
-              revision: 7,
-              devices: [],
-              selected_serials: [],
-              firmware: null,
-              toolchain: { adb: '', fastboot: '', ready: false },
-            },
+            revision: 7,
+            devices: [],
+            selected_serials: [],
+            firmware: null,
+            toolchain: { adb: '', fastboot: '', ready: false },
           };
         } else if (request.command === 'settings.get') {
           result = {
@@ -65,12 +62,10 @@ function installPreferencesHost(
         }
         window.dispatchEvent(new CustomEvent('pixelflasher:message', {
           detail: {
-            version: 1,
-            type: 'response',
+            version: 2,
             requestId: request.requestId,
             ok: true,
-            revision: 7,
-            result,
+            result: { ...result, revision: 7 },
           },
         }));
       });
@@ -195,8 +190,8 @@ describe('PixelFlasher web workspace', () => {
     expect(processRequest?.payload).toEqual({});
     expect(typeof processRequest?.expectedRevision).toBe('number');
     const promoted = dispatchEvent.mock.calls
-      .map(([event]) => (event as CustomEvent<{ type?: string; payload?: HostSnapshot }>).detail)
-      .find((detail) => detail?.type === 'snapshot' && detail.payload?.firmware?.processed === true);
+      .map(([event]) => (event as CustomEvent<{ event?: string; payload?: HostSnapshot }>).detail)
+      .find((detail) => detail?.event === 'snapshot' && detail.payload?.firmware?.processed === true);
     expect(promoted?.payload?.firmware).toMatchObject({ verified: true, processed: true, hash: '8'.repeat(64) });
     expect(promoted?.payload?.boot).toMatchObject({ flavor: 'init_boot', patched: false });
   });
@@ -239,19 +234,45 @@ describe('PixelFlasher web workspace', () => {
       serial: '47161FDJH00A8L',
       flavor: 'magisk',
       appId: 'a'.repeat(64),
-      destination: 'C:\\mock\\patched-magisk.img',
+      grant: 'w'.repeat(64),
     });
     expect(typeof patchRequest?.expectedRevision).toBe('number');
     await acceptInteraction();
     expect(await screen.findByText('patched boot with magisk')).toBeVisible();
     const patchedSnapshot = dispatchEvent.mock.calls
-      .map(([event]) => (event as CustomEvent<{ type?: string; payload?: HostSnapshot }>).detail)
-      .find((detail) => detail?.type === 'snapshot' && detail.payload?.boot?.path === 'C:\\mock\\patched-magisk.img');
+      .map(([event]) => (event as CustomEvent<{ event?: string; payload?: HostSnapshot }>).detail)
+      .find((detail) => detail?.event === 'snapshot' && detail.payload?.boot?.patched === true);
     expect(patchedSnapshot?.payload?.boot).toMatchObject({
-      path: 'C:\\mock\\patched-magisk.img',
+      image: 'boot.img',
       flavor: 'boot',
       patched: true,
     });
+
+    await user.click(screen.getByRole('radio', { name: /APatch/i }));
+    await user.click(patchButton);
+    const apatchDialog = await screen.findByRole('dialog', { name: 'APatch' });
+    const apatchField = within(apatchDialog).getByLabelText('APatch');
+    await user.type(apatchField, 'correct-horse');
+    await user.click(within(apatchDialog).getByRole('button', { name: 'Continue' }));
+    expect(screen.queryByDisplayValue('correct-horse')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('correct-horse');
+    await acceptInteraction();
+    expect(await screen.findByText('patched boot with apatch')).toBeVisible();
+
+    const apatchRequests = postMessage.mock.calls
+      .map(([raw]) => JSON.parse(raw) as BridgeRequest);
+    expect(apatchRequests.find((request) => request.command === 'secret.issue' && request.payload.purpose === 'apatch.superkey')?.payload).toEqual({
+      purpose: 'apatch.superkey',
+      secret: 'correct-horse',
+    });
+    expect(apatchRequests.find((request) => request.command === 'boot.patch' && request.payload.flavor === 'apatch')?.payload).toEqual({
+      serial: '47161FDJH00A8L',
+      flavor: 'apatch',
+      appId: 'c'.repeat(64),
+      grant: 'w'.repeat(64),
+      secretGrant: 's'.repeat(64),
+    });
+    expect(postMessage.mock.calls.map(([raw]) => raw).filter((raw) => raw.includes('correct-horse'))).toHaveLength(1);
 
     await user.click(within(appsCard).getAllByRole('button', { name: 'Install app' })[0]);
     await screen.findByRole('alertdialog');
@@ -304,7 +325,7 @@ describe('PixelFlasher web workspace', () => {
     expect(rootRequests.find((request) => request.command === 'root.modules.action' && request.payload.action === 'install')?.payload).toEqual({
       serial: '47161FDJH00A8L',
       action: 'install',
-      path: 'C:\\mock\\magisk-module.zip',
+      grant: 'g'.repeat(64),
     });
   });
 
@@ -380,12 +401,13 @@ describe('PixelFlasher web workspace', () => {
     await user.click(screen.getByRole('button', { name: /Wireless ADB/i }));
     const wifiPanel = document.querySelector('.tool-workspace') as HTMLElement;
     await user.selectOptions(within(wifiPanel).getByLabelText('Action'), 'pair');
-    const pairingField = within(wifiPanel).getByLabelText('Six-digit pairing code');
-    await user.type(pairingField, '123456');
-    expect(pairingField).toHaveValue('123456');
+    expect(within(wifiPanel).getByText('Six-digit pairing code')).toBeVisible();
     await user.click(within(wifiPanel).getByRole('button', { name: 'Apply changes' }));
+    const secretDialog = await screen.findByRole('dialog', { name: 'Six-digit pairing code' });
+    const pairingField = within(secretDialog).getByLabelText('Six-digit pairing code');
+    await user.type(pairingField, '123456');
+    await user.click(within(secretDialog).getByRole('button', { name: 'Continue' }));
     expect(await screen.findAllByText('ADB Wi-Fi pair succeeded')).not.toHaveLength(0);
-    await waitFor(() => expect(pairingField).toHaveValue(''));
     expect(screen.queryByDisplayValue('123456')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('123456');
     await user.click(within(wifiPanel).getByRole('button', { name: 'Close' }));
@@ -420,9 +442,13 @@ describe('PixelFlasher web workspace', () => {
       action: 'pair',
       host: '192.168.1.42',
       port: 5555,
-      pairingCode: '123456',
+      secretGrant: 's'.repeat(64),
     });
     expect(rawRequests.filter((raw) => raw.includes('123456'))).toHaveLength(1);
+    expect(requests.find((request) => request.command === 'secret.issue')?.payload).toEqual({
+      purpose: 'wifi.pairingCode',
+      secret: '123456',
+    });
     expect(requests.find((request) => request.command === 'tools.logcat')?.payload).toEqual({
       serial: '47161FDJH00A8L',
       buffers: ['main'],
@@ -431,11 +457,12 @@ describe('PixelFlasher web workspace', () => {
       timeoutSeconds: 30,
     });
     expect(requests.find((request) => request.command === 'native.pickFiles')?.payload).toEqual({
+      purpose: 'tools.pushFiles.sources',
       title: 'Choose files',
     });
     expect(requests.find((request) => request.command === 'tools.pushFiles')?.payload).toEqual({
       serial: '47161FDJH00A8L',
-      paths: ['C:\\mock\\alpha.zip', 'C:\\mock\\beta.txt'],
+      grants: ['g'.repeat(64), 'h'.repeat(64)],
       destination: '/sdcard/Download/',
     });
     expect(requests.find((request) => request.command === 'interaction.respond')?.payload).toMatchObject({
@@ -443,12 +470,12 @@ describe('PixelFlasher web workspace', () => {
     });
     expect(requests.find((request) => request.command === 'native.saveFile')?.payload).toEqual({
       title: 'Support package',
-      purpose: 'support',
+      purpose: 'support.create.destination',
       defaultName: 'PixelFlasher-support.zip',
       filters: [{ label: 'Support package', extensions: ['zip'] }],
     });
     expect(requests.find((request) => request.command === 'support.create')?.payload).toEqual({
-      destinationId: 's'.repeat(64),
+      grant: 'w'.repeat(64),
       includeConfig: true,
       includeLogs: true,
       includeState: true,
@@ -639,25 +666,21 @@ describe('PixelFlasher web workspace', () => {
         const request = JSON.parse(raw) as { requestId: string; command: string };
         queueMicrotask(() => window.dispatchEvent(new CustomEvent('pixelflasher:message', {
           detail: {
-            version: 1,
-            type: 'response',
+            version: 2,
             requestId: request.requestId,
             ok: true,
-            revision: 0,
             result: request.command === 'settings.get'
               ? {
                   status: 'SUCCESS',
                   value: { preferences: hostPreferences },
+                  revision: 0,
                 }
               : {
-                  status: 'SUCCESS',
-                  snapshot: {
-                    revision: 0,
-                    devices: [],
-                    selected_serials: [],
-                    firmware: null,
-                    toolchain: { adb: '', fastboot: '', ready: false },
-                  },
+                  revision: 0,
+                  devices: [],
+                  selected_serials: [],
+                  firmware: null,
+                  toolchain: { adb: '', fastboot: '', ready: false },
                 },
           },
         })));

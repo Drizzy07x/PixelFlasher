@@ -1,0 +1,41 @@
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+markers = [
+  "hardware: requires a physical Android device",
+  "integration: exercises multiple application services",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["pixelflasher_core"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = ["build", "dist", "ui/web"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.pyright]
+include = ["pixelflasher_core"]
+exclude = ["build", "dist"]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+reportMissingTypeStubs = false
+reportPrivateUsage = false
+reportUnnecessaryComparison = false
+reportUnnecessaryIsInstance = false

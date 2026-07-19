@@ -9,21 +9,26 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import cast
 
 from .bootloader import BootloaderLockPolicy
 from .contracts import (
+    OPERATION_PLAN_TTL_SECONDS,
     AppCommand,
     AppSnapshot,
     DeviceInfo,
     FileArtifact,
+    OperationBatch,
     OperationPlan,
+    OperationPostcondition,
+    OperationRisk,
     ProcessRequest,
+    confirmation_serial_suffix,
 )
 from .safety import SafetyPolicy
-
 
 PLANNED_COMMANDS = frozenset(
     {
@@ -114,6 +119,37 @@ class PlanCompilation:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class BatchCompilation:
+    batch: OperationBatch | None
+    code: str = "ok"
+    message: str = ""
+    destructive: bool = True
+    requires_confirmation: bool = True
+    confirmation_text: str = ""
+    confirmation_nonce: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.batch is not None and self.code == "ok"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "code": self.code,
+            "message": self.message,
+            "destructive": self.destructive,
+            "requires_confirmation": self.requires_confirmation,
+            "batch": self.batch.to_dict() if self.batch is not None else None,
+            "confirmation": {
+                "required_text": self.confirmation_text,
+                "nonce": self.confirmation_nonce,
+            }
+            if self.confirmation_text
+            else None,
+        }
+
+
 class ProcessedArtifactRepository:
     """Backend-only registry of verified, extracted image artifacts."""
 
@@ -165,6 +201,8 @@ class OperationPlanner:
         bootloader_lock_policy: BootloaderLockPolicy | None = None,
         challenge_ttl_seconds: float = 300.0,
         maximum_pending_challenges: int = 128,
+        clock: Callable[[], float] = time.time,
+        challenge_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if hash_chunk_size <= 0:
             raise ValueError("hash_chunk_size must be positive")
@@ -176,6 +214,8 @@ class OperationPlanner:
         self.bootloader_lock_policy = bootloader_lock_policy or BootloaderLockPolicy()
         self.challenge_ttl_seconds = challenge_ttl_seconds
         self.maximum_pending_challenges = maximum_pending_challenges
+        self.clock = clock
+        self._challenge_clock = challenge_clock
         self._challenge_lock = threading.RLock()
         self._issued_challenges: OrderedDict[str, float] = OrderedDict()
 
@@ -239,23 +279,141 @@ class OperationPlanner:
             preview,
         )
 
+    def compile_batch(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        *,
+        preview: bool = False,
+    ) -> BatchCompilation:
+        """Compile one ordered flash plan per selected serial.
+
+        Batch compilation deliberately supports only ``flash.execute``.  A
+        single batch-level challenge covers the stable fingerprint of every
+        per-device plan; browser-supplied plans, fingerprints and tokens are
+        never accepted.
+        """
+
+        if command.kind != "flash.execute":
+            return BatchCompilation(
+                None,
+                "batch_kind_not_supported",
+                "OperationBatch supports only flash.execute",
+            )
+        if command.expected_revision is None:
+            return BatchCompilation(None, "revision_required", "expected_revision is required")
+        if command.expected_revision != snapshot.revision:
+            return BatchCompilation(
+                None,
+                "stale_revision",
+                (
+                    f"state revision changed: expected {command.expected_revision}, "
+                    f"current {snapshot.revision}"
+                ),
+            )
+        if command.target_serial is not None or "serial" in command.payload:
+            return BatchCompilation(
+                None,
+                "batch_target_not_allowed",
+                "batch targets are derived from the canonical selected serials",
+            )
+        if any(
+            key in command.payload
+            for key in ("confirmationToken", "confirmation_token", "fingerprint", "plans")
+        ):
+            return BatchCompilation(
+                None,
+                "untrusted_batch_metadata",
+                "batch plans, fingerprints and confirmation tokens are backend-owned",
+            )
+        unknown = set(command.payload) - {"confirmationText"}
+        if unknown:
+            return BatchCompilation(
+                None,
+                "invalid_plan_payload",
+                f"unsupported semantic field: {sorted(unknown)[0]}",
+            )
+        if len(snapshot.selected_serials) < 2:
+            return BatchCompilation(
+                None,
+                "batch_targets_required",
+                "at least two selected devices are required for a flash batch",
+            )
+
+        plans: list[OperationPlan] = []
+        for serial in snapshot.selected_serials:
+            per_device = replace(
+                command,
+                target_serial=serial,
+                payload={},
+                operation_plan=None,
+                destructive=False,
+                requires_confirmation=False,
+            )
+            try:
+                plan, destructive, requires_confirmation = self._flash(per_device, snapshot)
+            except PlanningError as error:
+                return BatchCompilation(
+                    None,
+                    error.code,
+                    f"{serial}: {error}",
+                )
+            if not destructive or not requires_confirmation or plan.dry_run:
+                return BatchCompilation(
+                    None,
+                    "batch_plan_not_destructive",
+                    "flash batches require destructive, non-dry-run plans",
+                )
+            plans.append(
+                replace(
+                    plan,
+                    confirmation_nonce=None,
+                    confirmation_token=None,
+                    risk=OperationRisk.DESTRUCTIVE,
+                )
+            )
+        try:
+            created = self.clock()
+            batch = OperationBatch(
+                tuple(plans),
+                created=created,
+                expires=min(
+                    created + OPERATION_PLAN_TTL_SECONDS,
+                    *(plan.expires for plan in plans),
+                ),
+            )
+        except (TypeError, ValueError) as error:
+            return BatchCompilation(None, "batch_invalid", str(error))
+        return self._bind_batch_confirmation(command, snapshot, batch, preview)
+
     def revalidate(
         self,
         plan: OperationPlan,
         snapshot: AppSnapshot,
     ) -> tuple[str, str] | None:
+        now = self.clock()
+        if plan.expires <= now:
+            return "plan_expired", "operation plan expired before execution"
+        if plan.created > now + 1.0:
+            return "plan_created_in_future", "operation plan creation time is invalid"
         if plan.target_serial:
             if plan.target_serial not in snapshot.selected_serials:
                 return "target_serial_changed", "planned target is no longer selected"
-            if plan.expected_device_state:
-                device = next(
-                    (item for item in snapshot.devices if item.serial == plan.target_serial),
-                    None,
-                )
+            device = next(
+                (item for item in snapshot.devices if item.serial == plan.target_serial),
+                None,
+            )
+            if plan.expected_device_state or plan.expected_codename:
                 if device is None:
                     return "device_disconnected", "planned target is no longer connected"
                 if not device.online or device.mode in {"offline", "unauthorized"}:
                     return "device_disconnected", "planned target is not online"
+            if plan.expected_codename and device is not None:
+                if not device.codename:
+                    return "device_codename_unavailable", "device codename is unavailable"
+                if device.codename.casefold() != plan.expected_codename.casefold():
+                    return "device_codename_changed", "device codename changed after planning"
+            if plan.expected_device_state and device is not None:
                 if device.mode != plan.expected_device_state:
                     return "device_state_changed", "device mode changed after planning"
         if plan.plan_revision != snapshot.plan.revision:
@@ -266,6 +424,11 @@ class OperationPlanner:
             return "firmware_hash_changed", "selected firmware changed after planning"
         if plan.boot_hash != snapshot.boot.hash:
             return "boot_hash_changed", "selected boot image changed after planning"
+        if (
+            plan.snapshot_revision is not None
+            and plan.snapshot_revision != snapshot.revision
+        ):
+            return "snapshot_revision_changed", "application revision changed after planning"
         for artifact in plan.artifacts:
             issue = self._revalidate_artifact(artifact)
             if issue is not None:
@@ -283,19 +446,142 @@ class OperationPlanner:
         if not isinstance(target, str):
             raise PlanningError("invalid_reboot_mode", "reboot mode must be a string")
         target = target.strip().casefold()
-        aliases = {"system": "", "recovery": "recovery", "bootloader": "bootloader", "fastbootd": "fastboot"}
-        if target not in aliases:
+        supported_targets = {
+            "system",
+            "recovery",
+            "bootloader",
+            "fastbootd",
+            "sideload",
+            "safemode",
+            "download",
+        }
+        if target not in supported_targets:
             raise PlanningError("invalid_reboot_mode", f"unsupported reboot mode: {target}")
-        tool = self._tool_for_device(snapshot, device)
-        argv = [tool, "-s", device.serial, "reboot"]
-        if aliases[target]:
-            argv.append(aliases[target])
+
+        if target == "download":
+            # Android exposes no portable ADB/fastboot state for vendor
+            # download modes.  The legacy path returned success after any
+            # reconnect, which is precisely the false-positive contract the
+            # modern runner forbids.
+            raise PlanningError(
+                "reboot_download_unverifiable",
+                "download mode has no portable backend postcondition and is not supported",
+            )
+
+        adb = self._adb(snapshot) if device.mode in _ADB_STATES else None
+        fastboot = (
+            self._fastboot(snapshot)
+            if device.mode in {"fastboot", "fastbootd"}
+            else None
+        )
+        requests: tuple[ProcessRequest, ...]
+        postconditions: tuple[OperationPostcondition, ...]
+
+        if target == "safemode":
+            if device.mode != "adb":
+                raise PlanningError(
+                    "safe_mode_adb_required",
+                    "safe mode reboot requires the target in Android ADB mode",
+                )
+            if not device.root:
+                raise PlanningError(
+                    "safe_mode_root_required",
+                    "safe mode reboot requires a backend-observed rooted device",
+                )
+            assert adb is not None
+            requests = (
+                ProcessRequest(
+                    (
+                        adb,
+                        "-s",
+                        device.serial,
+                        "shell",
+                        "su",
+                        "-c",
+                        "setprop persist.sys.safemode 1",
+                    ),
+                    timeout_seconds=30.0,
+                ),
+                ProcessRequest(
+                    (adb, "-s", device.serial, "reboot"),
+                    timeout_seconds=30.0,
+                ),
+            )
+            postconditions = (
+                OperationPostcondition(
+                    "device_reachable",
+                    {"mode": "system", "bootCompleted": True},
+                    "device completes a safe-mode Android boot",
+                ),
+                OperationPostcondition(
+                    "safe_mode_active",
+                    {"active": True},
+                    "AOSP ro.sys.safemode confirms safe mode",
+                ),
+            )
+        elif target == "sideload":
+            if device.mode not in {"adb", "recovery"} or adb is None:
+                raise PlanningError(
+                    "sideload_reboot_adb_required",
+                    "sideload reboot requires Android ADB or recovery transport",
+                )
+            requests = (
+                ProcessRequest(
+                    (adb, "-s", device.serial, "reboot", "sideload"),
+                    timeout_seconds=30.0,
+                ),
+            )
+            postconditions = (
+                OperationPostcondition(
+                    "device_mode",
+                    {"mode": "sideload"},
+                    "device reconnects in ADB sideload mode",
+                ),
+            )
+        else:
+            adb_target = {
+                "system": None,
+                "recovery": "recovery",
+                "bootloader": "bootloader",
+                "fastbootd": "fastboot",
+            }
+            fastboot_target = {
+                "system": None,
+                "recovery": "recovery",
+                "bootloader": "bootloader",
+                "fastbootd": "fastboot",
+            }
+            if adb is not None:
+                argument = adb_target[target]
+                argv = (adb, "-s", device.serial, "reboot") + (
+                    (argument,) if argument is not None else ()
+                )
+            elif fastboot is not None:
+                argument = fastboot_target[target]
+                argv = (fastboot, "-s", device.serial, "reboot") + (
+                    (argument,) if argument is not None else ()
+                )
+            else:
+                raise PlanningError(
+                    "reboot_transport_unsupported",
+                    f"cannot reboot from {device.mode} to {target}",
+                )
+            requests = (ProcessRequest(argv, timeout_seconds=30.0),)
+            postconditions = (
+                OperationPostcondition(
+                    "device_mode",
+                    {"mode": target},
+                    "device reconnects in the requested mode",
+                ),
+            )
         return (
             self._base_plan(
                 snapshot,
                 device,
-                (ProcessRequest(tuple(argv), timeout_seconds=30.0),),
+                requests,
                 label=f"Reboot {device.serial} to {target}",
+                risk=OperationRisk.MUTATING,
+                postconditions=postconditions,
             ),
             False,
             False,
@@ -322,6 +608,10 @@ class OperationPlanner:
             label=f"Switch {device.serial} to slot {slot}",
             slots=(slot,),
             data_behavior="switch",
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition("active_slot", {"slot": slot}),
+            ),
         )
         return plan, True, True
 
@@ -349,6 +639,13 @@ class OperationPlanner:
             ),
             label=f"{action.title()} bootloader on {device.serial}",
             data_behavior=f"wipe_{action}",
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition(
+                    "bootloader_state",
+                    {"state": "unlocked" if action == "unlock" else "locked"},
+                ),
+            ),
         )
         return plan, True, True
 
@@ -395,6 +692,17 @@ class OperationPlanner:
             partitions=(partition,),
             slots=(slot,) if slot else (),
             artifacts=(artifact,),
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition(
+                    "partition_written",
+                    {
+                        "partition": partition,
+                        "slot": slot,
+                        "sha256": artifact.sha256,
+                    },
+                ),
+            ),
         )
         return plan, True, True
 
@@ -429,6 +737,14 @@ class OperationPlanner:
             ),
             label=f"Live boot {device.serial}",
             artifacts=(artifact,),
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "live_boot_active",
+                    {"sha256": artifact.sha256},
+                    "the device is running the verified temporary boot image",
+                ),
+            ),
         )
         return plan, False, True
 
@@ -468,6 +784,11 @@ class OperationPlanner:
                     "OTA firmware must be verified and processed before sideload",
                 )
             artifact = self._firmware_artifact(snapshot, required=True)
+            if artifact is None:
+                raise PlanningError(
+                    "firmware_required",
+                    "no canonical OTA firmware is selected",
+                )
             adb = self._adb(snapshot)
             requests = [
                 ProcessRequest(
@@ -488,6 +809,16 @@ class OperationPlanner:
                 tuple(requests),
                 label=f"Sideload OTA on {device.serial}",
                 artifacts=(artifact,),
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "firmware_applied",
+                        {
+                            "firmwareSha256": artifact.sha256,
+                            "build": snapshot.firmware.build,
+                        },
+                    ),
+                ),
             )
             compiled = (plan, True, True)
         else:
@@ -495,7 +826,16 @@ class OperationPlanner:
                 raise PlanningError("flash_mode_unsupported", f"unsupported flash mode: {snapshot.plan.mode}")
             compiled = self._image_flash(command, snapshot, device, mode, options)
         if snapshot.plan.dry_run:
-            return replace(compiled[0], dry_run=True), False, False
+            return (
+                replace(
+                    compiled[0],
+                    dry_run=True,
+                    risk=OperationRisk.READ_ONLY,
+                    postconditions=(),
+                ),
+                False,
+                False,
+            )
         return compiled
 
     def _image_flash(
@@ -559,7 +899,10 @@ class OperationPlanner:
                 Sequence,
             ):
                 raise PlanningError("partition_selection_invalid", "partitions must be an array")
-            requested = tuple(self._partition(item) for item in selected_partitions)
+            requested = tuple(
+                self._partition(item)
+                for item in cast(Sequence[object], selected_partitions)
+            )
             if not requested:
                 raise PlanningError(
                     "partition_selection_empty",
@@ -715,6 +1058,19 @@ class OperationPlanner:
             slots=tuple(dict.fromkeys(slots)),
             data_behavior="wipe" if wipe else "preserve",
             artifacts=tuple(artifacts),
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition(
+                    "flash_applied",
+                    {
+                        "firmwareSha256": snapshot.firmware.hash,
+                        "partitions": tuple(partitions),
+                        "slots": tuple(dict.fromkeys(slots)),
+                        "dataBehavior": "wipe" if wipe else "preserve",
+                        "build": snapshot.firmware.build,
+                    },
+                ),
+            ),
         )
         return plan, True, True
 
@@ -797,11 +1153,20 @@ class OperationPlanner:
         data_behavior: str = "preserve",
         artifacts: tuple[FileArtifact, ...] = (),
         dry_run: bool = False,
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
     ) -> OperationPlan:
+        created = self.clock()
         return OperationPlan(
             requests=requests,
             label=label,
+            created=created,
+            expires=created + OPERATION_PLAN_TTL_SECONDS,
+            risk=risk,
+            postconditions=postconditions,
+            snapshot_revision=snapshot.revision,
             target_serial=device.serial,
+            expected_codename=device.codename,
             expected_device_state=device.mode,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
@@ -827,7 +1192,10 @@ class OperationPlanner:
             {
                 "kind": command.kind,
                 "revision": snapshot.revision,
-                "plan": plan.to_dict(),
+                # Lifecycle metadata changes between preview and execute.  The
+                # stable execution fingerprint still binds every request,
+                # target, hash, risk and postcondition.
+                "execution_fingerprint": plan.execution_fingerprint(),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -893,6 +1261,66 @@ class OperationPlanner:
             nonce,
         )
 
+    def _bind_batch_confirmation(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        batch: OperationBatch,
+        preview: bool,
+    ) -> BatchCompilation:
+        semantic = json.dumps(
+            {
+                "kind": command.kind,
+                "revision": snapshot.revision,
+                "fingerprint": batch.fingerprint,
+                "serials": batch.target_serials,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        nonce = hmac.new(self._confirmation_secret, semantic, hashlib.sha256).hexdigest()[:32]
+        batch = replace(batch, confirmation_nonce=nonce)
+        challenge_key = batch.confirmation_challenge()
+        text = batch.required_confirmation_text()
+        supplied = command.payload.get("confirmationText")
+
+        if preview:
+            self._issue_challenge(challenge_key)
+            return BatchCompilation(
+                batch,
+                confirmation_text=text,
+                confirmation_nonce=nonce,
+            )
+        if supplied is None:
+            self._issue_challenge(challenge_key)
+            code = "confirmation_text_required"
+            message = "preview the batch and enter the exact confirmation text"
+        elif not isinstance(supplied, str) or not hmac.compare_digest(supplied, text):
+            self._issue_challenge(challenge_key)
+            code = "confirmation_text_mismatch"
+            message = "batch confirmation text did not exactly match the backend challenge"
+        elif not self._challenge_is_pending(challenge_key):
+            self._issue_challenge(challenge_key)
+            code = "confirmation_preview_required"
+            message = "a backend batch preview is required before confirmation"
+        elif not self._consume_challenge(challenge_key):
+            self._issue_challenge(challenge_key)
+            code = "confirmation_preview_required"
+            message = "a backend batch preview is required before confirmation"
+        else:
+            return BatchCompilation(
+                replace(batch, confirmation_token=batch.confirmation_challenge()),
+                confirmation_text=text,
+                confirmation_nonce=nonce,
+            )
+        return BatchCompilation(
+            batch,
+            code,
+            message,
+            confirmation_text=text,
+            confirmation_nonce=nonce,
+        )
+
     def bind_reinforced_confirmation(
         self,
         command: AppCommand,
@@ -915,7 +1343,7 @@ class OperationPlanner:
         )
 
     def _issue_challenge(self, challenge_key: str) -> None:
-        now = time.monotonic()
+        now = self._challenge_clock()
         with self._challenge_lock:
             self._prune_challenges_locked(now)
             self._issued_challenges[challenge_key] = now + self.challenge_ttl_seconds
@@ -924,14 +1352,14 @@ class OperationPlanner:
                 self._issued_challenges.popitem(last=False)
 
     def _challenge_is_pending(self, challenge_key: str) -> bool:
-        now = time.monotonic()
+        now = self._challenge_clock()
         with self._challenge_lock:
             self._prune_challenges_locked(now)
             expiry = self._issued_challenges.get(challenge_key)
             return expiry is not None and expiry > now
 
     def _consume_challenge(self, challenge_key: str) -> bool:
-        now = time.monotonic()
+        now = self._challenge_clock()
         with self._challenge_lock:
             self._prune_challenges_locked(now)
             expiry = self._issued_challenges.pop(challenge_key, None)
@@ -948,21 +1376,24 @@ class OperationPlanner:
         self,
         kind: str,
         plan: OperationPlan,
-        snapshot: AppSnapshot,
+        _snapshot: AppSnapshot,
     ) -> str:
-        serial = plan.target_serial or "UNKNOWN"
-        device = next((item for item in snapshot.devices if item.serial == serial), None)
-        codename = device.codename if device and device.codename else "unknown"
+        serial = plan.target_serial or ""
+        suffix = confirmation_serial_suffix(serial)
         if kind == "device.switchSlot":
-            return f"SWITCH {serial} TO SLOT {plan.slots[0]}"
+            if not plan.slots:
+                raise ValueError("slot confirmation requires a canonical target slot")
+            return f"SLOT {plan.slots[0]} {suffix}"
         if kind == "device.bootloader.unlock":
-            return f"UNLOCK {serial} {codename}"
+            return f"UNLOCK {suffix}"
         if kind == "device.bootloader.lock":
-            return f"LOCK {serial} {codename}"
+            return f"LOCK {suffix}"
         if kind == "partitions.erase":
-            partition = plan.partitions[0] if plan.partitions else "UNKNOWN"
-            return f"ERASE {serial} {partition}"
-        return f"WIPE {serial} {codename}"
+            if not plan.partitions:
+                raise ValueError("erase confirmation requires a canonical partition")
+            partition = plan.partitions[0]
+            return f"ERASE {partition} {suffix}"
+        return f"WIPE {suffix}"
 
     def _device(self, command: AppCommand, snapshot: AppSnapshot) -> DeviceInfo:
         payload_serial = command.payload.get("serial")
@@ -991,13 +1422,6 @@ class OperationPlanner:
         if device.mode != "fastboot":
             raise PlanningError("fastboot_required", "operation requires the target in fastboot mode")
         return device
-
-    def _tool_for_device(self, snapshot: AppSnapshot, device: DeviceInfo) -> str:
-        if device.mode in _ADB_STATES:
-            return self._adb(snapshot)
-        if device.mode in {"fastboot", "fastbootd"}:
-            return self._fastboot(snapshot)
-        raise PlanningError("device_state_unsupported", f"unsupported device state: {device.mode}")
 
     @staticmethod
     def _adb(snapshot: AppSnapshot) -> str:

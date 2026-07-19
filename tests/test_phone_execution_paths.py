@@ -10,7 +10,6 @@ from unittest.mock import patch
 from phone import Device
 from runtime import run_shell, run_shell2
 
-
 PF_MODULES_SOURCE = Path("pf_modules.py")
 PHONE_SOURCE = Path("phone.py")
 MAIN_SOURCE = Path("Main.py")
