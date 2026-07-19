@@ -556,6 +556,91 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 [item["argv"] for item in result.value["planned_requests"]],
             )
 
+    def test_factory_custom_and_ota_dry_runs_are_stable_and_process_free(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = (
+                ("factory", "factory", "fastboot", "FASTBOOT"),
+                ("customFlash", "custom", "fastboot", "FASTBOOT"),
+                ("OTA", "ota", "sideload", "ADB"),
+            )
+            for mode, firmware_type, device_mode, executable in cases:
+                with self.subTest(mode=mode):
+                    package = root / f"{firmware_type}.zip"
+                    package.write_bytes(firmware_type.encode("ascii"))
+                    firmware = FirmwareInfo(
+                        str(package),
+                        firmware_type,
+                        "42",
+                        digest(package),
+                        True,
+                        True,
+                    )
+                    plan = FlashPlan(
+                        mode,
+                        {"verify": True, "noReboot": True},
+                        revision=7,
+                        fingerprint=f"dry-{firmware_type}",
+                        dry_run=True,
+                    )
+                    repository = ProcessedArtifactRepository()
+                    if firmware_type != "ota":
+                        image = root / f"{firmware_type}-boot.img"
+                        image.write_bytes(f"{firmware_type}-boot".encode("ascii"))
+                        repository.register(
+                            (
+                                FileArtifact(
+                                    str(image.resolve()),
+                                    digest(image),
+                                    "partition:boot",
+                                ),
+                            ),
+                            firmware_hash=firmware.hash,
+                        )
+                    planner = OperationPlanner(
+                        artifact_repository=repository,
+                        clock=lambda: 100.0,
+                    )
+                    snapshot = snapshot_for(
+                        device_mode,
+                        plan=plan,
+                        firmware=firmware,
+                    )
+
+                    first = planner.compile(command("flash.execute"), snapshot)
+                    second = planner.compile(command("flash.execute"), snapshot)
+
+                    self.assertTrue(first.ok)
+                    self.assertTrue(second.ok)
+                    self.assertIsNotNone(first.plan)
+                    self.assertIsNotNone(second.plan)
+                    assert first.plan is not None and second.plan is not None
+                    self.assertEqual(
+                        first.plan.execution_fingerprint(),
+                        second.plan.execution_fingerprint(),
+                    )
+                    self.assertEqual(300.0, first.plan.expires - first.plan.created)
+                    self.assertTrue(first.plan.dry_run)
+                    self.assertTrue(all(request.argv[0] == executable for request in first.plan.requests))
+
+                    transport = FakeProcessTransport([])
+                    store = AppStateStore(snapshot)
+                    result = CommandEngine(
+                        store=store,
+                        executor=CommandExecutor(transport),
+                        operation_planner=planner,
+                        safety_policy=SafetyPolicy(clock=lambda: 100.0),
+                        interaction_handler=lambda _request: self.fail(
+                            "dry-run must not request confirmation"
+                        ),
+                    ).execute(command("flash.execute"))
+
+                    self.assertEqual(OperationStatus.SUCCESS, result.status)
+                    self.assertEqual("dry_run_succeeded", result.code)
+                    self.assertEqual([], transport.calls)
+                    self.assertEqual(firmware.hash, store.snapshot().firmware.hash)
+                    self.assertEqual(plan.fingerprint, store.snapshot().plan.fingerprint)
+
     def test_custom_firmware_artifacts_require_canonical_processed_state(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

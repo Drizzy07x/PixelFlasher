@@ -800,7 +800,7 @@
         "pixelflasher_core/planner.py:OperationPlanner._flash",
         "pixelflasher_core/executor.py:CommandExecutor"
       ],
-      "gap": "Custom payload packages and remaining transition and batch variants are unsupported.",
+      "gap": "Single-device factory, OTA and custom dry-runs are process-free and stable; multi-device preview/simulation remains unsupported.",
       "exitCriteria": [
         "Generate and inspect a flash plan without device writes is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -815,7 +815,8 @@
         "linux"
       ],
       "tests": [
-        "tests/test_operation_planner.py:test_explicit_dry_run_launches_zero_subprocesses"
+        "tests/test_operation_planner.py:test_explicit_dry_run_launches_zero_subprocesses",
+        "tests/test_operation_planner.py:test_factory_custom_and_ota_dry_runs_are_stable_and_process_free"
       ],
       "blockReason": null,
       "releaseGate": true,
