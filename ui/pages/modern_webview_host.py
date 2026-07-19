@@ -640,6 +640,15 @@ class ModernWebViewFrame(wx.Frame):
                 result=serialized,
                 error=error,
             )
+        except PublicProjectionError:
+            message = response_envelope(
+                request.request_id,
+                ok=False,
+                error={
+                    "code": "public_result_invalid",
+                    "message": "The operation returned an invalid public result.",
+                },
+            )
         except Exception:
             message = response_envelope(
                 request.request_id,
@@ -747,11 +756,16 @@ class ModernWebViewFrame(wx.Frame):
             event_type = "runtime"
             with self._operation_commands_lock:
                 command = self._operation_commands.get(event.result.operation_id)
-            payload = (
-                project_operation_result(command, event.result)
-                if command is not None
-                else _mapping(event.result)
-            )
+            if command == "tools.wifi.discover":
+                # Discovery data belongs only to the correlated request. The
+                # terminal runtime event carries status, never LAN endpoints.
+                payload = public_operation_summary(event.result)
+            else:
+                payload = (
+                    project_operation_result(command, event.result)
+                    if command is not None
+                    else _mapping(event.result)
+                )
         else:
             return
         message = event_envelope(

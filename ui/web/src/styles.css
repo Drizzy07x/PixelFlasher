@@ -2693,6 +2693,88 @@ code {
   padding: 0.85rem;
 }
 
+.wifi-discovery-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.wifi-discovery-toolbar strong {
+  color: var(--text-soft);
+  font-size: 0.7rem;
+}
+
+.wifi-discovery-toolbar p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.59rem;
+}
+
+.wifi-discovery-results {
+  display: grid;
+  max-height: 15rem;
+  margin: 0 0 0.65rem;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  list-style: none;
+}
+
+.wifi-discovery-results li {
+  border-bottom: 1px solid var(--border);
+}
+
+.wifi-discovery-results li:last-child {
+  border-bottom: 0;
+}
+
+.wifi-discovery-results button {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.wifi-discovery-results button:hover,
+.wifi-discovery-results button:focus-visible,
+.wifi-discovery-results button[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.wifi-discovery-results button > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.wifi-discovery-results strong,
+.wifi-discovery-results code {
+  overflow-wrap: anywhere;
+  font-size: 0.62rem;
+}
+
+.wifi-discovery-results small {
+  color: var(--muted);
+  font-size: 0.55rem;
+}
+
+.wifi-discovery-results code {
+  color: var(--accent-text);
+}
+
 .tool-form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) auto;

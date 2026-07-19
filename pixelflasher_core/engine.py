@@ -1919,7 +1919,15 @@ class CommandEngine:
                         )
                 if operation_started:
                     try:
-                        self.store.complete_operation(result, boot=promoted_boot)
+                        # LAN announcements are ephemeral, unauthenticated UI
+                        # suggestions. Return them only to the correlated bridge
+                        # request; never retain them in AppSnapshot or support data.
+                        stored_result = (
+                            replace(result, value=None, stdout="", stderr="")
+                            if command.kind == "tools.wifi.discover"
+                            else result
+                        )
+                        self.store.complete_operation(stored_result, boot=promoted_boot)
                     except (StaleRevisionError, TypeError, ValueError) as error:
                         fallback = OperationResult.failed(
                             command.operation_id,

@@ -4804,3 +4804,31 @@ msgstr ""
 msgctxt "web.boot.provenance"
 msgid "Provenance: {value}"
 msgstr ""
+
+msgctxt "web.tools.wifiDiscover"
+msgid "Discover devices"
+msgstr "发现设备"
+
+msgctxt "web.tools.wifiDiscoverDetail"
+msgid "Find bounded ADB services advertised on the local network."
+msgstr "查找本地网络上公布的受限 ADB 服务。"
+
+msgctxt "web.tools.wifiDiscoverAction"
+msgid "Discover devices"
+msgstr "发现设备"
+
+msgctxt "web.tools.wifiDiscovered"
+msgid "Discovered wireless devices"
+msgstr "发现的无线设备"
+
+msgctxt "web.tools.wifiNone"
+msgid "No compatible wireless ADB services were found."
+msgstr "未找到兼容的无线 ADB 服务。"
+
+msgctxt "web.tools.wifiUntrusted"
+msgid "Network announcements are untrusted suggestions. Selecting one never connects automatically."
+msgstr "网络公告是不可信的建议。选择公告绝不会自动连接。"
+
+msgctxt "web.tools.wifiConnectGuard"
+msgid "Discovery is available, but pairing and connection still require one selected ADB device."
+msgstr "发现功能可用，但配对和连接仍需要选择一个 ADB 设备。"

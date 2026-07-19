@@ -45,6 +45,7 @@ DEVICE_TOOL_COMMANDS = frozenset(
         "tools.adbShell",
         "tools.scrcpy",
         "tools.wifi",
+        "tools.wifi.discover",
         "device.inspect",
     }
 )
@@ -86,6 +87,26 @@ _LOGCAT_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _PUSH_DESTINATIONS = frozenset({"/data/local/tmp/", "/sdcard/Download/"})
 _REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _PAIRING_CODE_PATTERN = re.compile(r"^[0-9]{6}$")
+_MDNS_DAEMON_PATTERN = re.compile(r"^mdns daemon version \[([1-9][0-9]{0,5})\]$")
+_MDNS_SERVICES_HEADER = "List of discovered mdns services"
+_MDNS_INSTANCE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
+_MDNS_SERVICE_TYPES = {
+    "_adb-tls-pairing._tcp": "pairing",
+    "_adb-tls-connect._tcp": "connect",
+    "_adb._tcp": "legacy",
+}
+_MDNS_LOCAL_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
+_MDNS_CHECK_OUTPUT_LIMIT = 1_024
+_MDNS_SERVICES_OUTPUT_LIMIT = 255 * 1_024
+_MDNS_AGGREGATE_OUTPUT_LIMIT = _MDNS_CHECK_OUTPUT_LIMIT + _MDNS_SERVICES_OUTPUT_LIMIT
+_MDNS_MAX_ROWS = 256
+_MDNS_MAX_LINE_BYTES = 512
 _GETPROP_LINE_PATTERN = re.compile(r"^\[([A-Za-z0-9_.-]{1,128})\]: \[(.*)\]$")
 _INSPECTION_ACTIONS = frozenset({"properties", "screenXml", "bootloaderVersions", "pifPrint"})
 _GETPROP_OUTPUT_LIMIT = 1024 * 1024
@@ -336,6 +357,154 @@ class DeviceInspectionParseError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class MdnsDiscoveryParseError(ValueError):
+    """Untrusted ADB mDNS output failed the closed discovery contract."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _mdns_endpoint(value: str) -> tuple[str, int, str] | None:
+    host, separator, raw_port = value.rpartition(":")
+    if not separator or not host or ":" in host:
+        return None
+    if not raw_port.isascii() or not raw_port.isdecimal():
+        return None
+    port = int(raw_port)
+    if not 1 <= port <= 65_535 or str(port) != raw_port:
+        return None
+    try:
+        address = ipaddress.IPv4Address(host)
+    except ipaddress.AddressValueError:
+        return None
+    if str(address) != host:
+        return None
+    if address.is_loopback or address.is_multicast or address.is_unspecified or address.is_reserved:
+        return None
+    if not any(address in network for network in _MDNS_LOCAL_NETWORKS):
+        return None
+    endpoint = f"{address}:{port}"
+    return str(address), port, endpoint
+
+
+def parse_adb_mdns_discovery(output: str) -> dict[str, object]:
+    """Parse bounded, unauthenticated LAN announcements into a closed DTO.
+
+    The two expected command responses are concatenated by ``CommandExecutor``:
+    ``adb mdns check`` followed by ``adb mdns services``.  Announcements are
+    suggestions only; this function never changes selection or connection
+    state and deliberately omits all raw process output.
+    """
+
+    if not isinstance(output, str):
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_output_invalid",
+            "ADB mDNS output must be decoded text",
+        )
+    if "\x00" in output or "\ufffd" in output:
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_output_invalid",
+            "ADB mDNS output contains invalid text",
+        )
+    encoded_size = len(output.encode("utf-8"))
+    if encoded_size > _MDNS_AGGREGATE_OUTPUT_LIMIT:
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_output_too_large",
+            "ADB mDNS output exceeds the backend limit",
+        )
+    if "\r" in output.replace("\r\n", ""):
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_output_invalid",
+            "ADB mDNS output contains an invalid line ending",
+        )
+    lines = output.replace("\r\n", "\n").splitlines()
+    if len(lines) < 2:
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_unavailable",
+            "ADB mDNS discovery is unavailable",
+        )
+    if len(lines) > _MDNS_MAX_ROWS + 2:
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_row_limit_exceeded",
+            "ADB mDNS returned too many service rows",
+        )
+    if _MDNS_DAEMON_PATTERN.fullmatch(lines[0]) is None:
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_unavailable",
+            "ADB mDNS discovery is unavailable",
+        )
+    if lines[1] != _MDNS_SERVICES_HEADER:
+        raise MdnsDiscoveryParseError(
+            "wifi_mdns_header_invalid",
+            "ADB mDNS returned an unexpected services header",
+        )
+
+    discovered: dict[tuple[str, str], dict[str, object]] = {}
+    discarded_count = 0
+    for line in lines[2:]:
+        if len(line.encode("utf-8")) > _MDNS_MAX_LINE_BYTES:
+            raise MdnsDiscoveryParseError(
+                "wifi_mdns_line_too_large",
+                "ADB mDNS returned an oversized service row",
+            )
+        if not line or any(
+            (ord(character) < 32 and character != "\t") or ord(character) == 127
+            for character in line
+        ):
+            raise MdnsDiscoveryParseError(
+                "wifi_mdns_output_invalid",
+                "ADB mDNS returned invalid service text",
+            )
+        parts = line.split("\t")
+        if len(parts) != 3:
+            discarded_count += 1
+            continue
+        instance, raw_service_type, raw_endpoint = parts
+        service_type = _MDNS_SERVICE_TYPES.get(raw_service_type)
+        endpoint = _mdns_endpoint(raw_endpoint)
+        if (
+            _MDNS_INSTANCE_PATTERN.fullmatch(instance) is None
+            or service_type is None
+            or endpoint is None
+        ):
+            discarded_count += 1
+            continue
+        host, port, canonical_endpoint = endpoint
+        identity = (service_type, canonical_endpoint)
+        if identity in discovered:
+            discarded_count += 1
+            continue
+        service_id = hashlib.sha256(
+            f"{service_type}\0{canonical_endpoint}".encode("ascii")
+        ).hexdigest()
+        discovered[identity] = {
+            "id": service_id,
+            "instance": instance,
+            "serviceType": service_type,
+            "host": host,
+            "port": port,
+            "endpoint": canonical_endpoint,
+            "addressFamily": "ipv4",
+        }
+
+    services = sorted(
+        discovered.values(),
+        key=lambda item: (
+            cast(str, item["serviceType"]),
+            cast(str, item["endpoint"]),
+            cast(str, item["instance"]),
+        ),
+    )
+    return {
+        "action": "discover",
+        "count": len(services),
+        "services": services,
+        "discardedCount": discarded_count,
+        "bounded": True,
+    }
 
 
 def _bounded_output_bytes(value: str, *, maximum: int, kind: str) -> None:
@@ -688,6 +857,8 @@ class DeviceToolsService:
             )
 
         self._revision(command, snapshot)
+        if command.kind == "tools.wifi.discover":
+            return self._compile_wifi_discovery(command, snapshot, self._adb(snapshot))
         device = self._device(command, snapshot)
         adb = self._adb(snapshot)
         if command.kind == "tools.scrcpy":
@@ -771,6 +942,34 @@ class DeviceToolsService:
             plan,
             "scrcpy",
             execution=_EXECUTION_LAUNCH,
+        )
+
+    def _compile_wifi_discovery(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        adb: str,
+    ) -> DeviceToolCompilation:
+        self._validate_payload(command, set())
+        requests = (
+            ProcessRequest(
+                (adb, "mdns", "check"),
+                timeout_seconds=5.0,
+                output_limit_bytes=_MDNS_CHECK_OUTPUT_LIMIT,
+            ),
+            ProcessRequest(
+                (adb, "mdns", "services"),
+                timeout_seconds=10.0,
+                output_limit_bytes=_MDNS_SERVICES_OUTPUT_LIMIT,
+            ),
+        )
+        return DeviceToolCompilation(
+            self._host_plan(
+                snapshot,
+                requests,
+                label="Discover bounded ADB mDNS services",
+            ),
+            "wifi.discover",
         )
 
     def _compile_wifi(
@@ -994,6 +1193,8 @@ class DeviceToolsService:
         if not compilation.action.startswith("wifi."):
             return result
         action = compilation.action.partition(".")[2]
+        if action == "discover":
+            return self._finalize_wifi_discovery(result)
         if result.status is OperationStatus.CANCELLED or result.code in {
             "outcome_unknown",
             "postcondition_mismatch",
@@ -1064,6 +1265,54 @@ class DeviceToolsService:
             exit_code=result.exit_code,
             stdout="" if redact_output else result.stdout,
             stderr="" if redact_output else result.stderr,
+            value=value,
+        )
+
+    @staticmethod
+    def _finalize_wifi_discovery(result: OperationResult) -> OperationResult:
+        if result.status is OperationStatus.CANCELLED:
+            return OperationResult.cancelled(
+                result.operation_id,
+                code="cancelled",
+                message="Wireless ADB discovery was cancelled",
+            )
+        if not result.ok:
+            if result.code == "output_limit_exceeded":
+                code = "output_limit_exceeded"
+                message = "Wireless ADB discovery exceeded its output limit"
+            elif result.code == "timed_out":
+                code = "wifi_mdns_timed_out"
+                message = "Wireless ADB discovery timed out"
+            else:
+                code = "wifi_mdns_discovery_failed"
+                message = "Wireless ADB discovery failed"
+            return OperationResult.failed(
+                result.operation_id,
+                code=code,
+                message=message,
+                exit_code=result.exit_code,
+            )
+        if result.stderr:
+            return OperationResult.failed(
+                result.operation_id,
+                code="wifi_mdns_stderr_unexpected",
+                message="Wireless ADB discovery returned unexpected diagnostics",
+                exit_code=result.exit_code,
+            )
+        try:
+            value = parse_adb_mdns_discovery(result.stdout)
+        except MdnsDiscoveryParseError as error:
+            return OperationResult.failed(
+                result.operation_id,
+                code=error.code,
+                message=str(error),
+                exit_code=result.exit_code,
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code="wifi_mdns_discovery_succeeded",
+            message=f"Discovered {value['count']} wireless ADB service(s)",
+            exit_code=result.exit_code,
             value=value,
         )
 
@@ -1622,6 +1871,24 @@ class DeviceToolsService:
             )
 
     @staticmethod
+    def _host_plan(
+        snapshot: AppSnapshot,
+        requests: tuple[ProcessRequest, ...],
+        *,
+        label: str,
+    ) -> OperationPlan:
+        return OperationPlan(
+            requests=requests,
+            label=label,
+            risk=OperationRisk.READ_ONLY,
+            snapshot_revision=snapshot.revision,
+            firmware_hash=snapshot.firmware.hash,
+            boot_hash=snapshot.boot.hash,
+            plan_revision=snapshot.plan.revision,
+            fingerprint=snapshot.plan.fingerprint,
+        )
+
+    @staticmethod
     def _base_plan(
         snapshot: AppSnapshot,
         device: DeviceInfo,
@@ -1666,6 +1933,7 @@ __all__ = [
     "DeviceToolPlanningError",
     "DeviceToolsService",
     "DeviceInspectionParseError",
+    "MdnsDiscoveryParseError",
     "LaunchOutcome",
     "ManagedProcessLauncher",
     "ProcessLauncher",
@@ -1673,4 +1941,5 @@ __all__ = [
     "SubprocessSecretRunner",
     "parse_bounded_getprop",
     "parse_bounded_screen_xml",
+    "parse_adb_mdns_discovery",
 ]

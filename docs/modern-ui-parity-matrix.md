@@ -169,7 +169,7 @@ becomes implicit success.
 
 | Area | Missing or partial behaviors |
 |---|---|
-| Device connection | Wireless discovery/disconnected-device handoff and hotplug tuning. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
+| Device connection | Bounded mDNS discovery is native without a selected device. Pair/connect without a selected ADB target, disconnected-device handoff and hotplug tuning remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | React APK install, download, denylist, SU controls and the remaining package actions. |
 | Device tools | Safe URL opening, independently extracted per-slot bootloader versions, the explicit expert ADB shell decision, packaged scrcpy discovery/lifecycle, generic logcat streaming/export/configurable redaction and OTA cancel/reset. Read-only otacerts inspection and a bounded, redacted update_engine snapshot are now native. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, trusted stock-flash evidence production before bootloader lock, downgrade artifact production, custom `payload.bin`, runtime recovery/fastbootd transitions, real patch APK/runner resources and KMI/architecture-based kernel selection. |

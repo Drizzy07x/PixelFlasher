@@ -7,6 +7,8 @@ display-only projection selected by the canonical command registry.
 
 from __future__ import annotations
 
+import hashlib
+import ipaddress
 import math
 import ntpath
 import posixpath
@@ -20,6 +22,7 @@ from ui.command_registry import ALLOWED_COMMANDS
 JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
+_STRICT_STRUCTURED_RESULTS = frozenset({"tools.wifi.discover"})
 
 _WINDOWS_PATH = re.compile(r"(?i)(?:^|[^a-z0-9])(?:[a-z]:[\\/])")
 _UNC_PATH = re.compile(r"(?:^|[^a-zA-Z0-9])\\\\[^\\/\s]+[\\/][^\s'\"]+")
@@ -39,6 +42,13 @@ _ANDROID_PATH_PREFIXES = (
     "/vendor/",
 )
 _UNSAFE_LOG_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_MDNS_LOCAL_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
 
 
 class PublicProjectionError(TypeError):
@@ -159,12 +169,20 @@ def project_operation_result(command: str, result: OperationResult) -> dict[str,
 
     summary = public_operation_summary(result)
     projected_value: JSONValue | None = None
+    if result.ok and command in _STRICT_STRUCTURED_RESULTS and result.value is None:
+        raise PublicProjectionError(
+            f"successful {command} result is missing its public value"
+        )
     if result.value is not None:
         try:
             projected_value = projector(result.value)
             if projected_value is not None:
                 projected_value = ensure_public_json(projected_value)
-        except (KeyError, TypeError, ValueError, PublicProjectionError):
+        except (KeyError, TypeError, ValueError, PublicProjectionError) as error:
+            if result.ok and command in _STRICT_STRUCTURED_RESULTS:
+                raise PublicProjectionError(
+                    f"successful {command} result does not match its public contract"
+                ) from error
             # Malformed or newly expanded backend values degrade to the stable
             # terminal summary instead of becoming an accidental public API.
             projected_value = None
@@ -882,6 +900,107 @@ def _project_partitions(value: object) -> JSONValue:
     return ensure_public_json({"count": len(partitions), "partitions": partitions})
 
 
+def _project_wifi_discovery(value: object) -> JSONValue:
+    fields = frozenset(
+        {"action", "count", "services", "discardedCount", "bounded"}
+    )
+    source = _closed_record(value, fields=fields)
+    if source["action"] != "discover" or source["bounded"] is not True:
+        raise PublicProjectionError("Wi-Fi discovery result is not bounded")
+    count = source["count"]
+    discarded_count = source["discardedCount"]
+    raw_services = source["services"]
+    if (
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+        or not isinstance(discarded_count, int)
+        or isinstance(discarded_count, bool)
+        or discarded_count < 0
+        or not isinstance(raw_services, list)
+        or len(raw_services) > 256
+        or count != len(raw_services)
+        or count + discarded_count > 256
+    ):
+        raise PublicProjectionError("Wi-Fi discovery counts are invalid")
+
+    item_fields = frozenset(
+        {
+            "id",
+            "instance",
+            "serviceType",
+            "host",
+            "port",
+            "endpoint",
+            "addressFamily",
+        }
+    )
+    services: list[dict[str, JSONValue]] = []
+    identities: set[tuple[str, str]] = set()
+    for raw in cast("list[object]", raw_services):
+        service = _closed_record(raw, fields=item_fields)
+        service_id = service["id"]
+        instance = service["instance"]
+        service_type = service["serviceType"]
+        host = service["host"]
+        port = service["port"]
+        endpoint = service["endpoint"]
+        if (
+            not isinstance(service_id, str)
+            or re.fullmatch(r"[0-9a-f]{64}", service_id) is None
+            or not isinstance(instance, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}", instance) is None
+            or service_type not in {"pairing", "connect", "legacy"}
+            or not isinstance(host, str)
+            or not isinstance(port, int)
+            or isinstance(port, bool)
+            or not 1 <= port <= 65_535
+            or endpoint != f"{host}:{port}"
+            or service["addressFamily"] != "ipv4"
+        ):
+            raise PublicProjectionError("Wi-Fi discovery service is invalid")
+        try:
+            address = ipaddress.IPv4Address(host)
+        except ipaddress.AddressValueError as error:
+            raise PublicProjectionError("Wi-Fi discovery host is invalid") from error
+        if (
+            str(address) != host
+            or address.is_loopback
+            or address.is_multicast
+            or address.is_unspecified
+            or address.is_reserved
+            or not any(address in network for network in _MDNS_LOCAL_NETWORKS)
+        ):
+            raise PublicProjectionError("Wi-Fi discovery host is unsafe")
+        expected_id = hashlib.sha256(
+            f"{service_type}\0{endpoint}".encode("ascii")
+        ).hexdigest()
+        identity = (cast(str, service_type), cast(str, endpoint))
+        if service_id != expected_id or identity in identities:
+            raise PublicProjectionError("Wi-Fi discovery identity is invalid")
+        identities.add(identity)
+        services.append(
+            {
+                "id": service_id,
+                "instance": instance,
+                "serviceType": cast(str, service_type),
+                "host": host,
+                "port": port,
+                "endpoint": cast(str, endpoint),
+                "addressFamily": "ipv4",
+            }
+        )
+    return ensure_public_json(
+        {
+            "action": "discover",
+            "count": count,
+            "services": services,
+            "discardedCount": discarded_count,
+            "bounded": True,
+        }
+    )
+
+
 def _project_device_inspect(value: object) -> JSONValue:
     source = _record(value)
     action = _string(source.get("action"))
@@ -1120,6 +1239,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.pushFiles": _project_none,
     "tools.scrcpy": _project_none,
     "tools.wifi": _project_none,
+    "tools.wifi.discover": _project_wifi_discovery,
 }
 
 if frozenset(PUBLIC_RESULT_PROJECTORS) != ALLOWED_COMMANDS:

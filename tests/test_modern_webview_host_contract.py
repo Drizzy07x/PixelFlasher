@@ -77,6 +77,48 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertEqual(7, emitted[0]["payload"]["revision"])
         self.assertEqual("complete", emitted[-1]["payload"]["code"])
 
+    def test_wifi_discovery_runtime_event_never_rebroadcasts_lan_endpoints(self):
+        snapshot = AppSnapshot(revision=7)
+        emitted = []
+        host = SimpleNamespace(
+            _closing=False,
+            _engine=SimpleNamespace(snapshot=lambda: snapshot),
+            _emit=emitted.append,
+            _operation_commands={"wifi-op": "tools.wifi.discover"},
+            _operation_commands_lock=threading.RLock(),
+        )
+        result = OperationResult.success(
+            "wifi-op",
+            code="wifi_mdns_discovery_succeeded",
+            value={"services": [{"endpoint": "192.168.1.42:37123"}]},
+        )
+
+        ModernWebViewFrame._on_engine_event(host, OperationFinished(result))
+
+        self.assertEqual("runtime", emitted[0]["event"])
+        self.assertNotIn("value", emitted[0]["payload"])
+        self.assertNotIn("192.168.1.42", repr(emitted[0]))
+
+    def test_invalid_successful_public_result_is_a_typed_bridge_failure(self):
+        completed = []
+        host = SimpleNamespace(
+            _closing=False,
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=7)),
+            _operation_commands={"wifi-op": "tools.wifi.discover"},
+            _operation_commands_lock=threading.RLock(),
+            _complete_request=lambda _request, message: completed.append(message),
+            _emit_snapshot=lambda: None,
+        )
+
+        ModernWebViewFrame._command_finished(
+            host,
+            request(command="tools.wifi.discover"),
+            OperationResult.success("wifi-op"),
+        )
+
+        self.assertFalse(completed[0]["ok"])
+        self.assertEqual("public_result_invalid", completed[0]["error"]["code"])
+
     def test_navigation_is_restricted_to_the_bundled_asset_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

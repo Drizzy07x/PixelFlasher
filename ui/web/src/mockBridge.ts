@@ -996,6 +996,19 @@ export function installDevelopmentBridge() {
           case 'tools.scrcpy':
             respond(request, success('scrcpy launched for the selected device', { pid: 4242 }));
             break;
+          case 'tools.wifi.discover':
+            respond(request, success('Discovered 3 wireless ADB services', {
+              action: 'discover',
+              count: 3,
+              services: [
+                { id: 'e40c684b4676d421a07f620444fb00fee6c7462bffe725333a6b864a61c90f67', instance: 'adb-pairing-pixel', serviceType: 'pairing', host: '192.168.1.42', port: 37123, endpoint: '192.168.1.42:37123', addressFamily: 'ipv4' },
+                { id: '76fc9d880ef5da0afe9bce466dba343198a8e4e7d667f2993e27c681b2ccf4bd', instance: 'adb-connect-pixel', serviceType: 'connect', host: '192.168.1.42', port: 38301, endpoint: '192.168.1.42:38301', addressFamily: 'ipv4' },
+                { id: 'ca21b390981df20dae7ee60f526bbb74f07ba2ec953c8576ab0d689e28a7f264', instance: 'legacy-adb', serviceType: 'legacy', host: '192.168.1.77', port: 5555, endpoint: '192.168.1.77:5555', addressFamily: 'ipv4' },
+              ],
+              discardedCount: 0,
+              bounded: true,
+            }));
+            break;
           case 'tools.wifi': {
             const action = typeof request.payload.action === 'string' ? request.payload.action : '';
             respond(request, success(`ADB Wi-Fi ${action} succeeded`, {

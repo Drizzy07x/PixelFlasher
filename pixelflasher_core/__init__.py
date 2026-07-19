@@ -93,9 +93,11 @@ from .device_tools import (
     DeviceToolsService,
     LaunchOutcome,
     ManagedProcessLauncher,
+    MdnsDiscoveryParseError,
     ProcessLauncher,
     SecretProcessRunner,
     SubprocessSecretRunner,
+    parse_adb_mdns_discovery,
 )
 from .devices import (
     DevicePoller,
@@ -383,9 +385,11 @@ __all__ = [
     "LaunchOutcome",
     "LOCK_STOCK_EVIDENCE_REQUIRED_MESSAGE",
     "ManagedProcessLauncher",
+    "MdnsDiscoveryParseError",
     "ProcessLauncher",
     "SecretProcessRunner",
     "SubprocessSecretRunner",
+    "parse_adb_mdns_discovery",
     "FakeProcessTransport",
     "FakeTransportStep",
     "FileArtifact",

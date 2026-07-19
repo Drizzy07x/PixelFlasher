@@ -52,6 +52,7 @@ export const commands = {
   toolsPushFiles: "tools.pushFiles",
   toolsScrcpy: "tools.scrcpy",
   toolsWifi: "tools.wifi",
+  toolsWifiDiscover: "tools.wifi.discover",
 } as const;
 
 export type BridgeCommand = (typeof commands)[keyof typeof commands];
@@ -269,6 +270,7 @@ export interface BridgePayloadByCommand {
     "secretGrant"?: string;
     "serial"?: string;
   };
+  "tools.wifi.discover": Record<string, never>;
 }
 
 export type BridgeCommandRequest = {
@@ -327,6 +329,7 @@ export const allowedCommands = [
   commands.toolsPushFiles,
   commands.toolsScrcpy,
   commands.toolsWifi,
+  commands.toolsWifiDiscover,
 ] as const;
 
 export const revisionOptionalCommands = new Set<BridgeCommand>([
@@ -384,6 +387,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.toolsPushFiles]: 600000,
   [commands.toolsScrcpy]: 60000,
   [commands.toolsWifi]: 60000,
+  [commands.toolsWifiDiscover]: 20000,
 };
 
 export const bridgeCommandMetadata = {
@@ -435,6 +439,7 @@ export const bridgeCommandMetadata = {
   [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"none","postconditions":["remote_hash_verified"]},
   [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
   [commands.toolsWifi]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.wifi","confirmation":"none","postconditions":["adb_endpoint_observed"]},
+  [commands.toolsWifiDiscover]: {"owner":"device_tools","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.wifi.discover","confirmation":"none","postconditions":[]},
 } as const satisfies Readonly<Record<BridgeCommand, {
   owner: string;
   mutability: string;
@@ -513,6 +518,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true},"serial":{"kind":"string","required":false}},
   [commands.toolsScrcpy]: {"serial":{"kind":"string","required":false}},
   [commands.toolsWifi]: {"action":{"kind":"string","required":true},"host":{"kind":"string","required":false},"port":{"kind":"integer","required":false},"secretGrant":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
+  [commands.toolsWifiDiscover]: {},
 };
 
 const commandSet = new Set<string>(allowedCommands);

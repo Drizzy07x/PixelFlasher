@@ -5,15 +5,112 @@ import { useI18n } from '../../i18n';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
 import { isToolchainReady, record, selectedGrant, selectedGrants, type SharedPageProps } from '../shared';
 
+type ToolPanel = 'wifi' | 'logcat' | 'partitions' | 'push' | null;
+type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
+type WifiService = {
+  id: string;
+  instance: string;
+  serviceType: 'pairing' | 'connect' | 'legacy';
+  host: string;
+  port: number;
+  endpoint: string;
+};
+
+const WIFI_DISCOVERY_FIELDS = ['action', 'bounded', 'count', 'discardedCount', 'services'] as const;
+const WIFI_SERVICE_FIELDS = ['addressFamily', 'endpoint', 'host', 'id', 'instance', 'port', 'serviceType'] as const;
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]) {
+  const keys = Object.keys(value).sort();
+  return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
+}
+
+function isLocalIpv4(host: string) {
+  const segments = host.split('.');
+  if (segments.length !== 4 || segments.some((segment) => !/^(?:0|[1-9][0-9]{0,2})$/.test(segment))) return false;
+  const octets = segments.map(Number);
+  if (octets.some((octet) => octet < 0 || octet > 255)) return false;
+  const [first, second] = octets;
+  return first === 10
+    || (first === 100 && second >= 64 && second <= 127)
+    || (first === 169 && second === 254)
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168);
+}
+
+async function wifiServiceId(serviceType: WifiService['serviceType'], endpoint: string) {
+  try {
+    const bytes = new TextEncoder().encode(`${serviceType}\0${endpoint}`);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null;
+  }
+}
+
+async function parseWifiDiscovery(value: unknown): Promise<WifiService[] | null> {
+  const source = record(value);
+  if (
+    !hasExactKeys(source, WIFI_DISCOVERY_FIELDS)
+    || source.action !== 'discover'
+    || source.bounded !== true
+    || typeof source.count !== 'number'
+    || !Number.isInteger(source.count)
+    || source.count < 0
+    || typeof source.discardedCount !== 'number'
+    || !Number.isInteger(source.discardedCount)
+    || source.discardedCount < 0
+    || !Array.isArray(source.services)
+    || source.services.length > 256
+    || source.count !== source.services.length
+    || source.count + source.discardedCount > 256
+  ) return null;
+
+  const parsed: WifiService[] = [];
+  const identities = new Set<string>();
+  for (const raw of source.services) {
+    const item = record(raw);
+    const serviceType = item.serviceType;
+    if (
+      !hasExactKeys(item, WIFI_SERVICE_FIELDS)
+      || typeof item.id !== 'string'
+      || !/^[0-9a-f]{64}$/.test(item.id)
+      || typeof item.instance !== 'string'
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(item.instance)
+      || (serviceType !== 'pairing' && serviceType !== 'connect' && serviceType !== 'legacy')
+      || typeof item.host !== 'string'
+      || !isLocalIpv4(item.host)
+      || typeof item.port !== 'number'
+      || !Number.isInteger(item.port)
+      || item.port < 1
+      || item.port > 65535
+      || typeof item.endpoint !== 'string'
+      || item.endpoint !== `${item.host}:${item.port}`
+      || item.addressFamily !== 'ipv4'
+    ) return null;
+    const identity = `${serviceType}\0${item.endpoint}`;
+    const expectedId = await wifiServiceId(serviceType, item.endpoint);
+    if (!expectedId || item.id !== expectedId || identities.has(identity)) return null;
+    identities.add(identity);
+    parsed.push({
+      id: item.id,
+      instance: item.instance,
+      serviceType,
+      host: item.host,
+      port: item.port,
+      endpoint: item.endpoint,
+    });
+  }
+  return parsed;
+}
+
 export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: SharedPageProps & { expertMode: boolean }) {
   const { t } = useI18n();
-  type ToolPanel = 'wifi' | 'logcat' | 'partitions' | 'push' | null;
-  type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
   const primary = selectedSerials.length === 1
     ? snapshot.devices.find((device) => device.serial === selectedSerials[0])
     : undefined;
   const adbReady = primary?.mode === 'adb' && isToolchainReady(snapshot);
   const fastbootReady = primary?.mode === 'fastboot' && isToolchainReady(snapshot);
+  const toolchainReady = isToolchainReady(snapshot);
   const [panel, setPanel] = useState<ToolPanel>(null);
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
@@ -24,6 +121,9 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
   const [wifiAction, setWifiAction] = useState<'pair' | 'connect' | 'disconnect' | 'status'>('status');
   const [wifiHost, setWifiHost] = useState('192.168.1.42');
   const [wifiPort, setWifiPort] = useState(5555);
+  const [wifiServices, setWifiServices] = useState<WifiService[]>([]);
+  const [wifiDiscoveryRan, setWifiDiscoveryRan] = useState(false);
+  const [selectedWifiServiceId, setSelectedWifiServiceId] = useState('');
   const [secretPromptOpen, setSecretPromptOpen] = useState(false);
   const [secretValue, setSecretValue] = useState('');
   const secretResolverRef = useRef<((value: string | null) => void) | null>(null);
@@ -176,9 +276,32 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
       payload.secretGrant = secretGrant;
     }
     const response = await runTool(commands.toolsWifi, payload);
-    if (response && (wifiAction === 'connect' || wifiAction === 'disconnect')) {
+    const status = record(response?.result).status;
+    if (status === 'SUCCESS' && (wifiAction === 'connect' || wifiAction === 'disconnect')) {
       await onCommand(commands.deviceScan);
     }
+  };
+
+  const discoverWifi = async () => {
+    if (!toolchainReady || busy) return;
+    const response = await runTool(commands.toolsWifiDiscover, {});
+    const resultValue = record(response?.result);
+    if (resultValue.status !== 'SUCCESS') return;
+    const parsed = await parseWifiDiscovery(resultValue.value);
+    if (parsed === null) {
+      setResult(null);
+      return;
+    }
+    setWifiServices(parsed);
+    setWifiDiscoveryRan(true);
+    setSelectedWifiServiceId('');
+  };
+
+  const useWifiService = (service: WifiService) => {
+    setSelectedWifiServiceId(service.id);
+    setWifiHost(service.host);
+    setWifiPort(service.port);
+    setWifiAction(service.serviceType === 'pairing' ? 'pair' : 'connect');
   };
 
   const createSupportPackage = async () => {
@@ -222,7 +345,7 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
     },
     {
       id: 'wifi', icon: 'adb', title: t('tools.wifi'), detail: t('tools.wifiDetail'),
-      disabled: !adbReady, run: () => openPanel('wifi'),
+      disabled: !toolchainReady, run: () => openPanel('wifi'),
     },
     {
       id: 'push', icon: 'folder', title: t('tools.push'), detail: t('tools.pushDetail'),
@@ -262,12 +385,32 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
             {panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : t('tools.wifi')}
           </CardTitle>
           {panel === 'wifi' ? (
-            <div className="tool-form-grid">
-              <label><span>{t('tools.action')}</span><select value={wifiAction} onChange={(event) => setWifiAction(event.currentTarget.value as typeof wifiAction)} disabled={Boolean(busy)}><option value="status">{t('tools.status')}</option><option value="pair">{t('tools.pair')}</option><option value="connect">{t('tools.connect')}</option><option value="disconnect">{t('tools.disconnect')}</option></select></label>
-              {wifiAction !== 'status' ? <label><span>{t('tools.host')}</span><input value={wifiHost} onChange={(event) => setWifiHost(event.currentTarget.value)} inputMode="decimal" autoComplete="off" /></label> : null}
-              {wifiAction !== 'status' ? <label><span>{t('tools.port')}</span><input type="number" min="1" max="65535" value={wifiPort} onChange={(event) => setWifiPort(Number(event.currentTarget.value))} /></label> : null}
-              {wifiAction === 'pair' ? <p className="tool-help">{t('tools.pairingCode')}</p> : null}
-              <Button variant="primary" icon="adb" onClick={() => void runWifi()} disabled={Boolean(busy) || (wifiAction !== 'status' && (!wifiHost || wifiPort < 1 || wifiPort > 65535))}>{t('common.apply')}</Button>
+            <div className="tool-panel-body">
+              <div className="wifi-discovery-toolbar">
+                <div><strong>{t('tools.wifiDiscover')}</strong><p>{t('tools.wifiDiscoverDetail')}</p></div>
+                <Button icon="scan" onClick={() => void discoverWifi()} disabled={Boolean(busy) || !toolchainReady}>{t('tools.wifiDiscoverAction')}</Button>
+              </div>
+              {wifiServices.length ? (
+                <ul className="wifi-discovery-results" aria-label={t('tools.wifiDiscovered')}>
+                  {wifiServices.map((service) => (
+                    <li key={service.id}>
+                      <button type="button" aria-pressed={selectedWifiServiceId === service.id} onClick={() => useWifiService(service)} disabled={Boolean(busy)}>
+                        <span><strong>{service.instance}</strong><small>{service.serviceType === 'pairing' ? t('tools.pair') : t('tools.connect')}</small></span>
+                        <code>{service.endpoint}</code>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : wifiDiscoveryRan ? <EmptyState icon="scan" title={t('common.none')} detail={t('tools.wifiNone')} /> : null}
+              <p className="tool-help">{t('tools.wifiUntrusted')}</p>
+              {!adbReady ? <div className="inline-alert inline-alert--warning"><Icon name="warningPng" size={18} /><span>{t('tools.wifiConnectGuard')}</span></div> : null}
+              <div className="tool-form-grid">
+                <label><span>{t('tools.action')}</span><select value={wifiAction} onChange={(event) => setWifiAction(event.currentTarget.value as typeof wifiAction)} disabled={Boolean(busy)}><option value="status">{t('tools.status')}</option><option value="pair">{t('tools.pair')}</option><option value="connect">{t('tools.connect')}</option><option value="disconnect">{t('tools.disconnect')}</option></select></label>
+                {wifiAction !== 'status' ? <label><span>{t('tools.host')}</span><input value={wifiHost} onChange={(event) => setWifiHost(event.currentTarget.value)} inputMode="decimal" autoComplete="off" /></label> : null}
+                {wifiAction !== 'status' ? <label><span>{t('tools.port')}</span><input type="number" min="1" max="65535" value={wifiPort} onChange={(event) => setWifiPort(Number(event.currentTarget.value))} /></label> : null}
+                {wifiAction === 'pair' ? <p className="tool-help">{t('tools.pairingCode')}</p> : null}
+                <Button variant="primary" icon="adb" onClick={() => void runWifi()} disabled={Boolean(busy) || !adbReady || (wifiAction !== 'status' && (!wifiHost || wifiPort < 1 || wifiPort > 65535))}>{t('common.apply')}</Button>
+              </div>
             </div>
           ) : null}
           {panel === 'logcat' ? (

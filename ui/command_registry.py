@@ -918,6 +918,20 @@ _COMMAND_SPECS = (
         postconditions=("adb_endpoint_observed",),
     ),
     _command(
+        "tools.wifi.discover",
+        "toolsWifiDiscover",
+        _payload(),
+        owner=CommandOwner.DEVICE_TOOLS,
+        **_LIVE,
+        mutability=CommandMutability.READ_ONLY,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.HOST_READ,
+        valid_device_states=ANY_DEVICE_STATE,
+        target_scope=TargetScope.APPLICATION,
+        planner="tools.wifi.discover",
+        timeout_ms=20_000,
+    ),
+    _command(
         "tools.logcat",
         "toolsLogcat",
         _payload(

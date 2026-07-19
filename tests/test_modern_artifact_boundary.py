@@ -301,7 +301,11 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                             "outputDirectory": route,
                         },
                     )
-                    self.assert_route_free(project_operation_result(command, result))
+                    if command == "tools.wifi.discover":
+                        with self.assertRaises(PublicProjectionError):
+                            project_operation_result(command, result)
+                    else:
+                        self.assert_route_free(project_operation_result(command, result))
 
     def test_ota_diagnostic_results_have_closed_bounded_public_dtos(self):
         certificates = {
