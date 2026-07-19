@@ -1393,6 +1393,55 @@ def _project_device_open_url(value: object) -> JSONValue:
     }
 
 
+def _project_ota_status(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"action", "state", "progress", "idle", "lastAttemptError", "bounded"}
+        ),
+    )
+    if source["action"] != "status" or source["bounded"] is not True:
+        raise PublicProjectionError("OTA status result is not bounded")
+    state = source["state"]
+    allowed_states = {
+        "idle",
+        "checking_for_update",
+        "update_available",
+        "downloading",
+        "verifying",
+        "finalizing",
+        "updated_need_reboot",
+        "reporting_error_event",
+        "attempting_rollback",
+        "disabled",
+    }
+    if not isinstance(state, str) or state not in allowed_states:
+        raise PublicProjectionError("OTA status state is invalid")
+    progress = source["progress"]
+    if (
+        not isinstance(progress, (int, float))
+        or isinstance(progress, bool)
+        or not 0 <= progress <= 1
+    ):
+        raise PublicProjectionError("OTA status progress is invalid")
+    if source["idle"] is not (state == "idle"):
+        raise PublicProjectionError("OTA status idle evidence is inconsistent")
+    last_error = source["lastAttemptError"]
+    if last_error is not None and (
+        not isinstance(last_error, str)
+        or re.fullmatch(r"[A-Za-z0-9_.:+-]{1,128}", last_error) is None
+    ):
+        raise PublicProjectionError("OTA status error evidence is invalid")
+    return ensure_public_json({
+        "action": "status",
+        "state": state,
+        "progress": progress,
+        "idle": source["idle"],
+        "lastAttemptError": last_error,
+        "bounded": True,
+    })
+
+
 def _project_ota_certificates(value: object) -> JSONValue:
     source = _closed_record(
         value,
@@ -1687,6 +1736,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.openUrl": _project_device_open_url,
     "device.ota.certificates": _project_ota_certificates,
     "device.ota.logs": _project_ota_logs,
+    "device.ota.status": _project_ota_status,
     "device.reboot": _project_none,
     "device.scan": _project_device_scan,
     "device.select": _project_snapshot,

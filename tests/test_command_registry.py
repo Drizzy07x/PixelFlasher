@@ -148,6 +148,7 @@ class CommandRegistryTests(unittest.TestCase):
             "tools.logcat",
             "tools.logcat.clear",
             "device.openUrl",
+            "device.ota.status",
             "device.ota.certificates",
             "device.ota.logs",
             "tools.pushFiles",
@@ -214,6 +215,7 @@ class CommandRegistryTests(unittest.TestCase):
 
     def test_ota_diagnostic_contracts_are_closed_read_only_device_reads(self):
         expected_payloads = {
+            "device.ota.status": {"serial": PayloadKind.STRING},
             "device.ota.certificates": {"serial": PayloadKind.STRING},
             "device.ota.logs": {
                 "serial": PayloadKind.STRING,

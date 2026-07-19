@@ -1707,10 +1707,11 @@
         "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService",
         "pixelflasher_core/executor.py:SubprocessTransport._run_bounded_process",
         "pixelflasher_core/engine.py:CommandEngine._compile_service_command",
+        "ui/public_bridge.py:_project_ota_status",
         "ui/public_bridge.py:_project_ota_certificates",
         "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Read-only otacerts inspection and a bounded, redacted update_engine snapshot are native. OTA cancellation/reset remains open until a bundled mutating runner and an explicit idle-state postcondition are implemented.",
+      "gap": "Read-only otacerts inspection, bounded redacted logs and a closed update_engine status/preflight are native. OTA cancellation/reset remains open until a bundled mutating runner and an independently observed idle-state postcondition are implemented.",
       "exitCriteria": [
         "Cancel Google OTA, inspect otacerts and monitor update_engine is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1740,6 +1741,7 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
+        "device.ota.status",
         "device.ota.certificates",
         "device.ota.logs"
       ]

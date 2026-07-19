@@ -5332,3 +5332,40 @@ msgstr ""
 msgctxt "web.tools.scrcpyInstallDetail"
 msgid "Download the signed build for this operating system and architecture."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.otaStatus"
+msgid "Update status"
+msgstr ""
+
+msgctxt "web.device.otaStatusDetail"
+msgid ""
+"Read bounded update_engine state and progress evidence before any reset."
+msgstr ""
+
+msgctxt "web.device.otaState"
+msgid "Update state"
+msgstr ""
+
+msgctxt "web.device.otaStatusProgress"
+msgid "Update progress"
+msgstr ""
+
+msgctxt "web.device.otaIdle"
+msgid "Idle state"
+msgstr ""
+
+msgctxt "web.device.otaIdleYes"
+msgid "Idle"
+msgstr ""
+
+msgctxt "web.device.otaIdleNo"
+msgid "Active"
+msgstr ""
+
+msgctxt "web.device.otaLastError"
+msgid "Last attempt error"
+msgstr ""

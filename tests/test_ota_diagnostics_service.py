@@ -11,6 +11,7 @@ from pixelflasher_core.contracts import (
 from pixelflasher_core.ota_diagnostics import (
     OTA_CERTIFICATES_COMMAND,
     OTA_LOGS_COMMAND,
+    OTA_STATUS_COMMAND,
     OtaDiagnosticPlanningError,
     OtaDiagnosticsService,
 )
@@ -136,6 +137,25 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
                 OtaDiagnosticPlanningError
             ):
                 self.compile(OTA_LOGS_COMMAND, payload)
+
+    def test_status_compile_uses_fixed_serial_bound_argv(self) -> None:
+        compilation = self.compile(OTA_STATUS_COMMAND)
+
+        self.assertEqual(
+            (
+                "ADB",
+                "-s",
+                "SERIAL-OTA",
+                "shell",
+                "update_engine_client",
+                "--status",
+            ),
+            compilation.plan.request.argv,
+        )
+        self.assertEqual(20.0, compilation.plan.request.timeout_seconds)
+        self.assertEqual(64 * 1_024, compilation.plan.request.output_limit_bytes)
+        with self.assertRaises(OtaDiagnosticPlanningError):
+            self.compile(OTA_STATUS_COMMAND, {"raw": "--cancel"})
 
     def test_target_revision_mode_and_toolchain_are_fail_closed(self) -> None:
         cases = (
@@ -266,6 +286,55 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
         self.assertEqual(2, result.value["redactedCount"])
         self.assertEqual("", result.stdout)
         self.assertEqual("", result.stderr)
+
+    def test_status_finalize_returns_closed_idle_evidence(self) -> None:
+        compilation = self.compile(OTA_STATUS_COMMAND)
+        result = self.service.finalize(
+            compilation,
+            OperationResult.success(
+                "ota-status",
+                stdout=(
+                    "CURRENT_OP=UPDATE_STATUS_IDLE\n"
+                    "CURRENT_PROGRESS=0.000000\n"
+                    "LAST_ATTEMPT_ERROR=ErrorCode::kSuccess\n"
+                ),
+            ),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("ota_update_engine_status_inspected", result.code)
+        self.assertEqual(
+            {
+                "action": "status",
+                "state": "idle",
+                "progress": 0.0,
+                "idle": True,
+                "lastAttemptError": "ErrorCode::kSuccess",
+                "bounded": True,
+            },
+            result.value,
+        )
+        self.assertEqual(result.value, project_operation_result(OTA_STATUS_COMMAND, result)["value"])
+
+    def test_status_rejects_unknown_duplicate_malformed_and_invalid_progress(self) -> None:
+        compilation = self.compile(OTA_STATUS_COMMAND)
+        cases = (
+            ("", "ota_status_unverified"),
+            ("CURRENT_OP=UPDATE_STATUS_NEW\nCURRENT_PROGRESS=0\n", "ota_status_unverified"),
+            ("CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=0\n", "ota_status_unverified"),
+            ("CURRENT_OP UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=0\n", "ota_status_unverified"),
+            ("CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=1.1\n", "ota_status_unverified"),
+            ("CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=nan\n", "ota_status_unverified"),
+            ("x" * (64 * 1_024 + 1), "ota_status_output_oversized"),
+        )
+        for stdout, code in cases:
+            with self.subTest(code=code, stdout=stdout[:40]):
+                result = self.service.finalize(
+                    compilation,
+                    OperationResult.success("ota-status", stdout=stdout),
+                )
+                self.assertFalse(result.ok)
+                self.assertEqual(code, result.code)
 
     def test_logs_remove_controls_and_redact_common_credentials_and_addresses(self) -> None:
         compilation = self.compile(OTA_LOGS_COMMAND, {"maxLines": 7})

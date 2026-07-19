@@ -315,6 +315,21 @@ export function installDevelopmentBridge() {
             respond(request, success(`Found ${snapshot.devices.length} devices.`, { count: snapshot.devices.length }));
             publishSnapshot();
             break;
+          case 'device.ota.status':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'ota_update_engine_status_inspected',
+              message: 'update_engine state is idle',
+              value: {
+                action: 'status',
+                state: 'idle',
+                progress: 0,
+                idle: true,
+                lastAttemptError: 'ErrorCode::kSuccess',
+                bounded: true,
+              },
+            });
+            break;
           case 'device.inspect': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : '';
             const action = typeof request.payload.action === 'string' ? request.payload.action : '';

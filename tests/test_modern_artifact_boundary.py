@@ -316,6 +316,14 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         self.assert_route_free(project_operation_result(command, result))
 
     def test_ota_diagnostic_results_have_closed_bounded_public_dtos(self):
+        status = {
+            "action": "status",
+            "state": "idle",
+            "progress": 0.0,
+            "idle": True,
+            "lastAttemptError": "ErrorCode::kSuccess",
+            "bounded": True,
+        }
         certificates = {
             "action": "certificates",
             "archivePresent": True,
@@ -338,6 +346,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
         }
 
         for command, value in (
+            ("device.ota.status", status),
             ("device.ota.certificates", certificates),
             ("device.ota.logs", logs),
         ):
@@ -378,7 +387,16 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
             {**logs, "lineCount": 1, "lines": ["ordinary log line"]},
             {**logs, "lineCount": 1, "lines": ["update_engine:\x07 bell"]},
         )
+        invalid_status = (
+            {**status, "path": "/data/update_engine"},
+            {**status, "state": "unknown"},
+            {**status, "progress": -0.1},
+            {**status, "progress": float("nan")},
+            {**status, "idle": False},
+            {**status, "lastAttemptError": "bad value"},
+        )
         for command, invalid_values in (
+            ("device.ota.status", invalid_status),
             ("device.ota.certificates", invalid_certificates),
             ("device.ota.logs", invalid_logs),
         ):

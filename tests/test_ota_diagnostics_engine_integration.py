@@ -6,6 +6,7 @@ from pathlib import Path
 from pixelflasher_core import (
     OTA_CERTIFICATES_COMMAND,
     OTA_LOGS_COMMAND,
+    OTA_STATUS_COMMAND,
     AppCommand,
     ApplicationRuntime,
     AppSnapshot,
@@ -182,6 +183,33 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
                 "update_engine:V",
                 "update_engine_client:V",
                 "*:S",
+            ),
+            transport.calls[0].argv,
+        )
+
+    def test_status_executes_through_runner_and_returns_idle_evidence(self) -> None:
+        engine, transport = self.engine_for(
+            [
+                TransportOutcome(
+                    0,
+                    "CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=0\n",
+                )
+            ]
+        )
+
+        result = engine.execute(ota_command(OTA_STATUS_COMMAND))
+
+        self.assertIs(OperationStatus.SUCCESS, result.status)
+        self.assertEqual("ota_update_engine_status_inspected", result.code)
+        self.assertTrue(result.value["idle"])
+        self.assertEqual(
+            (
+                "ADB",
+                "-s",
+                "SERIAL-OTA",
+                "shell",
+                "update_engine_client",
+                "--status",
             ),
             transport.calls[0].argv,
         )

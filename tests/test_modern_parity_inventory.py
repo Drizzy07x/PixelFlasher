@@ -322,7 +322,7 @@ class ModernParityInventoryTests(unittest.TestCase):
 
         self.assertEqual("partial", diagnostics["modernStatus"])
         self.assertEqual(
-            {"device.ota.certificates", "device.ota.logs"},
+            {"device.ota.status", "device.ota.certificates", "device.ota.logs"},
             set(diagnostics["modernCommandIds"]),
         )
         self.assertIn("OTA cancellation/reset remains open", diagnostics["gap"])

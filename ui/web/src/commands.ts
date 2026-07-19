@@ -23,6 +23,7 @@ export const commands = {
   deviceOpenUrl: "device.openUrl",
   deviceOtaCertificates: "device.ota.certificates",
   deviceOtaLogs: "device.ota.logs",
+  deviceOtaStatus: "device.ota.status",
   deviceReboot: "device.reboot",
   deviceScan: "device.scan",
   deviceSelect: "device.select",
@@ -150,6 +151,9 @@ export interface BridgePayloadByCommand {
     "maxLines"?: number;
     "serial"?: string;
     "timeoutSeconds"?: number;
+  };
+  "device.ota.status": {
+    "serial"?: string;
   };
   "device.reboot": {
     "mode"?: string;
@@ -347,6 +351,7 @@ export const allowedCommands = [
   commands.deviceOpenUrl,
   commands.deviceOtaCertificates,
   commands.deviceOtaLogs,
+  commands.deviceOtaStatus,
   commands.deviceReboot,
   commands.deviceScan,
   commands.deviceSelect,
@@ -412,6 +417,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.deviceOpenUrl]: 30000,
   [commands.deviceOtaCertificates]: 45000,
   [commands.deviceOtaLogs]: 180000,
+  [commands.deviceOtaStatus]: 45000,
   [commands.deviceReboot]: 600000,
   [commands.deviceScan]: 600000,
   [commands.deviceSelect]: 60000,
@@ -471,6 +477,7 @@ export const bridgeCommandMetadata = {
   [commands.deviceOpenUrl]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.open_url","confirmation":"standard","postconditions":["view_intent_accepted"]},
   [commands.deviceOtaCertificates]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.certificates","confirmation":"none","postconditions":["bounded_certificate_inventory_returned"]},
   [commands.deviceOtaLogs]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.logs","confirmation":"none","postconditions":["bounded_redacted_logs_returned"]},
+  [commands.deviceOtaStatus]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.status","confirmation":"none","postconditions":["bounded_update_engine_status_returned"]},
   [commands.deviceReboot]: {"owner":"device","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"operation.device_reboot","confirmation":"none","postconditions":["device_reconnected","expected_mode_observed"]},
   [commands.deviceScan]: {"owner":"device","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.scan","confirmation":"none","postconditions":["device_inventory_refreshed"]},
   [commands.deviceSelect]: {"owner":"device","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.selection","confirmation":"none","postconditions":["selected_serials_match"]},
@@ -561,6 +568,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.deviceOpenUrl]: {"serial":{"kind":"string","required":false},"url":{"kind":"string","required":true}},
   [commands.deviceOtaCertificates]: {"serial":{"kind":"string","required":false}},
   [commands.deviceOtaLogs]: {"maxLines":{"kind":"integer","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false}},
+  [commands.deviceOtaStatus]: {"serial":{"kind":"string","required":false}},
   [commands.deviceReboot]: {"mode":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceScan]: {"includeBattery":{"kind":"boolean","required":false},"includeProperties":{"kind":"boolean","required":false}},
   [commands.deviceSelect]: {"serials":{"kind":"string_array","required":true}},

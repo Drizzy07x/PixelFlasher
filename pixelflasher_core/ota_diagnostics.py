@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from decimal import Decimal, InvalidOperation
 
 from .contracts import (
     AppCommand,
@@ -24,8 +25,9 @@ from .contracts import (
 
 OTA_CERTIFICATES_COMMAND = "device.ota.certificates"
 OTA_LOGS_COMMAND = "device.ota.logs"
+OTA_STATUS_COMMAND = "device.ota.status"
 OTA_DIAGNOSTIC_COMMANDS = frozenset(
-    {OTA_CERTIFICATES_COMMAND, OTA_LOGS_COMMAND}
+    {OTA_CERTIFICATES_COMMAND, OTA_LOGS_COMMAND, OTA_STATUS_COMMAND}
 )
 
 _CERTIFICATE_ENTRY_LIMIT = 1_024
@@ -68,6 +70,23 @@ _UNZIP_LIST_ENTRY = re.compile(
     r"\d{1,2}:\d{2}\s+(.+?)\s*$"
 )
 _CERTIFICATE_SUFFIXES = (".pem", ".cer", ".crt", ".der")
+_STATUS_OUTPUT_LIMIT = 64 * 1_024
+_STATUS_LINE_LIMIT = 64
+_STATUS_VALUE = re.compile(r"^[A-Za-z0-9_.:+-]{1,128}$")
+_UPDATE_STATES = frozenset(
+    {
+        "IDLE",
+        "CHECKING_FOR_UPDATE",
+        "UPDATE_AVAILABLE",
+        "DOWNLOADING",
+        "VERIFYING",
+        "FINALIZING",
+        "UPDATED_NEED_REBOOT",
+        "REPORTING_ERROR_EVENT",
+        "ATTEMPTING_ROLLBACK",
+        "DISABLED",
+    }
+)
 
 
 class OtaDiagnosticPlanningError(ValueError):
@@ -113,6 +132,8 @@ class OtaDiagnosticsService:
         adb = self._adb(snapshot)
         if command.kind == OTA_CERTIFICATES_COMMAND:
             return self._compile_certificates(command, snapshot, device, adb)
+        if command.kind == OTA_STATUS_COMMAND:
+            return self._compile_status(command, snapshot, device, adb)
         return self._compile_logs(command, snapshot, device, adb)
 
     def finalize(
@@ -140,6 +161,10 @@ class OtaDiagnosticsService:
                 )
                 code = "ota_update_engine_logs_collected"
                 message = f"collected {value['lineCount']} update_engine log line(s)"
+            elif compilation.action == "status":
+                value = self._parse_status(result.stdout)
+                code = "ota_update_engine_status_inspected"
+                message = f"update_engine state is {value['state']}"
             else:
                 raise OtaDiagnosticParseError(
                     "ota_diagnostic_action_invalid",
@@ -245,6 +270,37 @@ class OtaDiagnosticsService:
             maximum_lines,
         )
 
+    def _compile_status(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> OtaDiagnosticCompilation:
+        self._validate_payload(command, {"serial"})
+        request = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "shell",
+                "update_engine_client",
+                "--status",
+            ),
+            timeout_seconds=20.0,
+            output_limit_bytes=_STATUS_OUTPUT_LIMIT,
+        )
+        return OtaDiagnosticCompilation(
+            self._base_plan(
+                snapshot,
+                device,
+                request,
+                label=f"Inspect update_engine status on {device.serial}",
+            ),
+            "status",
+            _STATUS_LINE_LIMIT,
+        )
+
     @staticmethod
     def _parse_certificates(stdout: str) -> dict[str, object]:
         if len(stdout.encode("utf-8", errors="replace")) > _CERTIFICATE_OUTPUT_LIMIT:
@@ -300,6 +356,74 @@ class OtaDiagnosticsService:
             "archivePresent": True,
             "count": len(entries),
             "entries": entries,
+            "bounded": True,
+        }
+
+    @staticmethod
+    def _parse_status(stdout: str) -> dict[str, object]:
+        if len(stdout.encode("utf-8", errors="replace")) > _STATUS_OUTPUT_LIMIT:
+            raise OtaDiagnosticParseError(
+                "ota_status_output_oversized",
+                "the update_engine status exceeded its safety limit",
+            )
+        lines = tuple(line.strip() for line in stdout.replace("\r", "").splitlines() if line.strip())
+        if not lines or len(lines) > _STATUS_LINE_LIMIT:
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine did not return bounded status evidence",
+            )
+        fields: dict[str, str] = {}
+        for line in lines:
+            if "=" not in line:
+                raise OtaDiagnosticParseError(
+                    "ota_status_unverified",
+                    "update_engine returned malformed status evidence",
+                )
+            key, value = (part.strip() for part in line.split("=", 1))
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key) or not _STATUS_VALUE.fullmatch(value):
+                raise OtaDiagnosticParseError(
+                    "ota_status_unverified",
+                    "update_engine returned unsafe status evidence",
+                )
+            if key in fields:
+                raise OtaDiagnosticParseError(
+                    "ota_status_unverified",
+                    "update_engine returned duplicate status evidence",
+                )
+            fields[key] = value
+
+        raw_state = fields.get("CURRENT_OP", "")
+        state = raw_state.removeprefix("UPDATE_STATUS_")
+        if state not in _UPDATE_STATES:
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine returned an unknown state",
+            )
+        raw_progress = fields.get("CURRENT_PROGRESS")
+        if raw_progress is None:
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine did not return progress evidence",
+            )
+        try:
+            progress_decimal = Decimal(raw_progress)
+        except InvalidOperation as error:
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine returned invalid progress evidence",
+            ) from error
+        if not progress_decimal.is_finite() or not Decimal(0) <= progress_decimal <= Decimal(1):
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine progress is outside its valid range",
+            )
+        last_error = fields.get("LAST_ATTEMPT_ERROR")
+        return {
+            "action": "status",
+            "state": state.casefold(),
+            "progress": float(progress_decimal),
+            "idle": state == "IDLE",
+            "lastAttemptError": last_error,
             "bounded": True,
         }
 
@@ -507,6 +631,7 @@ __all__ = [
     "OTA_CERTIFICATES_COMMAND",
     "OTA_DIAGNOSTIC_COMMANDS",
     "OTA_LOGS_COMMAND",
+    "OTA_STATUS_COMMAND",
     "OtaDiagnosticCompilation",
     "OtaDiagnosticParseError",
     "OtaDiagnosticPlanningError",

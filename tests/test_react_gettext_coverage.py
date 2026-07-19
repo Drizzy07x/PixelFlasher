@@ -20,8 +20,18 @@ EXPECTED_TRANSLATED_COUNTS = {
     "zh_TW": 425,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 491
+EXPECTED_WEB_CONTEXT_COUNT = 499
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
+    # update_engine status preflight landed after the reviewed 2026-07-19
+    # translation pass and falls back to its canonical English msgid.
+    "web.device.otaStatus",
+    "web.device.otaStatusDetail",
+    "web.device.otaState",
+    "web.device.otaStatusProgress",
+    "web.device.otaIdle",
+    "web.device.otaIdleYes",
+    "web.device.otaIdleNo",
+    "web.device.otaLastError",
     "web.apps.apkFiles",
     "web.apps.chooseApk",
     "web.apps.replace",

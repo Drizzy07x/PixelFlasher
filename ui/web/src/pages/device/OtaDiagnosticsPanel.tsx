@@ -6,7 +6,17 @@ import type { ActiveOperation, Device } from '../../types';
 import { Badge, Button, Card, CardTitle, Icon } from '../../components/ui';
 import { record, type SharedPageProps } from '../shared';
 
-export type OtaDiagnosticAction = 'certificates' | 'logs';
+export type OtaDiagnosticAction = 'status' | 'certificates' | 'logs';
+
+type OtaStatusReport = {
+  action: 'status';
+  state: 'idle' | 'checking_for_update' | 'update_available' | 'downloading' | 'verifying'
+    | 'finalizing' | 'updated_need_reboot' | 'reporting_error_event' | 'attempting_rollback' | 'disabled';
+  progress: number;
+  idle: boolean;
+  lastAttemptError: string | null;
+  bounded: true;
+};
 
 type OtaCertificatesReport = {
   action: 'certificates';
@@ -24,7 +34,7 @@ type OtaLogsReport = {
   bounded: true;
 };
 
-export type OtaDiagnosticReport = OtaCertificatesReport | OtaLogsReport;
+export type OtaDiagnosticReport = OtaStatusReport | OtaCertificatesReport | OtaLogsReport;
 
 type DiagnosticState =
   | { phase: 'idle' }
@@ -39,8 +49,13 @@ const MAX_LOG_LINES = 5_000;
 const REQUESTED_LOG_LINES = 1_000;
 const MAX_LOG_LINE_BYTES = 4_096;
 const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
+const SAFE_STATUS_VALUE = /^[A-Za-z0-9_.:+-]{1,128}$/;
 const UNSAFE_CERTIFICATE_CHARACTER = /[\p{C}\p{Zl}\p{Zp}]/u;
 const UNSAFE_LOG_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+const OTA_STATES = new Set([
+  'idle', 'checking_for_update', 'update_available', 'downloading', 'verifying', 'finalizing',
+  'updated_need_reboot', 'reporting_error_event', 'attempting_rollback', 'disabled',
+]);
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   const actual = Object.keys(value);
@@ -122,17 +137,44 @@ function parseLogs(value: Record<string, unknown>): OtaLogsReport | null {
   return { action: 'logs', lineCount, lines, redactedCount, bounded: true };
 }
 
+function parseStatus(value: Record<string, unknown>): OtaStatusReport | null {
+  if (
+    !hasExactKeys(value, ['action', 'state', 'progress', 'idle', 'lastAttemptError', 'bounded'])
+    || value.action !== 'status'
+    || value.bounded !== true
+    || typeof value.state !== 'string'
+    || !OTA_STATES.has(value.state)
+    || typeof value.progress !== 'number'
+    || !Number.isFinite(value.progress)
+    || value.progress < 0
+    || value.progress > 1
+    || typeof value.idle !== 'boolean'
+    || value.idle !== (value.state === 'idle')
+    || (value.lastAttemptError !== null && (
+      typeof value.lastAttemptError !== 'string' || !SAFE_STATUS_VALUE.test(value.lastAttemptError)
+    ))
+  ) return null;
+  return value as OtaStatusReport;
+}
+
 export function parseOtaDiagnosticReport(
   action: OtaDiagnosticAction,
   value: unknown,
 ): OtaDiagnosticReport | null {
   const source = record(value);
   if (source.action !== action) return null;
+  if (action === 'status') return parseStatus(source);
   return action === 'certificates' ? parseCertificates(source) : parseLogs(source);
 }
 
 function actionLabel(action: OtaDiagnosticAction) {
+  if (action === 'status') return 'device.otaStatus';
   return action === 'certificates' ? 'device.otaCertificates' : 'device.otaLogs';
+}
+
+function actionCommand(action: OtaDiagnosticAction) {
+  if (action === 'status') return commands.deviceOtaStatus;
+  return action === 'certificates' ? commands.deviceOtaCertificates : commands.deviceOtaLogs;
 }
 
 export function OtaDiagnosticsPanel({
@@ -157,7 +199,7 @@ export function OtaDiagnosticsPanel({
     activeOperation && ['pending', 'running'].includes(activeOperation.status.toLowerCase()),
   );
   const expectedOperationKind = state.phase === 'running' || state.phase === 'cancelling'
-    ? state.action === 'certificates' ? commands.deviceOtaCertificates : commands.deviceOtaLogs
+    ? actionCommand(state.action)
     : null;
   const cancellableOperation = busy
     && operationRunning
@@ -188,12 +230,10 @@ export function OtaDiagnosticsPanel({
     requestEpoch.current = epoch;
     setState({ phase: 'running', action });
     try {
-      const command = action === 'certificates'
-        ? commands.deviceOtaCertificates
-        : commands.deviceOtaLogs;
-      const payload = action === 'certificates'
-        ? { serial: device.serial }
-        : { serial: device.serial, maxLines: REQUESTED_LOG_LINES };
+      const command = actionCommand(action);
+      const payload = action === 'logs'
+        ? { serial: device.serial, maxLines: REQUESTED_LOG_LINES }
+        : { serial: device.serial };
       const response = await onCommand(command, payload, { returnCancelled: true });
       if (requestEpoch.current !== epoch) return;
       const result = record(response?.result);
@@ -243,6 +283,12 @@ export function OtaDiagnosticsPanel({
     title: string;
     detail: string;
   }> = [
+    {
+      action: 'status',
+      icon: 'check',
+      title: t('device.otaStatus'),
+      detail: t('device.otaStatusDetail'),
+    },
     {
       action: 'certificates',
       icon: 'shield',
@@ -335,7 +381,14 @@ function OtaDiagnosticResult({
           <h2 id={headingId}>{t(actionLabel(state.action))}</h2>
         </span>
       </header>
-      {report.action === 'certificates' ? (
+      {report.action === 'status' ? (
+        <dl className="device-inspection-summary device-inspection-summary--compact">
+          <div><dt>{t('device.otaState')}</dt><dd><code>{report.state}</code></dd></div>
+          <div><dt>{t('device.otaStatusProgress')}</dt><dd>{Math.round(report.progress * 100)}%</dd></div>
+          <div><dt>{t('device.otaIdle')}</dt><dd>{report.idle ? t('device.otaIdleYes') : t('device.otaIdleNo')}</dd></div>
+          <div><dt>{t('device.otaLastError')}</dt><dd><code>{report.lastAttemptError ?? t('common.none')}</code></dd></div>
+        </dl>
+      ) : report.action === 'certificates' ? (
         <>
           <dl className="device-inspection-summary device-inspection-summary--compact">
             <div><dt>{t('device.otaArchive')}</dt><dd>{t('device.otaPresent')}</dd></div>

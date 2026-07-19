@@ -55,6 +55,17 @@ function certificateValue() {
   };
 }
 
+function statusValue() {
+  return {
+    action: 'status',
+    state: 'idle',
+    progress: 0,
+    idle: true,
+    lastAttemptError: 'ErrorCode::kSuccess',
+    bounded: true,
+  };
+}
+
 function logsValue() {
   return {
     action: 'logs',
@@ -69,6 +80,26 @@ function logsValue() {
 }
 
 describe('OTA diagnostics', () => {
+  it('reads closed update_engine status evidence before exposing reset work', async () => {
+    const user = userEvent.setup();
+    const device = adbDevice();
+    const onCommand: SharedPageProps['onCommand'] = vi.fn(async () => ({
+      result: { status: 'SUCCESS', value: statusValue() },
+    }));
+    renderPanel({ device, onCommand });
+
+    await user.click(screen.getByRole('button', { name: 'Update status' }));
+    expect(onCommand).toHaveBeenCalledWith(
+      'device.ota.status',
+      { serial: device.serial },
+      { returnCancelled: true },
+    );
+    expect(await screen.findByRole('heading', { name: 'Update status' })).toBeVisible();
+    expect(screen.getByText('ErrorCode::kSuccess')).toBeVisible();
+    expect(screen.getByText('0%')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /reset|cancel update/i })).not.toBeInTheDocument();
+  });
+
   it('inspects a closed certificate archive DTO without claiming cryptographic verification', async () => {
     const user = userEvent.setup();
     const device = adbDevice();
@@ -209,6 +240,11 @@ describe('OTA diagnostics', () => {
   });
 
   it('rejects open, mismatched, unsafe and oversized DTOs before rendering', async () => {
+    expect(parseOtaDiagnosticReport('status', statusValue())).not.toBeNull();
+    expect(parseOtaDiagnosticReport('status', { ...statusValue(), idle: false })).toBeNull();
+    expect(parseOtaDiagnosticReport('status', { ...statusValue(), progress: Number.NaN })).toBeNull();
+    expect(parseOtaDiagnosticReport('status', { ...statusValue(), state: 'unknown' })).toBeNull();
+    expect(parseOtaDiagnosticReport('status', { ...statusValue(), hostPath: 'C:\\private' })).toBeNull();
     expect(parseOtaDiagnosticReport('certificates', certificateValue())).not.toBeNull();
     expect(parseOtaDiagnosticReport('certificates', { ...certificateValue(), signed: true })).toBeNull();
     expect(parseOtaDiagnosticReport('certificates', { ...certificateValue(), action: 'logs' })).toBeNull();
