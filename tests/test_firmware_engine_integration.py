@@ -32,6 +32,7 @@ from pixelflasher_core import (
     OperationPlanner,
     OperationResult,
     OperationStatus,
+    PersistentProcessedArtifactRepository,
     ProcessRequest,
     SafetyPolicy,
 )
@@ -274,6 +275,58 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
             repository.close()
 
+    def test_revision_change_after_import_rolls_back_new_firmware_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            write_factory(factory)
+            planner = OperationPlanner()
+            repository = ArtifactRepository(root / "repository")
+            firmware_repository = FirmwareRepository(repository)
+            store = AppStateStore(selected_snapshot())
+            engine = CommandEngine(
+                store=store,
+                operation_planner=planner,
+                firmware_artifact_service=FirmwareArtifactService(
+                    planner.artifact_repository,
+                    root / "cache",
+                ),
+                firmware_repository=firmware_repository,
+            )
+            original_import = firmware_repository.import_selection
+
+            def import_then_change_revision(*args, **kwargs):
+                record = original_import(*args, **kwargs)
+                store.update(expected_revision=0, selected_serial="SERIAL")
+                return record
+
+            with patch.object(
+                firmware_repository,
+                "import_selection",
+                side_effect=import_then_change_revision,
+            ):
+                result = engine.execute(
+                    AppCommand(
+                        "firmware.select",
+                        expected_revision=0,
+                        payload={"path": str(factory)},
+                    )
+                )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("stale_revision", result.code)
+            self.assertEqual(FirmwareInfo(), store.snapshot().firmware)
+            self.assertEqual((), firmware_repository.list())
+            self.assertEqual(
+                (),
+                tuple(
+                    path
+                    for path in (root / "repository" / "objects").rglob("*")
+                    if path.is_file()
+                ),
+            )
+            repository.close()
+
     def test_factory_processing_promotes_verified_firmware_and_preferred_stock_boot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -499,6 +552,71 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(selected, store.snapshot().firmware)
             self.assertEqual(BootInfo(), store.snapshot().boot)
             self.assertIsNone(store.snapshot().active_operation)
+            self.assertEqual((), planner.artifact_repository.resolve(store.snapshot()))
+            self.assertEqual(
+                (),
+                tuple(path for path in (root / "cache").rglob("*") if path.is_file()),
+            )
+
+    def test_revision_change_rolls_back_persistent_processed_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            firmware = root / "factory.zip"
+            write_factory(firmware)
+            selected = FirmwareInfo(
+                str(firmware),
+                "factory",
+                "42",
+                sha256(firmware),
+                True,
+                False,
+            )
+            repository = ArtifactRepository(root / "repository")
+            firmware_repository = FirmwareRepository(repository)
+            processed_repository = PersistentProcessedArtifactRepository(
+                firmware_repository,
+            )
+            planner = OperationPlanner(artifact_repository=processed_repository)
+            service = SuccessfulBlockingFirmwareArtifactService(
+                processed_repository,
+                root / "cache",
+            )
+            store = AppStateStore(selected_snapshot(selected))
+            engine = CommandEngine(
+                store=store,
+                operation_planner=planner,
+                firmware_artifact_service=service,
+                firmware_repository=firmware_repository,
+            )
+            results: list[OperationResult] = []
+            worker = threading.Thread(
+                target=lambda: results.append(
+                    engine.execute(AppCommand("firmware.process", expected_revision=0))
+                ),
+                daemon=True,
+            )
+            worker.start()
+            self.assertTrue(service.processed.wait(2))
+            store.update(expected_revision=1, selected_serials=())
+            service.release.set()
+            worker.join(2)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual("firmware_selection_changed", results[0].code)
+            self.assertEqual((), firmware_repository.list())
+            self.assertEqual(
+                (),
+                tuple(
+                    path
+                    for path in repository.objects_root.rglob("*")
+                    if path.is_file()
+                ),
+            )
+            self.assertEqual(
+                (),
+                tuple(path for path in (root / "cache").rglob("*") if path.is_file()),
+            )
+            repository.close()
 
     def test_non_ota_package_without_boot_artifact_is_not_promoted(self):
         with tempfile.TemporaryDirectory() as directory:

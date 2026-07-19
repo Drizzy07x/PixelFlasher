@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from .contracts import AppSnapshot, FileArtifact
-from .planner import ProcessedArtifactRepository
-from .repositories import FirmwareRepository
+from .planner import ProcessedArtifactCheckpoint, ProcessedArtifactRepository
+from .repositories import FirmwareRepository, RepositoryError
 
 ProcessedMetadataProvider = Callable[[], Mapping[str, object]]
 DeviceCodenameProvider = Callable[[], Iterable[str]]
@@ -58,6 +58,47 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
             plan_fingerprint=snapshot.plan.fingerprint,
         )
         return tuple(record.to_file_artifact() for record in records)
+
+    def checkpoint(
+        self,
+        *,
+        firmware_hash: str = "",
+        plan_fingerprint: str = "",
+    ) -> ProcessedArtifactCheckpoint:
+        normalized_hash = firmware_hash.casefold()
+        records = tuple(
+            record
+            for record in self.firmware_repository.list()
+            if record.metadata.get("recordType") == "processed_firmware_artifact"
+            and record.metadata.get("firmwareHash") == normalized_hash
+            and record.metadata.get("planFingerprint") == plan_fingerprint
+        )
+        return ProcessedArtifactCheckpoint(
+            firmware_hash=normalized_hash,
+            plan_fingerprint=plan_fingerprint,
+            existed=bool(records),
+            artifact_ids=tuple(record.artifact_id for record in records),
+        )
+
+    def rollback(self, checkpoint: ProcessedArtifactCheckpoint) -> None:
+        if not isinstance(checkpoint, ProcessedArtifactCheckpoint):
+            raise TypeError("processed artifact checkpoint is required")
+        previous_ids = frozenset(checkpoint.artifact_ids)
+        current = tuple(
+            record
+            for record in self.firmware_repository.list()
+            if record.metadata.get("recordType") == "processed_firmware_artifact"
+            and record.metadata.get("firmwareHash") == checkpoint.firmware_hash
+            and record.metadata.get("planFingerprint") == checkpoint.plan_fingerprint
+        )
+        for record in current:
+            if record.artifact_id in previous_ids:
+                continue
+            if not self.firmware_repository.repository.delete(record.artifact_id):
+                raise RepositoryError(
+                    "processed_artifact_rollback_failed",
+                    "processed firmware artifact could not be removed",
+                )
 
     def clear(self) -> None:
         """Drop no durable data; callers never own repository artifact lifetime."""

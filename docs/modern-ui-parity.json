@@ -491,10 +491,11 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/firmware.py:FirmwareInspector",
-        "pixelflasher_core/engine.py:_inspect_firmware",
-        "ui/web/src/pages/Pages.tsx:FirmwarePage"
+        "pixelflasher_core/engine.py:_inspect_and_promote_firmware",
+        "ui/public_bridge.py:_project_firmware_inspection",
+        "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Official catalog/download selection and complete user-facing diagnostics remain open.",
+      "gap": "Factory/full-OTA identification, official and user-supplied provenance, closed verification diagnostics and transactional selection are delivered. Cryptographic package-signature policy, manual retry UX and packaged cross-platform smokes remain open.",
       "exitCriteria": [
         "Select and identify a factory or full OTA package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -509,7 +510,9 @@
       ],
       "tests": [
         "tests/test_headless_services.py:FirmwareInspectorTests/EngineServiceIntegrationTests",
-        "ui/web/src/test/App.test.tsx:firmware processing flow"
+        "tests/test_firmware_catalog.py",
+        "tests/test_firmware_engine_integration.py:test_revision_change_after_import_rolls_back_new_firmware_object",
+        "ui/web/src/test/firmware-catalog.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -573,10 +576,12 @@
       "currentEvidence": [
         "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService",
         "pixelflasher_core/engine.py:_process_firmware",
+        "pixelflasher_core/planner.py:ProcessedArtifactCheckpoint",
+        "pixelflasher_core/persistent_artifacts.py:PersistentProcessedArtifactRepository.rollback",
         "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
-        "ui/web/src/pages/Pages.tsx:FirmwarePage"
+        "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Complete product diagnostics, retry UX and packaged cross-platform validation remain open.",
+      "gap": "Confined extraction, closed product diagnostics and rollback of SQLite objects, planner registrations and extracted output are delivered. Promotion of stock boot-chain images into BootRepository, retry UX and packaged cross-platform validation remain open.",
       "exitCriteria": [
         "Validate and process factory/full OTA packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -592,7 +597,8 @@
       "tests": [
         "tests/test_firmware_artifact_service.py",
         "tests/test_firmware_engine_integration.py",
-        "ui/web/src/test/App.test.tsx:firmware processing flow"
+        "tests/test_firmware_engine_integration.py:test_revision_change_rolls_back_persistent_processed_artifacts",
+        "ui/web/src/test/firmware-catalog.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,

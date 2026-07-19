@@ -34,10 +34,29 @@ describe('official firmware catalog', () => {
       license: 'Google Terms',
       provenance: 'Google Pixel official images',
     };
+    const inspection = {
+      type: 'factory',
+      sha256: entry.sha256,
+      build: entry.version,
+      device: entry.device,
+      code: 'ok',
+      ok: true,
+      provenance: 'official',
+      detectedDevices: [entry.device],
+      expectedDevices: [entry.device],
+      compatibility: 'matched',
+      evidence: [
+        'sha256_computed',
+        'archive_paths_validated',
+        'archive_members_verified',
+        'factory_flash_script',
+        'factory_image_archive',
+      ],
+    };
     const onCommand: SharedPageProps['onCommand'] = vi.fn(async (command) => ({
       result: command === 'firmware.catalog.refresh'
         ? { status: 'SUCCESS', value: { count: 1, entries: [entry] } }
-        : { status: 'SUCCESS', value: { artifact: entry } },
+        : { status: 'SUCCESS', value: { artifact: entry, inspection } },
     }));
     renderPage(onCommand);
 
@@ -51,6 +70,8 @@ describe('official firmware catalog', () => {
 
     await user.click(screen.getByRole('button', { name: 'Download and select' }));
     expect(onCommand).toHaveBeenCalledWith('firmware.download', { artifactId });
+    expect(await screen.findByRole('list', { name: 'Firmware verification' })).toBeVisible();
+    expect(screen.getByText('5 checks passed')).toBeVisible();
   });
 
   it('fails closed for an open catalog DTO', async () => {

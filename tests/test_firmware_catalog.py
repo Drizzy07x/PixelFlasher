@@ -296,7 +296,7 @@ class FirmwareCatalogTests(TestCase):
                 self.assertIs(OperationStatus.SUCCESS, downloaded.status)
                 public_download = project_operation_result("firmware.download", downloaded)
                 self.assertEqual(artifact_id, public_download["value"]["artifact"]["artifactId"])
-                self.assertNotIn("path", json.dumps(public_download))
+                self.assertNotIn('"path":', json.dumps(public_download))
                 snapshot = runtime.snapshot()
                 self.assertEqual("ota", snapshot.firmware.type)
                 self.assertEqual(hashlib.sha256(content).hexdigest(), snapshot.firmware.hash)

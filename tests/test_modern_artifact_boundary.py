@@ -304,6 +304,10 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                     if command in {
                         "device.inspect",
                         "device.openUrl",
+                        "firmware.catalog.refresh",
+                        "firmware.download",
+                        "firmware.process",
+                        "firmware.select",
                         "tools.logcat",
                         "tools.logcat.clear",
                         "tools.pushFiles",
@@ -447,11 +451,31 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
             "channel": "stable",
             "revision": 7,
         }
+        inspection = {
+            "type": "factory",
+            "sha256": "b" * 64,
+            "build": "AP4A.260719.001",
+            "device": "akita",
+            "code": "ok",
+            "ok": True,
+            "provenance": "official",
+            "detectedDevices": ["akita"],
+            "expectedDevices": ["akita"],
+            "compatibility": "matched",
+            "evidence": [
+                "sha256_computed",
+                "archive_paths_validated",
+                "archive_members_verified",
+                "factory_flash_script",
+                "factory_image_archive",
+            ],
+        }
         download = {
             "artifact": entry,
             "cacheHit": False,
             "resumed": True,
             "revision": 8,
+            "inspection": inspection,
         }
         for command, value in (
             ("firmware.catalog.refresh", catalog),
@@ -465,15 +489,24 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
             self.assert_route_free(public)
 
         hostile = {**entry, "url": "https://downloads.example/private.zip"}
-        rejected = project_operation_result(
-            "firmware.catalog.refresh",
-            OperationResult.success(
-                "firmware",
-                value={**catalog, "entries": [hostile]},
-            ),
-        )
-        self.assertNotIn("value", rejected)
-        self.assert_route_free(rejected)
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "firmware.catalog.refresh",
+                OperationResult.success(
+                    "firmware",
+                    value={**catalog, "entries": [hostile]},
+                ),
+            )
+
+        open_download = {
+            **download,
+            "inspection": {**inspection, "path": HOST_PATH_SENTINELS[0]},
+        }
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "firmware.download",
+                OperationResult.success("firmware", value=open_download),
+            )
 
     def test_platform_tools_result_exposes_closed_installation_receipt_without_routes(self):
         digest = "d" * 64

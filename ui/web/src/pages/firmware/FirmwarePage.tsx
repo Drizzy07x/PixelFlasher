@@ -17,6 +17,18 @@ type CatalogEntry = {
   provenance: string;
 };
 
+type FirmwareInspection = {
+  type: 'factory' | 'ota' | 'custom';
+  sha256: string;
+  build: string;
+  device: string;
+  provenance: 'official' | 'user_supplied';
+  detectedDevices: string[];
+  expectedDevices: string[];
+  compatibility: 'matched' | 'unverified' | 'not_checked';
+  evidence: string[];
+};
+
 const ARTIFACT_ID = /^[0-9a-f]{32}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -45,6 +57,44 @@ function catalogEntries(value: unknown): CatalogEntry[] | null {
   return entries;
 }
 
+function inspectionDiagnostics(value: unknown): FirmwareInspection | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const fields = [
+    'type', 'sha256', 'build', 'device', 'code', 'ok', 'provenance',
+    'detectedDevices', 'expectedDevices', 'compatibility', 'evidence',
+  ];
+  if (Object.keys(source).length !== fields.length || fields.some((field) => !(field in source))) return null;
+  if (
+    !['factory', 'ota', 'custom'].includes(String(source.type))
+    || typeof source.sha256 !== 'string' || !SHA256.test(source.sha256)
+    || typeof source.build !== 'string' || source.build.length > 512
+    || typeof source.device !== 'string' || source.device.length > 512
+    || source.code !== 'ok' || source.ok !== true
+    || !['official', 'user_supplied'].includes(String(source.provenance))
+    || !['matched', 'unverified', 'not_checked'].includes(String(source.compatibility))
+    || !Array.isArray(source.detectedDevices) || source.detectedDevices.some((item) => typeof item !== 'string')
+    || !Array.isArray(source.expectedDevices) || source.expectedDevices.some((item) => typeof item !== 'string')
+    || !Array.isArray(source.evidence) || !source.evidence.length || source.evidence.some((item) => typeof item !== 'string')
+  ) return null;
+  return source as FirmwareInspection;
+}
+
+function responseInspection(response: unknown, processed = false): FirmwareInspection | null {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return null;
+  const result = (response as Record<string, unknown>).result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+  const resultSource = result as Record<string, unknown>;
+  if (String(resultSource.status).toLowerCase() !== 'success') return null;
+  const value = resultSource.value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  if (!processed) return inspectionDiagnostics(source.inspection);
+  const processing = source.processing;
+  if (!processing || typeof processing !== 'object' || Array.isArray(processing)) return null;
+  return inspectionDiagnostics((processing as Record<string, unknown>).inspection);
+}
+
 function formatBytes(value: number) {
   const gib = value / (1024 ** 3);
   return `${gib.toFixed(gib >= 10 ? 1 : 2)} GiB`;
@@ -56,6 +106,8 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
   const [channel, setChannel] = useState<'stable' | 'beta' | 'canary'>('stable');
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [catalogError, setCatalogError] = useState(false);
+  const [inspection, setInspection] = useState<FirmwareInspection | null>(null);
+  const [inspectionError, setInspectionError] = useState(false);
   const active = snapshot.firmware?.id ?? null;
   const available = window.pixelflasher?.__mock
     ? demoFirmwares.map((entry) => entry.id === active && snapshot.firmware
@@ -98,8 +150,14 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
     setCatalogError(false);
     try {
       const response = await onCommand(commands.firmwareDownload, { artifactId });
-      const status = (response?.result as Record<string, unknown> | undefined)?.status;
-      if (typeof status !== 'string' || status.toLowerCase() !== 'success') setCatalogError(true);
+      const diagnostics = responseInspection(response);
+      if (!diagnostics) {
+        setCatalogError(true);
+        setInspectionError(true);
+      } else {
+        setInspection(diagnostics);
+        setInspectionError(false);
+      }
     } catch {
       setCatalogError(true);
     } finally {
@@ -118,7 +176,14 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
       });
       if (!picked) return;
       const grant = selectedGrant(picked);
-      if (grant) await onCommand(commands.firmwareSelect, { grant });
+      if (grant) {
+        const response = await onCommand(commands.firmwareSelect, { grant });
+        const diagnostics = responseInspection(response);
+        setInspection(diagnostics);
+        setInspectionError(!diagnostics);
+      }
+    } catch {
+      setInspectionError(true);
     } finally {
       setBusy(false);
     }
@@ -128,7 +193,12 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
     if (!snapshot.firmware || snapshot.firmware.processed || busy) return;
     setBusy(true);
     try {
-      await onCommand(commands.firmwareProcess);
+      const response = await onCommand(commands.firmwareProcess);
+      const diagnostics = responseInspection(response, true);
+      setInspection(diagnostics);
+      setInspectionError(!diagnostics);
+    } catch {
+      setInspectionError(true);
     } finally {
       setBusy(false);
     }
@@ -169,6 +239,25 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
           {!catalog.length && !catalogError ? <EmptyState icon="download" title={t('firmware.catalogEmpty')} detail={t('firmware.refreshCatalog')} /> : null}
         </div>
       </Card>
+      {inspection || inspectionError ? (
+        <Card>
+          <CardTitle icon="shield">{t('firmware.verificationTitle')}</CardTitle>
+          {inspectionError ? (
+            <div className="inline-alert inline-alert--warning" role="alert">{t('firmware.invalidInspection')}</div>
+          ) : inspection ? (
+            <div className="firmware-table" role="list" aria-label={t('firmware.verificationTitle')}>
+              <div className="firmware-row" role="listitem">
+                <span className="firmware-row__name"><strong>{inspection.build || inspection.type.toUpperCase()}</strong><small>{t('firmware.verificationDetail')}</small></span>
+                <span><small>{t('firmware.compatibility')}</small><strong>{t(`firmware.compatibility.${inspection.compatibility}`)}</strong></span>
+                <span><small>{t('firmware.detectedDevice')}</small><strong>{inspection.detectedDevices.join(', ') || t('common.none')}</strong></span>
+                <span><small>{t('firmware.provenance')}</small><strong>{inspection.provenance}</strong></span>
+                <span><small>SHA-256</small><strong>{inspection.sha256.slice(0, 12)}…</strong></span>
+                <Badge tone={inspection.compatibility === 'matched' ? 'success' : 'warning'}>{t('firmware.evidenceCount', { count: inspection.evidence.length })}</Badge>
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
       <Card aria-busy={busy}>
         <CardTitle icon="firmware" after={<Badge tone="accent">{available.length}</Badge>}>{t('firmware.available')}</CardTitle>
         <div className="firmware-table" role="list">

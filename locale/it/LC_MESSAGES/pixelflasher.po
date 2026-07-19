@@ -5406,3 +5406,43 @@ msgstr ""
 msgctxt "web.firmware.downloadSelect"
 msgid "Download and select"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.firmware.verificationTitle"
+msgid "Firmware verification"
+msgstr ""
+
+msgctxt "web.firmware.verificationDetail"
+msgid "Backend-verified archive evidence"
+msgstr ""
+
+msgctxt "web.firmware.compatibility"
+msgid "Device compatibility"
+msgstr ""
+
+msgctxt "web.firmware.compatibility.matched"
+msgid "Matched"
+msgstr ""
+
+msgctxt "web.firmware.compatibility.unverified"
+msgid "Not declared by package"
+msgstr ""
+
+msgctxt "web.firmware.compatibility.not_checked"
+msgid "Not checked"
+msgstr ""
+
+msgctxt "web.firmware.detectedDevice"
+msgid "Detected device"
+msgstr ""
+
+msgctxt "web.firmware.evidenceCount"
+msgid "{count} checks passed"
+msgstr ""
+
+msgctxt "web.firmware.invalidInspection"
+msgid "The host returned an invalid firmware verification receipt."
+msgstr ""

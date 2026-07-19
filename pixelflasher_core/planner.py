@@ -150,6 +150,15 @@ class BatchCompilation:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ProcessedArtifactCheckpoint:
+    firmware_hash: str
+    plan_fingerprint: str
+    existed: bool
+    previous_artifacts: tuple[FileArtifact, ...] = ()
+    artifact_ids: tuple[str, ...] = ()
+
+
 class ProcessedArtifactRepository:
     """Backend-only registry of verified, extracted image artifacts."""
 
@@ -183,6 +192,32 @@ class ProcessedArtifactRepository:
                 if key in self._artifacts:
                     return self._artifacts[key]
         return ()
+
+    def checkpoint(
+        self,
+        *,
+        firmware_hash: str = "",
+        plan_fingerprint: str = "",
+    ) -> ProcessedArtifactCheckpoint:
+        key = (firmware_hash.casefold(), plan_fingerprint)
+        with self._lock:
+            previous = self._artifacts.get(key)
+        return ProcessedArtifactCheckpoint(
+            firmware_hash=key[0],
+            plan_fingerprint=key[1],
+            existed=previous is not None,
+            previous_artifacts=previous or (),
+        )
+
+    def rollback(self, checkpoint: ProcessedArtifactCheckpoint) -> None:
+        if not isinstance(checkpoint, ProcessedArtifactCheckpoint):
+            raise TypeError("processed artifact checkpoint is required")
+        key = (checkpoint.firmware_hash, checkpoint.plan_fingerprint)
+        with self._lock:
+            if checkpoint.existed:
+                self._artifacts[key] = checkpoint.previous_artifacts
+            else:
+                self._artifacts.pop(key, None)
 
     def clear(self) -> None:
         with self._lock:

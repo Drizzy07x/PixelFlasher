@@ -27,6 +27,10 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
     {
         "device.openUrl",
         "device.inspect",
+        "firmware.catalog.refresh",
+        "firmware.download",
+        "firmware.process",
+        "firmware.select",
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
@@ -799,49 +803,145 @@ def _project_device_scan(value: object) -> JSONValue:
     })
 
 
+def _project_firmware_inspection(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "type",
+                "sha256",
+                "build",
+                "device",
+                "code",
+                "ok",
+                "provenance",
+                "detectedDevices",
+                "expectedDevices",
+                "compatibility",
+                "evidence",
+            }
+        ),
+    )
+    kind = source["type"]
+    digest = source["sha256"]
+    build = source["build"]
+    device = source["device"]
+    provenance = source["provenance"]
+    compatibility = source["compatibility"]
+    if kind not in {"factory", "ota", "custom"}:
+        raise PublicProjectionError("firmware inspection type is invalid")
+    if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+        raise PublicProjectionError("firmware inspection digest is invalid")
+    if not isinstance(build, str) or len(build) > 512:
+        raise PublicProjectionError("firmware inspection build is invalid")
+    if not isinstance(device, str) or len(device) > 512:
+        raise PublicProjectionError("firmware inspection device is invalid")
+    if source["code"] != "ok" or source["ok"] is not True:
+        raise PublicProjectionError("firmware inspection result is invalid")
+    if provenance not in {"official", "user_supplied"}:
+        raise PublicProjectionError("firmware inspection provenance is invalid")
+    if compatibility not in {"matched", "unverified", "not_checked"}:
+        raise PublicProjectionError("firmware compatibility evidence is invalid")
+    detected = _closed_bounded_strings(
+        source["detectedDevices"],
+        maximum_items=32,
+        maximum_item_utf8_bytes=64,
+        maximum_utf8_bytes=2_048,
+    )
+    expected = _closed_bounded_strings(
+        source["expectedDevices"],
+        maximum_items=32,
+        maximum_item_utf8_bytes=64,
+        maximum_utf8_bytes=2_048,
+    )
+    evidence = _closed_bounded_strings(
+        source["evidence"],
+        maximum_items=8,
+        maximum_item_utf8_bytes=64,
+        maximum_utf8_bytes=512,
+    )
+    allowed_evidence = {
+        "sha256_computed",
+        "archive_paths_validated",
+        "archive_members_verified",
+        "factory_flash_script",
+        "factory_image_archive",
+        "ota_metadata",
+        "verified_zip",
+    }
+    if not evidence or any(item not in allowed_evidence for item in evidence):
+        raise PublicProjectionError("firmware inspection evidence is invalid")
+    return cast(
+        dict[str, JSONValue],
+        ensure_public_json({**source, "detectedDevices": detected, "expectedDevices": expected, "evidence": evidence}),
+    )
+
+
 def _project_firmware_select(value: object) -> JSONValue:
-    source = _record(value)
-    inspection = _record(source.get("inspection", {}))
+    source = _closed_record(
+        value,
+        fields=frozenset({"snapshot", "inspection"}),
+    )
     return ensure_public_json({
-        "snapshot": public_snapshot(source.get("snapshot")),
-        "inspection": {
-            "type": _string(inspection.get("type")),
-            "sha256": _string(inspection.get("sha256")),
-            "build": _string(inspection.get("build")),
-            "device": _string(inspection.get("device")),
-            "code": _string(inspection.get("code")),
-            "ok": _boolean(inspection.get("ok")),
-        },
+        "snapshot": public_snapshot(source["snapshot"]),
+        "inspection": _project_firmware_inspection(source["inspection"]),
     })
 
 
 def _project_firmware_process(value: object) -> JSONValue:
-    source = _record(value)
-    processing = _record(source.get("processing", {}))
-    inspection = _record(processing.get("inspection", {}))
-    artifacts = [
-        item
-        for raw in _array(processing.get("artifacts", []))
-        if (item := _public_artifact(raw)) is not None
-    ]
+    source = _closed_record(
+        value,
+        fields=frozenset({"processing", "firmware", "boot"}),
+    )
+    processing = _closed_record(
+        source["processing"],
+        fields=frozenset(
+            {"status", "code", "inspection", "artifacts", "detectedDevices", "registered"}
+        ),
+    )
+    if processing["status"] != "SUCCESS" or processing["code"] != "firmware_artifacts_ready":
+        raise PublicProjectionError("firmware processing terminal evidence is invalid")
+    if processing["registered"] is not True:
+        raise PublicProjectionError("firmware processing registration evidence is invalid")
+    raw_artifacts = _array(processing["artifacts"])
+    if not raw_artifacts or len(raw_artifacts) > 512:
+        raise PublicProjectionError("firmware processing artifacts are invalid")
+    artifacts: list[dict[str, JSONValue]] = []
+    for raw in raw_artifacts:
+        artifact = _closed_record(
+            raw,
+            fields=frozenset({"sha256", "role", "displayName"}),
+        )
+        digest = artifact["sha256"]
+        role = artifact["role"]
+        display_name = artifact["displayName"]
+        if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+            raise PublicProjectionError("firmware artifact digest is invalid")
+        if not isinstance(role, str) or not role or len(role) > 128:
+            raise PublicProjectionError("firmware artifact role is invalid")
+        if (
+            not isinstance(display_name, str)
+            or display_name != f"@artifact/{role}/{digest[:12]}"
+        ):
+            raise PublicProjectionError("firmware artifact display name is invalid")
+        artifacts.append({"sha256": digest, "role": role, "displayName": display_name})
+    detected_devices = _closed_bounded_strings(
+        processing["detectedDevices"],
+        maximum_items=32,
+        maximum_item_utf8_bytes=64,
+        maximum_utf8_bytes=2_048,
+    )
     return ensure_public_json({
         "processing": {
-            "status": _string(processing.get("status")),
-            "code": _string(processing.get("code")),
-            "inspection": {
-                "type": _string(inspection.get("type")),
-                "sha256": _string(inspection.get("sha256")),
-                "build": _string(inspection.get("build")),
-                "device": _string(inspection.get("device")),
-                "code": _string(inspection.get("code")),
-                "ok": _boolean(inspection.get("ok")),
-            },
+            "status": _string(processing["status"]),
+            "code": _string(processing["code"]),
+            "inspection": _project_firmware_inspection(processing["inspection"]),
             "artifacts": artifacts,
-            "detectedDevices": _strings(processing.get("detectedDevices", [])),
-            "registered": _boolean(processing.get("registered")),
+            "detectedDevices": detected_devices,
+            "registered": True,
         },
-        "firmware": _public_firmware(source.get("firmware")),
-        "boot": _public_boot(source.get("boot")),
+        "firmware": _public_firmware(source["firmware"]),
+        "boot": _public_boot(source["boot"]),
     })
 
 
@@ -1511,7 +1611,7 @@ def _project_firmware_catalog(value: object) -> JSONValue:
 def _project_firmware_download(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset({"artifact", "cacheHit", "resumed", "revision"}),
+        fields=frozenset({"artifact", "cacheHit", "resumed", "revision", "inspection"}),
     )
     if not isinstance(source["cacheHit"], bool) or not isinstance(source["resumed"], bool):
         raise PublicProjectionError("firmware download cache evidence is invalid")
@@ -1523,6 +1623,7 @@ def _project_firmware_download(value: object) -> JSONValue:
         "cacheHit": source["cacheHit"],
         "resumed": source["resumed"],
         "revision": revision,
+        "inspection": _project_firmware_inspection(source["inspection"]),
     })
 
 

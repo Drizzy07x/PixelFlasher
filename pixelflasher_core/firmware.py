@@ -65,6 +65,49 @@ class FirmwareInspection:
             "ok": self.ok,
         }
 
+    def to_public_diagnostics(
+        self,
+        *,
+        expected_devices: Sequence[str] = (),
+        provenance: str,
+    ) -> dict[str, object]:
+        """Return bounded verification evidence without paths or raw metadata."""
+
+        expected = tuple(
+            sorted(
+                {
+                    item.strip().casefold()
+                    for item in expected_devices
+                    if isinstance(item, str) and item.strip()
+                }
+            )
+        )
+        detected = tuple(sorted(_device_names(self.device)))
+        if expected:
+            compatibility = "matched" if set(expected).intersection(detected) else "unverified"
+        else:
+            compatibility = "not_checked"
+        evidence = ["sha256_computed", "archive_paths_validated", "archive_members_verified"]
+        if self.kind is FirmwareKind.FACTORY:
+            evidence.extend(("factory_flash_script", "factory_image_archive"))
+        elif self.kind is FirmwareKind.OTA:
+            evidence.append("ota_metadata")
+        else:
+            evidence.append("verified_zip")
+        return {
+            "type": self.kind.value,
+            "sha256": self.sha256,
+            "build": self.build,
+            "device": self.device,
+            "code": self.code,
+            "ok": self.ok,
+            "provenance": provenance,
+            "detectedDevices": list(detected),
+            "expectedDevices": list(expected),
+            "compatibility": compatibility,
+            "evidence": evidence,
+        }
+
 
 class FirmwareInspector:
     def __init__(

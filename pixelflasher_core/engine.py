@@ -1209,6 +1209,7 @@ class CommandEngine:
                 )
                 if not inspected.ok:
                     return inspected
+                inspected_value = cast(Mapping[str, object], inspected.value)
                 return replace(
                     inspected,
                     code="firmware_download_selected",
@@ -1218,6 +1219,7 @@ class CommandEngine:
                         "cacheHit": downloaded.cache_hit,
                         "resumed": downloaded.resumed,
                         "revision": self.store.snapshot().revision,
+                        "inspection": inspected_value["inspection"],
                     },
                 )
         finally:
@@ -1279,6 +1281,8 @@ class CommandEngine:
         *,
         provenance: ArtifactProvenance = ArtifactProvenance.USER_SUPPLIED,
     ) -> OperationResult:
+        imported_artifact_id = ""
+        imported_artifact_created = False
         try:
             inspection = self.firmware_inspector.inspect(
                 path,
@@ -1315,6 +1319,9 @@ class CommandEngine:
             )
         if self.firmware_repository is not None:
             try:
+                existing_artifact_ids = {
+                    item.artifact_id for item in self.firmware_repository.list()
+                }
                 record = self.firmware_repository.import_selection(
                     inspection.path,
                     firmware_type=inspection.kind.value,
@@ -1324,6 +1331,8 @@ class CommandEngine:
                     provenance=provenance,
                     cancellation=token,
                 )
+                imported_artifact_id = record.artifact_id
+                imported_artifact_created = record.artifact_id not in existing_artifact_ids
             except (OSError, RepositoryError, TypeError, ValueError):
                 if token.cancelled:
                     return self._stopped_result(
@@ -1340,19 +1349,31 @@ class CommandEngine:
                 )
             inspection = replace(inspection, path=str(record.path))
         if token.cancelled:
-            return self._stopped_result(
+            stopped = self._stopped_result(
                 command,
                 token,
                 cancelled_code="firmware_cancelled",
                 cancelled_message="firmware selection was cancelled before state promotion",
                 timeout_message="firmware selection timed out before state promotion",
             )
+            return self._rollback_firmware_import(
+                command,
+                stopped,
+                imported_artifact_id,
+                imported_artifact_created,
+            )
         current = self.store.snapshot()
         if current.revision != snapshot.revision:
-            return self._denied(
+            denied = self._denied(
                 command,
                 "stale_revision",
                 f"state revision changed: expected {snapshot.revision}, current {current.revision}",
+            )
+            return self._rollback_firmware_import(
+                command,
+                denied,
+                imported_artifact_id,
+                imported_artifact_created,
             )
         result = self._update_state(
             command,
@@ -1362,13 +1383,47 @@ class CommandEngine:
             boot=BootInfo(),
         )
         if not result.ok:
-            return result
+            return self._rollback_firmware_import(
+                command,
+                result,
+                imported_artifact_id,
+                imported_artifact_created,
+            )
         return replace(
             result,
             code="firmware_selected",
             message=f"{inspection.kind.value} firmware inspected successfully",
-            value={"snapshot": self.store.snapshot().to_dict(), "inspection": inspection.to_dict()},
+            value={
+                "snapshot": self.store.snapshot().to_dict(),
+                "inspection": inspection.to_public_diagnostics(
+                    expected_devices=expected_devices,
+                    provenance=provenance.value,
+                ),
+            },
         )
+
+    def _rollback_firmware_import(
+        self,
+        command: AppCommand,
+        intended_result: OperationResult,
+        artifact_id: str,
+        imported: bool,
+    ) -> OperationResult:
+        """Make repository import and canonical state promotion one transaction."""
+
+        if not imported or self.firmware_repository is None:
+            return intended_result
+        try:
+            removed = self.firmware_repository.repository.delete(artifact_id)
+        except (OSError, RepositoryError, TypeError, ValueError):
+            removed = False
+        if not removed:
+            return OperationResult.failed(
+                command.operation_id,
+                code="firmware_import_rollback_failed",
+                message="the firmware import could not be rolled back safely",
+            )
+        return intended_result
 
     def _list_boot_inventory(self, command: AppCommand) -> OperationResult:
         if command.payload:
@@ -1710,6 +1765,14 @@ class CommandEngine:
                         code="firmware_selection_changed",
                         message="canonical firmware state changed while processing",
                     )
+                if processing is not None and processing.ok and not result.ok:
+                    promoted_firmware = None
+                    promoted_boot = None
+                    result = self._rollback_firmware_processing(
+                        command,
+                        processing,
+                        result,
+                    )
                 try:
                     self.store.complete_operation(
                         result,
@@ -1723,11 +1786,33 @@ class CommandEngine:
                         code="firmware_state_promotion_failed",
                         message=str(error),
                     )
+                    if processing is not None and processing.ok and result.ok:
+                        fallback = self._rollback_firmware_processing(
+                            command,
+                            processing,
+                            fallback,
+                        )
                     self._abort_operation_safely(fallback)
                     return fallback
                 return result
         finally:
             self._unregister_cancellation(command.operation_id)
+
+    def _rollback_firmware_processing(
+        self,
+        command: AppCommand,
+        processing: FirmwareProcessingResult,
+        intended_result: OperationResult,
+    ) -> OperationResult:
+        try:
+            self.firmware_artifact_service.rollback(processing)
+        except Exception:
+            return OperationResult.failed(
+                command.operation_id,
+                code="firmware_processing_rollback_failed",
+                message="processed firmware artifacts could not be rolled back safely",
+            )
+        return intended_result
 
     def _create_support_package(self, command: AppCommand) -> OperationResult:
         """Create one redacted archive at a one-use native destination."""
@@ -1890,8 +1975,37 @@ class CommandEngine:
                 None,
                 None,
             )
+        provenance = ArtifactProvenance.USER_SUPPLIED.value
+        if self.firmware_repository is not None:
+            source_record = self.firmware_repository.resolve_selection(
+                sha256=processing.firmware.hash,
+            )
+            if source_record is not None:
+                provenance = source_record.provenance.value
+        expected_devices = tuple(
+            device.codename
+            for device in selected_snapshot.devices
+            if device.serial in selected_snapshot.selected_serials and device.codename
+        )
         value = {
-            "processing": processing.to_dict(),
+            "processing": {
+                "status": processing.status.value,
+                "code": processing.code.value,
+                "inspection": processing.inspection.to_public_diagnostics(
+                    expected_devices=expected_devices,
+                    provenance=provenance,
+                ),
+                "artifacts": [
+                    {
+                        "sha256": artifact.sha256,
+                        "role": artifact.role,
+                        "displayName": f"@artifact/{artifact.role}/{artifact.sha256[:12]}",
+                    }
+                    for artifact in processing.artifacts
+                ],
+                "detectedDevices": list(processing.detected_devices),
+                "registered": processing.registered,
+            },
             "firmware": processing.firmware.to_dict(),
             "boot": stock_boot.to_dict() if stock_boot is not None else None,
         }

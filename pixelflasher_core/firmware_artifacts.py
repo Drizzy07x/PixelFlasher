@@ -42,7 +42,7 @@ from .payload import (
     PayloadParser,
     PayloadValidationError,
 )
-from .planner import ProcessedArtifactRepository
+from .planner import ProcessedArtifactCheckpoint, ProcessedArtifactRepository
 
 FLASHABLE_PARTITIONS = frozenset(
     {
@@ -165,6 +165,7 @@ class FirmwareProcessingResult:
     detected_devices: tuple[str, ...] = ()
     registered: bool = False
     warnings: tuple[str, ...] = ()
+    registration_checkpoint: ProcessedArtifactCheckpoint | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "artifacts", tuple(self.artifacts))
@@ -175,6 +176,8 @@ class FirmwareProcessingResult:
                 raise ValueError("successful processing requires verified, processed firmware")
             if not self.artifacts or not self.registered:
                 raise ValueError("successful processing requires registered artifacts")
+            if self.registration_checkpoint is None:
+                raise ValueError("successful processing requires a registration checkpoint")
         elif self.firmware.processed:
             raise ValueError("failed or cancelled processing cannot mark firmware processed")
 
@@ -298,12 +301,13 @@ class FirmwareArtifactService:
                                 self._revalidate_source(source, digest, token)
                                 if token.cancelled:
                                     raise _ProcessingCancelled
-                                self._register((source_artifact,), digest)
+                                registration_checkpoint = self._register((source_artifact,), digest)
                                 return self._success(
                                     inspection,
                                     (source_artifact,),
                                     detected,
                                     output_directory="",
+                                    registration_checkpoint=registration_checkpoint,
                                 )
 
                         root, staging = self._create_staging()
@@ -373,12 +377,13 @@ class FirmwareArtifactService:
                 )
                 for partition, image_hash in extracted
             )
-            self._register(artifacts, digest)
+            registration_checkpoint = self._register(artifacts, digest)
             return self._success(
                 inspection,
                 artifacts,
                 detected,
                 output_directory=str(committed),
+                registration_checkpoint=registration_checkpoint,
             )
         except _ProcessingCancelled:
             self._cleanup(staging)
@@ -1503,7 +1508,12 @@ class FirmwareArtifactService:
             if descriptor is not None:
                 os.close(descriptor)
 
-    def _register(self, artifacts: Sequence[FileArtifact], firmware_hash: str) -> None:
+    def _register(
+        self,
+        artifacts: Sequence[FileArtifact],
+        firmware_hash: str,
+    ) -> ProcessedArtifactCheckpoint:
+        checkpoint = self.repository.checkpoint(firmware_hash=firmware_hash)
         try:
             self.repository.register(artifacts, firmware_hash=firmware_hash)
         except (TypeError, ValueError) as error:
@@ -1511,6 +1521,26 @@ class FirmwareArtifactService:
                 FirmwareProcessingCode.REGISTRATION_FAILED,
                 f"could not register processed artifacts: {error}",
             ) from error
+        return checkpoint
+
+    def rollback(self, processing: FirmwareProcessingResult) -> None:
+        """Undo registration and extracted output after failed state promotion."""
+
+        checkpoint = processing.registration_checkpoint
+        if not processing.ok or checkpoint is None:
+            raise ValueError("successful firmware processing result is required")
+        registration_error: Exception | None = None
+        try:
+            self.repository.rollback(checkpoint)
+        except Exception as error:
+            registration_error = error
+        if processing.output_directory:
+            output_directory = Path(processing.output_directory)
+            self._cleanup(output_directory)
+            if output_directory.exists():
+                raise OSError("processed firmware output could not be removed")
+        if registration_error is not None:
+            raise RuntimeError("processed firmware registration rollback failed") from registration_error
 
     def _revalidate_source(
         self,
@@ -1607,6 +1637,7 @@ class FirmwareArtifactService:
         detected_devices: tuple[str, ...],
         *,
         output_directory: str,
+        registration_checkpoint: ProcessedArtifactCheckpoint,
     ) -> FirmwareProcessingResult:
         return FirmwareProcessingResult(
             status=FirmwareProcessingStatus.SUCCESS,
@@ -1618,6 +1649,7 @@ class FirmwareArtifactService:
             output_directory=output_directory,
             detected_devices=detected_devices,
             registered=True,
+            registration_checkpoint=registration_checkpoint,
         )
 
     @staticmethod
