@@ -119,6 +119,14 @@ class CommandRegistryTests(unittest.TestCase):
                     COMMAND_REGISTRY[command].valid_device_states,
                 )
 
+        grants = COMMAND_REGISTRY["tools.pushFiles"].payload.fields["grants"]
+        self.assertEqual(1, grants.min_items)
+        self.assertEqual(32, grants.max_items)
+        self.assertEqual(
+            ("remote_files_written",),
+            COMMAND_REGISTRY["tools.pushFiles"].postconditions,
+        )
+
     def test_ota_diagnostic_contracts_are_closed_read_only_device_reads(self):
         expected_payloads = {
             "device.ota.certificates": {"serial": PayloadKind.STRING},

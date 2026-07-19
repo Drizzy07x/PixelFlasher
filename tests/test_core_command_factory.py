@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pixelflasher_core import AppSnapshot, GrantAccess, SensitiveText
+from pixelflasher_core import AppSnapshot, BoundReadFile, GrantAccess, SensitiveText
 from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
 from ui.core_command_factory import CommandFactoryError, create_command_factory
 
@@ -34,6 +34,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertTrue(command.requires_confirmation)
         self.assertEqual("SERIAL-1", command.target_serial)
         self.assertEqual(4, command.expected_revision)
+        self.assertEqual("factory-test", command.operation_id)
 
         with self.assertRaises(BridgeProtocolError):
             request(
@@ -350,6 +351,68 @@ class CoreCommandFactoryTests(unittest.TestCase):
             with self.assertRaises(CommandFactoryError) as conflict:
                 factory.validate_native_request(stale)
             self.assertEqual("revision_conflict", conflict.exception.code)
+
+    def test_push_picker_and_command_share_the_thirty_two_file_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            files = []
+            for index in range(33):
+                path = Path(directory) / f"file-{index:02d}.bin"
+                path.write_bytes(bytes([index]))
+                files.append(path)
+            factory = create_command_factory(
+                lambda: AppSnapshot(revision=4, selected_serial="SERIAL")
+            )
+            picker = request(
+                "native.pickFiles",
+                payload={"purpose": "tools.pushFiles.sources"},
+            )
+            issued = factory.issue_native_grants(picker, files[:32])
+            tokens = [item["grant"] for item in issued["grants"]]
+            command = factory(
+                request(
+                    "tools.pushFiles",
+                    payload={
+                        "serial": "SERIAL",
+                        "grants": tokens,
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+            self.assertEqual(32, len(command.payload["paths"]))
+            self.assertTrue(
+                all(isinstance(path, BoundReadFile) for path in command.payload["paths"])
+            )
+            self.assertNotIn("grants", command.payload)
+
+            replacement = factory.issue_native_grants(picker, files[:32])
+            replacement_tokens = [item["grant"] for item in replacement["grants"]]
+            with self.assertRaises(CommandFactoryError) as superseded:
+                factory(
+                    request(
+                        "tools.pushFiles",
+                        payload={
+                            "serial": "SERIAL",
+                            "grants": tokens,
+                            "destination": "/data/local/tmp/",
+                        },
+                    )
+                )
+            self.assertEqual("grant_not_found", superseded.exception.code)
+            replacement_command = factory(
+                request(
+                    "tools.pushFiles",
+                    payload={
+                        "serial": "SERIAL",
+                        "grants": replacement_tokens,
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+            self.assertEqual(32, len(replacement_command.payload["paths"]))
+
+            with self.assertRaises(CommandFactoryError) as excessive:
+                factory.issue_native_grants(picker, files)
+            self.assertEqual("native_selection_invalid", excessive.exception.code)
 
     def test_direct_factory_bypass_still_rejects_raw_paths_and_v1(self):
         factory = create_command_factory(lambda: AppSnapshot(revision=0))

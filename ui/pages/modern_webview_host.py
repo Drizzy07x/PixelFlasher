@@ -32,6 +32,7 @@ from pixelflasher_core import (
     AppCommand,
     AppEvent,
     AppSnapshot,
+    CancellationReason,
     CommandAck,
     InteractionDecision,
     InteractionRequest,
@@ -200,6 +201,7 @@ class _SerialCommandWorker:
         self._engine = engine
         self._deliver = deliver
         self._queue: Queue[_CommandWorkItem | None] = Queue()
+        self._accepted_commands: dict[str, AppCommand] = {}
         self._closed = False
         self._lock = threading.RLock()
         self._thread = threading.Thread(
@@ -216,7 +218,22 @@ class _SerialCommandWorker:
         with self._lock:
             if self._closed:
                 raise RuntimeError("command worker has shut down")
+            if command.operation_id in self._accepted_commands:
+                raise RuntimeError("operation id is already accepted")
+            self._accepted_commands[command.operation_id] = command
             self._queue.put(_CommandWorkItem(request, command))
+
+    def cancel(self, operation_id: str) -> bool:
+        """Cancel an accepted command before, during, or after engine handoff."""
+
+        with self._lock:
+            command = self._accepted_commands.get(operation_id)
+            if command is None:
+                return False
+            # This is the same token CommandEngine registers. Cancellation
+            # therefore cannot disappear in the queue-to-engine handoff.
+            command.request_cancellation()
+            return True
 
     def shutdown(self, *, timeout_seconds: float = 10.0) -> bool:
         if timeout_seconds < 0:
@@ -233,6 +250,7 @@ class _SerialCommandWorker:
                     self._queue.get_nowait()
                 except Empty:
                     break
+            self._accepted_commands.clear()
             self._queue.put(None)
         self._thread.join(timeout_seconds)
         return not self._thread.is_alive()
@@ -243,12 +261,31 @@ class _SerialCommandWorker:
             if item is None:
                 return
             outcome: OperationResult | None = None
+            with self._lock:
+                operation_id = item.command.operation_id
             try:
-                candidate = self._engine.execute(item.command)
-                if isinstance(candidate, OperationResult):
-                    outcome = candidate
+                cancellation_reason = item.command.cancellation_reason
+                if cancellation_reason is CancellationReason.USER:
+                    outcome = OperationResult.cancelled(
+                        operation_id,
+                        code="cancelled",
+                        message="operation was cancelled while queued",
+                    )
+                elif cancellation_reason is CancellationReason.DEADLINE:
+                    outcome = OperationResult.failed(
+                        operation_id,
+                        code="timed_out",
+                        message="operation deadline expired while queued",
+                    )
+                else:
+                    candidate = self._engine.execute(item.command)
+                    if isinstance(candidate, OperationResult):
+                        outcome = candidate
             except Exception:
                 outcome = None
+            finally:
+                with self._lock:
+                    self._accepted_commands.pop(operation_id, None)
             wx.CallAfter(self._deliver, item.request, outcome)
 
 
@@ -535,11 +572,23 @@ class ModernWebViewFrame(wx.Frame):
 
     def _handle_operation_cancel(self, request: BridgeRequest) -> None:
         operation_id = request.payload.get("operationId")
-        acknowledgement = (
-            self._engine.cancel(operation_id)
-            if isinstance(operation_id, str)
-            else CommandAck(False, "invalid_operation_id", "Operation ID is required.")
-        )
+        if isinstance(operation_id, str):
+            worker_cancelled = self._command_worker.cancel(operation_id)
+            # Always notify the engine as well. ApplicationRuntime uses this
+            # path to wake a pending InteractionBroker confirmation in addition
+            # to cancelling the shared command token.
+            engine_acknowledgement = self._engine.cancel(operation_id)
+            acknowledgement = (
+                CommandAck(True, "cancellation_requested", "Cancellation requested.")
+                if worker_cancelled or engine_acknowledgement.accepted
+                else engine_acknowledgement
+            )
+        else:
+            acknowledgement = CommandAck(
+                False,
+                "invalid_operation_id",
+                "Operation ID is required.",
+            )
         accepted = acknowledgement.accepted
         acknowledgement_message = safe_public_message(
             acknowledgement.message,
@@ -973,13 +1022,7 @@ def _jsonable(value: Any) -> Any:
             "snapshot": public_snapshot(value.snapshot),
         }
     if isinstance(value, ProgressEvent):
-        return {
-            "event_type": value.event_type,
-            "operation_id": value.operation_id,
-            "phase": value.phase.value,
-            "message": safe_public_message(value.message, fallback="Operation update."),
-            "percent": value.percent,
-        }
+        return value.to_public_dict()
     if isinstance(value, InteractionRequest):
         return {
             "event_type": value.event_type,

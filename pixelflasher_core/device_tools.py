@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import xml.etree.ElementTree as ElementTree
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Protocol, cast
@@ -34,9 +34,11 @@ from .contracts import (
     OperationRisk,
     OperationStatus,
     ProcessRequest,
+    ProgressPhase,
     SensitiveText,
 )
-from .executor import CancellationToken, TransportOutcome
+from .executor import CancellationReason, CancellationToken, TransportOutcome
+from .grants import BoundReadFile, GrantError
 
 DEVICE_TOOL_COMMANDS = frozenset(
     {
@@ -87,6 +89,8 @@ _LOGCAT_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 _PUSH_DESTINATIONS = frozenset({"/data/local/tmp/", "/sdcard/Download/"})
 _REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+MAX_PUSH_FILES = 32
+_PUSH_OUTPUT_LIMIT = 64 * 1_024
 _PAIRING_CODE_PATTERN = re.compile(r"^[0-9]{6}$")
 _MDNS_DAEMON_PATTERN = re.compile(r"^mdns daemon version \[([1-9][0-9]{0,5})\]$")
 _MDNS_SERVICES_HEADER = "List of discovered mdns services"
@@ -184,6 +188,11 @@ _MACH_EXECUTABLE_MAGICS = frozenset(
 _EXECUTION_PROCESS = "process"
 _EXECUTION_LAUNCH = "managed-launch"
 _EXECUTION_SECRET_PROCESS = "secret-stdin"
+
+DeviceToolProgress = Callable[
+    [ProgressPhase, str, int | None, int | None, int | None, str | None],
+    None,
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -868,6 +877,52 @@ def parse_bounded_screen_xml(output: str) -> dict[str, object]:
 
 
 @dataclass(frozen=True, slots=True)
+class PushFileReceipt:
+    """Route-free metadata bound to one verified push source and destination."""
+
+    display_name: str
+    destination: str
+    sha256: str
+    size_bytes: int
+
+    def __post_init__(self) -> None:
+        if _REMOTE_NAME_PATTERN.fullmatch(self.display_name) is None:
+            raise ValueError("push receipt display name is invalid")
+        if not any(
+            self.destination == f"{root}{self.display_name}"
+            for root in _PUSH_DESTINATIONS
+        ):
+            raise ValueError("push receipt destination is invalid")
+        if len(self.sha256) != 64 or any(
+            character not in "0123456789abcdef"
+            for character in self.sha256.casefold()
+        ):
+            raise ValueError("push receipt SHA-256 is invalid")
+        if (
+            not isinstance(self.size_bytes, int)
+            or isinstance(self.size_bytes, bool)
+            or not 0 <= self.size_bytes <= 9_007_199_254_740_991
+        ):
+            raise ValueError("push receipt size is invalid")
+        object.__setattr__(self, "sha256", self.sha256.casefold())
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "displayName": self.display_name,
+            "destination": self.destination,
+            "sha256": self.sha256,
+            "sizeBytes": self.size_bytes,
+            "verified": True,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _PushSource:
+    path: Path
+    grant: BoundReadFile | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceToolCompilation:
     """A compiled plan plus safety metadata owned by the backend."""
 
@@ -879,6 +934,16 @@ class DeviceToolCompilation:
     execution: str = _EXECUTION_PROCESS
     endpoint: str = ""
     pairing_code: SensitiveText | None = None
+    push_files: tuple[PushFileReceipt, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "push_files", tuple(self.push_files))
+        if any(not isinstance(item, PushFileReceipt) for item in self.push_files):
+            raise TypeError("push file receipts must be typed values")
+        if self.action == "pushFiles" and not self.push_files:
+            raise ValueError("push compilation requires file receipts")
+        if self.action != "pushFiles" and self.push_files:
+            raise ValueError("push file receipts are valid only for pushFiles")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -888,6 +953,7 @@ class DeviceToolCompilation:
             "requires_confirmation": self.requires_confirmation,
             "execution": self.execution,
             "endpoint": self.endpoint,
+            "push_files": [item.to_dict() for item in self.push_files],
             "plan": self.plan.to_dict(),
         }
 
@@ -916,6 +982,8 @@ class DeviceToolsService:
         self,
         command: AppCommand,
         snapshot: AppSnapshot,
+        cancellation: CancellationToken | None = None,
+        progress: DeviceToolProgress | None = None,
     ) -> DeviceToolCompilation:
         if command.kind not in DEVICE_TOOL_COMMANDS:
             raise DeviceToolPlanningError(
@@ -943,7 +1011,14 @@ class DeviceToolsService:
             return self._compile_wifi_status(command, snapshot, device, adb)
         if command.kind == "tools.logcat":
             return self._compile_logcat(command, snapshot, device, adb)
-        return self._compile_push_files(command, snapshot, device, adb)
+        return self._compile_push_files(
+            command,
+            snapshot,
+            device,
+            adb,
+            cancellation=cancellation,
+            progress=progress,
+        )
 
     def _compile_inspection(
         self,
@@ -1531,6 +1606,9 @@ class DeviceToolsService:
         snapshot: AppSnapshot,
         device: DeviceInfo,
         adb: str,
+        *,
+        cancellation: CancellationToken | None,
+        progress: DeviceToolProgress | None,
     ) -> DeviceToolCompilation:
         self._validate_payload(command, {"serial", "paths", "destination"})
         destination = command.payload.get("destination")
@@ -1541,7 +1619,48 @@ class DeviceToolsService:
             )
 
         paths = self._push_paths(command.payload.get("paths"))
-        artifacts = tuple(self._file_artifact(path, role="push-source") for path in paths)
+        token = cancellation or CancellationToken()
+        artifacts: list[FileArtifact] = []
+        receipts: list[PushFileReceipt] = []
+        total = len(paths)
+        try:
+            for index, source in enumerate(paths, start=1):
+                path = source.path
+                if token.cancelled:
+                    raise InterruptedError("push source hashing was cancelled")
+                if progress is not None:
+                    progress(
+                        ProgressPhase.STARTED,
+                        f"Preparing file {index} of {total}",
+                        int(((index - 1) / total) * 10),
+                        index,
+                        total,
+                        path.name,
+                    )
+                artifact, size_bytes = self._file_artifact_with_size(
+                    path,
+                    role="push-source",
+                    cancellation=token,
+                    grant=source.grant,
+                )
+                artifacts.append(artifact)
+                receipts.append(
+                    PushFileReceipt(
+                        path.name,
+                        f"{destination}{path.name}",
+                        artifact.sha256,
+                        size_bytes,
+                    )
+                )
+        except InterruptedError as error:
+            code = (
+                "push_timed_out"
+                if token.reason is CancellationReason.DEADLINE
+                else "push_cancelled"
+            )
+            raise DeviceToolPlanningError(code, str(error)) from None
+
+        artifact_values = tuple(artifacts)
         requests = tuple(
             ProcessRequest(
                 (
@@ -1549,19 +1668,20 @@ class DeviceToolsService:
                     "-s",
                     device.serial,
                     "push",
-                    str(path),
-                    f"{destination}{path.name}",
+                    str(source.path),
+                    f"{destination}{source.path.name}",
                 ),
                 timeout_seconds=600.0,
+                output_limit_bytes=_PUSH_OUTPUT_LIMIT,
             )
-            for path in paths
+            for source in paths
         )
         plan = self._base_plan(
             snapshot,
             device,
             requests,
             label=f"Push {len(paths)} file(s) to {device.serial}",
-            artifacts=artifacts,
+            artifacts=artifact_values,
             risk=OperationRisk.MUTATING,
             postconditions=(
                 OperationPostcondition(
@@ -1569,8 +1689,8 @@ class DeviceToolsService:
                     {
                         "mode": "adb",
                         "hashes": {
-                            f"{destination}{path.name}": artifact.sha256
-                            for path, artifact in zip(paths, artifacts, strict=True)
+                            f"{destination}{source.path.name}": artifact.sha256
+                            for source, artifact in zip(paths, artifact_values, strict=True)
                         },
                     },
                     "every remote file matches its backend-verified source hash",
@@ -1583,6 +1703,7 @@ class DeviceToolsService:
             "pushFiles",
             device_write=True,
             requires_confirmation=True,
+            push_files=tuple(receipts),
         )
 
     @staticmethod
@@ -1694,42 +1815,46 @@ class DeviceToolsService:
             named.append(normalized["*"])
         return tuple(named)
 
-    def _push_paths(self, raw_paths: object) -> tuple[Path, ...]:
+    def _push_paths(self, raw_paths: object) -> tuple[_PushSource, ...]:
         if not isinstance(raw_paths, Sequence) or isinstance(raw_paths, (str, bytes)):
             raise DeviceToolPlanningError(
                 "push_paths_invalid",
-                "paths must be an array containing between 1 and 32 files",
+                f"paths must be an array containing between 1 and {MAX_PUSH_FILES} files",
             )
         path_values = cast(Sequence[object], raw_paths)
-        if not 1 <= len(path_values) <= 32:
+        if not 1 <= len(path_values) <= MAX_PUSH_FILES:
             raise DeviceToolPlanningError(
                 "push_paths_invalid",
-                "between 1 and 32 file paths are required",
+                f"between 1 and {MAX_PUSH_FILES} file paths are required",
             )
 
-        canonical_paths: list[Path] = []
+        canonical_paths: list[_PushSource] = []
         seen_paths: set[str] = set()
         seen_remote_names: set[str] = set()
         for raw_path in path_values:
-            if not isinstance(raw_path, str) or not raw_path.strip():
+            grant = raw_path if isinstance(raw_path, BoundReadFile) else None
+            if grant is not None:
+                path = grant.path
+            elif isinstance(raw_path, str) and raw_path.strip():
+                expanded = Path(raw_path).expanduser()
+                if not expanded.is_absolute():
+                    raise DeviceToolPlanningError(
+                        "push_path_ambiguous",
+                        "relative push paths are not accepted",
+                    )
+                try:
+                    path = expanded.resolve(strict=True)
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise DeviceToolPlanningError("push_path_invalid", str(error)) from error
+                if not path.is_file():
+                    raise DeviceToolPlanningError(
+                        "push_path_invalid",
+                        f"push source is not a regular file: {path}",
+                    )
+            else:
                 raise DeviceToolPlanningError(
                     "push_path_invalid",
-                    "each push path must be a non-empty string",
-                )
-            expanded = Path(raw_path).expanduser()
-            if not expanded.is_absolute():
-                raise DeviceToolPlanningError(
-                    "push_path_ambiguous",
-                    "relative push paths are not accepted",
-                )
-            try:
-                path = expanded.resolve(strict=True)
-            except (OSError, RuntimeError, ValueError) as error:
-                raise DeviceToolPlanningError("push_path_invalid", str(error)) from error
-            if not path.is_file():
-                raise DeviceToolPlanningError(
-                    "push_path_invalid",
-                    f"push source is not a regular file: {path}",
+                    "each push path must be a native grant or non-empty string",
                 )
             if not _REMOTE_NAME_PATTERN.fullmatch(path.name) or path.name in {".", ".."}:
                 raise DeviceToolPlanningError(
@@ -1751,7 +1876,7 @@ class DeviceToolsService:
                 )
             seen_paths.add(canonical_key)
             seen_remote_names.add(remote_key)
-            canonical_paths.append(path)
+            canonical_paths.append(_PushSource(path, grant))
         return tuple(canonical_paths)
 
     def _scrcpy_artifact(self) -> tuple[Path, FileArtifact]:
@@ -1831,24 +1956,49 @@ class DeviceToolsService:
         return f"[{normalized_host}]:{raw_port}" if address.version == 6 else f"{normalized_host}:{raw_port}"
 
     def _file_artifact(self, path: Path, *, role: str) -> FileArtifact:
+        artifact, _size_bytes = self._file_artifact_with_size(path, role=role)
+        return artifact
+
+    def _file_artifact_with_size(
+        self,
+        path: Path,
+        *,
+        role: str,
+        cancellation: CancellationToken | None = None,
+        grant: BoundReadFile | None = None,
+    ) -> tuple[FileArtifact, int]:
         code_prefix = "scrcpy" if role == "scrcpy-executable" else "push"
         try:
-            before = path.stat()
             digest = hashlib.sha256()
-            with path.open("rb") as stream:
+            stream_context = grant.open_verified() if grant is not None else path.open("rb")
+            with stream_context as stream:
+                before = os.fstat(stream.fileno())
                 while chunk := stream.read(self.hash_chunk_size):
+                    if cancellation is not None and cancellation.cancelled:
+                        raise InterruptedError("artifact hashing was cancelled")
                     digest.update(chunk)
+                after_open = os.fstat(stream.fileno())
             after = path.stat()
+        except InterruptedError:
+            raise
+        except GrantError as error:
+            raise DeviceToolPlanningError(error.code, str(error)) from error
         except OSError as error:
             raise DeviceToolPlanningError(f"{code_prefix}_hash_failed", str(error)) from error
         identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        identity_after_open = (
+            after_open.st_dev,
+            after_open.st_ino,
+            after_open.st_size,
+            after_open.st_mtime_ns,
+        )
         identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-        if identity_before != identity_after:
+        if identity_before != identity_after_open or identity_before != identity_after:
             raise DeviceToolPlanningError(
                 f"{code_prefix}_hash_changed",
                 f"source changed while it was being hashed: {path}",
             )
-        return FileArtifact(str(path), digest.hexdigest(), role)
+        return FileArtifact(str(path), digest.hexdigest(), role), after.st_size
 
     @staticmethod
     def _bounded_integer(
@@ -2015,7 +2165,9 @@ class DeviceToolsService:
 
 __all__ = [
     "DEVICE_TOOL_COMMANDS",
+    "MAX_PUSH_FILES",
     "DeviceToolCompilation",
+    "DeviceToolProgress",
     "DeviceToolPlanningError",
     "DeviceToolsService",
     "DeviceInspectionParseError",
@@ -2023,6 +2175,7 @@ __all__ = [
     "LaunchOutcome",
     "ManagedProcessLauncher",
     "ProcessLauncher",
+    "PushFileReceipt",
     "SecretProcessRunner",
     "SubprocessSecretRunner",
     "parse_bounded_getprop",

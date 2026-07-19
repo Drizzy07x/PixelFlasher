@@ -24,8 +24,9 @@ from .contracts import (
     OperationResult,
     OperationRisk,
     OperationStatus,
+    ProcessRequest,
 )
-from .executor import CancellationToken, CommandExecutor
+from .executor import CancellationReason, CancellationToken, CommandExecutor
 from .observer import (
     DeviceObservation,
     HostPostconditionSpec,
@@ -183,10 +184,10 @@ class OperationRunner:
         )
 
         if token.cancelled:
-            return OperationResult.cancelled(
+            return self._stopped_before_mutation(
+                token,
                 command.operation_id,
-                code="cancelled",
-                message="operation was cancelled before mutation",
+                "before mutation",
             )
 
         destructive = execution_plan.risk is OperationRisk.DESTRUCTIVE
@@ -196,10 +197,10 @@ class OperationRunner:
             if destructive:
                 acquired = self._acquire_destructive(token)
                 if not acquired:
-                    return OperationResult.cancelled(
+                    return self._stopped_before_mutation(
+                        token,
                         command.operation_id,
-                        code="cancelled",
-                        message="operation was cancelled before mutation",
+                        "while waiting for the destructive operation lock",
                     )
             current = self._snapshot_for(execution_plan, snapshot, provider)
             if isinstance(current, OperationResult):
@@ -211,8 +212,14 @@ class OperationRunner:
                     code=decision.code,
                     message=decision.message,
                 )
-            artifact_issue = self._revalidate_artifacts(execution_plan)
+            artifact_issue = self._revalidate_artifacts(execution_plan, token)
             if artifact_issue is not None:
+                if artifact_issue[0] in {"cancelled", "timed_out"}:
+                    return self._stopped_before_mutation(
+                        token,
+                        command.operation_id,
+                        "while revalidating source artifacts",
+                    )
                 return OperationResult.failed(
                     command.operation_id,
                     code=artifact_issue[0],
@@ -229,10 +236,10 @@ class OperationRunner:
                     message=decision.message,
                 )
             if token.cancelled:
-                return OperationResult.cancelled(
+                return self._stopped_before_mutation(
+                    token,
                     command.operation_id,
-                    code="cancelled",
-                    message="operation was cancelled before mutation",
+                    "before verified artifact staging",
                 )
             try:
                 staged_plan, artifact_stage = self._stage_artifacts(
@@ -240,10 +247,10 @@ class OperationRunner:
                     token,
                 )
             except InterruptedError:
-                return OperationResult.cancelled(
+                return self._stopped_before_mutation(
+                    token,
                     command.operation_id,
-                    code="cancelled",
-                    message="operation was cancelled while preparing verified artifacts",
+                    "while preparing verified artifacts",
                 )
             except _ArtifactStageError as error:
                 return OperationResult.failed(
@@ -266,10 +273,10 @@ class OperationRunner:
                     message=decision.message,
                 )
             if token.cancelled:
-                return OperationResult.cancelled(
+                return self._stopped_before_mutation(
+                    token,
                     command.operation_id,
-                    code="cancelled",
-                    message="operation was cancelled before mutation",
+                    "before the process boundary",
                 )
             staged_command = replace(planned, operation_plan=staged_plan)
             return self._execute_validated(
@@ -646,10 +653,10 @@ class OperationRunner:
                     message=boundary.message,
                 )
         if token.cancelled:
-            return OperationResult.cancelled(
+            return self._stopped_before_mutation(
+                token,
                 command.operation_id,
-                code="cancelled",
-                message="operation was cancelled before mutation",
+                "before the process boundary",
             )
         execute = operation_executor or self.executor.execute
         try:
@@ -737,6 +744,30 @@ class OperationRunner:
             return result
         if not result.ok:
             if mutating:
+                if command.kind == "tools.pushFiles":
+                    # adb push may create or truncate the remote file before it
+                    # reports a non-zero status. Reachability alone cannot prove
+                    # whether one or more writes completed, so no process error
+                    # after this boundary has a known-safe outcome.
+                    return self._unknown_after_mutation(
+                        plan,
+                        snapshot,
+                        provider,
+                        observer,
+                        command.operation_id,
+                        "file transfer failed after a remote write may have begun",
+                        result,
+                    )
+                if result.code in {"timed_out", "output_limit_exceeded"}:
+                    return self._unknown_after_mutation(
+                        plan,
+                        snapshot,
+                        provider,
+                        observer,
+                        command.operation_id,
+                        "forced process termination left the mutation outcome unknown",
+                        result,
+                    )
                 safety_observation = self._minimal_safety_observation(
                     plan,
                     snapshot,
@@ -1960,8 +1991,16 @@ class OperationRunner:
         return False
 
     @staticmethod
-    def _revalidate_artifacts(plan: OperationPlan) -> tuple[str, str] | None:
+    def _revalidate_artifacts(
+        plan: OperationPlan,
+        token: CancellationToken | None = None,
+    ) -> tuple[str, str] | None:
         for artifact in plan.artifacts:
+            if token is not None and token.cancelled:
+                return (
+                    "timed_out" if token.reason is CancellationReason.DEADLINE else "cancelled",
+                    "artifact revalidation was interrupted",
+                )
             path = Path(artifact.path)
             if not path.is_file():
                 return "artifact_missing", f"artifact no longer exists: {artifact.path}"
@@ -1969,12 +2008,37 @@ class OperationRunner:
             try:
                 with path.open("rb") as stream:
                     while chunk := stream.read(1024 * 1024):
+                        if token is not None and token.cancelled:
+                            return (
+                                "timed_out"
+                                if token.reason is CancellationReason.DEADLINE
+                                else "cancelled",
+                                "artifact revalidation was interrupted",
+                            )
                         digest.update(chunk)
             except OSError as error:
                 return "artifact_read_failed", str(error)
             if not hmac.compare_digest(digest.hexdigest(), artifact.sha256):
                 return "artifact_hash_mismatch", f"artifact hash changed: {artifact.path}"
         return None
+
+    @staticmethod
+    def _stopped_before_mutation(
+        token: CancellationToken,
+        operation_id: str,
+        context: str,
+    ) -> OperationResult:
+        if token.reason is CancellationReason.DEADLINE:
+            return OperationResult.failed(
+                operation_id,
+                code="timed_out",
+                message=f"operation deadline expired {context}",
+            )
+        return OperationResult.cancelled(
+            operation_id,
+            code="cancelled",
+            message=f"operation was cancelled {context}",
+        )
 
     @classmethod
     def _stage_artifacts(
@@ -2005,6 +2069,7 @@ class OperationRunner:
                 ) from error
 
             replacements: dict[str, str] = {}
+            replacement_roles: dict[str, set[str]] = {}
             staged_artifacts: list[FileArtifact] = []
             seen: dict[str, str] = {}
             for index, artifact in enumerate(plan.artifacts):
@@ -2043,10 +2108,14 @@ class OperationRunner:
                     FileArtifact(staged_path, artifact.sha256, artifact.role)
                 )
 
+            for artifact in plan.artifacts:
+                replacement_roles.setdefault(artifact.path, set()).add(artifact.role)
+
             staged_requests = tuple(
-                replace(
+                cls._rewrite_staged_request(
                     request,
-                    argv=tuple(replacements.get(argument, argument) for argument in request.argv),
+                    replacements,
+                    replacement_roles,
                 )
                 for request in plan.requests
             )
@@ -2061,6 +2130,36 @@ class OperationRunner:
         except Exception:
             stage.cleanup()
             raise
+
+    @staticmethod
+    def _rewrite_staged_request(
+        request: ProcessRequest,
+        replacements: Mapping[str, str],
+        replacement_roles: Mapping[str, set[str]],
+    ) -> ProcessRequest:
+        """Rewrite only host-side argv positions for typed artifact roles."""
+
+        argv = list(request.argv)
+        push_index = next(
+            (index for index, argument in enumerate(argv) if argument == "push"),
+            None,
+        )
+        handled: set[str] = set()
+        if push_index is not None and push_index + 2 < len(argv):
+            source_index = push_index + 1
+            source = argv[source_index]
+            roles = replacement_roles.get(source, set())
+            if "push-source" in roles and source in replacements:
+                argv[source_index] = replacements[source]
+                handled.add(source)
+
+        for index, argument in enumerate(argv):
+            if argument in handled:
+                continue
+            replacement = replacements.get(argument)
+            if replacement is not None:
+                argv[index] = replacement
+        return replace(request, argv=tuple(argv))
 
     @classmethod
     def _copy_verified_artifact(

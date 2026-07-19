@@ -30,6 +30,7 @@ from pixelflasher_core import (
     InteractionKind,
     InteractionRequest,
     InteractionResponse,
+    InteractionTimeoutError,
     OperationFinished,
     OperationPlan,
     OperationResult,
@@ -583,6 +584,46 @@ class ExecutorAndInteractionTests(unittest.TestCase):
         blocked.join(1)
         self.assertEqual(InteractionDecision.CANCELLED, decisions[-1])
 
+    def test_interaction_broker_honors_the_command_wait_budget(self):
+        broker = InteractionBroker(timeout_seconds=10)
+        request = InteractionRequest(
+            "deadline-op",
+            InteractionKind.CONFIRM,
+            "Confirm",
+            "Continue?",
+            expected_revision=5,
+            _timeout_seconds=0.01,
+        )
+
+        started = time.monotonic()
+        with self.assertRaises(InteractionTimeoutError):
+            broker.request(request)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual((), broker.pending_requests())
+
+    def test_interaction_callback_time_is_charged_to_the_wait_budget(self):
+        broker = InteractionBroker(
+            timeout_seconds=10,
+            on_request=lambda _request: time.sleep(0.03),
+        )
+        request = InteractionRequest(
+            "slow-publish-op",
+            InteractionKind.CONFIRM,
+            "Confirm",
+            "Continue?",
+            expected_revision=5,
+            _timeout_seconds=0.01,
+        )
+
+        started = time.monotonic()
+        with self.assertRaises(InteractionTimeoutError):
+            broker.request(request)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.1)
+
 
 class ConfigAndRuntimeTests(unittest.TestCase):
     def test_legacy_config_is_preserved_versioned_backed_up_and_atomically_saved(self):
@@ -664,6 +705,50 @@ class ConfigAndRuntimeTests(unittest.TestCase):
             saved = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual("SERIAL-A", saved["device"])
             self.assertEqual(2, saved["_pixelflasher_core_schema"])
+
+    def test_runtime_cancel_wakes_a_pending_interaction_immediately(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "device": "SERIAL-A",
+                        "firmware_path": "factory.zip",
+                        "mode": "dryRun",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = ApplicationRuntime.open(
+                path,
+                transport=FakeProcessTransport([]),
+                interaction_timeout_seconds=10,
+            )
+            command = flash_command(
+                plan_for(),
+                operation_id="cancel-pending-interaction",
+            )
+            results: list[OperationResult] = []
+            worker = threading.Thread(
+                target=lambda: results.append(runtime.execute(command)),
+                daemon=True,
+            )
+            worker.start()
+            deadline = time.monotonic() + 1
+            while not runtime.interaction_broker.pending_requests() and time.monotonic() < deadline:
+                time.sleep(0.005)
+
+            started = time.monotonic()
+            acknowledgement = runtime.cancel(command.operation_id)
+            worker.join(0.5)
+            elapsed = time.monotonic() - started
+            runtime.shutdown()
+
+        self.assertTrue(acknowledgement)
+        self.assertFalse(worker.is_alive())
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(1, len(results))
+        self.assertEqual(OperationStatus.CANCELLED, results[0].status)
 
     def test_runtime_round_trips_dry_run_and_missing_field_migrates_safe(self):
         with TemporaryDirectory() as directory:

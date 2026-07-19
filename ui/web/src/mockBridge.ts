@@ -1029,7 +1029,26 @@ export function installDevelopmentBridge() {
               request,
               `Push selected files to ${String(request.payload.destination)}?`,
               false,
-              () => finishGuarded(request, success('Pushed 2 files.', { count: 2 })),
+              () => finishGuarded(request, success('Pushed 2 files.', {
+                targetSerial: request.payload.serial,
+                count: 2,
+                files: [
+                  {
+                    displayName: 'alpha.bin',
+                    destination: `${String(request.payload.destination)}alpha.bin`,
+                    sha256: 'a'.repeat(64),
+                    sizeBytes: 5,
+                    verified: true,
+                  },
+                  {
+                    displayName: 'beta.zip',
+                    destination: `${String(request.payload.destination)}beta.zip`,
+                    sha256: 'b'.repeat(64),
+                    sizeBytes: 2048,
+                    verified: true,
+                  },
+                ],
+              })),
             );
             break;
           case 'support.create':

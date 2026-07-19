@@ -6,5 +6,9 @@ export { FirmwarePage } from './firmware/FirmwarePage';
 export { RootPage } from './root/RootPage';
 export { AppsPage } from './apps/AppsPage';
 export { BackupsPage } from './backups/BackupsPage';
-export { ToolsPage } from './tooling/ToolsPage';
+export {
+  ToolsPage,
+  initialPushUiState,
+  type PushUiState,
+} from './tooling/ToolsPage';
 export { SettingsPage } from './settings/SettingsPage';

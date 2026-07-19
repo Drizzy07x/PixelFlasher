@@ -138,6 +138,32 @@ class BridgeContractTests(unittest.TestCase):
         self.assertNotIn("123456", repr(prompt))
         self.assertNotIn("123456", repr(wifi))
 
+        push = BridgeRequest.from_json(
+            message(
+                command="tools.pushFiles",
+                payload={
+                    "serial": "SERIAL",
+                    "grants": [f"{index:064x}" for index in range(32)],
+                    "destination": "/sdcard/Download/",
+                },
+                expectedRevision=7,
+            )
+        )
+        self.assertEqual(32, len(push.payload["grants"]))
+        with self.assertRaises(BridgeProtocolError) as excessive:
+            BridgeRequest.from_json(
+                message(
+                    command="tools.pushFiles",
+                    payload={
+                        "serial": "SERIAL",
+                        "grants": [f"{index:064x}" for index in range(33)],
+                        "destination": "/sdcard/Download/",
+                    },
+                    expectedRevision=7,
+                )
+            )
+        self.assertEqual("invalid_payload", excessive.exception.code)
+
         apatch = BridgeRequest.from_json(
             message(
                 command="boot.patch",

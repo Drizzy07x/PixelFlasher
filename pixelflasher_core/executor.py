@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import BinaryIO, Protocol, runtime_checkable
 
+from .cancellation import CancellationReason, CancellationToken
 from .contracts import (
     AppCommand,
     OperationPlan,
@@ -20,23 +21,6 @@ from .contracts import (
     ProgressPhase,
     SensitiveText,
 )
-
-
-class CancellationToken:
-    """Thread-safe cooperative cancellation token."""
-
-    def __init__(self) -> None:
-        self._event = threading.Event()
-
-    def cancel(self) -> None:
-        self._event.set()
-
-    @property
-    def cancelled(self) -> bool:
-        return self._event.is_set()
-
-    def wait(self, timeout: float | None = None) -> bool:
-        return self._event.wait(timeout)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +119,8 @@ class SubprocessTransport:
                 "secret_transport_required",
                 "secret-bearing requests require the dedicated stdin transport",
             )
+        if cancellation.cancelled:
+            return self._cancellation_outcome(cancellation)
         return self._run_process(request, cancellation)
 
     def run_secret(
@@ -149,7 +135,7 @@ class SubprocessTransport:
                 "the request is not marked for secret stdin",
             )
         if cancellation.cancelled:
-            return TransportOutcome(None, cancelled=True)
+            return self._cancellation_outcome(cancellation)
 
         _validate_secret_input(request, secret)
         # This is the only production boundary where SensitiveText is
@@ -179,6 +165,8 @@ class SubprocessTransport:
         *,
         stdin_text: str | None = None,
     ) -> TransportOutcome:
+        if cancellation.cancelled:
+            return self._cancellation_outcome(cancellation)
         environment = None
         if request.env:
             environment = os.environ.copy()
@@ -213,13 +201,14 @@ class SubprocessTransport:
         while True:
             if cancellation.cancelled:
                 stdout, stderr = self._terminate(process)
-                return TransportOutcome(
+                return self._cancellation_outcome(
+                    cancellation,
                     process.returncode,
                     stdout,
                     stderr,
-                    cancelled=True,
                 )
-            if deadline is not None and time.monotonic() >= deadline:
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
                 stdout, stderr = self._terminate(process)
                 return TransportOutcome(
                     process.returncode,
@@ -227,10 +216,13 @@ class SubprocessTransport:
                     stderr,
                     timed_out=True,
                 )
+            wait_seconds = self._next_poll_timeout(cancellation, deadline, now)
+            if wait_seconds <= 0:
+                continue
             try:
                 stdout, stderr = process.communicate(
                     input=pending_input,
-                    timeout=self.poll_interval_seconds,
+                    timeout=wait_seconds,
                 )
                 pending_input = None
             except subprocess.TimeoutExpired:
@@ -238,6 +230,13 @@ class SubprocessTransport:
                 # it again would duplicate secret bytes on the pipe.
                 pending_input = None
                 continue
+            if cancellation.cancelled:
+                return self._cancellation_outcome(
+                    cancellation,
+                    process.returncode,
+                    stdout,
+                    stderr,
+                )
             return TransportOutcome(process.returncode, stdout, stderr)
 
     def _run_bounded_process(
@@ -252,6 +251,8 @@ class SubprocessTransport:
 
         limit = request.output_limit_bytes
         assert limit is not None
+        if cancellation.cancelled:
+            return self._cancellation_outcome(cancellation)
         process: subprocess.Popen[bytes] = subprocess.Popen(  # noqa: S603
             list(request.argv),
             cwd=request.cwd,
@@ -273,7 +274,11 @@ class SubprocessTransport:
         def collect(stream: BinaryIO, target: bytearray) -> None:
             nonlocal captured_bytes
             while True:
-                chunk = stream.read(64 * 1_024)
+                with capture_lock:
+                    # Read one sentinel byte past the shared remainder so the
+                    # process is stopped as soon as either pipe crosses the cap.
+                    chunk_size = min(64 * 1_024, max(1, limit - captured_bytes + 1))
+                chunk = os.read(stream.fileno(), chunk_size)
                 if not chunk:
                     return
                 with capture_lock:
@@ -326,14 +331,24 @@ class SubprocessTransport:
                 self._stop_process(process)
                 break
             if cancellation.cancelled:
-                cancelled = True
+                reason = cancellation.reason
+                cancelled = reason is CancellationReason.USER
+                timed_out = reason is CancellationReason.DEADLINE
                 self._stop_process(process)
                 break
-            if deadline is not None and time.monotonic() >= deadline:
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
                 timed_out = True
                 self._stop_process(process)
                 break
-            cancellation.wait(self.poll_interval_seconds)
+            wait_seconds = self._next_poll_timeout(cancellation, deadline, now)
+            if wait_seconds > 0:
+                cancellation.wait(wait_seconds)
+
+        if not cancelled and not timed_out and not output_limited.is_set() and cancellation.cancelled:
+            reason = cancellation.reason
+            cancelled = reason is CancellationReason.USER
+            timed_out = reason is CancellationReason.DEADLINE
 
         for reader in readers:
             reader.join(timeout=1)
@@ -349,6 +364,41 @@ class SubprocessTransport:
             cancelled=cancelled,
             timed_out=timed_out,
             output_limited=output_limited.is_set(),
+        )
+
+    def _next_poll_timeout(
+        self,
+        cancellation: CancellationToken,
+        request_deadline: float | None,
+        now: float,
+    ) -> float:
+        wait_seconds = self.poll_interval_seconds
+        if request_deadline is not None:
+            wait_seconds = min(wait_seconds, max(0.0, request_deadline - now))
+        remaining = cancellation.remaining_seconds
+        if remaining is not None:
+            wait_seconds = min(wait_seconds, remaining)
+        return max(0.0, wait_seconds)
+
+    @staticmethod
+    def _cancellation_outcome(
+        cancellation: CancellationToken,
+        returncode: int | None = None,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> TransportOutcome:
+        if cancellation.reason is CancellationReason.DEADLINE:
+            return TransportOutcome(
+                returncode,
+                stdout,
+                stderr,
+                timed_out=True,
+            )
+        return TransportOutcome(
+            returncode,
+            stdout,
+            stderr,
+            cancelled=True,
         )
 
     @staticmethod
@@ -511,8 +561,20 @@ class CommandExecutor:
         cancellation: CancellationToken | None = None,
     ) -> OperationResult:
         token = cancellation or CancellationToken()
-        self._progress(command, ProgressPhase.STARTED, "operation started", 0)
+        self._progress(
+            command,
+            ProgressPhase.STARTED,
+            "operation started",
+            10 if command.kind == "tools.pushFiles" else 0,
+        )
         if token.cancelled:
+            if token.reason is CancellationReason.DEADLINE:
+                self._progress(command, ProgressPhase.FAILED, "operation timed out")
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="timed_out",
+                    message="operation deadline expired before execution",
+                )
             self._progress(command, ProgressPhase.CANCELLED, "operation cancelled")
             return OperationResult.cancelled(
                 command.operation_id,
@@ -534,6 +596,15 @@ class CommandExecutor:
         total = len(plan.requests)
         for index, request in enumerate(plan.requests, start=1):
             if token.cancelled:
+                if token.reason is CancellationReason.DEADLINE:
+                    self._progress(command, ProgressPhase.FAILED, "operation timed out")
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="timed_out",
+                        message=f"operation deadline expired before command {index} of {total}",
+                        stdout="".join(stdout_parts),
+                        stderr="".join(stderr_parts),
+                    )
                 self._progress(command, ProgressPhase.CANCELLED, "operation cancelled")
                 return OperationResult.cancelled(
                     command.operation_id,
@@ -541,11 +612,30 @@ class CommandExecutor:
                     stdout="".join(stdout_parts),
                     stderr="".join(stderr_parts),
                 )
+            progress_percent = int(((index - 1) / total) * 100)
+            progress_current: int | None = None
+            progress_total: int | None = None
+            progress_item: str | None = None
+            if command.kind == "tools.pushFiles":
+                progress_percent = 10 + int(((index - 1) / total) * 75)
+                progress_current = index
+                progress_total = total
+                candidate = request.argv[-1].rsplit("/", 1)[-1]
+                if (
+                    candidate
+                    and len(candidate) <= 128
+                    and candidate[0].isalnum()
+                    and all(character.isalnum() or character in "._-" for character in candidate)
+                ):
+                    progress_item = candidate
             self._progress(
                 command,
                 ProgressPhase.RUNNING,
                 f"running command {index} of {total}",
-                int(((index - 1) / total) * 100),
+                progress_percent,
+                current=progress_current,
+                total=progress_total,
+                item=progress_item,
             )
             try:
                 if request.stdin_secret_field is None:
@@ -642,21 +732,23 @@ class CommandExecutor:
             stdout = "".join(stdout_parts)
             stderr = "".join(stderr_parts)
 
-            if outcome.cancelled or token.cancelled:
-                self._progress(command, ProgressPhase.CANCELLED, "operation cancelled")
-                return OperationResult.cancelled(
-                    command.operation_id,
-                    message="operation cancelled",
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            if outcome.timed_out:
+            if outcome.timed_out or (
+                token.cancelled and token.reason is CancellationReason.DEADLINE
+            ):
                 self._progress(command, ProgressPhase.FAILED, "operation timed out")
                 return OperationResult.failed(
                     command.operation_id,
                     code="timed_out",
                     message=f"command {index} of {total} timed out",
                     exit_code=outcome.returncode,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+            if outcome.cancelled or token.cancelled:
+                self._progress(command, ProgressPhase.CANCELLED, "operation cancelled")
+                return OperationResult.cancelled(
+                    command.operation_id,
+                    message="operation cancelled",
                     stdout=stdout,
                     stderr=stderr,
                 )
@@ -674,7 +766,16 @@ class CommandExecutor:
                     stderr=stderr,
                 )
 
-        self._progress(command, ProgressPhase.COMPLETED, "operation completed", 100)
+        push_files = command.kind == "tools.pushFiles"
+        self._progress(
+            command,
+            ProgressPhase.RUNNING if push_files else ProgressPhase.COMPLETED,
+            "file transfer completed; verifying" if push_files else "operation completed",
+            90 if push_files else 100,
+            current=None,
+            total=None,
+            item=None,
+        )
         return OperationResult.success(
             command.operation_id,
             code="process_succeeded",
@@ -690,10 +791,24 @@ class CommandExecutor:
         phase: ProgressPhase,
         message: str,
         percent: int | None = None,
+        *,
+        current: int | None = None,
+        total: int | None = None,
+        item: str | None = None,
     ) -> None:
         if self.progress_listener is None:
             return
-        event = ProgressEvent(command.operation_id, phase, message, percent)
+        event = ProgressEvent(
+            command.operation_id,
+            phase,
+            message,
+            percent,
+            kind=str(command.kind),
+            current=current,
+            total=total,
+            item=item,
+            target_serial=command.target_serial,
+        )
         try:
             self.progress_listener(event)
         except Exception:

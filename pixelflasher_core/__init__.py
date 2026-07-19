@@ -44,6 +44,7 @@ from .bootloader import (
     BootloaderLockDecision,
     BootloaderLockPolicy,
 )
+from .cancellation import CancellationReason
 from .config_store import (
     CURRENT_SCHEMA_VERSION,
     MODERN_KEY,
@@ -85,6 +86,7 @@ from .contracts import (
     SensitiveText,
     SnapshotChanged,
     ToolchainInfo,
+    is_valid_target_serial,
 )
 from .device_tools import (
     DEVICE_TOOL_COMMANDS,
@@ -142,6 +144,7 @@ from .firmware_artifacts import (
     FirmwareProcessingStatus,
 )
 from .grants import (
+    BoundReadFile,
     GrantAccess,
     GrantError,
     GrantTarget,
@@ -150,7 +153,7 @@ from .grants import (
     SecretGrant,
     SecretGrantStore,
 )
-from .interaction import InteractionBroker
+from .interaction import InteractionBroker, InteractionTimeoutError
 from .observer import (
     DeviceObservation,
     HostObservation,
@@ -368,6 +371,7 @@ __all__ = [
     "BuiltinPayloadExtractor",
     "BuiltinPayloadExtractorLimits",
     "CancellationToken",
+    "CancellationReason",
     "CommandExecutor",
     "CommandAck",
     "CommandEngine",
@@ -413,9 +417,11 @@ __all__ = [
     "FirmwareProcessingStatus",
     "FULL_PAYLOAD_OPERATION_TYPES",
     "FlashPlan",
+    "BoundReadFile",
     "InteractionDecision",
     "InteractionHandler",
     "InteractionBroker",
+    "InteractionTimeoutError",
     "InteractionKind",
     "InteractionRequest",
     "InteractionResponse",
@@ -569,6 +575,7 @@ __all__ = [
     "deny_interaction",
     "format_platform_tools_version",
     "inspect_apk",
+    "is_valid_target_serial",
     "merge_device_history",
     "merge_device_inventories",
     "parse_adb_devices",

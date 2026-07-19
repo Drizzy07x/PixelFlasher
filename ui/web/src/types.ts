@@ -78,6 +78,11 @@ export interface ActiveOperation {
   status: OperationStatus | string;
   progress?: number;
   detail?: string;
+  current?: number;
+  total?: number;
+  item?: string;
+  targetSerial?: string;
+  target_serial?: string;
 }
 
 export interface InteractionRequest {

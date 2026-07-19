@@ -4790,3 +4790,59 @@ msgstr ""
 msgctxt "web.tools.wifiConnectGuard"
 msgid "Checking status requires one selected device in ADB mode."
 msgstr ""
+
+msgctxt "web.tools.pushPreparing"
+msgid "Preparing selected files…"
+msgstr ""
+
+msgctxt "web.tools.pushRunning"
+msgid "File transfer in progress"
+msgstr ""
+
+msgctxt "web.tools.pushFile"
+msgid "File"
+msgstr ""
+
+msgctxt "web.tools.pushProgress"
+msgid "File transfer progress"
+msgstr ""
+
+msgctxt "web.tools.pushCancel"
+msgid "Cancel transfer"
+msgstr ""
+
+msgctxt "web.tools.pushCancelling"
+msgid "Cancelling file transfer…"
+msgstr ""
+
+msgctxt "web.tools.pushCancelled"
+msgid "File transfer cancelled."
+msgstr ""
+
+msgctxt "web.tools.pushFailed"
+msgid "File transfer failed."
+msgstr ""
+
+msgctxt "web.tools.pushInvalidReceipt"
+msgid "The host returned an invalid verification receipt."
+msgstr ""
+
+msgctxt "web.tools.pushUnknown"
+msgid "The connection was lost after writing began. Inspect the device before retrying."
+msgstr ""
+
+msgctxt "web.tools.pushUnknownTitle"
+msgid "Device outcome unknown"
+msgstr ""
+
+msgctxt "web.tools.pushRetry"
+msgid "Retry with a new plan"
+msgstr ""
+
+msgctxt "web.tools.pushVerified"
+msgid "Verified"
+msgstr ""
+
+msgctxt "web.tools.pushReceipts"
+msgid "Verified file receipts"
+msgstr ""

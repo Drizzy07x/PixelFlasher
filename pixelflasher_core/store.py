@@ -238,6 +238,7 @@ class AppStateStore:
         expected_revision: int,
         kind: str = "",
         label: str = "",
+        target_serial: str | None = None,
     ) -> AppSnapshot:
         with self._lock:
             current = self._snapshot
@@ -247,7 +248,12 @@ class AppStateStore:
             updated = replace(
                 current,
                 revision=current.revision + 1,
-                active_operation=ActiveOperation(operation_id, kind, label),
+                active_operation=ActiveOperation(
+                    operation_id,
+                    kind,
+                    label,
+                    target_serial,
+                ),
                 bootloader_lock_evidence=(
                     current.bootloader_lock_evidence
                     if kind == "device.bootloader.lock"

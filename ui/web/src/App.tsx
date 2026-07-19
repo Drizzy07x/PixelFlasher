@@ -15,6 +15,8 @@ import {
   RootPage,
   SettingsPage,
   ToolsPage,
+  initialPushUiState,
+  type PushUiState,
 } from './pages/Pages';
 import type { HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme } from './types';
 
@@ -148,6 +150,7 @@ function PixelFlasherApp({
   const [reducedMotion, setReducedMotion] = useState(initialPreferences.reducedMotion);
   const [zoom, setZoom] = useState(initialPreferences.zoom);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [pushUiState, setPushUiState] = useState<PushUiState>(initialPushUiState);
   const [bridgeState, setBridgeState] = useState<'connecting' | 'ready' | 'error'>('connecting');
   const [interaction, setInteraction] = useState<InteractionRequest | null>(null);
   const [interactionBusy, setInteractionBusy] = useState(false);
@@ -162,6 +165,26 @@ function PixelFlasherApp({
   const preferencesLoadRef = useRef<Promise<void> | null>(null);
   const preferencesQueueRef = useRef<Promise<void>>(Promise.resolve());
   const preferencesMountedRef = useRef(true);
+
+  const selectedPushDevice = selectedSerials.length === 1
+    ? snapshot.devices.find((device) => device.serial === selectedSerials[0])
+    : undefined;
+  useEffect(() => {
+    const serial = selectedPushDevice?.serial ?? null;
+    const mode = selectedPushDevice?.mode ?? null;
+    setPushUiState((current) => (
+      current.contextSerial === serial && current.contextMode === mode
+        ? current
+        : {
+            ...current,
+            retry: null,
+            operationId: null,
+            outcome: { status: 'idle', targetSerial: null, message: '', receipts: [] },
+            contextSerial: serial,
+            contextMode: mode,
+          }
+    ));
+  }, [selectedPushDevice?.mode, selectedPushDevice?.serial]);
 
   const navigate = useCallback((nextRoute: RouteId) => {
     setRoute(nextRoute);
@@ -368,21 +391,47 @@ function PixelFlasherApp({
   const runCommand = useCallback(async (
     command: BridgeCommand,
     payload: Record<string, unknown> = {},
-    options: { returnCancelled?: boolean; expectedRevision?: number } = {},
+    options: {
+      returnCancelled?: boolean;
+      returnFailed?: boolean;
+      suppressNotice?: boolean;
+      expectedRevision?: number;
+      onOperationAccepted?: (operationId: string) => void;
+    } = {},
   ): Promise<CommandResponse | null> => {
     setNotice(null);
     try {
-      const response = await bridge.command<Record<string, unknown>>(
-        command,
-        payload,
-        options.expectedRevision ?? snapshot.revision,
-      );
+      const expectedRevision = options.expectedRevision ?? snapshot.revision;
+      const response = options.onOperationAccepted
+        ? await bridge.command<Record<string, unknown>>(
+            command,
+            payload,
+            expectedRevision,
+            options.onOperationAccepted,
+          )
+        : await bridge.command<Record<string, unknown>>(
+            command,
+            payload,
+            expectedRevision,
+          );
       if (typeof response.revision === 'number') {
         setSnapshot((current) => ({ ...current, revision: response.revision ?? current.revision }));
       }
       const result = objectValue(response.result);
+      const operationId = typeof result.operation_id === 'string' ? result.operation_id : '';
+      if (operationId) {
+        setSnapshot((current) => current.activeOperation?.id === operationId
+          ? { ...current, activeOperation: null, active_operation: null }
+          : current);
+      }
       const status = normalizeOperationStatus(result.status);
-      if (status === 'success' && typeof result.message === 'string' && result.message.trim()) {
+      if (
+        !options.suppressNotice
+        && command !== commands.toolsPushFiles
+        && status === 'success'
+        && typeof result.message === 'string'
+        && result.message.trim()
+      ) {
         setNotice({ tone: 'success', message: result.message });
       }
       return response;
@@ -394,14 +443,25 @@ function PixelFlasherApp({
         ? objectValue(error.response?.error.details)
         : {};
       if (
-        options.returnCancelled
+        (options.returnCancelled || options.returnFailed)
         && error instanceof BridgeError
-        && normalizeOperationStatus(errorDetails.status) === 'cancelled'
+        && code !== 'confirmation_text_required'
+        && (
+          (options.returnCancelled && normalizeOperationStatus(errorDetails.status) === 'cancelled')
+          || (options.returnFailed && normalizeOperationStatus(errorDetails.status) === 'failed')
+        )
       ) {
         const revision = typeof errorDetails.revision === 'number' ? errorDetails.revision : undefined;
-        if (revision !== undefined) {
-          setSnapshot((current) => ({ ...current, revision }));
-        }
+        const operationId = typeof errorDetails.operation_id === 'string'
+          ? errorDetails.operation_id
+          : '';
+        setSnapshot((current) => ({
+          ...current,
+          ...(revision === undefined ? {} : { revision }),
+          ...(operationId && current.activeOperation?.id === operationId
+            ? { activeOperation: null, active_operation: null }
+            : {}),
+        }));
         return { result: errorDetails, revision };
       }
       if (error instanceof BridgeError && code === 'confirmation_text_required') {
@@ -419,7 +479,7 @@ function PixelFlasherApp({
           });
         }
       }
-      reportError(error);
+      if (!options.suppressNotice) reportError(error);
       return null;
     }
   }, [reportError, snapshot.revision]);
@@ -589,7 +649,14 @@ function PixelFlasherApp({
       case 'root': return <RootPage {...sharedProps} />;
       case 'apps': return <AppsPage {...sharedProps} />;
       case 'backups': return <BackupsPage {...sharedProps} />;
-      case 'tools': return <ToolsPage {...sharedProps} expertMode={expertMode} />;
+      case 'tools': return (
+        <ToolsPage
+          {...sharedProps}
+          expertMode={expertMode}
+          pushUiState={pushUiState}
+          onPushUiStateChange={setPushUiState}
+        />
+      );
       case 'settings': return (
         <SettingsPage
           theme={theme}

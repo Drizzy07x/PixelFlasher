@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AssetName } from '../../assets';
+import { normalizeOperationStatus, validTargetSerial } from '../../bridge';
 import { commands, type BridgeCommand } from '../../commands';
 import { useI18n } from '../../i18n';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
@@ -14,6 +15,38 @@ type WifiService = {
   host: string;
   port: number;
   endpoint: string;
+};
+export type PushDestination = '/data/local/tmp/' | '/sdcard/Download/';
+export type PushPayload = { serial: string; grants: string[]; destination: PushDestination };
+export type PushReceipt = {
+  displayName: string;
+  destination: string;
+  sha256: string;
+  sizeBytes: number;
+  verified: true;
+};
+export type PushOutcome = {
+  status: 'idle' | 'running' | 'cancelling' | 'success' | 'cancelled' | 'failed' | 'unknown';
+  targetSerial: string | null;
+  message: string;
+  receipts: PushReceipt[];
+};
+export type PushUiState = {
+  destination: PushDestination;
+  retry: PushPayload | null;
+  outcome: PushOutcome;
+  operationId: string | null;
+  contextSerial: string | null;
+  contextMode: string | null;
+};
+
+export const initialPushUiState: PushUiState = {
+  destination: '/sdcard/Download/',
+  retry: null,
+  outcome: { status: 'idle', targetSerial: null, message: '', receipts: [] },
+  operationId: null,
+  contextSerial: null,
+  contextMode: null,
 };
 
 const WIFI_DISCOVERY_FIELDS = ['action', 'bounded', 'count', 'discardedCount', 'services'] as const;
@@ -103,7 +136,67 @@ async function parseWifiDiscovery(value: unknown): Promise<WifiService[] | null>
   return parsed;
 }
 
-export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: SharedPageProps & { expertMode: boolean }) {
+function parsePushReceipts(value: unknown, expectedSerial: string): PushReceipt[] | null {
+  const source = record(value);
+  if (!hasExactKeys(source, ['count', 'files', 'targetSerial'])
+    || typeof source.targetSerial !== 'string'
+    || !validTargetSerial(source.targetSerial)
+    || source.targetSerial !== expectedSerial
+    || typeof source.count !== 'number'
+    || !Number.isInteger(source.count)
+    || source.count < 1
+    || source.count > 32
+    || !Array.isArray(source.files)
+    || source.files.length !== source.count) return null;
+  const destinations = new Set<string>();
+  const displayNames = new Set<string>();
+  const receipts: PushReceipt[] = [];
+  for (const raw of source.files) {
+    const item = record(raw);
+    if (!hasExactKeys(item, ['destination', 'displayName', 'sha256', 'sizeBytes', 'verified'])
+      || typeof item.displayName !== 'string'
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(item.displayName)
+      || typeof item.destination !== 'string'
+      || ![`/data/local/tmp/${item.displayName}`, `/sdcard/Download/${item.displayName}`].includes(item.destination)
+      || destinations.has(item.destination)
+      || displayNames.has(item.displayName.toLowerCase())
+      || typeof item.sha256 !== 'string'
+      || !/^[0-9a-f]{64}$/.test(item.sha256)
+      || typeof item.sizeBytes !== 'number'
+      || !Number.isSafeInteger(item.sizeBytes)
+      || item.sizeBytes < 0
+      || item.verified !== true) return null;
+    destinations.add(item.destination);
+    displayNames.add(item.displayName.toLowerCase());
+    receipts.push({
+      displayName: item.displayName,
+      destination: item.destination,
+      sha256: item.sha256,
+      sizeBytes: item.sizeBytes,
+      verified: true,
+    });
+  }
+  return receipts;
+}
+
+function formatBytes(sizeBytes: number) {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KiB`;
+  return `${(sizeBytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+export function ToolsPage({
+  snapshot,
+  selectedSerials,
+  onCommand,
+  expertMode,
+  pushUiState,
+  onPushUiStateChange,
+}: SharedPageProps & {
+  expertMode: boolean;
+  pushUiState?: PushUiState;
+  onPushUiStateChange?: Dispatch<SetStateAction<PushUiState>>;
+}) {
   const { t } = useI18n();
   const primary = selectedSerials.length === 1
     ? snapshot.devices.find((device) => device.serial === selectedSerials[0])
@@ -111,7 +204,12 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
   const adbReady = primary?.mode === 'adb' && isToolchainReady(snapshot);
   const fastbootReady = primary?.mode === 'fastboot' && isToolchainReady(snapshot);
   const toolchainReady = isToolchainReady(snapshot);
-  const [panel, setPanel] = useState<ToolPanel>(null);
+  const [panel, setPanel] = useState<ToolPanel>(() => (
+    pushUiState?.outcome.status !== 'idle'
+    || snapshot.activeOperation?.kind === commands.toolsPushFiles
+      ? 'push'
+      : null
+  ));
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
@@ -129,7 +227,33 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
   const secretResolverRef = useRef<((value: string | null) => void) | null>(null);
   const secretDialogRef = useRef<HTMLElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
-  const [pushDestination, setPushDestination] = useState<'/data/local/tmp/' | '/sdcard/Download/'>('/sdcard/Download/');
+  const [localPushUiState, setLocalPushUiState] = useState<PushUiState>(initialPushUiState);
+  const currentPushUiState = pushUiState ?? localPushUiState;
+  const setPushUiState = onPushUiStateChange ?? setLocalPushUiState;
+  const pushDestination = currentPushUiState.destination;
+  const pushRetry = currentPushUiState.retry;
+  const pushOutcome = currentPushUiState.outcome;
+  const queuedPushOperationId = currentPushUiState.operationId;
+  const setPushRetry = (retry: PushPayload | null) => {
+    setPushUiState((current) => ({ ...current, retry }));
+  };
+  const setPushOutcome = (next: SetStateAction<PushOutcome>) => {
+    setPushUiState((current) => ({
+      ...current,
+      outcome: typeof next === 'function' ? next(current.outcome) : next,
+    }));
+  };
+  const pushContextRef = useRef({ serial: primary?.serial ?? null, mode: primary?.mode ?? null });
+  pushContextRef.current = { serial: primary?.serial ?? null, mode: primary?.mode ?? null };
+  const activePushCandidate = snapshot.activeOperation?.kind === commands.toolsPushFiles
+    && ['pending', 'running'].includes(normalizeOperationStatus(snapshot.activeOperation.status))
+    ? snapshot.activeOperation
+    : null;
+  const activePush = activePushCandidate
+    && primary?.mode === 'adb'
+    && (activePushCandidate.targetSerial ?? activePushCandidate.target_serial) === primary.serial
+    ? activePushCandidate
+    : null;
 
   useEffect(() => {
     if (!secretPromptOpen) return;
@@ -140,6 +264,22 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
     secretResolverRef.current?.(null);
     secretResolverRef.current = null;
   }, []);
+
+  useEffect(() => {
+    setPushUiState((current) => (
+      current.contextSerial === (primary?.serial ?? null)
+      && current.contextMode === (primary?.mode ?? null)
+        ? current
+        : {
+            ...current,
+            retry: null,
+            outcome: { status: 'idle', targetSerial: null, message: '', receipts: [] },
+            operationId: null,
+            contextSerial: primary?.serial ?? null,
+            contextMode: primary?.mode ?? null,
+          }
+    ));
+  }, [primary?.mode, primary?.serial]);
 
   const requestPairingCode = () => new Promise<string | null>((resolve) => {
     secretResolverRef.current = resolve;
@@ -241,6 +381,63 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
     }
   };
 
+  const runPush = async (payload: PushPayload, expectedRevision?: number) => {
+    setPushUiState((current) => ({
+      ...current,
+      retry: payload,
+      operationId: null,
+      outcome: {
+        status: 'running',
+        targetSerial: payload.serial,
+        message: t('tools.pushPreparing'),
+        receipts: [],
+      },
+    }));
+    const response = await runTool(
+      commands.toolsPushFiles,
+      payload,
+      {
+        returnCancelled: true,
+        returnFailed: true,
+        suppressNotice: true,
+        onOperationAccepted: (operationId) => {
+          setPushUiState((current) => ({ ...current, operationId }));
+        },
+        ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      },
+    );
+    const contextStillMatches = pushContextRef.current.serial === payload.serial
+      && pushContextRef.current.mode === 'adb';
+    if (!contextStillMatches) return;
+    setPushUiState((current) => ({ ...current, operationId: null }));
+    if (!response) {
+      setPushOutcome({ status: 'failed', targetSerial: payload.serial, message: t('tools.pushFailed'), receipts: [] });
+      return;
+    }
+    const operation = record(response.result);
+    const status = normalizeOperationStatus(operation.status);
+    if (status === 'success') {
+      const receipts = parsePushReceipts(operation.value, payload.serial);
+      if (receipts === null) {
+        setPushOutcome({ status: 'failed', targetSerial: payload.serial, message: t('tools.pushInvalidReceipt'), receipts: [] });
+        return;
+      }
+      setPushRetry(null);
+      setPushOutcome({ status: 'success', targetSerial: payload.serial, message: t('tools.pushReceipts'), receipts });
+      return;
+    }
+    if (status === 'cancelled') {
+      setPushOutcome({ status: 'cancelled', targetSerial: payload.serial, message: t('tools.pushCancelled'), receipts: [] });
+      return;
+    }
+    setPushOutcome({
+      status: operation.code === 'outcome_unknown' ? 'unknown' : 'failed',
+      targetSerial: payload.serial,
+      message: operation.code === 'outcome_unknown' ? t('tools.pushUnknown') : t('tools.pushFailed'),
+      receipts: [],
+    });
+  };
+
   const pushFiles = async () => {
     if (!primary || !adbReady || busy) return;
     setBusy('push-picker');
@@ -252,10 +449,42 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
       const grants = selectedGrants(picked);
       if (!grants.length) return;
       setBusy('');
-      await runTool(commands.toolsPushFiles, { serial: primary.serial, grants, destination: pushDestination });
+      await runPush(
+        { serial: primary.serial, grants, destination: pushDestination },
+        picked?.revision,
+      );
     } finally {
       setBusy('');
     }
+  };
+
+  const cancelPush = async () => {
+    const operationId = activePush?.id ?? queuedPushOperationId;
+    if (!operationId || pushOutcome.status === 'cancelling') return;
+    setPushOutcome((current) => ({ ...current, status: 'cancelling', message: t('tools.pushCancelling') }));
+    try {
+      const response = await onCommand(commands.operationCancel, { operationId });
+      const acknowledgement = record(response?.result);
+      const status = normalizeOperationStatus(acknowledgement.status);
+      if (!response || status !== 'success' || acknowledgement.code !== 'cancellation_requested') {
+        setPushOutcome((current) => current.status === 'cancelling'
+          ? { ...current, status: 'running', message: t('tools.pushRunning') }
+          : current);
+      }
+    } catch {
+      setPushOutcome((current) => current.status === 'cancelling'
+        ? { ...current, status: 'running', message: t('tools.pushRunning') }
+        : current);
+    }
+  };
+
+  const retryPush = async () => {
+    if (!pushRetry || !primary || !adbReady || busy || primary.serial !== pushRetry.serial) return;
+    await runPush(pushRetry);
+  };
+
+  const changePushDestination = (destination: PushDestination) => {
+    setPushUiState((current) => ({ ...current, destination, retry: null }));
   };
 
   const runWifi = async () => {
@@ -388,6 +617,26 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
       { id: 'integrity', icon: 'shield', title: t('tools.integrity'), detail: t('tools.integrityBlocked'), disabled: true, run: () => {} },
     ] satisfies ToolCard[] : []),
   ];
+  const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
+    ? Math.max(0, Math.min(100, activePush.progress))
+    : null;
+  const pushPending = Boolean(
+    activePush
+    || (
+      queuedPushOperationId
+      && primary?.mode === 'adb'
+      && pushOutcome.targetSerial === primary.serial
+      && ['running', 'cancelling'].includes(pushOutcome.status)
+    ),
+  );
+  const canRetryPush = Boolean(
+    pushRetry
+    && primary
+    && adbReady
+    && primary.serial === pushRetry.serial
+    && !busy
+    && !pushPending,
+  );
 
   return (
     <>
@@ -451,9 +700,59 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
             </div>
           ) : null}
           {panel === 'push' ? (
-            <div className="tool-form-grid"><label><span>{t('tools.destination')}</span><select value={pushDestination} onChange={(event) => setPushDestination(event.currentTarget.value as typeof pushDestination)}><option value="/sdcard/Download/">/sdcard/Download/</option><option value="/data/local/tmp/">/data/local/tmp/</option></select></label><Button variant="primary" icon="folderPng" onClick={() => void pushFiles()} disabled={Boolean(busy) || !adbReady}>{t('tools.chooseFiles')}</Button></div>
+            <div className="tool-panel-body push-files-panel">
+              <div className="tool-form-grid">
+                <label>
+                  <span>{t('tools.destination')}</span>
+                  <select
+                    value={pushDestination}
+                    onChange={(event) => changePushDestination(event.currentTarget.value as PushDestination)}
+                    disabled={Boolean(busy) || pushPending}
+                  >
+                    <option value="/sdcard/Download/">/sdcard/Download/</option>
+                    <option value="/data/local/tmp/">/data/local/tmp/</option>
+                  </select>
+                </label>
+                <Button variant="primary" icon="folderPng" onClick={() => void pushFiles()} disabled={Boolean(busy) || pushPending || !adbReady}>{t('tools.chooseFiles')}</Button>
+              </div>
+              {pushPending ? (
+                <div className="push-progress">
+                  <div className="push-progress__copy" role="status" aria-live="polite">
+                    <strong>{pushOutcome.status === 'cancelling' ? t('tools.pushCancelling') : t('tools.pushRunning')}</strong>
+                    <span>
+                      {activePush?.current && activePush.total
+                        ? `${t('tools.pushFile')} ${activePush.current}/${activePush.total}${activePush.item ? ` · ${activePush.item}` : ''}`
+                        : activePush?.detail || pushOutcome.message || t('tools.pushPreparing')}
+                    </span>
+                  </div>
+                  {pushProgress !== null ? <progress aria-label={t('tools.pushProgress')} max={100} value={pushProgress} /> : null}
+                  <Button variant="ghost" onClick={() => void cancelPush()} disabled={pushOutcome.status === 'cancelling'}>{t('tools.pushCancel')}</Button>
+                </div>
+              ) : null}
+              {!pushPending && pushOutcome.status !== 'idle' ? (
+                <div className={`push-outcome push-outcome--${pushOutcome.status}`}>
+                  <Icon name={pushOutcome.status === 'success' ? 'check' : 'warningPng'} size={18} />
+                  <span
+                    role={pushOutcome.status === 'failed' || pushOutcome.status === 'unknown' ? 'alert' : 'status'}
+                    aria-live={pushOutcome.status === 'failed' || pushOutcome.status === 'unknown' ? 'assertive' : 'polite'}
+                  ><strong>{pushOutcome.status === 'success' ? t('tools.pushVerified') : pushOutcome.status === 'unknown' ? t('tools.pushUnknownTitle') : t('tools.results')}</strong><small>{pushOutcome.message}</small></span>
+                  {pushRetry ? <Button variant="ghost" onClick={() => void retryPush()} disabled={!canRetryPush}>{t('tools.pushRetry')}</Button> : null}
+                </div>
+              ) : null}
+              {pushOutcome.receipts.length ? (
+                <ul className="push-receipts" aria-label={t('tools.pushReceipts')}>
+                  {pushOutcome.receipts.map((receipt) => (
+                    <li key={receipt.destination}>
+                      <div><strong>{receipt.displayName}</strong><small>{receipt.destination} · {formatBytes(receipt.sizeBytes)}</small></div>
+                      <code title={receipt.sha256}>{receipt.sha256}</code>
+                      <Badge tone="success">{t('tools.pushVerified')}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           ) : null}
-          {result ? <div className="tool-result" role="status"><Icon name="check" size={18} /><span><strong>{t('tools.results')}</strong><small>{typeof result.message === 'string' ? result.message : t('status.ready')}</small></span></div> : null}
+          {result && panel !== 'push' ? <div className="tool-result" role="status"><Icon name="check" size={18} /><span><strong>{t('tools.results')}</strong><small>{typeof result.message === 'string' ? result.message : t('status.ready')}</small></span></div> : null}
         </Card>
       ) : null}
       {secretPromptOpen ? (

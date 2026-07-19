@@ -4827,3 +4827,59 @@ msgstr "Gli annunci di rete sono suggerimenti non attendibili. La selezione non 
 msgctxt "web.tools.wifiConnectGuard"
 msgid "Checking status requires one selected device in ADB mode."
 msgstr "La verifica dello stato richiede un dispositivo selezionato in modalità ADB."
+
+msgctxt "web.tools.pushPreparing"
+msgid "Preparing selected files…"
+msgstr "Preparazione dei file selezionati…"
+
+msgctxt "web.tools.pushRunning"
+msgid "File transfer in progress"
+msgstr "Trasferimento file in corso"
+
+msgctxt "web.tools.pushFile"
+msgid "File"
+msgstr "File"
+
+msgctxt "web.tools.pushProgress"
+msgid "File transfer progress"
+msgstr "Avanzamento del trasferimento file"
+
+msgctxt "web.tools.pushCancel"
+msgid "Cancel transfer"
+msgstr "Annulla trasferimento"
+
+msgctxt "web.tools.pushCancelling"
+msgid "Cancelling file transfer…"
+msgstr "Annullamento del trasferimento file…"
+
+msgctxt "web.tools.pushCancelled"
+msgid "File transfer cancelled."
+msgstr "Trasferimento file annullato."
+
+msgctxt "web.tools.pushFailed"
+msgid "File transfer failed."
+msgstr "Trasferimento file non riuscito."
+
+msgctxt "web.tools.pushInvalidReceipt"
+msgid "The host returned an invalid verification receipt."
+msgstr "L’host ha restituito una ricevuta di verifica non valida."
+
+msgctxt "web.tools.pushUnknown"
+msgid "The connection was lost after writing began. Inspect the device before retrying."
+msgstr "La connessione è stata persa dopo l’inizio della scrittura. Controlla il dispositivo prima di riprovare."
+
+msgctxt "web.tools.pushUnknownTitle"
+msgid "Device outcome unknown"
+msgstr "Esito del dispositivo sconosciuto"
+
+msgctxt "web.tools.pushRetry"
+msgid "Retry with a new plan"
+msgstr "Riprova con un nuovo piano"
+
+msgctxt "web.tools.pushVerified"
+msgid "Verified"
+msgstr "Verificato"
+
+msgctxt "web.tools.pushReceipts"
+msgid "Verified file receipts"
+msgstr "Ricevute dei file verificati"

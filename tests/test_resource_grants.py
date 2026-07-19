@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from pixelflasher_core.contracts import is_valid_target_serial
 from pixelflasher_core.grants import (
     GrantAccess,
     GrantError,
@@ -20,6 +21,16 @@ class MutableClock:
 
 
 class PathGrantStoreTests(unittest.TestCase):
+    def test_target_serial_validation_covers_scoped_ipv6_and_port_bounds(self):
+        self.assertTrue(is_valid_target_serial("SERIAL-123"))
+        self.assertTrue(is_valid_target_serial("[2001:db8::1]:5555"))
+        self.assertTrue(is_valid_target_serial("[fe80::1%wlan0]:5555"))
+        self.assertTrue(is_valid_target_serial("[fe80::1%12]:5555"))
+        self.assertFalse(is_valid_target_serial("[fe80::1%bad zone]:5555"))
+        self.assertFalse(is_valid_target_serial("[2001:db8::1]:0"))
+        self.assertFalse(is_valid_target_serial("[2001:db8::1]:65536"))
+        self.assertFalse(is_valid_target_serial("[::::]:5555"))
+
     def test_read_grant_is_session_scoped_reusable_and_hides_path(self):
         with TemporaryDirectory() as directory:
             source = Path(directory) / "firmware.zip"
@@ -80,6 +91,60 @@ class PathGrantStoreTests(unittest.TestCase):
                     access=GrantAccess.READ,
                 )
             self.assertEqual("grant_resource_changed", replaced.exception.code)
+
+    def test_bound_read_file_rejects_path_replacement_after_resolution(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "payload.bin"
+            source.write_bytes(b"approved")
+            store = PathGrantStore()
+            grant = store.issue_file(source, purpose="tools.pushFiles.sources")
+            bound = store.resolve_bound_file(
+                grant.token,
+                purpose="tools.pushFiles.sources",
+            )
+
+            replacement = root / "replacement.bin"
+            replacement.write_bytes(b"unapproved")
+            replacement.replace(source)
+
+            with self.assertRaises(GrantError) as changed:
+                bound.open_verified()
+            self.assertEqual("grant_resource_changed", changed.exception.code)
+            self.assertNotIn(str(source), repr(bound))
+
+    def test_revoke_purpose_only_removes_superseded_picker_resources(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.bin"
+            second = root / "second.bin"
+            firmware = root / "firmware.zip"
+            for path in (first, second, firmware):
+                path.write_bytes(path.name.encode())
+            store = PathGrantStore()
+            push_grants = [
+                store.issue_file(path, purpose="tools.pushFiles.sources")
+                for path in (first, second)
+            ]
+            firmware_grant = store.issue_file(firmware, purpose="firmware.select")
+
+            self.assertEqual(2, store.revoke_purpose("tools.pushFiles.sources"))
+            for grant in push_grants:
+                with self.assertRaises(GrantError) as revoked:
+                    store.resolve_bound_file(
+                        grant.token,
+                        purpose="tools.pushFiles.sources",
+                    )
+                self.assertEqual("grant_not_found", revoked.exception.code)
+            self.assertEqual(
+                firmware.resolve(),
+                store.resolve(
+                    firmware_grant.token,
+                    purpose="firmware.select",
+                    target=GrantTarget.FILE,
+                    access=GrantAccess.READ,
+                ),
+            )
 
     def test_write_grant_is_ttl_bounded_and_consumed_before_use(self):
         clock = MutableClock()

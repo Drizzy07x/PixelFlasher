@@ -301,11 +301,18 @@ class ModernParityInventoryTests(unittest.TestCase):
             "tests/test_operation_planner.py:test_download_reboot_is_explicitly_unverifiable_and_never_executes",
             reboot["tests"],
         )
-        self.assertIn("Per-file progress/retry", push["gap"])
-        self.assertNotIn("hash verification", push["gap"])
+        self.assertEqual("native", push["modernStatus"])
+        self.assertEqual("", push["gap"])
         self.assertIn(
             "tests/test_operation_runner_v2.py:test_remote_file_hashes_compile_into_observer_spec",
             push["tests"],
+        )
+        self.assertIn("ui/web/src/test/push-files.test.tsx", push["tests"])
+        self.assertTrue(
+            any(
+                "complete selected batch" in criterion
+                for criterion in push["exitCriteria"]
+            )
         )
 
     def test_ota_diagnostics_inventory_matches_the_read_only_slice(self):

@@ -489,7 +489,7 @@ class BootPlannerGoldenTests(unittest.TestCase):
             self.assertEqual("outcome_unknown", results[0].code)
 
             for outcome, expected_code in (
-                (TransportOutcome(None, timed_out=True), "timed_out"),
+                (TransportOutcome(None, timed_out=True), "outcome_unknown"),
                 (TransportOutcome(1, stderr="device disconnected"), "process_failed"),
             ):
                 with self.subTest(expected_code=expected_code):

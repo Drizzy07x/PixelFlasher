@@ -301,7 +301,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                             "outputDirectory": route,
                         },
                     )
-                    if command == "tools.wifi.discover":
+                    if command in {"tools.pushFiles", "tools.wifi.discover"}:
                         with self.assertRaises(PublicProjectionError):
                             project_operation_result(command, result)
                     else:
@@ -532,7 +532,19 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 "push",
                 message=f"Pushed [{route}]",
                 stdout=route,
-                value={"source": route, "destination": "/sdcard/Download/file.zip"},
+                value={
+                    "targetSerial": "SERIAL123456",
+                    "count": 1,
+                    "files": [
+                        {
+                            "displayName": "file.zip",
+                            "destination": "/sdcard/Download/file.zip",
+                            "sha256": "a" * 64,
+                            "sizeBytes": 42,
+                            "verified": True,
+                        }
+                    ],
+                },
             ),
         )
         ModernWebViewFrame._complete_request(
@@ -545,6 +557,38 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
         self.assertIsNotNone(replay.message)
         self.assert_route_free(emitted[0])
         self.assert_route_free(replay.message)
+        projected_files = result["value"]["files"]
+        self.assertNotIn("source", projected_files[0])
+        self.assertEqual("a" * 64, projected_files[0]["sha256"])
+
+    def test_successful_push_receipts_fail_closed_when_malformed(self):
+        valid_file = {
+            "displayName": "payload.zip",
+            "destination": "/sdcard/Download/payload.zip",
+            "sha256": "b" * 64,
+            "sizeBytes": 7,
+            "verified": True,
+        }
+        malformed_values = (
+            None,
+            {"count": 1, "files": []},
+            {"targetSerial": "", "count": 1, "files": [valid_file]},
+            {"targetSerial": r"C:\\private", "count": 1, "files": [valid_file]},
+            {"targetSerial": "SERIAL", "count": 1, "files": [{**valid_file, "source": r"C:\\private.zip"}]},
+            {"targetSerial": "SERIAL", "count": 1, "files": [{**valid_file, "verified": False}]},
+            {"targetSerial": "SERIAL", "count": 1, "files": [{**valid_file, "sha256": "B" * 64}]},
+            {
+                "targetSerial": "SERIAL",
+                "count": 1,
+                "files": [{**valid_file, "destination": "/data/local/tmp/other.zip"}],
+            },
+        )
+        for value in malformed_values:
+            with self.subTest(value=value), self.assertRaises(PublicProjectionError):
+                project_operation_result(
+                    "tools.pushFiles",
+                    OperationResult.success("push", value=value),
+                )
 
     def test_generic_host_serializer_rejects_python_paths_and_host_path_strings(self):
         with self.assertRaises(PublicProjectionError):

@@ -2900,6 +2900,95 @@ code {
   font-size: 0.58rem;
 }
 
+.push-files-panel {
+  gap: 0.8rem;
+}
+
+.push-progress,
+.push-outcome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.58rem;
+  background: var(--surface-soft);
+}
+
+.push-progress__copy,
+.push-outcome > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.push-progress__copy span,
+.push-outcome small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.push-progress progress {
+  width: 100%;
+  grid-column: 1 / -1;
+  accent-color: var(--accent);
+}
+
+.push-outcome {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.push-outcome--success {
+  border-color: rgba(45, 212, 168, 0.34);
+  background: rgba(45, 212, 168, 0.08);
+  color: var(--success);
+}
+
+.push-outcome--failed,
+.push-outcome--unknown {
+  border-color: rgba(251, 113, 133, 0.38);
+  background: rgba(251, 113, 133, 0.08);
+  color: var(--danger);
+}
+
+.push-receipts {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.push-receipts li {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.8fr) minmax(12rem, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.52rem;
+  background: var(--surface-soft);
+}
+
+.push-receipts li > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.push-receipts small,
+.push-receipts code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @container tool-workspace (max-width: 70rem) {
   .tool-form-grid,
   .tool-form-grid--compact,
@@ -2922,6 +3011,17 @@ code {
 
   .partition-results button {
     grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .push-progress,
+  .push-outcome,
+  .push-receipts li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .push-progress .button,
+  .push-outcome .button {
+    width: 100%;
   }
 }
 
@@ -3366,7 +3466,10 @@ code {
   .device-inspection-progress,
   .device-inspection-feedback,
   .device-inspection-result,
-  .apps-install-feedback {
+  .apps-install-feedback,
+  .push-progress,
+  .push-outcome,
+  .push-receipts li {
     border-color: CanvasText;
   }
 

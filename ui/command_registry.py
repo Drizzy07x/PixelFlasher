@@ -98,6 +98,24 @@ class PayloadSchemaError(ValueError):
 class PayloadField:
     kind: PayloadKind
     required: bool = False
+    min_items: int | None = None
+    max_items: int | None = None
+
+    def __post_init__(self) -> None:
+        if (self.min_items is None) != (self.max_items is None):
+            raise ValueError("payload item bounds must be provided together")
+        minimum = self.min_items
+        maximum = self.max_items
+        if minimum is None or maximum is None:
+            return
+        if self.kind not in {
+            PayloadKind.ARRAY,
+            PayloadKind.FILTER_ARRAY,
+            PayloadKind.STRING_ARRAY,
+        }:
+            raise ValueError("payload item bounds apply only to array fields")
+        if not 0 <= minimum <= maximum <= 10_000:
+            raise ValueError("payload item bounds are invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +152,16 @@ class PayloadSchema:
             field = self.fields[name]
             if not _matches_payload_kind(value, field.kind):
                 raise PayloadSchemaError(f"payload field {name} must be {field.kind.value}")
+            minimum = field.min_items
+            maximum = field.max_items
+            if minimum is not None and maximum is not None and isinstance(value, list):
+                values = cast("list[object]", value)
+                if minimum <= len(values) <= maximum:
+                    continue
+                raise PayloadSchemaError(
+                    f"payload field {name} must contain between "
+                    f"{minimum} and {maximum} items"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,15 +216,21 @@ def _matches_payload_kind(value: Any, kind: PayloadKind) -> bool:
 
 
 def _payload(
-    *fields: tuple[str, PayloadKind] | tuple[str, PayloadKind, bool],
+    *fields: (
+        tuple[str, PayloadKind]
+        | tuple[str, PayloadKind, bool]
+        | tuple[str, PayloadKind, bool, int, int]
+    ),
 ) -> PayloadSchema:
     definitions: dict[str, PayloadField] = {}
     for definition in fields:
         name, kind = definition[:2]
-        required = bool(definition[2]) if len(definition) == 3 else False
+        required = bool(definition[2]) if len(definition) >= 3 else False
+        min_items = int(definition[3]) if len(definition) == 5 else None
+        max_items = int(definition[4]) if len(definition) == 5 else None
         if name in definitions:
             raise ValueError(f"duplicate payload field: {name}")
-        definitions[name] = PayloadField(kind, required)
+        definitions[name] = PayloadField(kind, required, min_items, max_items)
     return PayloadSchema(definitions)
 
 
@@ -1023,7 +1057,7 @@ _COMMAND_SPECS = (
         "toolsPushFiles",
         _payload(
             ("serial", PayloadKind.STRING),
-            ("grants", PayloadKind.STRING_ARRAY, True),
+            ("grants", PayloadKind.STRING_ARRAY, True, 1, 32),
             ("destination", PayloadKind.STRING, True),
         ),
         owner=CommandOwner.DEVICE_TOOLS,
@@ -1035,7 +1069,8 @@ _COMMAND_SPECS = (
         target_scope=TargetScope.SELECTED_DEVICE,
         planner="tools.push_files",
         timeout_ms=10 * 60_000,
-        postconditions=("remote_hash_verified",),
+        confirmation=ConfirmationPolicy.STANDARD,
+        postconditions=("remote_files_written",),
     ),
     _command(
         "tools.pif",

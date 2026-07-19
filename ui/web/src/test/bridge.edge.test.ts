@@ -10,7 +10,7 @@ import {
   parseBridgeMessage,
   snapshotFromEvent,
 } from '../bridge';
-import { commands } from '../commands';
+import { commands, isBridgePayload } from '../commands';
 import type { BridgeEvent, BridgeRequest, Device, HostSnapshot } from '../types';
 
 const snapshotPreferences = {
@@ -123,6 +123,26 @@ describe('bridge v2 validation boundaries', () => {
     expect(normalizeOperationStatus('unexpected')).toBe('idle');
   });
 
+  it('restores active operations without an event status and accepts scoped IPv6 targets', () => {
+    const normalized = normalizeSnapshot({
+      revision: 7,
+      preferences: snapshotPreferences,
+      devices: [],
+      active_operation: {
+        operation_id: 'push-reload',
+        kind: commands.toolsPushFiles,
+        label: 'Pushing files',
+        target_serial: '[fe80::1%wlan0]:5555',
+      },
+    } as unknown as HostSnapshot);
+
+    expect(normalized.activeOperation).toMatchObject({
+      id: 'push-reload',
+      status: 'running',
+      targetSerial: '[fe80::1%wlan0]:5555',
+    });
+  });
+
   it('normalizes sparse devices, firmware aliases and lock evidence safely', () => {
     const sparseDevice = {
       serial: 'SPARSE',
@@ -218,6 +238,18 @@ describe('bridge v2 validation boundaries', () => {
       event: 'progress',
       payload: { operation_id: 'op', phase: 'finished', percent: 100, message: 'Done' },
     })).toEqual({ id: 'op', label: 'Done', status: 'success', progress: 100, detail: 'Done' });
+    for (const [phase, status] of [
+      ['completed', 'success'],
+      ['cancelled', 'cancelled'],
+      ['failed', 'failed'],
+      ['queued', 'pending'],
+    ] as const) {
+      expect(operationFromEvent({
+        ...runtime,
+        event: 'progress',
+        payload: { operation_id: `op-${phase}`, phase },
+      })).toMatchObject({ status });
+    }
     expect(operationFromEvent({
       ...runtime,
       event: 'progress',
@@ -225,6 +257,30 @@ describe('bridge v2 validation boundaries', () => {
     }, {
       id: 'op', kind: 'device.ota.logs', label: 'OTA logs', status: 'running',
     })).toMatchObject({ id: 'op', kind: 'device.ota.logs', status: 'running' });
+    expect(operationFromEvent({
+      ...runtime,
+      event: 'progress',
+      payload: {
+        operation_id: 'push', kind: 'tools.pushFiles', phase: 'running', percent: 45,
+        current: 2, total: 4, item: 'payload.zip', target_serial: 'SERIAL',
+      },
+    })).toMatchObject({
+      id: 'push', kind: 'tools.pushFiles', progress: 45,
+      current: 2, total: 4, item: 'payload.zip', targetSerial: 'SERIAL',
+    });
+    expect(operationFromEvent({
+      ...runtime,
+      event: 'progress',
+      payload: {
+        operation_id: 'push', phase: 'running', current: 1, total: 1,
+        item: 'C:\\private\\payload.zip',
+      },
+    })).not.toHaveProperty('item');
+    expect(operationFromEvent({
+      ...runtime,
+      event: 'progress',
+      payload: { operation_id: 'push', phase: 'running', percent: 101 },
+    })).toHaveProperty('progress', undefined);
     expect(operationFromEvent({
       ...runtime,
       event: 'progress',
@@ -255,6 +311,20 @@ describe('bridge v2 validation boundaries', () => {
         message: 'Proceed?', target_serial: 'SERIAL', destructive: true, reinforced: true,
       },
     })).toMatchObject({ kind: 'warning', title: 'Careful', targetSerial: 'SERIAL', destructive: true, reinforced: true });
+  });
+
+  it('enforces generated one-to-thirty-two push grant bounds', () => {
+    const base = { destination: '/sdcard/Download/', serial: 'SERIAL' };
+    expect(isBridgePayload(commands.toolsPushFiles, { ...base, grants: ['g'] })).toBe(true);
+    expect(isBridgePayload(commands.toolsPushFiles, {
+      ...base,
+      grants: Array.from({ length: 32 }, (_, index) => `g-${index}`),
+    })).toBe(true);
+    expect(isBridgePayload(commands.toolsPushFiles, { ...base, grants: [] })).toBe(false);
+    expect(isBridgePayload(commands.toolsPushFiles, {
+      ...base,
+      grants: Array.from({ length: 33 }, (_, index) => `g-${index}`),
+    })).toBe(false);
   });
 });
 

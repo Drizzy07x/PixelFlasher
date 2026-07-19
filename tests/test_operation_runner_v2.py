@@ -269,6 +269,21 @@ class OperationPlanV2Tests(unittest.TestCase):
 
 
 class OperationRunnerStatefulTests(unittest.TestCase):
+    def test_push_staging_never_rewrites_an_equal_remote_destination(self):
+        remote_path = "/data/local/tmp/payload.bin"
+        request = ProcessRequest(
+            ("adb", "-s", "SERIAL", "push", remote_path, remote_path)
+        )
+
+        staged = OperationRunner._rewrite_staged_request(
+            request,
+            {remote_path: "C:/private-stage/payload.bin"},
+            {remote_path: {"push-source"}},
+        )
+
+        self.assertEqual("C:/private-stage/payload.bin", staged.argv[-2])
+        self.assertEqual(remote_path, staged.argv[-1])
+
     def runner(self, transport, *, provider=None, observer=None):
         return OperationRunner(
             CommandExecutor(transport),
@@ -704,6 +719,55 @@ class OperationRunnerStatefulTests(unittest.TestCase):
             results[0].value["safetyObservation"]["status"],
         )
 
+    def test_deadline_before_mutation_fails_and_after_boundary_is_unknown(self):
+        plan = destructive_plan()
+        snapshot = snapshot_for()
+        before_transport = FakeProcessTransport([TransportOutcome(0)])
+        before = CancellationToken()
+        before.set_deadline(0.001)
+        self.assertTrue(before.wait(0.1))
+
+        timed_out = self.runner(
+            before_transport,
+            provider=lambda _serial: snapshot,
+            observer=lambda *_args: True,
+        ).execute(self.command_for(plan, "deadline-before"), plan, cancellation=before)
+
+        self.assertEqual(OperationStatus.FAILED, timed_out.status)
+        self.assertEqual("timed_out", timed_out.code)
+        self.assertEqual([], before_transport.calls)
+
+        started = threading.Event()
+        release = threading.Event()
+        after_transport = FakeProcessTransport(
+            [FakeTransportStep(TransportOutcome(0), started, release)]
+        )
+        after = CancellationToken()
+        after.set_deadline(0.2)
+        results: list[OperationResult] = []
+        worker = threading.Thread(
+            target=lambda: results.append(
+                self.runner(
+                    after_transport,
+                    provider=lambda _serial: snapshot,
+                    observer=lambda *_args: True,
+                ).execute(
+                    self.command_for(plan, "deadline-after"),
+                    plan,
+                    cancellation=after,
+                )
+            ),
+            daemon=True,
+        )
+        worker.start()
+        self.assertTrue(started.wait(1))
+        worker.join(2)
+        release.set()
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(OperationStatus.FAILED, results[0].status)
+        self.assertEqual("outcome_unknown", results[0].code)
+
     def test_process_failure_is_unknown_only_when_target_cannot_be_observed(self):
         plan = destructive_plan()
         snapshot = snapshot_for()
@@ -725,6 +789,27 @@ class OperationRunnerStatefulTests(unittest.TestCase):
             unreachable.value["safetyObservation"]["status"],
         )
         self.assertEqual("process_failed", reachable.code)
+
+    def test_forced_process_stop_after_mutation_is_always_outcome_unknown(self):
+        plan = destructive_plan()
+        snapshot = snapshot_for()
+        for outcome in (
+            TransportOutcome(None, timed_out=True),
+            TransportOutcome(None, output_limited=True),
+        ):
+            with self.subTest(outcome=outcome):
+                result = self.runner(
+                    FakeProcessTransport([outcome]),
+                    provider=lambda _serial: snapshot,
+                    observer=lambda *_args: True,
+                ).execute(self.command_for(plan, f"forced-{id(outcome)}"), plan)
+
+                self.assertEqual(OperationStatus.FAILED, result.status)
+                self.assertEqual("outcome_unknown", result.code)
+                self.assertEqual(
+                    "verified",
+                    result.value["safetyObservation"]["status"],
+                )
 
     def test_plan_is_revalidated_again_at_the_immediate_process_boundary(self):
         plan = destructive_plan()

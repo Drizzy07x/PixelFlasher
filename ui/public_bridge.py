@@ -16,13 +16,15 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
-from pixelflasher_core import AppSnapshot, OperationResult
+from pixelflasher_core import AppSnapshot, OperationResult, is_valid_target_serial
 from ui.command_registry import ALLOWED_COMMANDS
 
 JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
-_STRICT_STRUCTURED_RESULTS = frozenset({"tools.wifi.discover"})
+_STRICT_STRUCTURED_RESULTS = frozenset(
+    {"tools.pushFiles", "tools.wifi.discover"}
+)
 
 _WINDOWS_PATH = re.compile(r"(?i)(?:^|[^a-z0-9])(?:[a-z]:[\\/])")
 _UNC_PATH = re.compile(r"(?:^|[^a-zA-Z0-9])\\\\[^\\/\s]+[\\/][^\s'\"]+")
@@ -233,6 +235,14 @@ def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _target_serial(value: object) -> str | None:
+    return (
+        value
+        if isinstance(value, str) and is_valid_target_serial(value)
+        else None
+    )
+
+
 def _boolean(value: object, *, default: bool = False) -> bool:
     return value if isinstance(value, bool) else default
 
@@ -436,6 +446,9 @@ def _public_active_operation(value: object) -> dict[str, JSONValue] | None:
         "operation_id": operation_id,
         "kind": _string(source.get("kind")),
         "label": safe_public_message(source.get("label"), fallback="Operation in progress"),
+        "target_serial": _target_serial(
+            source.get("target_serial", source.get("targetSerial"))
+        ),
     }
 
 
@@ -1001,6 +1014,76 @@ def _project_wifi_discovery(value: object) -> JSONValue:
     )
 
 
+def _project_push_files(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"targetSerial", "count", "files"}),
+    )
+    target_serial = source["targetSerial"]
+    count = source["count"]
+    raw_files = source["files"]
+    if (
+        not isinstance(target_serial, str)
+        or _target_serial(target_serial) is None
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or not 1 <= count <= 32
+        or not isinstance(raw_files, list)
+    ):
+        raise PublicProjectionError("push result count is invalid")
+    file_values = cast("list[object]", raw_files)
+    if len(file_values) != count:
+        raise PublicProjectionError("push result count is invalid")
+
+    item_fields = frozenset(
+        {"displayName", "destination", "sha256", "sizeBytes", "verified"}
+    )
+    files: list[dict[str, JSONValue]] = []
+    destinations: set[str] = set()
+    display_names: set[str] = set()
+    for raw in file_values:
+        item = _closed_record(raw, fields=item_fields)
+        display_name = item["displayName"]
+        destination = item["destination"]
+        digest = item["sha256"]
+        size_bytes = item["sizeBytes"]
+        if (
+            not isinstance(display_name, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", display_name)
+            is None
+            or not isinstance(destination, str)
+            or destination
+            not in {
+                f"/data/local/tmp/{display_name}",
+                f"/sdcard/Download/{display_name}",
+            }
+            or destination in destinations
+            or display_name.casefold() in display_names
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or not isinstance(size_bytes, int)
+            or isinstance(size_bytes, bool)
+            or size_bytes < 0
+            or size_bytes > 9_007_199_254_740_991
+            or item["verified"] is not True
+        ):
+            raise PublicProjectionError("push result file receipt is invalid")
+        destinations.add(destination)
+        display_names.add(display_name.casefold())
+        files.append(
+            {
+                "displayName": display_name,
+                "destination": destination,
+                "sha256": digest,
+                "sizeBytes": size_bytes,
+                "verified": True,
+            }
+        )
+    return ensure_public_json(
+        {"targetSerial": target_serial, "count": count, "files": files}
+    )
+
+
 def _project_device_inspect(value: object) -> JSONValue:
     source = _record(value)
     action = _string(source.get("action"))
@@ -1236,7 +1319,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "snapshot.get": _project_snapshot,
     "support.create": _project_support,
     "tools.logcat": _project_logcat,
-    "tools.pushFiles": _project_none,
+    "tools.pushFiles": _project_push_files,
     "tools.scrcpy": _project_none,
     "tools.wifi": _project_none,
     "tools.wifi.status": _project_none,

@@ -10,19 +10,22 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from pixelflasher_core import (
     AppCommand,
     AppSnapshot,
+    BoundReadFile,
     GrantAccess,
     GrantError,
     GrantTarget,
+    PathGrant,
     PathGrantStore,
     SecretGrantStore,
 )
 from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest
 from ui.command_registry import (
+    COMMAND_REGISTRY,
     CONFIRMATION_COMMANDS,
     DESTRUCTIVE_COMMANDS,
     DEVICE_SCOPED_COMMANDS,
@@ -56,6 +59,13 @@ class NativeGrantSpec:
     target: GrantTarget
     access: GrantAccess
     multiple: bool = False
+    max_selections: int = 1
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.max_selections <= 64:
+            raise ValueError("native grant selection limit is invalid")
+        if not self.multiple and self.max_selections != 1:
+            raise ValueError("single native grants must accept exactly one selection")
 
 
 _NATIVE_GRANT_SPECS = (
@@ -115,6 +125,7 @@ _NATIVE_GRANT_SPECS = (
         GrantTarget.FILE,
         GrantAccess.READ,
         multiple=True,
+        max_selections=32,
     ),
     NativeGrantSpec(
         "native.saveFile",
@@ -179,7 +190,9 @@ class CoreCommandFactory:
     def validate_native_request(self, request: BridgeRequest) -> NativeGrantSpec:
         request.validate()
         purpose = request.payload.get("purpose")
-        spec = _SPECS_BY_PICKER.get((request.command, purpose))
+        spec = _SPECS_BY_PICKER.get(
+            (request.command, purpose if isinstance(purpose, str) else "")
+        )
         if spec is None:
             raise CommandFactoryError(
                 "native_purpose_not_allowed",
@@ -205,13 +218,17 @@ class CoreCommandFactory:
                 "native_selection_invalid",
                 "The native picker returned an invalid selection count.",
             )
-        if spec.multiple and len(paths) > 64:
+        if spec.multiple and len(paths) > spec.max_selections:
             raise CommandFactoryError(
                 "native_selection_invalid",
                 "The native picker returned too many selections.",
             )
 
-        issued = []
+        # A new picker result supersedes the prior result for this exact
+        # purpose. This preserves manual retry until the user chooses again
+        # without leaking reusable grants until the session capacity is full.
+        self.path_grants.revoke_purpose(spec.purpose)
+        issued: list[PathGrant] = []
         try:
             for path in paths:
                 if spec.target is GrantTarget.DIRECTORY:
@@ -289,6 +306,12 @@ class CoreCommandFactory:
             payload=payload,
             destructive=request.command in DESTRUCTIVE_COMMANDS,
             requires_confirmation=request.command in CONFIRMATION_COMMANDS,
+            operation_id=request.request_id,
+            execution_timeout_seconds=(
+                COMMAND_REGISTRY[request.command].timeout_ms / 1000.0 * 0.95
+                if request.command == "tools.pushFiles"
+                else None
+            ),
         )
 
     def _resolve_native_resources(self, command: str, payload: dict[str, Any]) -> None:
@@ -359,18 +382,26 @@ class CoreCommandFactory:
                 raise CommandFactoryError(
                     "grant_required", "Native file grants are required for this command."
                 )
+            grants = cast("list[object]", raw_grants)
+            if (
+                not 1 <= len(grants) <= 32
+                or any(not isinstance(token, str) or not token for token in grants)
+            ):
+                raise CommandFactoryError(
+                    "grant_required", "Native file grants are required for this command."
+                )
             spec = _SPECS_BY_PURPOSE["tools.pushFiles.sources"]
-            payload["paths"] = [
-                str(
-                    self.path_grants.resolve(
+            try:
+                bound_paths: list[BoundReadFile] = [
+                    self.path_grants.resolve_bound_file(
                         token,
                         purpose=spec.purpose,
-                        target=spec.target,
-                        access=spec.access,
                     )
-                )
-                for token in raw_grants
-            ]
+                    for token in cast("list[str]", grants)
+                ]
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
+            payload["paths"] = bound_paths
         elif command == "tools.wifi":
             secret_token = payload.pop("secretGrant", None)
             if payload.get("action") == "pair":

@@ -14,11 +14,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
-from .contracts import ProcessRequest, ToolchainInfo
+from .contracts import ProcessRequest, ToolchainInfo, is_valid_target_serial
 from .devices import DeviceService, parse_fastboot_getvar
 from .executor import CancellationToken, ProcessTransport, TransportOutcome
 
-_SERIAL_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _REMOTE_PATH_PATTERN = re.compile(r"^/(?:[A-Za-z0-9._+-]{1,128}/)*[A-Za-z0-9._+-]{1,128}$")
 _PARTITION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _PACKAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
@@ -26,11 +25,13 @@ _REPORTED_PACKAGE_PATH_PATTERN = re.compile(r"^/(?:[A-Za-z0-9._+~=@%:-]{1,160}/)
 _MODULE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 _FASTBOOT_FETCH_PATTERN = re.compile(r"(?mi)^\s*fetch(?:\s|:)")
 _MAX_PROPERTY_OUTPUT_BYTES = 4 * 1024
+_MAX_REMOTE_HASH_OUTPUT_BYTES = 64 * 1024
 _MAX_FASTBOOT_OUTPUT_BYTES = 64 * 1024
 _MAX_ADB_INVENTORY_OUTPUT_BYTES = 64 * 1024
 _MAX_HELP_OUTPUT_BYTES = 128 * 1024
 _DEFAULT_MAX_PARTITION_BYTES = 128 * 1024 * 1024
 _DEFAULT_MAX_HASH_TARGETS = 16
+_DEFAULT_MAX_REMOTE_HASH_TARGETS = 32
 
 
 class ObservationStatus(StrEnum):
@@ -318,6 +319,7 @@ class ProcessDeviceObservationProbe:
         command_timeout_seconds: float = 4.0,
         max_partition_bytes: int = _DEFAULT_MAX_PARTITION_BYTES,
         max_hash_targets: int = _DEFAULT_MAX_HASH_TARGETS,
+        max_remote_hash_targets: int = _DEFAULT_MAX_REMOTE_HASH_TARGETS,
         temporary_root: str | Path | None = None,
     ) -> None:
         if command_timeout_seconds <= 0:
@@ -326,12 +328,15 @@ class ProcessDeviceObservationProbe:
             raise ValueError("observer partition limit must be positive")
         if max_hash_targets <= 0:
             raise ValueError("observer hash target limit must be positive")
+        if max_remote_hash_targets <= 0:
+            raise ValueError("observer remote hash target limit must be positive")
         self.device_service = device_service
         self.transport: ProcessTransport = device_service.transport
         self.toolchain_provider = toolchain_provider
         self.command_timeout_seconds = float(command_timeout_seconds)
         self.max_partition_bytes = int(max_partition_bytes)
         self.max_hash_targets = int(max_hash_targets)
+        self.max_remote_hash_targets = int(max_remote_hash_targets)
         self.temporary_root = Path(temporary_root).resolve() if temporary_root is not None else None
 
     def observe(self, serial: str) -> DeviceObservation | None:
@@ -352,7 +357,7 @@ class ProcessDeviceObservationProbe:
         cancellation: CancellationToken,
     ) -> DeviceObservation | None:
         serial = spec.serial
-        if not _SERIAL_PATTERN.fullmatch(serial):
+        if not is_valid_target_serial(serial):
             raise ObservationProbeUnavailable("postcondition serial is invalid")
         if cancellation.cancelled:
             return None
@@ -636,31 +641,31 @@ class ProcessDeviceObservationProbe:
         timeout: float,
     ) -> dict[str, str]:
         names = tuple(spec.remote_hashes)
-        if mode not in {"adb", "recovery"} or len(names) > self.max_hash_targets:
+        if mode not in {"adb", "recovery"} or len(names) > self.max_remote_hash_targets:
             return {}
-        observed: dict[str, str] = {}
-        for remote_path in names:
-            if token.cancelled or not self._safe_remote_path(remote_path):
-                continue
-            for command in (("sha256sum",), ("toybox", "sha256sum")):
-                outcome = self._run(
-                    (
-                        toolchain.adb,
-                        "-s",
-                        spec.serial,
-                        "shell",
-                        *command,
-                        "--",
-                        remote_path,
-                    ),
-                    token,
-                    timeout,
-                )
-                digest = self._parse_remote_hash(outcome, remote_path)
-                if digest is not None:
-                    observed[remote_path] = digest
-                    break
-        return observed
+        if not names or token.cancelled or any(
+            not self._safe_remote_path(remote_path) for remote_path in names
+        ):
+            return {}
+        for command in (("sha256sum",), ("toybox", "sha256sum")):
+            outcome = self._run(
+                (
+                    toolchain.adb,
+                    "-s",
+                    spec.serial,
+                    "shell",
+                    *command,
+                    "--",
+                    *names,
+                ),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_REMOTE_HASH_OUTPUT_BYTES,
+            )
+            observed = self._parse_remote_hashes(outcome, names)
+            if len(observed) == len(names):
+                return observed
+        return {}
 
     def _packages(
         self,
@@ -1330,22 +1335,34 @@ class ProcessDeviceObservationProbe:
         return _PARTITION_PATTERN.fullmatch(partition) is not None
 
     @staticmethod
-    def _parse_remote_hash(
+    def _parse_remote_hashes(
         outcome: TransportOutcome | None,
-        remote_path: str,
-    ) -> str | None:
+        remote_paths: tuple[str, ...],
+    ) -> dict[str, str]:
         if not ProcessDeviceObservationProbe._successful(
             outcome,
-            _MAX_PROPERTY_OUTPUT_BYTES,
+            _MAX_REMOTE_HASH_OUTPUT_BYTES,
         ):
-            return None
+            return {}
         assert outcome is not None
-        normalized = outcome.stdout.replace("\r", "").strip()
-        match = re.fullmatch(
-            rf"([0-9a-fA-F]{{64}})\s+\*?{re.escape(remote_path)}",
-            normalized,
+        expected = set(remote_paths)
+        lines = tuple(
+            line.strip()
+            for line in outcome.stdout.replace("\r", "").splitlines()
+            if line.strip()
         )
-        return match.group(1).casefold() if match is not None else None
+        if len(lines) != len(expected) or outcome.stderr.strip():
+            return {}
+        observed: dict[str, str] = {}
+        for line in lines:
+            match = re.fullmatch(r"([0-9a-fA-F]{64})\s+\*?(.+)", line)
+            if match is None:
+                return {}
+            digest, remote_path = match.groups()
+            if remote_path not in expected or remote_path in observed:
+                return {}
+            observed[remote_path] = digest.casefold()
+        return observed if observed.keys() == expected else {}
 
     @staticmethod
     def _package_installed(outcome: TransportOutcome | None) -> bool | None:

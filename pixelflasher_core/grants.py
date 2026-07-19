@@ -8,6 +8,7 @@ purpose for which it was created.
 
 from __future__ import annotations
 
+import os
 import secrets
 import stat
 import threading
@@ -16,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import BinaryIO
 
 from .contracts import JSONValue, SensitiveText
 
@@ -47,7 +49,48 @@ def _validate_purpose(purpose: str) -> str:
 
 def _identity(path: Path) -> tuple[int, int, int]:
     info = path.stat()
+    return _stat_identity(info)
+
+
+def _stat_identity(info: os.stat_result) -> tuple[int, int, int]:
     return (int(info.st_dev), int(info.st_ino), stat.S_IFMT(info.st_mode))
+
+
+@dataclass(frozen=True, slots=True)
+class BoundReadFile:
+    """A native-file selection bound to the resource approved by the user."""
+
+    path: Path = field(repr=False)
+    _target_identity: tuple[int, int, int] = field(repr=False)
+
+    def open_verified(self) -> BinaryIO:
+        """Open the approved inode without trusting the pathname a second time."""
+
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self.path, flags)
+        except FileNotFoundError as error:
+            raise GrantError(
+                "grant_resource_missing",
+                "selected resource no longer exists",
+            ) from error
+        except OSError as error:
+            raise GrantError(
+                "grant_resource_changed",
+                "selected file changed after approval",
+            ) from error
+        try:
+            if _stat_identity(os.fstat(descriptor)) != self._target_identity:
+                raise GrantError(
+                    "grant_resource_changed",
+                    "selected file changed after approval",
+                )
+            stream = os.fdopen(descriptor, "rb")
+        except Exception:
+            os.close(descriptor)
+            raise
+        return stream
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +233,38 @@ class PathGrantStore:
         target: GrantTarget,
         access: GrantAccess,
     ) -> Path:
+        grant = self._resolve_grant(
+            token,
+            purpose=purpose,
+            target=target,
+            access=access,
+        )
+        return grant._path
+
+    def resolve_bound_file(self, token: str, *, purpose: str) -> BoundReadFile:
+        """Resolve a reusable read grant while retaining its approved identity."""
+
+        grant = self._resolve_grant(
+            token,
+            purpose=purpose,
+            target=GrantTarget.FILE,
+            access=GrantAccess.READ,
+        )
+        if grant._target_identity is None:
+            raise GrantError(
+                "grant_resource_changed",
+                "selected file changed after approval",
+            )
+        return BoundReadFile(grant._path, grant._target_identity)
+
+    def _resolve_grant(
+        self,
+        token: str,
+        *,
+        purpose: str,
+        target: GrantTarget,
+        access: GrantAccess,
+    ) -> PathGrant:
         purpose = _validate_purpose(purpose)
         if not isinstance(target, GrantTarget) or not isinstance(access, GrantAccess):
             raise TypeError("target and access must use their grant enum types")
@@ -208,11 +283,25 @@ class PathGrantStore:
                 self._grants.pop(grant.token, None)
 
         self._revalidate(grant)
-        return grant._path
+        return grant
 
     def revoke(self, token: str) -> bool:
         with self._lock:
             return self._grants.pop(str(token), None) is not None
+
+    def revoke_purpose(self, purpose: str) -> int:
+        """Revoke resources superseded by a newer native selection."""
+
+        normalized = _validate_purpose(purpose)
+        with self._lock:
+            tokens = [
+                token
+                for token, grant in self._grants.items()
+                if grant.purpose == normalized
+            ]
+            for token in tokens:
+                self._grants.pop(token, None)
+        return len(tokens)
 
     def clear(self) -> None:
         with self._lock:

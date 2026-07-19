@@ -4,9 +4,12 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from pixelflasher_core import (
+    AppCommand,
     AppSnapshot,
+    CommandAck,
     InteractionKind,
     InteractionRequest,
     OperationFinished,
@@ -24,6 +27,7 @@ from ui.pages.modern_webview_host import (
     _limit_bridge_payload,
     _RequestReplayLedger,
     _safe_wildcard,
+    _SerialCommandWorker,
 )
 from ui.public_bridge import PublicProjectionError
 
@@ -43,6 +47,184 @@ def request(request_id="request-1", *, command="device.scan", payload=None):
 
 
 class ModernWebViewHostContractTests(unittest.TestCase):
+    def test_cancel_notifies_worker_and_engine_for_pending_interactions(self):
+        calls: list[tuple[str, str]] = []
+        responses: list[dict] = []
+        host = SimpleNamespace(
+            _command_worker=SimpleNamespace(
+                cancel=lambda operation_id: calls.append(("worker", operation_id)) or True
+            ),
+            _engine=SimpleNamespace(
+                cancel=lambda operation_id: calls.append(("engine", operation_id))
+                or CommandAck(True, "cancellation_requested"),
+                snapshot=lambda: AppSnapshot(revision=3),
+            ),
+            _complete_request=lambda _request, message: responses.append(message),
+        )
+
+        ModernWebViewFrame._handle_operation_cancel(
+            host,
+            request(
+                "cancel-request",
+                command="operation.cancel",
+                payload={"operationId": "pending-operation"},
+            ),
+        )
+
+        self.assertEqual(
+            [("worker", "pending-operation"), ("engine", "pending-operation")],
+            calls,
+        )
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual("cancellation_requested", responses[0]["result"]["code"])
+
+    def test_engine_worker_cancels_an_accepted_command_before_fifo_execution(self):
+        first_started = threading.Event()
+        release_first = threading.Event()
+        delivered: list[tuple[BridgeRequest, OperationResult | None]] = []
+        executed: list[str] = []
+
+        def execute(command: AppCommand) -> OperationResult:
+            executed.append(command.operation_id)
+            if command.operation_id == "first-operation":
+                first_started.set()
+                release_first.wait(2)
+            return OperationResult.success(command.operation_id)
+
+        with patch(
+            "ui.pages.modern_webview_host.wx.CallAfter",
+            side_effect=lambda callback, *args: callback(*args),
+        ):
+            worker = _SerialCommandWorker(
+                SimpleNamespace(execute=execute),
+                lambda bridge_request, result: delivered.append((bridge_request, result)),
+            )
+            try:
+                worker.submit(
+                    request("first-operation"),
+                    AppCommand("device.scan", operation_id="first-operation"),
+                )
+                self.assertTrue(first_started.wait(1))
+                worker.submit(
+                    request("queued-operation"),
+                    AppCommand("device.scan", operation_id="queued-operation"),
+                )
+
+                self.assertTrue(worker.cancel("queued-operation"))
+                release_first.set()
+                for _attempt in range(100):
+                    if len(delivered) == 2:
+                        break
+                    threading.Event().wait(0.01)
+            finally:
+                release_first.set()
+                worker.shutdown(timeout_seconds=2)
+
+        queued_result = next(
+            result
+            for bridge_request, result in delivered
+            if bridge_request.request_id == "queued-operation"
+        )
+        self.assertIsNotNone(queued_result)
+        assert queued_result is not None
+        self.assertEqual("cancelled", queued_result.status.value)
+        self.assertEqual("cancelled", queued_result.code)
+        self.assertNotIn("queued-operation", executed)
+
+    def test_engine_worker_carries_cancellation_across_the_engine_handoff(self):
+        handoff_started = threading.Event()
+        release_handoff = threading.Event()
+        delivered: list[tuple[BridgeRequest, OperationResult | None]] = []
+
+        def execute(command: AppCommand) -> OperationResult:
+            handoff_started.set()
+            release_handoff.wait(2)
+            if command.cancellation_reason is not None:
+                return OperationResult.cancelled(command.operation_id, code="cancelled")
+            return OperationResult.success(command.operation_id)
+
+        with patch(
+            "ui.pages.modern_webview_host.wx.CallAfter",
+            side_effect=lambda callback, *args: callback(*args),
+        ):
+            worker = _SerialCommandWorker(
+                SimpleNamespace(execute=execute),
+                lambda bridge_request, result: delivered.append((bridge_request, result)),
+            )
+            try:
+                worker.submit(
+                    request("handoff-operation"),
+                    AppCommand("device.scan", operation_id="handoff-operation"),
+                )
+                self.assertTrue(handoff_started.wait(1))
+                self.assertTrue(worker.cancel("handoff-operation"))
+                release_handoff.set()
+                for _attempt in range(100):
+                    if delivered:
+                        break
+                    threading.Event().wait(0.01)
+            finally:
+                release_handoff.set()
+                worker.shutdown(timeout_seconds=2)
+
+        self.assertEqual(1, len(delivered))
+        result = delivered[0][1]
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual("cancelled", result.status.value)
+
+    def test_engine_worker_preserves_deadline_as_the_first_queued_stop_cause(self):
+        first_started = threading.Event()
+        release_first = threading.Event()
+        delivered: list[tuple[BridgeRequest, OperationResult | None]] = []
+
+        def execute(command: AppCommand) -> OperationResult:
+            if command.operation_id == "deadline-blocker":
+                first_started.set()
+                release_first.wait(2)
+            return OperationResult.success(command.operation_id)
+
+        with patch(
+            "ui.pages.modern_webview_host.wx.CallAfter",
+            side_effect=lambda callback, *args: callback(*args),
+        ):
+            worker = _SerialCommandWorker(
+                SimpleNamespace(execute=execute),
+                lambda bridge_request, result: delivered.append((bridge_request, result)),
+            )
+            try:
+                worker.submit(
+                    request("deadline-blocker"),
+                    AppCommand("device.scan", operation_id="deadline-blocker"),
+                )
+                self.assertTrue(first_started.wait(1))
+                expired = AppCommand(
+                    "device.scan",
+                    operation_id="expired-operation",
+                    execution_timeout_seconds=0.01,
+                    _accepted_monotonic=0,
+                )
+                worker.submit(request("expired-operation"), expired)
+                self.assertTrue(worker.cancel("expired-operation"))
+                release_first.set()
+                for _attempt in range(100):
+                    if len(delivered) == 2:
+                        break
+                    threading.Event().wait(0.01)
+            finally:
+                release_first.set()
+                worker.shutdown(timeout_seconds=2)
+
+        expired_result = next(
+            result
+            for bridge_request, result in delivered
+            if bridge_request.request_id == "expired-operation"
+        )
+        self.assertIsNotNone(expired_result)
+        assert expired_result is not None
+        self.assertEqual("failed", expired_result.status.value)
+        self.assertEqual("timed_out", expired_result.code)
+
     def test_closed_app_events_map_to_the_existing_four_v2_event_names(self):
         snapshot = AppSnapshot(revision=7)
         emitted = []
@@ -55,7 +237,17 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         )
         events = (
             SnapshotChanged(snapshot),
-            ProgressEvent("op", ProgressPhase.RUNNING, "Working", 50),
+            ProgressEvent(
+                "op",
+                ProgressPhase.RUNNING,
+                "Working",
+                50,
+                kind="tools.pushFiles",
+                current=1,
+                total=2,
+                item="alpha.bin",
+                target_serial="SERIAL",
+            ),
             InteractionRequest(
                 "op",
                 InteractionKind.CONFIRM,
@@ -75,6 +267,21 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         )
         self.assertTrue(all(message["revision"] == 7 for message in emitted))
         self.assertEqual(7, emitted[0]["payload"]["revision"])
+        self.assertEqual(
+            {
+                "event_type": "progress",
+                "operation_id": "op",
+                "phase": "running",
+                "message": "Working",
+                "percent": 50,
+                "kind": "tools.pushFiles",
+                "current": 1,
+                "total": 2,
+                "item": "alpha.bin",
+                "target_serial": "SERIAL",
+            },
+            emitted[1]["payload"],
+        )
         self.assertEqual("complete", emitted[-1]["payload"]["code"])
 
     def test_wifi_discovery_runtime_event_never_rebroadcasts_lan_endpoints(self):
@@ -149,6 +356,24 @@ class ModernWebViewHostContractTests(unittest.TestCase):
     def test_json_conversion_never_emits_python_objects(self):
         with self.assertRaises(PublicProjectionError):
             _jsonable({"path": Path("firmware.zip"), "items": (1, 2)})
+
+    def test_progress_projection_drops_untrusted_kind_and_host_item(self):
+        projected = _jsonable(
+            ProgressEvent(
+                "op",
+                ProgressPhase.RUNNING,
+                "Working",
+                25,
+                kind=r"C:\\private\\command",
+                current=1,
+                total=1,
+                item=r"C:\\private\\payload.zip",
+            )
+        )
+
+        self.assertEqual("", projected["kind"])
+        self.assertIsNone(projected["item"])
+        self.assertNotIn("private", repr(projected))
 
     def test_outbound_logs_are_bounded_before_script_injection(self):
         bounded = _limit_bridge_payload({"stdout": "x" * 40_000, "message": "ok"})

@@ -25,6 +25,7 @@ from pixelflasher_core.device_tools import (
     SubprocessSecretRunner,
 )
 from pixelflasher_core.executor import CancellationToken, TransportOutcome
+from pixelflasher_core.grants import PathGrantStore
 
 
 class RecordingLauncher:
@@ -223,6 +224,28 @@ class DeviceToolsServiceTests(unittest.TestCase):
                 ("remote_files_written",),
                 tuple(item.kind for item in compilation.plan.postconditions),
             )
+            self.assertTrue(
+                all(request.output_limit_bytes == 64 * 1024 for request in compilation.plan.requests)
+            )
+            self.assertEqual(
+                [
+                    {
+                        "displayName": "alpha.bin",
+                        "destination": "/sdcard/Download/alpha.bin",
+                        "sha256": hashlib.sha256(b"alpha contents").hexdigest(),
+                        "sizeBytes": len(b"alpha contents"),
+                        "verified": True,
+                    },
+                    {
+                        "displayName": "beta.zip",
+                        "destination": "/sdcard/Download/beta.zip",
+                        "sha256": hashlib.sha256(b"beta contents").hexdigest(),
+                        "sizeBytes": len(b"beta contents"),
+                        "verified": True,
+                    },
+                ],
+                [receipt.to_dict() for receipt in compilation.push_files],
+            )
             expected_hashes = compilation.plan.postconditions[0].expected["hashes"]
             self.assertEqual(
                 {
@@ -324,6 +347,77 @@ class DeviceToolsServiceTests(unittest.TestCase):
                     },
                 )
             self.assertEqual("push_path_invalid", raised.exception.code)
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for index in range(33):
+                path = Path(directory) / f"file-{index:02d}.bin"
+                path.write_bytes(bytes([index]))
+                paths.append(str(path))
+            compilation = self.compile(
+                "tools.pushFiles",
+                {"paths": paths[:32], "destination": "/data/local/tmp/"},
+            )
+            self.assertEqual(32, len(compilation.plan.requests))
+            self.assertEqual(32, len(compilation.push_files))
+            with self.assertRaises(DeviceToolPlanningError) as raised:
+                self.compile(
+                    "tools.pushFiles",
+                    {"paths": paths, "destination": "/data/local/tmp/"},
+                )
+            self.assertEqual("push_paths_invalid", raised.exception.code)
+
+    def test_push_hashing_honors_the_single_operation_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            token = CancellationToken()
+            token.set_deadline(0.001)
+            self.assertTrue(token.wait(0.1))
+            with self.assertRaises(DeviceToolPlanningError) as raised:
+                self.service.compile(
+                    AppCommand(
+                        "tools.pushFiles",
+                        expected_revision=self.snapshot.revision,
+                        target_serial="SERIAL",
+                        payload={
+                            "paths": [str(source)],
+                            "destination": "/data/local/tmp/",
+                        },
+                    ),
+                    self.snapshot,
+                    cancellation=token,
+                )
+            self.assertEqual("push_timed_out", raised.exception.code)
+
+    def test_push_hashing_rejects_a_native_file_replaced_after_grant_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "payload.bin"
+            source.write_bytes(b"approved")
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                source,
+                purpose="tools.pushFiles.sources",
+            )
+            bound = grants.resolve_bound_file(
+                issued.token,
+                purpose="tools.pushFiles.sources",
+            )
+            replacement = root / "replacement.bin"
+            replacement.write_bytes(b"unapproved")
+            replacement.replace(source)
+
+            with self.assertRaises(DeviceToolPlanningError) as raised:
+                self.compile(
+                    "tools.pushFiles",
+                    {
+                        "paths": [bound],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+
+            self.assertEqual("grant_resource_changed", raised.exception.code)
 
     def test_unknown_fields_fail_closed_for_both_supported_commands(self):
         for kind in ("tools.logcat", "tools.pushFiles"):

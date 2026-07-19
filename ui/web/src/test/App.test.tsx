@@ -426,7 +426,7 @@ describe('PixelFlasher web workspace', () => {
     expect(within(pushDialog).getByText(/Push selected files/i)).toBeVisible();
     await user.click(within(pushDialog).getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
-    expect(await within(pushPanel).findByText('Pushed 2 files.')).toBeVisible();
+    expect((await within(pushPanel).findAllByText('Verified')).length).toBeGreaterThan(0);
     await user.click(within(pushPanel).getByRole('button', { name: 'Close' }));
 
     await user.click(screen.getByRole('button', { name: /Support package/i }));

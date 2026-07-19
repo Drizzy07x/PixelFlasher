@@ -441,7 +441,7 @@ export const bridgeCommandMetadata = {
   [commands.snapshotGet]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"engine.snapshot","confirmation":"none","postconditions":["snapshot_returned"]},
   [commands.supportCreate]: {"owner":"support","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"support.package_v2","confirmation":"none","postconditions":["encrypted_container_verified"]},
   [commands.toolsLogcat]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
-  [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"none","postconditions":["remote_hash_verified"]},
+  [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"standard","postconditions":["remote_files_written"]},
   [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
   [commands.toolsWifi]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.wifi","confirmation":"none","postconditions":["adb_endpoint_observed"]},
   [commands.toolsWifiDiscover]: {"owner":"device_tools","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.wifi.discover","confirmation":"none","postconditions":[]},
@@ -470,6 +470,8 @@ type GeneratedPayloadKind =
 interface GeneratedPayloadField {
   readonly kind: GeneratedPayloadKind;
   readonly required: boolean;
+  readonly minItems?: number;
+  readonly maxItems?: number;
 }
 
 export const bridgePayloadSchemas: Readonly<Record<
@@ -521,7 +523,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.snapshotGet]: {},
   [commands.supportCreate]: {"grant":{"kind":"string","required":true},"includeConfig":{"kind":"boolean","required":false},"includeLogs":{"kind":"boolean","required":false},"includeState":{"kind":"boolean","required":false},"includeSystemInfo":{"kind":"boolean","required":false}},
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false},"filters":{"kind":"string_array","required":false},"format":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false}},
-  [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true},"serial":{"kind":"string","required":false}},
+  [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},
   [commands.toolsScrcpy]: {"serial":{"kind":"string","required":false}},
   [commands.toolsWifi]: {"action":{"kind":"string","required":true},"host":{"kind":"string","required":true},"port":{"kind":"integer","required":true},"secretGrant":{"kind":"string","required":false}},
   [commands.toolsWifiDiscover]: {},
@@ -568,6 +570,10 @@ export function isBridgePayload<Command extends BridgeCommand>(
       continue;
     }
     if (!matchesPayloadKind(values[key], field.kind)) return false;
+    if (Array.isArray(values[key]) && field.minItems !== undefined && (
+      values[key].length < field.minItems
+      || values[key].length > (field.maxItems ?? field.minItems)
+    )) return false;
   }
   return true;
 }

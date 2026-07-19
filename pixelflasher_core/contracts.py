@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import math
 import ntpath
@@ -16,6 +17,8 @@ from enum import Enum, StrEnum
 from types import MappingProxyType
 from typing import Any, ClassVar, Never, cast
 from uuid import uuid4
+
+from .cancellation import CancellationReason, CancellationToken
 
 JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
@@ -174,6 +177,36 @@ _PUBLIC_ANDROID_PATH_PREFIXES = (
     "/system/",
     "/vendor/",
 )
+_PUBLIC_PROGRESS_KIND = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,127}$")
+_PUBLIC_PROGRESS_ITEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_PLAIN_TARGET_SERIAL = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_IPV6_TARGET_SERIAL = re.compile(
+    r"^\[([0-9A-Fa-f:]{2,64}(?:%[A-Za-z0-9._-]{1,32})?)\]:([0-9]{1,5})$"
+)
+
+
+def is_valid_target_serial(value: object) -> bool:
+    """Validate USB/emulator serials and bracketed IPv6 ADB endpoints.
+
+    Scoped link-local endpoints are accepted only inside brackets and with a
+    restricted zone identifier. Ports are range-checked instead of relying on
+    a permissive decimal regex at the WebView boundary.
+    """
+
+    if not isinstance(value, str) or not value:
+        return False
+    if _PLAIN_TARGET_SERIAL.fullmatch(value) is not None:
+        return True
+    matched = _IPV6_TARGET_SERIAL.fullmatch(value)
+    if matched is None:
+        return False
+    host, raw_port = matched.groups()
+    try:
+        address = ipaddress.ip_address(host)
+        port = int(raw_port, 10)
+    except ValueError:
+        return False
+    return isinstance(address, ipaddress.IPv6Address) and 1 <= port <= 65_535
 
 
 def _looks_like_host_absolute_path(value: str) -> bool:
@@ -1096,6 +1129,17 @@ class AppCommand:
     operation_id: str = field(default_factory=lambda: uuid4().hex)
     destructive: bool = False
     requires_confirmation: bool = False
+    execution_timeout_seconds: float | None = None
+    _accepted_monotonic: float = field(
+        default_factory=time.monotonic,
+        repr=False,
+        compare=False,
+    )
+    _cancellation_token: CancellationToken = field(
+        default_factory=CancellationToken,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         kind = self.kind.value if isinstance(self.kind, CommandKind) else str(self.kind)
@@ -1122,6 +1166,26 @@ class AppCommand:
             raise ValueError("expected_revision must be a non-negative integer or null")
         if not self.operation_id:
             raise ValueError("operation_id must not be empty")
+        if self.execution_timeout_seconds is not None and (
+            isinstance(self.execution_timeout_seconds, bool)
+            or not isinstance(self.execution_timeout_seconds, (int, float))
+            or not math.isfinite(self.execution_timeout_seconds)
+            or self.execution_timeout_seconds <= 0
+        ):
+            raise ValueError("execution_timeout_seconds must be positive and finite or null")
+        if (
+            isinstance(self._accepted_monotonic, bool)
+            or not isinstance(self._accepted_monotonic, (int, float))
+            or not math.isfinite(self._accepted_monotonic)
+            or self._accepted_monotonic < 0
+        ):
+            raise ValueError("accepted monotonic time must be finite and non-negative")
+        if not isinstance(self._cancellation_token, CancellationToken):
+            raise TypeError("cancellation token must be a CancellationToken")
+        if self.execution_timeout_seconds is not None:
+            self._cancellation_token.set_deadline_at(
+                self._accepted_monotonic + self.execution_timeout_seconds
+            )
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -1133,7 +1197,27 @@ class AppCommand:
             "operation_id": self.operation_id,
             "destructive": self.destructive,
             "requires_confirmation": self.requires_confirmation,
+            "execution_timeout_seconds": self.execution_timeout_seconds,
         }
+
+    @property
+    def accepted_monotonic(self) -> float:
+        return self._accepted_monotonic
+
+    @property
+    def cancellation_token(self) -> CancellationToken:
+        """Internal one-shot control shared by the accepting host and engine."""
+
+        return self._cancellation_token
+
+    @property
+    def cancellation_reason(self) -> CancellationReason | None:
+        return self._cancellation_token.reason
+
+    def request_cancellation(self) -> None:
+        """Request cancellation without waiting for engine registration."""
+
+        self._cancellation_token.cancel()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1229,6 +1313,11 @@ class ProgressEvent:
     phase: ProgressPhase
     message: str = ""
     percent: int | None = None
+    kind: str = ""
+    current: int | None = None
+    total: int | None = None
+    item: str | None = None
+    target_serial: str | None = None
 
     def __post_init__(self) -> None:
         if self.percent is not None and (
@@ -1237,6 +1326,28 @@ class ProgressEvent:
             raise TypeError("percent must be an integer or null")
         if self.percent is not None and not 0 <= self.percent <= 100:
             raise ValueError("percent must be between 0 and 100")
+        if not isinstance(self.kind, str):
+            raise TypeError("progress kind must be a string")
+        if (self.current is None) != (self.total is None):
+            raise ValueError("progress current and total must be provided together")
+        if self.current is not None and (
+            isinstance(self.current, bool)
+            or not isinstance(self.current, int)
+            or isinstance(self.total, bool)
+            or not isinstance(self.total, int)
+            or not 1 <= self.current <= self.total <= 10_000
+        ):
+            raise ValueError("progress current and total are invalid")
+        if self.item is not None and (
+            not isinstance(self.item, str)
+            or not self.item
+            or len(self.item) > 256
+            or not self.item.isprintable()
+            or self.current is None
+        ):
+            raise ValueError("progress item is invalid")
+        if self.target_serial is not None and not isinstance(self.target_serial, str):
+            raise TypeError("progress target serial must be a string or null")
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -1245,6 +1356,11 @@ class ProgressEvent:
             "phase": self.phase.value,
             "message": self.message,
             "percent": self.percent,
+            "kind": self.kind,
+            "current": self.current,
+            "total": self.total,
+            "item": self.item,
+            "target_serial": self.target_serial,
         }
 
     def to_public_dict(self) -> dict[str, JSONValue]:
@@ -1254,6 +1370,25 @@ class ProgressEvent:
             "phase": self.phase.value,
             "message": _public_message(self.message, fallback="Operation update."),
             "percent": self.percent,
+            "kind": (
+                self.kind
+                if not self.kind or _PUBLIC_PROGRESS_KIND.fullmatch(self.kind)
+                else ""
+            ),
+            "current": self.current,
+            "total": self.total,
+            "item": (
+                self.item
+                if self.item is not None
+                and _PUBLIC_PROGRESS_ITEM.fullmatch(self.item)
+                else None
+            ),
+            "target_serial": (
+                self.target_serial
+                if self.target_serial is not None
+                and is_valid_target_serial(self.target_serial)
+                else None
+            ),
         }
 
 
@@ -1271,6 +1406,11 @@ class InteractionRequest:
     choices: tuple[str, ...] = ()
     reinforced: bool = False
     confirmation_nonce: str | None = None
+    _timeout_seconds: float | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "choices", tuple(self.choices))
@@ -1280,6 +1420,19 @@ class InteractionRequest:
             or self.expected_revision < 0
         ):
             raise ValueError("expected_revision must be a non-negative integer")
+        if self._timeout_seconds is not None and (
+            isinstance(self._timeout_seconds, bool)
+            or not isinstance(self._timeout_seconds, (int, float))
+            or not math.isfinite(self._timeout_seconds)
+            or self._timeout_seconds < 0
+        ):
+            raise ValueError("interaction timeout must be finite and non-negative or null")
+
+    @property
+    def timeout_seconds(self) -> float | None:
+        """Internal wait budget; never serialized into the public bridge event."""
+
+        return self._timeout_seconds
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -1675,12 +1828,14 @@ class ActiveOperation:
     operation_id: str
     kind: str
     label: str = ""
+    target_serial: str | None = None
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
             "operation_id": self.operation_id,
             "kind": self.kind,
             "label": self.label,
+            "target_serial": self.target_serial,
         }
 
     def to_public_dict(self) -> dict[str, JSONValue]:
@@ -1688,6 +1843,12 @@ class ActiveOperation:
             "operation_id": self.operation_id,
             "kind": self.kind,
             "label": _public_message(self.label, fallback="Operation in progress"),
+            "target_serial": (
+                self.target_serial
+                if self.target_serial is not None
+                and is_valid_target_serial(self.target_serial)
+                else None
+            ),
         }
 
 

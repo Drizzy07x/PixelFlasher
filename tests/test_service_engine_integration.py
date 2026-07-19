@@ -1,6 +1,8 @@
 import hashlib
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from dataclasses import replace
@@ -15,10 +17,15 @@ from pixelflasher_core import (
     DeviceInfo,
     DeviceToolsService,
     FakeProcessTransport,
+    FakeTransportStep,
+    InteractionBroker,
     InteractionDecision,
     LaunchOutcome,
+    OperationResult,
     OperationStatus,
     PackageService,
+    ProgressEvent,
+    ProgressPhase,
     RootAppSource,
     RootingService,
     SafetyPolicy,
@@ -539,6 +546,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertEqual("files_pushed", result.code)
+        self.assertEqual("SERIAL", result.value["targetSerial"])
         self.assertEqual(2, result.value["count"])
         self.assertEqual(
             ["/data/local/tmp/alpha.bin", "/data/local/tmp/beta.zip"],
@@ -555,6 +563,293 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("SERIAL", interactions[0].target_serial)
         self.assertFalse(interactions[0].destructive)
         self.assertEqual(2, len(transport.calls))
+
+    def test_push_progress_is_monotonic_and_identifies_each_remote_file(self):
+        events: list[ProgressEvent] = []
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "alpha.bin"
+            second = Path(directory) / "beta.zip"
+            first.write_bytes(b"alpha")
+            second.write_bytes(b"beta")
+            engine, _transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0), TransportOutcome(0)],
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            engine.executor.progress_listener = events.append
+
+            result = engine.execute(
+                command(
+                    "tools.pushFiles",
+                    {
+                        "paths": [str(first), str(second)],
+                        "destination": "/sdcard/Download/",
+                    },
+                )
+            )
+
+        self.assertTrue(result.ok)
+        push_events = [event for event in events if event.kind == "tools.pushFiles"]
+        percentages = [event.percent for event in push_events if event.percent is not None]
+        self.assertEqual(sorted(percentages), percentages)
+        self.assertEqual(0, percentages[0])
+        self.assertEqual(100, percentages[-1])
+        running = [
+            event
+            for event in push_events
+            if event.phase is ProgressPhase.RUNNING and event.current is not None
+        ]
+        self.assertEqual(
+            [(1, 2, "alpha.bin"), (2, 2, "beta.zip")],
+            [(event.current, event.total, event.item) for event in running],
+        )
+
+    def test_push_failure_after_process_boundary_is_outcome_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "alpha.bin"
+            second = Path(directory) / "beta.zip"
+            first.write_bytes(b"alpha")
+            second.write_bytes(b"beta")
+            engine, _transport = self.engine_for(
+                "adb",
+                [
+                    TransportOutcome(0, "alpha pushed\n"),
+                    TransportOutcome(17, stderr="device disconnected\n"),
+                ],
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+
+            result = engine.execute(
+                command(
+                    "tools.pushFiles",
+                    {
+                        "paths": [str(first), str(second)],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("outcome_unknown", result.code)
+        self.assertNotIn("files_pushed", result.message)
+
+    def test_first_push_process_failure_is_also_outcome_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "alpha.bin"
+            source.write_bytes(b"alpha")
+            engine, _transport = self.engine_for(
+                "adb",
+                [TransportOutcome(1, stderr="write failed\n")],
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+
+            result = engine.execute(
+                command(
+                    "tools.pushFiles",
+                    {
+                        "paths": [str(source)],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("outcome_unknown", result.code)
+
+    def test_push_cancel_before_first_mutation_is_cancelled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            engine, transport = self.engine_for(
+                "adb",
+                [],
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            cancelled = False
+
+            def cancel_during_hash(event: ProgressEvent) -> None:
+                nonlocal cancelled
+                if event.kind == "tools.pushFiles" and event.current == 1 and not cancelled:
+                    cancelled = engine.cancel("push-cancel-before")
+
+            engine.executor.progress_listener = cancel_during_hash
+            result = engine.execute(
+                AppCommand(
+                    "tools.pushFiles",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    operation_id="push-cancel-before",
+                    payload={
+                        "paths": [str(source)],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+
+        self.assertTrue(cancelled)
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("push_cancelled", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_push_cancel_accepted_before_engine_registration_is_not_lost(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            engine, transport = self.engine_for(
+                "adb",
+                [],
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            intent = AppCommand(
+                "tools.pushFiles",
+                expected_revision=4,
+                target_serial="SERIAL",
+                operation_id="push-cancel-at-handoff",
+                payload={
+                    "paths": [str(source)],
+                    "destination": "/data/local/tmp/",
+                },
+            )
+            intent.request_cancellation()
+
+            result = engine.execute(intent)
+
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("push_cancelled", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_push_deadline_includes_confirmation_wait(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+
+            def delayed_accept(_request):
+                threading.Event().wait(0.03)
+                return InteractionDecision.ACCEPTED
+
+            engine, transport = self.engine_for(
+                "adb",
+                [],
+                interaction_handler=delayed_accept,
+            )
+            result = engine.execute(
+                AppCommand(
+                    "tools.pushFiles",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    operation_id="push-confirmation-timeout",
+                    execution_timeout_seconds=0.01,
+                    payload={
+                        "paths": [str(source)],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_push_deadline_interrupts_the_runtime_confirmation_broker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            broker = InteractionBroker(timeout_seconds=10)
+            engine, transport = self.engine_for(
+                "adb",
+                [],
+                interaction_handler=broker.request,
+            )
+
+            started = time.monotonic()
+            result = engine.execute(
+                AppCommand(
+                    "tools.pushFiles",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    operation_id="push-broker-timeout",
+                    execution_timeout_seconds=0.03,
+                    payload={
+                        "paths": [str(source)],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual([], transport.calls)
+
+    def test_push_deadline_starts_when_the_command_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            engine, transport = self.engine_for("adb", [])
+            result = engine.execute(
+                AppCommand(
+                    "tools.pushFiles",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    operation_id="push-expired-in-queue",
+                    execution_timeout_seconds=0.01,
+                    _accepted_monotonic=time.monotonic() - 1,
+                    payload={
+                        "paths": [str(source)],
+                        "destination": "/data/local/tmp/",
+                    },
+                )
+            )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_push_cancel_after_first_process_boundary_is_outcome_unknown(self):
+        started = threading.Event()
+        release = threading.Event()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "payload.bin"
+            source.write_bytes(b"payload")
+            transport = FakeProcessTransport(
+                [
+                    FakeTransportStep(
+                        TransportOutcome(0, "payload pushed\n"),
+                        started_event=started,
+                        release_event=release,
+                    )
+                ]
+            )
+            engine = CommandEngine(
+                store=AppStateStore(snapshot_for("adb")),
+                executor=CommandExecutor(transport),
+                postcondition_observer=StatefulPostconditionObserver(transport),
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            intent = AppCommand(
+                "tools.pushFiles",
+                expected_revision=4,
+                target_serial="SERIAL",
+                operation_id="push-cancel-after",
+                payload={
+                    "paths": [str(source)],
+                    "destination": "/data/local/tmp/",
+                },
+            )
+            results: list[OperationResult] = []
+            worker = threading.Thread(target=lambda: results.append(engine.execute(intent)))
+            worker.start()
+            self.assertTrue(started.wait(2))
+            self.assertTrue(engine.cancel(intent.operation_id))
+            release.set()
+            worker.join(3)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(1, len(results))
+        result = results[0]
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("outcome_unknown", result.code)
 
     def test_push_source_changed_during_confirmation_fails_before_process(self):
         with tempfile.TemporaryDirectory() as directory:

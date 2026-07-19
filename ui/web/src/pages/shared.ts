@@ -18,8 +18,14 @@ export interface SharedPageProps {
 export interface CommandRunOptions {
   /** Return the typed CANCELLED result instead of reporting it as an error. */
   returnCancelled?: boolean;
+  /** Return the typed FAILED result so a feature can offer an explicit retry. */
+  returnFailed?: boolean;
+  /** Let the feature render a localized outcome instead of the global notice. */
+  suppressNotice?: boolean;
   /** Bind a follow-up command to the revision returned by its predecessor. */
   expectedRevision?: number;
+  /** Receive the backend operation ID as soon as the host accepts the request. */
+  onOperationAccepted?: (operationId: string) => void;
 }
 
 export function record(value: unknown): Record<string, unknown> {

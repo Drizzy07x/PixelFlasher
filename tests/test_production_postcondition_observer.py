@@ -47,7 +47,9 @@ class StatefulDeviceTransport:
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
         fetch_supported: bool = True,
+        serial: str = SERIAL,
     ) -> None:
+        self.serial = serial
         self.mode = mode
         self.properties = properties or {}
         self.remote_hashes = remote_hashes or {}
@@ -75,7 +77,7 @@ class StatefulDeviceTransport:
                 f"{endpoint}\t{state} product:akita model:Pixel\n" for endpoint, state in self.adb_endpoints.items()
             )
             return TransportOutcome(0, f"List of devices attached\n{rows}\n")
-        if len(argv) < 4 or argv[1:3] != ("-s", SERIAL):
+        if len(argv) < 4 or argv[1:3] != ("-s", self.serial):
             return TransportOutcome(1, stderr="serial mismatch")
         if self.mode == "timeout":
             return TransportOutcome(None, timed_out=True)
@@ -83,11 +85,11 @@ class StatefulDeviceTransport:
             if argv[0] == "ADB":
                 return TransportOutcome(
                     1,
-                    stderr=f"error: device '{SERIAL}' not found",
+                    stderr=f"error: device '{self.serial}' not found",
                 )
             return TransportOutcome(
                 1,
-                stderr=f"fastboot: error: device '{SERIAL}' not found",
+                stderr=f"fastboot: error: device '{self.serial}' not found",
             )
         if argv[0] == "ADB":
             return self._adb(argv)
@@ -111,14 +113,22 @@ class StatefulDeviceTransport:
                     "recovery\n" if self.mode == "recovery" else "normal\n",
                 )
             return TransportOutcome(0, f"{self.properties.get(name, '')}\n")
-        if argv[3:6] == ("shell", "sha256sum", "--") and len(argv) == 7:
-            remote_path = argv[6]
-            digest = self.remote_hashes.get(remote_path)
-            return TransportOutcome(0, f"{digest}  {remote_path}\n") if digest is not None else TransportOutcome(1)
-        if argv[3:7] == ("shell", "toybox", "sha256sum", "--") and len(argv) == 8:
-            remote_path = argv[7]
-            digest = self.remote_hashes.get(remote_path)
-            return TransportOutcome(0, f"{digest}  {remote_path}\n") if digest is not None else TransportOutcome(1)
+        if argv[3:6] == ("shell", "sha256sum", "--") and len(argv) >= 7:
+            remote_paths = argv[6:]
+            if any(path not in self.remote_hashes for path in remote_paths):
+                return TransportOutcome(1)
+            return TransportOutcome(
+                0,
+                "".join(f"{self.remote_hashes[path]}  {path}\n" for path in remote_paths),
+            )
+        if argv[3:7] == ("shell", "toybox", "sha256sum", "--") and len(argv) >= 8:
+            remote_paths = argv[7:]
+            if any(path not in self.remote_hashes for path in remote_paths):
+                return TransportOutcome(1)
+            return TransportOutcome(
+                0,
+                "".join(f"{self.remote_hashes[path]}  {path}\n" for path in remote_paths),
+            )
         if argv[3:6] == ("shell", "pm", "path") and len(argv) == 7:
             package_name = argv[6]
             return (
@@ -234,6 +244,18 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
                 self.assertEqual(ObservationStatus.VERIFIED, result.status)
                 self.assertTrue(all(call.argv[1:3] == ("-s", SERIAL) for call in transport.calls))
 
+    def test_scoped_ipv6_adb_serial_is_observed_without_losing_target_binding(self) -> None:
+        serial = "[fe80::1%wlan0]:5555"
+        transport = StatefulDeviceTransport(mode="adb", serial=serial)
+
+        result = observer(transport).verify(
+            PostconditionSpec(serial, 1, expected_mode="adb")
+        )
+
+        self.assertEqual(ObservationStatus.VERIFIED, result.status)
+        self.assertTrue(transport.calls)
+        self.assertTrue(all(call.argv[1:3] == ("-s", serial) for call in transport.calls))
+
     def test_adb_evidence_verifies_mode_slot_lock_boot_build_and_remote_hash(self) -> None:
         digest = hashlib.sha256(b"remote").hexdigest()
         transport = StatefulDeviceTransport(
@@ -277,6 +299,40 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             ("ADB", "-s", SERIAL, "shell", "getprop", "ro.sys.safemode"),
             [call.argv for call in transport.calls],
         )
+
+    def test_push_observer_verifies_the_full_thirty_two_file_contract(self) -> None:
+        remote_hashes = {
+            f"/data/local/tmp/file-{index:02d}.bin": hashlib.sha256(
+                bytes([index])
+            ).hexdigest()
+            for index in range(32)
+        }
+        transport = StatefulDeviceTransport(
+            mode="adb",
+            properties={"sys.boot_completed": "1"},
+            remote_hashes=remote_hashes,
+        )
+
+        result = observer(transport).verify(
+            PostconditionSpec(
+                SERIAL,
+                3,
+                expected_mode="adb",
+                remote_hashes=remote_hashes,
+            )
+        )
+
+        self.assertEqual(ObservationStatus.VERIFIED, result.status)
+        hash_calls = [
+            call
+            for call in transport.calls
+            if "sha256sum" in call.argv or "toybox" in call.argv
+        ]
+        self.assertEqual(1, len(hash_calls))
+        self.assertTrue(
+            all(call.output_limit_bytes == 64 * 1024 for call in hash_calls)
+        )
+        self.assertEqual(tuple(remote_hashes), hash_calls[0].argv[6:])
 
     def test_safe_mode_property_is_required_and_not_inferred_from_adb(self) -> None:
         timer = FakeTime()

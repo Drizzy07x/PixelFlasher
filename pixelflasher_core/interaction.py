@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .contracts import InteractionDecision, InteractionRequest
+
+
+class InteractionTimeoutError(TimeoutError):
+    """Raised when a confirmation receives no decision inside its wait budget."""
 
 
 @dataclass(slots=True)
@@ -33,6 +38,7 @@ class InteractionBroker:
         self._shutdown = False
 
     def request(self, request: InteractionRequest) -> InteractionDecision:
+        started = time.monotonic()
         pending = _PendingInteraction(request)
         with self._lock:
             if self._shutdown or request.operation_id in self._pending:
@@ -45,10 +51,19 @@ class InteractionBroker:
             except Exception:
                 pass
 
-        signalled = pending.event.wait(self.timeout_seconds)
+        wait_seconds = self.timeout_seconds
+        if request.timeout_seconds is not None:
+            elapsed = time.monotonic() - started
+            wait_seconds = min(
+                wait_seconds,
+                max(0.0, request.timeout_seconds - elapsed),
+            )
+        signalled = pending.event.wait(wait_seconds)
         with self._lock:
             self._pending.pop(request.operation_id, None)
-        if (not signalled and pending.decision is None) or pending.decision is None:
+        if not signalled and pending.decision is None:
+            raise InteractionTimeoutError("interaction response timed out")
+        if pending.decision is None:
             return InteractionDecision.CANCELLED
         return pending.decision
 

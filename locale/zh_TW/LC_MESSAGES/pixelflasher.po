@@ -4823,3 +4823,59 @@ msgstr "網路公告是不受信任的建議。選取公告絕不會自動連線
 msgctxt "web.tools.wifiConnectGuard"
 msgid "Checking status requires one selected device in ADB mode."
 msgstr "檢查狀態需要選取一部處於 ADB 模式的裝置。"
+
+msgctxt "web.tools.pushPreparing"
+msgid "Preparing selected files…"
+msgstr "正在準備所選檔案…"
+
+msgctxt "web.tools.pushRunning"
+msgid "File transfer in progress"
+msgstr "正在傳輸檔案"
+
+msgctxt "web.tools.pushFile"
+msgid "File"
+msgstr "檔案"
+
+msgctxt "web.tools.pushProgress"
+msgid "File transfer progress"
+msgstr "檔案傳輸進度"
+
+msgctxt "web.tools.pushCancel"
+msgid "Cancel transfer"
+msgstr "取消傳輸"
+
+msgctxt "web.tools.pushCancelling"
+msgid "Cancelling file transfer…"
+msgstr "正在取消檔案傳輸…"
+
+msgctxt "web.tools.pushCancelled"
+msgid "File transfer cancelled."
+msgstr "檔案傳輸已取消。"
+
+msgctxt "web.tools.pushFailed"
+msgid "File transfer failed."
+msgstr "檔案傳輸失敗。"
+
+msgctxt "web.tools.pushInvalidReceipt"
+msgid "The host returned an invalid verification receipt."
+msgstr "主機傳回了無效的驗證收據。"
+
+msgctxt "web.tools.pushUnknown"
+msgid "The connection was lost after writing began. Inspect the device before retrying."
+msgstr "寫入開始後連線中斷。重試前請先檢查裝置。"
+
+msgctxt "web.tools.pushUnknownTitle"
+msgid "Device outcome unknown"
+msgstr "裝置結果未知"
+
+msgctxt "web.tools.pushRetry"
+msgid "Retry with a new plan"
+msgstr "使用新計畫重試"
+
+msgctxt "web.tools.pushVerified"
+msgid "Verified"
+msgstr "已驗證"
+
+msgctxt "web.tools.pushReceipts"
+msgid "Verified file receipts"
+msgstr "已驗證的檔案收據"

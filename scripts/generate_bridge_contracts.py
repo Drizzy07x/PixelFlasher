@@ -157,6 +157,8 @@ def render_typescript() -> str:
             "interface GeneratedPayloadField {",
             "  readonly kind: GeneratedPayloadKind;",
             "  readonly required: boolean;",
+            "  readonly minItems?: number;",
+            "  readonly maxItems?: number;",
             "}",
             "",
             "export const bridgePayloadSchemas: Readonly<Record<",
@@ -166,10 +168,16 @@ def render_typescript() -> str:
         ]
     )
     for spec in specs:
-        fields = {
-            name: {"kind": field.kind.value, "required": field.required}
-            for name, field in spec.payload.fields.items()
-        }
+        fields: dict[str, dict[str, object]] = {}
+        for name, field in spec.payload.fields.items():
+            details: dict[str, object] = {
+                "kind": field.kind.value,
+                "required": field.required,
+            }
+            if field.min_items is not None:
+                details["minItems"] = field.min_items
+                details["maxItems"] = field.max_items
+            fields[name] = details
         lines.append(f"  [commands.{spec.typescript_name}]: {_json(fields)},")
     lines.extend(
         [
@@ -215,6 +223,10 @@ def render_typescript() -> str:
             "      continue;",
             "    }",
             "    if (!matchesPayloadKind(values[key], field.kind)) return false;",
+            "    if (Array.isArray(values[key]) && field.minItems !== undefined && (",
+            "      values[key].length < field.minItems",
+            "      || values[key].length > (field.maxItems ?? field.minItems)",
+            "    )) return false;",
             "  }",
             "  return true;",
             "}",

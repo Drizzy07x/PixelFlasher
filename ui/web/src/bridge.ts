@@ -120,6 +120,24 @@ function validRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
+export function validTargetSerial(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (/^[A-Za-z0-9._:-]{1,128}$/.test(value)) return true;
+  const endpoint = /^\[([0-9A-Fa-f:]{2,64}(?:%[A-Za-z0-9._-]{1,32})?)\]:([0-9]{1,5})$/.exec(value);
+  if (!endpoint || !validIpv6Host(endpoint[1] ?? '')) return false;
+  const port = Number(endpoint[2]);
+  return Number.isInteger(port) && port >= 1 && port <= 65_535;
+}
+
+function validIpv6Host(scopedHost: string) {
+  const host = scopedHost.split('%', 1)[0] ?? '';
+  const compressed = host.split('::');
+  if (!host || compressed.length > 2) return false;
+  const groups = compressed.flatMap((side) => side ? side.split(':') : []);
+  if (groups.some((group) => !/^[0-9A-Fa-f]{1,4}$/.test(group))) return false;
+  return compressed.length === 2 ? groups.length < 8 : groups.length === 8;
+}
+
 function validError(value: unknown): value is BridgeFailureResponse['error'] {
   if (!isRecord(value)) return false;
   const validFields = hasExactFields(value, ['code', 'message'])
@@ -175,6 +193,9 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
   const operationId = typeof rawOperation?.id === 'string' && rawOperation.id
     ? rawOperation.id
     : typeof rawOperation?.operation_id === 'string' ? rawOperation.operation_id : '';
+  const operationTarget = validTargetSerial(rawOperation?.targetSerial)
+    ? rawOperation.targetSerial
+    : validTargetSerial(rawOperation?.target_serial) ? rawOperation.target_serial : '';
   const activeOperation = rawOperation && operationId
     ? {
         id: operationId,
@@ -187,6 +208,7 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
         status: normalizeOperationStatus(rawOperation.status ?? 'running'),
         ...(typeof rawOperation.progress === 'number' ? { progress: rawOperation.progress } : {}),
         ...(typeof rawOperation.detail === 'string' ? { detail: rawOperation.detail } : {}),
+        ...(operationTarget ? { targetSerial: operationTarget, target_serial: operationTarget } : {}),
       }
     : null;
   const devices = (Array.isArray(input.devices) ? input.devices : []).map((raw) => {
@@ -338,6 +360,7 @@ class PixelFlasherClient {
     command: BridgeCommand,
     payload: Record<string, unknown> = {},
     expectedRevision?: number,
+    onRequestAccepted?: (requestId: string) => void,
   ): Promise<{ result: T; revision?: number }> {
     const bridge = window.pixelflasher;
     if (!bridge) throw new BridgeError('PixelFlasher host bridge is unavailable.');
@@ -353,6 +376,7 @@ class PixelFlasherClient {
       payload,
       expectedRevision: expectedRevision ?? null,
     };
+    onRequestAccepted?.(id);
 
     const response = await new Promise<BridgeResponse>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
@@ -406,18 +430,53 @@ export function operationFromEvent(
   const operationId = event.payload.operation_id;
   if (typeof operationId !== 'string' || !operationId) return null;
   const phase = typeof event.payload.phase === 'string' ? event.payload.phase : 'running';
+  const status = phase === 'completed' || phase === 'finished'
+    ? 'success'
+    : phase === 'cancelled'
+      ? 'cancelled'
+      : phase === 'failed'
+        ? 'failed'
+        : phase === 'queued'
+          ? 'pending'
+          : 'running';
   const kind = typeof event.payload.kind === 'string' && event.payload.kind
     ? event.payload.kind
     : previous?.id === operationId ? previous.kind : undefined;
+  const targetSerial = validTargetSerial(event.payload.target_serial)
+    ? event.payload.target_serial
+    : previous?.id === operationId ? previous.targetSerial ?? previous.target_serial : undefined;
+  const current = event.payload.current;
+  const total = event.payload.total;
+  const validPosition = typeof current === 'number'
+    && Number.isInteger(current)
+    && typeof total === 'number'
+    && Number.isInteger(total)
+    && current >= 1
+    && current <= total
+    && total <= 10_000;
+  const item = validPosition
+    && typeof event.payload.item === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(event.payload.item)
+    ? event.payload.item
+    : undefined;
+  const progress = typeof event.payload.percent === 'number'
+    && Number.isInteger(event.payload.percent)
+    && event.payload.percent >= 0
+    && event.payload.percent <= 100
+    ? event.payload.percent
+    : undefined;
   return {
     id: operationId,
     ...(kind ? { kind } : {}),
     label: typeof event.payload.message === 'string' && event.payload.message
       ? event.payload.message
       : phase,
-    status: phase === 'finished' ? 'success' : 'running',
-    progress: typeof event.payload.percent === 'number' ? event.payload.percent : undefined,
+    status,
+    progress,
     detail: typeof event.payload.message === 'string' ? event.payload.message : undefined,
+    ...(validPosition ? { current, total } : {}),
+    ...(item ? { item } : {}),
+    ...(targetSerial ? { targetSerial, target_serial: targetSerial } : {}),
   };
 }
 

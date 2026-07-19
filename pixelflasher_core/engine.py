@@ -29,6 +29,7 @@ from .boot_patch import (
     BootPatchPlanningError,
     BootPatchService,
 )
+from .cancellation import CancellationReason, CancellationToken
 from .contracts import (
     AppCommand,
     AppEvent,
@@ -45,6 +46,7 @@ from .contracts import (
     OperationFinished,
     OperationPlan,
     OperationResult,
+    OperationStatus,
     ProgressEvent,
     ProgressPhase,
     SnapshotChanged,
@@ -57,13 +59,14 @@ from .device_tools import (
     DeviceToolsService,
 )
 from .devices import DeviceService
-from .executor import CancellationToken, CommandExecutor
+from .executor import CommandExecutor
 from .firmware import FirmwareInspector
 from .firmware_artifacts import (
     FirmwareArtifactService,
     FirmwareProcessingResult,
     FirmwareProcessingStatus,
 )
+from .interaction import InteractionTimeoutError
 from .operation_runner import (
     ExecutionBoundaryAck,
     OperationExecutor,
@@ -331,7 +334,7 @@ class CommandEngine:
             )
 
         planning_token: CancellationToken | None = None
-        if command.kind == BOOT_PATCH_COMMAND:
+        if command.kind in {BOOT_PATCH_COMMAND, "tools.pushFiles"}:
             planning_token = self._register_cancellation(command)
             if planning_token is None:
                 return self._denied(
@@ -368,6 +371,23 @@ class CommandEngine:
                 compilation = self.rooting_service.compile(command, snapshot)
             elif command.kind in OTA_DIAGNOSTIC_COMMANDS:
                 compilation = self.ota_diagnostics_service.compile(command, snapshot)
+            elif command.kind == "tools.pushFiles":
+                compilation = self.device_tools_service.compile(
+                    command,
+                    snapshot,
+                    cancellation=planning_token,
+                    progress=(
+                        lambda phase, message, percent, current, total, item: self._publish_progress(
+                            command,
+                            phase,
+                            message,
+                            percent,
+                            current=current,
+                            total=total,
+                            item=item,
+                        )
+                    ),
+                )
             else:
                 compilation = self.device_tools_service.compile(command, snapshot)
         except BootPatchPlanningError as error:
@@ -394,6 +414,18 @@ class CommandEngine:
         ) as error:
             if planning_token is not None:
                 self._unregister_cancellation(command.operation_id)
+            if isinstance(error, DeviceToolPlanningError) and error.code == "push_cancelled":
+                return OperationResult.cancelled(
+                    command.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            if isinstance(error, DeviceToolPlanningError) and error.code == "push_timed_out":
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="timed_out",
+                    message=str(error),
+                )
             return OperationResult.failed(
                 command.operation_id,
                 code=error.code,
@@ -536,6 +568,7 @@ class CommandEngine:
                 compilation,
                 result,
             ),
+            cancellation=planning_token,
         )
 
     def _parse_service_result(
@@ -547,6 +580,8 @@ class CommandEngine:
         """Convert successful process output into bridge-safe domain values."""
 
         plan = compilation.plan
+        if not result.ok:
+            return result
         if plan is None:
             return OperationResult.failed(
                 result.operation_id,
@@ -619,27 +654,24 @@ class CommandEngine:
                 },
             )
         if kind == "tools.pushFiles":
-            files = [
-                {
-                    "source": artifact.path,
-                    "destination": request.argv[-1],
-                    "sha256": artifact.sha256,
-                }
-                for artifact, request in zip(
-                    plan.artifacts,
-                    plan.requests,
-                    strict=True,
+            if not isinstance(compilation, DeviceToolCompilation):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="device_tool_compilation_invalid",
+                    message="push files returned an unexpected compilation type",
                 )
-            ]
+            files = [receipt.to_dict() for receipt in compilation.push_files]
             return replace(
                 result,
                 code="files_pushed",
                 message=f"pushed {len(files)} file(s)",
                 value={
+                    "targetSerial": plan.target_serial,
                     "count": len(files),
                     "files": files,
-                    "outputLines": result.stdout.splitlines(),
                 },
+                stdout="",
+                stderr="",
             )
         if kind == "tools.wifi":
             if not isinstance(compilation, DeviceToolCompilation):
@@ -1480,6 +1512,10 @@ class CommandEngine:
         phase: ProgressPhase,
         message: str,
         percent: int | None,
+        *,
+        current: int | None = None,
+        total: int | None = None,
+        item: str | None = None,
     ) -> None:
         listener = self.executor.progress_listener
         if listener is None:
@@ -1491,6 +1527,11 @@ class CommandEngine:
                     phase,
                     message,
                     percent,
+                    kind=str(command.kind),
+                    current=current,
+                    total=total,
+                    item=item,
+                    target_serial=command.target_serial,
                 )
             )
         except Exception:
@@ -1791,6 +1832,19 @@ class CommandEngine:
             # local identity keeps early lifecycle exits free of domain side effects.
             return result
 
+        def stopped_before_execution(message: str) -> OperationResult:
+            if token.reason is CancellationReason.DEADLINE:
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="timed_out",
+                    message=message,
+                )
+            return OperationResult.cancelled(
+                command.operation_id,
+                code="cancelled",
+                message=message,
+            )
+
         operation_started = False
 
         def begin_at_validated_boundary(
@@ -1810,6 +1864,7 @@ class CommandEngine:
                     expected_revision=snapshot.revision,
                     kind=str(boundary_command.kind),
                     label=boundary_plan.label,
+                    target_serial=boundary_plan.target_serial,
                 )
             except StaleRevisionError as error:
                 return ExecutionBoundaryAck.rejected("stale_revision", str(error))
@@ -1821,13 +1876,7 @@ class CommandEngine:
         try:
             with self._operation_lock:
                 if token.cancelled:
-                    return finalize(
-                        OperationResult.cancelled(
-                            command.operation_id,
-                            code="cancelled",
-                            message="operation was cancelled before execution",
-                        )
-                    )
+                    return finalize(stopped_before_execution("operation stopped before execution"))
                 snapshot = self.store.snapshot()
                 decision = self.safety_policy.evaluate(command, snapshot)
                 if not decision.allowed:
@@ -1835,8 +1884,32 @@ class CommandEngine:
 
                 if decision.interaction is not None:
                     try:
-                        response = self.interaction_handler(decision.interaction)
+                        interaction = replace(
+                            decision.interaction,
+                            _timeout_seconds=token.remaining_seconds,
+                        )
+                        response = self.interaction_handler(interaction)
+                    except InteractionTimeoutError:
+                        if token.reason is CancellationReason.DEADLINE:
+                            return finalize(
+                                stopped_before_execution(
+                                    "operation deadline expired while awaiting confirmation"
+                                )
+                            )
+                        return finalize(
+                            OperationResult.failed(
+                                command.operation_id,
+                                code="interaction_timed_out",
+                                message="confirmation response timed out",
+                            )
+                        )
                     except Exception as error:
+                        if token.cancelled:
+                            return finalize(
+                                stopped_before_execution(
+                                    "operation stopped while awaiting confirmation"
+                                )
+                            )
                         return finalize(
                             OperationResult.failed(
                                 command.operation_id,
@@ -1846,6 +1919,12 @@ class CommandEngine:
                         )
                     accepted = response is True or response is InteractionDecision.ACCEPTED
                     if not accepted:
+                        if token.reason is CancellationReason.DEADLINE:
+                            return finalize(
+                                stopped_before_execution(
+                                    "operation deadline expired while awaiting confirmation"
+                                )
+                            )
                         return finalize(
                             OperationResult.cancelled(
                                 command.operation_id,
@@ -1855,10 +1934,8 @@ class CommandEngine:
                         )
                     if token.cancelled:
                         return finalize(
-                            OperationResult.cancelled(
-                                command.operation_id,
-                                code="cancelled",
-                                message="operation was cancelled while awaiting confirmation",
+                            stopped_before_execution(
+                                "operation stopped while awaiting confirmation"
                             )
                         )
                     # A prompt may take an arbitrary amount of time. Validate the
@@ -1872,13 +1949,7 @@ class CommandEngine:
                 if issue is not None:
                     return finalize(self._denied(command, issue[0], issue[1]))
                 if token.cancelled:
-                    return finalize(
-                        OperationResult.cancelled(
-                            command.operation_id,
-                            code="cancelled",
-                            message="operation was cancelled before execution",
-                        )
-                    )
+                    return finalize(stopped_before_execution("operation stopped before execution"))
 
                 result = self.operation_runner.execute(
                     command,
@@ -1917,6 +1988,28 @@ class CommandEngine:
                             stdout=result.stdout,
                             stderr=result.stderr,
                         )
+                if command.kind == "tools.pushFiles":
+                    phase = (
+                        ProgressPhase.COMPLETED
+                        if result.ok
+                        else ProgressPhase.CANCELLED
+                        if result.status is OperationStatus.CANCELLED
+                        else ProgressPhase.FAILED
+                    )
+                    total = len(command.operation_plan.requests)
+                    self._publish_progress(
+                        command,
+                        phase,
+                        result.message or "file transfer finished",
+                        100 if result.ok else None,
+                        current=(total if result.ok else None),
+                        total=(total if result.ok else None),
+                        item=(
+                            command.operation_plan.requests[-1].argv[-1].rsplit("/", 1)[-1]
+                            if result.ok and total
+                            else None
+                        ),
+                    )
                 if operation_started:
                     try:
                         # LAN announcements are ephemeral, unauthenticated UI
@@ -1934,6 +2027,13 @@ class CommandEngine:
                             code="operation_state_completion_failed",
                             message=str(error),
                         )
+                        if command.kind == "tools.pushFiles":
+                            self._publish_progress(
+                                command,
+                                ProgressPhase.FAILED,
+                                fallback.message,
+                                None,
+                            )
                         try:
                             self.store.complete_operation(fallback)
                         except (TypeError, ValueError):
@@ -1944,7 +2044,7 @@ class CommandEngine:
             self._unregister_cancellation(command.operation_id)
 
     def _register_cancellation(self, command: AppCommand) -> CancellationToken | None:
-        token = CancellationToken()
+        token = command.cancellation_token
         with self._cancellation_lock:
             if command.operation_id in self._cancellations:
                 return None
