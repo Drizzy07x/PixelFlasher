@@ -506,6 +506,7 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                     {"moduleId": "play_integrity_fix", "state": "enabled"},
                 ),
                 OperationPostcondition("safe_mode_active", {"active": True}),
+                OperationPostcondition("ota_idle_state", {"idle": True}),
                 OperationPostcondition(
                     "partition_erased",
                     {"partition": "metadata"},
@@ -518,6 +519,7 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual("adb", spec.expected_mode)
         self.assertIs(True, spec.expected_boot_completed)
         self.assertIs(True, spec.expected_safe_mode)
+        self.assertIs(True, spec.expected_ota_idle)
         self.assertEqual(
             {"com.topjohnwu.magisk": True},
             dict(spec.expected_packages),

@@ -47,6 +47,7 @@ class StatefulDeviceTransport:
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
         fetch_supported: bool = True,
+        ota_status_output: str | None = None,
         serial: str = SERIAL,
     ) -> None:
         self.serial = serial
@@ -61,6 +62,7 @@ class StatefulDeviceTransport:
         self.partitions = partitions or {}
         self.partition_sizes = partition_sizes or {name: len(content) for name, content in self.partitions.items()}
         self.fetch_supported = fetch_supported
+        self.ota_status_output = ota_status_output
         self.calls: list[ProcessRequest] = []
 
     def run(
@@ -113,6 +115,12 @@ class StatefulDeviceTransport:
                     "recovery\n" if self.mode == "recovery" else "normal\n",
                 )
             return TransportOutcome(0, f"{self.properties.get(name, '')}\n")
+        if argv[3:] == ("shell", "update_engine_client", "--status"):
+            return (
+                TransportOutcome(0, self.ota_status_output)
+                if self.ota_status_output is not None
+                else TransportOutcome(1, stderr="status unavailable")
+            )
         if argv[3:6] == ("shell", "sha256sum", "--") and len(argv) >= 7:
             remote_paths = argv[6:]
             if any(path not in self.remote_hashes for path in remote_paths):
@@ -299,6 +307,52 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             ("ADB", "-s", SERIAL, "shell", "getprop", "ro.sys.safemode"),
             [call.argv for call in transport.calls],
         )
+
+    def test_ota_idle_requires_independent_bounded_update_engine_status(self) -> None:
+        idle_transport = StatefulDeviceTransport(
+            mode="adb",
+            ota_status_output=(
+                "CURRENT_OP=UPDATE_STATUS_IDLE\n"
+                "CURRENT_PROGRESS=0\n"
+            ),
+        )
+        idle = observer(idle_transport).verify(
+            PostconditionSpec(SERIAL, 1, expected_mode="adb", expected_ota_idle=True)
+        )
+
+        active_timer = FakeTime()
+        active_transport = StatefulDeviceTransport(
+            mode="adb",
+            ota_status_output=(
+                "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\n"
+                "CURRENT_PROGRESS=0.5\n"
+            ),
+        )
+        active = observer(active_transport, timer=active_timer).verify(
+            PostconditionSpec(SERIAL, 0.2, expected_mode="adb", expected_ota_idle=True)
+        )
+
+        malformed_timer = FakeTime()
+        malformed_transport = StatefulDeviceTransport(
+            mode="adb",
+            ota_status_output="CURRENT_OP=UNTRUSTED\nCURRENT_PROGRESS=0\n",
+        )
+        malformed = observer(malformed_transport, timer=malformed_timer).verify(
+            PostconditionSpec(SERIAL, 0.2, expected_mode="adb", expected_ota_idle=True)
+        )
+
+        self.assertEqual(ObservationStatus.VERIFIED, idle.status)
+        status_calls = [
+            call
+            for call in idle_transport.calls
+            if call.argv[3:] == ("shell", "update_engine_client", "--status")
+        ]
+        self.assertEqual(1, len(status_calls))
+        self.assertEqual(64 * 1024, status_calls[0].output_limit_bytes)
+        self.assertEqual(ObservationStatus.MISMATCH, active.status)
+        self.assertEqual((True, False), active.mismatches["ota_idle"])
+        self.assertEqual(ObservationStatus.UNVERIFIED, malformed.status)
+        self.assertIn("ota_idle", malformed.missing)
 
     def test_push_observer_verifies_the_full_thirty_two_file_contract(self) -> None:
         remote_hashes = {

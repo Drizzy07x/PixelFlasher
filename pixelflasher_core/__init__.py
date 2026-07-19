@@ -220,6 +220,7 @@ from .ota_diagnostics import (
     OtaDiagnosticParseError,
     OtaDiagnosticPlanningError,
     OtaDiagnosticsService,
+    parse_update_engine_status,
 )
 from .packages import (
     PACKAGE_COMMANDS,
@@ -543,6 +544,7 @@ __all__ = [
     "OtaDiagnosticParseError",
     "OtaDiagnosticPlanningError",
     "OtaDiagnosticsService",
+    "parse_update_engine_status",
     "ObservationProbe",
     "ObservationProbeUnavailable",
     "ObservationResult",

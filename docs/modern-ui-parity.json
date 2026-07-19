@@ -1758,13 +1758,15 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._ota_idle",
+        "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
         "pixelflasher_core/executor.py:SubprocessTransport._run_bounded_process",
         "pixelflasher_core/engine.py:CommandEngine._compile_service_command",
         "ui/public_bridge.py:_project_ota_status",
         "ui/public_bridge.py:_project_ota_certificates",
         "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Read-only otacerts inspection, bounded redacted logs and a closed update_engine status/preflight are native. OTA cancellation/reset remains open until a bundled mutating runner and an independently observed idle-state postcondition are implemented.",
+      "gap": "Read-only otacerts inspection, bounded redacted logs, closed update_engine status/preflight and an independent idle-state observer are native. OTA cancellation/reset remains open until a reproducibly sourced, hash-bound mutating runner is implemented and packaged.",
       "exitCriteria": [
         "Cancel Google OTA, inspect otacerts and monitor update_engine is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1782,6 +1784,8 @@
       "tests": [
         "tests/test_ota_diagnostics_service.py",
         "tests/test_ota_diagnostics_engine_integration.py",
+        "tests/test_production_postcondition_observer.py:test_ota_idle_requires_independent_bounded_update_engine_status",
+        "tests/test_operation_runner_v2.py:test_extended_mutation_postconditions_compile_to_typed_probe_evidence",
         "tests/test_headless_core.py:test_subprocess_transport_terminates_at_the_aggregate_output_limit",
         "tests/test_modern_artifact_boundary.py:test_ota_diagnostic_results_have_closed_bounded_public_dtos",
         "ui/web/src/test/ota-diagnostics.test.tsx"

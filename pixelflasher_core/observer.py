@@ -17,6 +17,7 @@ from typing import Protocol, runtime_checkable
 from .contracts import ProcessRequest, ToolchainInfo, is_valid_target_serial
 from .devices import DeviceService, parse_fastboot_getvar
 from .executor import CancellationToken, ProcessTransport, TransportOutcome
+from .ota_diagnostics import OtaDiagnosticParseError, parse_update_engine_status
 
 _REMOTE_PATH_PATTERN = re.compile(r"^/(?:[A-Za-z0-9._+-]{1,128}/)*[A-Za-z0-9._+-]{1,128}$")
 _PARTITION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -29,6 +30,7 @@ _MAX_REMOTE_HASH_OUTPUT_BYTES = 64 * 1024
 _MAX_FASTBOOT_OUTPUT_BYTES = 64 * 1024
 _MAX_ADB_INVENTORY_OUTPUT_BYTES = 64 * 1024
 _MAX_HELP_OUTPUT_BYTES = 128 * 1024
+_MAX_OTA_STATUS_OUTPUT_BYTES = 64 * 1024
 _DEFAULT_MAX_PARTITION_BYTES = 128 * 1024 * 1024
 _DEFAULT_MAX_HASH_TARGETS = 16
 _DEFAULT_MAX_REMOTE_HASH_TARGETS = 32
@@ -75,10 +77,13 @@ class DeviceObservation:
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     erased_partitions: Mapping[str, bool] = field(default_factory=_empty_booleans)
     safe_mode: bool | None = None
+    ota_idle: bool | None = None
 
     def __post_init__(self) -> None:
         if self.safe_mode is not None and not isinstance(self.safe_mode, bool):
             raise TypeError("observed safe mode state must be a boolean or null")
+        if self.ota_idle is not None and not isinstance(self.ota_idle, bool):
+            raise TypeError("observed OTA idle state must be a boolean or null")
         if any(not isinstance(value, bool) for value in self.packages.values()):
             raise TypeError("observed package states must be booleans")
         if any(not isinstance(value, str) for value in self.package_states.values()):
@@ -172,6 +177,7 @@ class PostconditionSpec:
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     erased_partitions: tuple[str, ...] = ()
     expected_safe_mode: bool | None = None
+    expected_ota_idle: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.serial:
@@ -185,6 +191,11 @@ class PostconditionSpec:
             bool,
         ):
             raise TypeError("expected safe mode state must be a boolean or null")
+        if self.expected_ota_idle is not None and not isinstance(
+            self.expected_ota_idle,
+            bool,
+        ):
+            raise TypeError("expected OTA idle state must be a boolean or null")
         if any(not isinstance(value, bool) for value in self.expected_packages.values()):
             raise TypeError("expected package states must be booleans")
         allowed_package_states = {
@@ -444,6 +455,7 @@ class ProcessDeviceObservationProbe:
         boot_completed: bool | None = None
         safe_mode: bool | None = None
         build: str | None = None
+        ota_idle: bool | None = None
         if properties_available and spec.expected_slot is not None:
             raw_slot = self._adb_property(
                 toolchain,
@@ -504,6 +516,13 @@ class ProcessDeviceObservationProbe:
             )
             if raw_build and self._safe_property(raw_build):
                 build = raw_build
+        if mode == "adb" and spec.expected_ota_idle is not None:
+            ota_idle = self._ota_idle(
+                toolchain,
+                spec.serial,
+                token,
+                timeout,
+            )
 
         remote_hashes = self._remote_hashes(
             spec,
@@ -522,6 +541,7 @@ class ProcessDeviceObservationProbe:
                 boot_completed=boot_completed,
                 safe_mode=safe_mode,
                 build=build,
+                ota_idle=ota_idle,
                 remote_hashes=remote_hashes,
                 packages=self._packages(spec, toolchain, mode, token, timeout),
                 package_states=self._package_states(
@@ -1209,6 +1229,36 @@ class ProcessDeviceObservationProbe:
         value = self._single_value(outcome.stdout)
         return value if value is not None and self._safe_property(value) else None
 
+    def _ota_idle(
+        self,
+        toolchain: ToolchainInfo,
+        serial: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> bool | None:
+        outcome = self._run(
+            (
+                toolchain.adb,
+                "-s",
+                serial,
+                "shell",
+                "update_engine_client",
+                "--status",
+            ),
+            token,
+            timeout,
+            output_limit_bytes=_MAX_OTA_STATUS_OUTPUT_BYTES,
+        )
+        if not self._successful(outcome, _MAX_OTA_STATUS_OUTPUT_BYTES):
+            return None
+        assert outcome is not None
+        try:
+            status = parse_update_engine_status(outcome.stdout)
+        except OtaDiagnosticParseError:
+            return None
+        idle = status.get("idle")
+        return idle if isinstance(idle, bool) else None
+
     def _fastboot_getvar(
         self,
         toolchain: ToolchainInfo,
@@ -1679,6 +1729,7 @@ class PostconditionObserver:
             ("boot_completed", spec.expected_boot_completed, observation.boot_completed),
             ("safe_mode", spec.expected_safe_mode, observation.safe_mode),
             ("build", spec.expected_build, observation.build),
+            ("ota_idle", spec.expected_ota_idle, observation.ota_idle),
         )
         for name, expected, actual in scalar_fields:
             if expected is None:

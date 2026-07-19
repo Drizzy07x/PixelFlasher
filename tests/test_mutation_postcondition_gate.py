@@ -24,7 +24,7 @@ class ConnectedProbe:
 
 
 class MutationPostconditionGateTests(unittest.TestCase):
-    def test_all_eight_mutation_families_stop_before_process_without_observer(self):
+    def test_all_nine_mutation_families_stop_before_process_without_observer(self):
         cases = (
             ("reboot", OperationPostcondition("device_mode", {"mode": "recovery"})),
             ("slot", OperationPostcondition("active_slot", {"slot": "b"})),
@@ -57,6 +57,10 @@ class MutationPostconditionGateTests(unittest.TestCase):
                     "root_module_state",
                     {"moduleId": "zygisk_next", "state": "disabled"},
                 ),
+            ),
+            (
+                "ota_reset",
+                OperationPostcondition("ota_idle_state", {"idle": True}),
             ),
         )
         snapshot = AppSnapshot(

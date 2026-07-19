@@ -1847,6 +1847,7 @@ class OperationRunner:
         bootloader: str | None = None
         boot_completed: bool | None = None
         safe_mode: bool | None = None
+        ota_idle: bool | None = None
         build: str | None = None
         remote_hashes: dict[str, str] = {}
         partition_hashes: dict[str, str] = {}
@@ -1888,6 +1889,16 @@ class OperationRunner:
                     safe_mode,
                     active,
                     "safe mode",
+                )
+            elif postcondition.kind == "ota_idle_state":
+                idle = expected.get("idle")
+                if not isinstance(idle, bool):
+                    raise TypeError("OTA idle postcondition must contain a boolean idle state")
+                mode = bind(mode, "adb", "mode")  # type: ignore[assignment]
+                ota_idle = bind(  # type: ignore[assignment]
+                    ota_idle,
+                    idle,
+                    "OTA idle state",
                 )
             elif postcondition.kind == "active_slot":
                 expected_slot = expected.get("slot")
@@ -2045,6 +2056,7 @@ class OperationRunner:
             expected_bootloader=bootloader,
             expected_boot_completed=boot_completed,
             expected_safe_mode=safe_mode,
+            expected_ota_idle=ota_idle,
             expected_build=build,
             partition_hashes=partition_hashes,
             expected_packages=expected_packages,

@@ -105,6 +105,76 @@ class OtaDiagnosticParseError(ValueError):
         self.code = code
 
 
+def parse_update_engine_status(stdout: str) -> dict[str, object]:
+    """Parse bounded update_engine status for diagnostics and safety observers."""
+
+    if len(stdout.encode("utf-8", errors="replace")) > _STATUS_OUTPUT_LIMIT:
+        raise OtaDiagnosticParseError(
+            "ota_status_output_oversized",
+            "the update_engine status exceeded its safety limit",
+        )
+    lines = tuple(line.strip() for line in stdout.replace("\r", "").splitlines() if line.strip())
+    if not lines or len(lines) > _STATUS_LINE_LIMIT:
+        raise OtaDiagnosticParseError(
+            "ota_status_unverified",
+            "update_engine did not return bounded status evidence",
+        )
+    fields: dict[str, str] = {}
+    for line in lines:
+        if "=" not in line:
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine returned malformed status evidence",
+            )
+        key, value = (part.strip() for part in line.split("=", 1))
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key) or not _STATUS_VALUE.fullmatch(value):
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine returned unsafe status evidence",
+            )
+        if key in fields:
+            raise OtaDiagnosticParseError(
+                "ota_status_unverified",
+                "update_engine returned duplicate status evidence",
+            )
+        fields[key] = value
+
+    raw_state = fields.get("CURRENT_OP", "")
+    state = raw_state.removeprefix("UPDATE_STATUS_")
+    if state not in _UPDATE_STATES:
+        raise OtaDiagnosticParseError(
+            "ota_status_unverified",
+            "update_engine returned an unknown state",
+        )
+    raw_progress = fields.get("CURRENT_PROGRESS")
+    if raw_progress is None:
+        raise OtaDiagnosticParseError(
+            "ota_status_unverified",
+            "update_engine did not return progress evidence",
+        )
+    try:
+        progress_decimal = Decimal(raw_progress)
+    except InvalidOperation as error:
+        raise OtaDiagnosticParseError(
+            "ota_status_unverified",
+            "update_engine returned invalid progress evidence",
+        ) from error
+    if not progress_decimal.is_finite() or not Decimal(0) <= progress_decimal <= Decimal(1):
+        raise OtaDiagnosticParseError(
+            "ota_status_unverified",
+            "update_engine progress is outside its valid range",
+        )
+    last_error = fields.get("LAST_ATTEMPT_ERROR")
+    return {
+        "action": "status",
+        "state": state.casefold(),
+        "progress": float(progress_decimal),
+        "idle": state == "IDLE",
+        "lastAttemptError": last_error,
+        "bounded": True,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class OtaDiagnosticCompilation:
     """One immutable diagnostic plan plus its bounded parser parameters."""
@@ -361,71 +431,7 @@ class OtaDiagnosticsService:
 
     @staticmethod
     def _parse_status(stdout: str) -> dict[str, object]:
-        if len(stdout.encode("utf-8", errors="replace")) > _STATUS_OUTPUT_LIMIT:
-            raise OtaDiagnosticParseError(
-                "ota_status_output_oversized",
-                "the update_engine status exceeded its safety limit",
-            )
-        lines = tuple(line.strip() for line in stdout.replace("\r", "").splitlines() if line.strip())
-        if not lines or len(lines) > _STATUS_LINE_LIMIT:
-            raise OtaDiagnosticParseError(
-                "ota_status_unverified",
-                "update_engine did not return bounded status evidence",
-            )
-        fields: dict[str, str] = {}
-        for line in lines:
-            if "=" not in line:
-                raise OtaDiagnosticParseError(
-                    "ota_status_unverified",
-                    "update_engine returned malformed status evidence",
-                )
-            key, value = (part.strip() for part in line.split("=", 1))
-            if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", key) or not _STATUS_VALUE.fullmatch(value):
-                raise OtaDiagnosticParseError(
-                    "ota_status_unverified",
-                    "update_engine returned unsafe status evidence",
-                )
-            if key in fields:
-                raise OtaDiagnosticParseError(
-                    "ota_status_unverified",
-                    "update_engine returned duplicate status evidence",
-                )
-            fields[key] = value
-
-        raw_state = fields.get("CURRENT_OP", "")
-        state = raw_state.removeprefix("UPDATE_STATUS_")
-        if state not in _UPDATE_STATES:
-            raise OtaDiagnosticParseError(
-                "ota_status_unverified",
-                "update_engine returned an unknown state",
-            )
-        raw_progress = fields.get("CURRENT_PROGRESS")
-        if raw_progress is None:
-            raise OtaDiagnosticParseError(
-                "ota_status_unverified",
-                "update_engine did not return progress evidence",
-            )
-        try:
-            progress_decimal = Decimal(raw_progress)
-        except InvalidOperation as error:
-            raise OtaDiagnosticParseError(
-                "ota_status_unverified",
-                "update_engine returned invalid progress evidence",
-            ) from error
-        if not progress_decimal.is_finite() or not Decimal(0) <= progress_decimal <= Decimal(1):
-            raise OtaDiagnosticParseError(
-                "ota_status_unverified",
-                "update_engine progress is outside its valid range",
-            )
-        last_error = fields.get("LAST_ATTEMPT_ERROR")
-        return {
-            "action": "status",
-            "state": state.casefold(),
-            "progress": float(progress_decimal),
-            "idle": state == "IDLE",
-            "lastAttemptError": last_error,
-            "bounded": True,
-        }
+        return parse_update_engine_status(stdout)
 
     @staticmethod
     def _safe_certificate_entry(entry: str) -> bool:
@@ -636,4 +642,5 @@ __all__ = [
     "OtaDiagnosticParseError",
     "OtaDiagnosticPlanningError",
     "OtaDiagnosticsService",
+    "parse_update_engine_status",
 ]
