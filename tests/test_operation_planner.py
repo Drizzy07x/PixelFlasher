@@ -33,6 +33,13 @@ from tests.artifact_stage_assertions import assert_exact_or_staged_argv
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
 from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 from tests.stateful_slot_transport import StatefulSlotTransport, make_slot_observer
+from tests.test_production_postcondition_observer import (
+    FakeTime,
+    StatefulDeviceTransport,
+)
+from tests.test_production_postcondition_observer import (
+    observer as production_observer,
+)
 
 
 def digest(path):
@@ -77,6 +84,89 @@ def command(kind, *, payload=None, serial="SERIAL-A", revision=0, operation_id=N
     if operation_id is not None:
         values["operation_id"] = operation_id
     return AppCommand(**values)
+
+
+class BootMutationTransport(StatefulDeviceTransport):
+    """Execute boot mutations, then expose independent production evidence."""
+
+    def __init__(
+        self,
+        *,
+        flash_readback: bytes | None = None,
+        live_boot_completed: str | None = "1",
+        fetch_supported: bool = True,
+    ) -> None:
+        super().__init__(
+            mode="fastboot",
+            fetch_supported=fetch_supported,
+            serial="SERIAL-A",
+        )
+        self.flash_readback = flash_readback
+        self.live_boot_completed = live_boot_completed
+
+    def _fastboot(self, argv: tuple[str, ...]) -> TransportOutcome:
+        if "flash" in argv:
+            index = argv.index("flash")
+            if index + 2 >= len(argv):
+                return TransportOutcome(1, stderr="invalid flash argv")
+            partition = argv[index + 1]
+            image = Path(argv[index + 2]).read_bytes()
+            slot = next(
+                (
+                    argument.partition("=")[2]
+                    for argument in argv[:index]
+                    if argument.startswith("--slot=")
+                ),
+                "",
+            )
+            target = f"{partition}_{slot}" if slot else partition
+            content = image if self.flash_readback is None else self.flash_readback
+            self.partitions[target] = content
+            self.partition_sizes[target] = len(content)
+            return TransportOutcome(0)
+        if len(argv) >= 2 and argv[-2] == "boot":
+            if not Path(argv[-1]).is_file():
+                return TransportOutcome(1, stderr="boot image is unavailable")
+            self.mode = "adb"
+            if self.live_boot_completed is not None:
+                self.properties["sys.boot_completed"] = self.live_boot_completed
+            return TransportOutcome(0)
+        return super()._fastboot(argv)
+
+
+def production_boot_engine(
+    snapshot: AppSnapshot,
+    transport: BootMutationTransport,
+) -> CommandEngine:
+    store = AppStateStore(snapshot)
+    executor = CommandExecutor(transport)
+    policy = SafetyPolicy()
+
+    def snapshot_provider(_serial: str) -> AppSnapshot:
+        return store.snapshot()
+
+    timer = FakeTime()
+    postcondition_observer = production_observer(
+        transport,
+        timer=timer,
+        max_partition_bytes=1024,
+    )
+    runner = OperationRunner(
+        executor,
+        safety_policy=policy,
+        snapshot_provider=snapshot_provider,
+        postcondition_observer=postcondition_observer,
+        postcondition_timeout_seconds=0.2,
+    )
+    return CommandEngine(
+        store=store,
+        executor=executor,
+        safety_policy=policy,
+        operation_runner=runner,
+        snapshot_provider=snapshot_provider,
+        postcondition_observer=postcondition_observer,
+        interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+    )
 
 
 class DevicePlannerGoldenTests(unittest.TestCase):
@@ -370,6 +460,72 @@ class BootPlannerGoldenTests(unittest.TestCase):
 
                     self.assertEqual(OperationStatus.SUCCESS, result.status)
                     assert_exact_or_staged_argv(self, [expected], transport.calls)
+
+    def test_boot_flash_success_requires_production_partition_readback(self):
+        with TemporaryDirectory() as directory:
+            boot_path = Path(directory) / "boot.img"
+            boot_path.write_bytes(b"verified boot")
+            boot = BootInfo("boot-id", str(boot_path), digest(boot_path), "boot", True)
+
+            verified_transport = BootMutationTransport()
+            verified = production_boot_engine(
+                snapshot_for("fastboot", boot=boot),
+                verified_transport,
+            ).execute(command("boot.flash", payload={"slot": "a"}))
+
+            self.assertEqual(OperationStatus.SUCCESS, verified.status)
+            self.assertEqual("postconditions_satisfied", verified.code)
+            verified_argv = [request.argv for request in verified_transport.calls]
+            self.assertIn(
+                ("FASTBOOT", "-s", "SERIAL-A", "getvar", "partition-size:boot_a"),
+                verified_argv,
+            )
+            self.assertTrue(any("fetch" in argv and "boot_a" in argv for argv in verified_argv))
+
+            mismatched = production_boot_engine(
+                snapshot_for("fastboot", boot=boot),
+                BootMutationTransport(flash_readback=b"tampered boot"),
+            ).execute(command("boot.flash", payload={"slot": "a"}))
+            unavailable = production_boot_engine(
+                snapshot_for("fastboot", boot=boot),
+                BootMutationTransport(fetch_supported=False),
+            ).execute(command("boot.flash", payload={"slot": "a"}))
+
+            self.assertEqual(OperationStatus.FAILED, mismatched.status)
+            self.assertEqual("postcondition_mismatch", mismatched.code)
+            self.assertEqual(OperationStatus.FAILED, unavailable.status)
+            self.assertEqual("postcondition_unverified", unavailable.code)
+
+    def test_live_boot_success_requires_adb_reconnect_and_completed_boot(self):
+        with TemporaryDirectory() as directory:
+            boot_path = Path(directory) / "boot.img"
+            boot_path.write_bytes(b"verified boot")
+            boot = BootInfo("boot-id", str(boot_path), digest(boot_path), "boot", True)
+
+            verified_transport = BootMutationTransport()
+            verified = production_boot_engine(
+                snapshot_for("fastboot", boot=boot),
+                verified_transport,
+            ).execute(command("boot.live"))
+            incomplete = production_boot_engine(
+                snapshot_for("fastboot", boot=boot),
+                BootMutationTransport(live_boot_completed="0"),
+            ).execute(command("boot.live"))
+            unavailable = production_boot_engine(
+                snapshot_for("fastboot", boot=boot),
+                BootMutationTransport(live_boot_completed=None),
+            ).execute(command("boot.live"))
+
+            self.assertEqual(OperationStatus.SUCCESS, verified.status)
+            self.assertEqual("postconditions_satisfied", verified.code)
+            self.assertIn(
+                ("ADB", "-s", "SERIAL-A", "shell", "getprop", "sys.boot_completed"),
+                [request.argv for request in verified_transport.calls],
+            )
+            self.assertEqual(OperationStatus.FAILED, incomplete.status)
+            self.assertEqual("postcondition_mismatch", incomplete.code)
+            self.assertEqual(OperationStatus.FAILED, unavailable.status)
+            self.assertEqual("postcondition_unverified", unavailable.code)
 
     def test_boot_operations_require_unlocked_matching_boot_artifacts(self):
         with TemporaryDirectory() as directory:

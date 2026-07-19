@@ -999,9 +999,11 @@
       "currentEvidence": [
         "ui/web/src/pages/Pages.tsx:DeviceOperations",
         "pixelflasher_core/planner.py:OperationPlanner._boot_flash",
+        "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._partition_hashes",
         "pixelflasher_core/engine.py:_plan_and_execute"
       ],
-      "gap": "A post-command scan does not yet prove the resulting partition, slot and device state.",
+      "gap": "The backend now proves the slot-qualified partition by bounded fastboot readback and SHA-256 comparison; packaged-platform and hardware validation remain open.",
       "exitCriteria": [
         "Flash the selected boot/init_boot/vendor_boot image is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -1020,6 +1022,7 @@
       ],
       "tests": [
         "tests/test_operation_planner.py:test_boot_flash_and_live_use_only_canonical_boot_artifact",
+        "tests/test_operation_planner.py:test_boot_flash_success_requires_production_partition_readback",
         "ui/web/src/test/App.test.tsx:Device operations"
       ],
       "blockReason": null,
@@ -1977,9 +1980,11 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "ui/web/src/pages/Pages.tsx:DeviceOperations",
-        "pixelflasher_core/planner.py:OperationPlanner._boot_live"
+        "pixelflasher_core/planner.py:OperationPlanner._boot_live",
+        "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._observe_adb"
       ],
-      "gap": "Reconnect observation and a typed verified boot outcome remain open.",
+      "gap": "The backend now requires an observed ADB reconnection and completed Android boot; packaged-platform and real-device validation remain open.",
       "exitCriteria": [
         "Temporarily live-boot a selected image is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1997,6 +2002,7 @@
       ],
       "tests": [
         "tests/test_operation_planner.py:test_boot_flash_and_live_use_only_canonical_boot_artifact",
+        "tests/test_operation_planner.py:test_live_boot_success_requires_adb_reconnect_and_completed_boot",
         "ui/web/src/test/App.test.tsx:Device operations"
       ],
       "blockReason": null,
