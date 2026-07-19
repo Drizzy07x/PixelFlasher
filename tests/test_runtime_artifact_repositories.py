@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 import sqlite3
 import unittest
 import zipfile
@@ -8,9 +9,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from pixelflasher_core.boot_inventory import BootInventoryService
 from pixelflasher_core.config_store import ConfigDocument, ConfigStore
 from pixelflasher_core.contracts import AppCommand
-from pixelflasher_core.repositories import ArtifactRepository
+from pixelflasher_core.repositories import ArtifactRepository, BootRepository
 from pixelflasher_core.runtime import ApplicationRuntime
 from tests.test_persistent_artifact_repository import _legacy_database
 
@@ -26,6 +28,36 @@ def _write_factory(path: Path) -> None:
 
 
 class RuntimeArtifactRepositoryTests(unittest.TestCase):
+    def test_restart_reclaims_object_left_by_committed_delete(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "PixelFlasher.json"
+            image = root / "boot.img"
+            image.write_bytes(b"ANDROID!boot")
+            runtime = ApplicationRuntime.open(config)
+            service = BootInventoryService(BootRepository(runtime.artifact_repository))
+            imported = service.import_image(image, partition="boot")
+            object_path = Path(imported.info.path)
+            original_unlink = Path.unlink
+
+            def fail_object_unlink(path, *args, **kwargs):
+                if path == object_path:
+                    raise PermissionError("synthetic object cleanup failure")
+                return original_unlink(path, *args, **kwargs)
+
+            with patch.object(Path, "unlink", fail_object_unlink):
+                receipt = service.delete(imported.info.id)
+            self.assertTrue(receipt.cleanup_deferred)
+            self.assertTrue(object_path.is_file())
+            os.utime(object_path, (1, 1))
+            runtime.shutdown()
+
+            reopened = ApplicationRuntime.open(config)
+            self.assertEqual(1, reopened.artifact_cleanup_report.removed_files)
+            self.assertEqual(0, reopened.artifact_cleanup_report.failed_files)
+            self.assertFalse(object_path.exists())
+            reopened.shutdown()
+
     def test_firmware_selection_roundtrips_by_repository_identity_not_json_path(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

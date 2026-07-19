@@ -9,6 +9,7 @@ export const commands = {
   appsList: "apps.list",
   backupsCreate: "backups.create",
   backupsRestore: "backups.restore",
+  bootDelete: "boot.delete",
   bootFlash: "boot.flash",
   bootInventory: "boot.inventory",
   bootLive: "boot.live",
@@ -93,6 +94,9 @@ export interface BridgePayloadByCommand {
     "partition": string;
     "serial"?: string;
     "slot": string;
+  };
+  "boot.delete": {
+    "bootId": string;
   };
   "boot.flash": {
     "confirmationText"?: string;
@@ -347,6 +351,7 @@ export const allowedCommands = [
   commands.appsList,
   commands.backupsCreate,
   commands.backupsRestore,
+  commands.bootDelete,
   commands.bootFlash,
   commands.bootInventory,
   commands.bootLive,
@@ -415,6 +420,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.appsList]: 300000,
   [commands.backupsCreate]: 1800000,
   [commands.backupsRestore]: 1800000,
+  [commands.bootDelete]: 600000,
   [commands.bootFlash]: 1200000,
   [commands.bootInventory]: 21600000,
   [commands.bootLive]: 600000,
@@ -477,6 +483,7 @@ export const bridgeCommandMetadata = {
   [commands.appsList]: {"owner":"applications","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"apps.inventory","confirmation":"none","postconditions":["packages_returned"]},
   [commands.backupsCreate]: {"owner":"backups","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"backups.create","confirmation":"none","postconditions":["backup_hash_verified"]},
   [commands.backupsRestore]: {"owner":"backups","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"backups.restore","confirmation":"standard","postconditions":["restore_write_verified"]},
+  [commands.bootDelete]: {"owner":"boot_images","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"boot_inventory.delete","confirmation":"none","postconditions":["boot_record_absent","shared_object_preserved"]},
   [commands.bootFlash]: {"owner":"boot_images","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.boot_flash","confirmation":"standard","postconditions":["partition_write_verified"]},
   [commands.bootInventory]: {"owner":"boot_images","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"boot_inventory.list","confirmation":"none","postconditions":["boot_metadata_returned"]},
   [commands.bootLive]: {"owner":"boot_images","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.boot_live","confirmation":"standard","postconditions":["device_reconnected","boot_completed_observed"]},
@@ -570,6 +577,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.appsList]: {"scope":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.backupsCreate]: {"grant":{"kind":"string","required":true},"partition":{"kind":"string","required":true},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":true}},
   [commands.backupsRestore]: {"grant":{"kind":"string","required":true},"partition":{"kind":"string","required":true},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":true}},
+  [commands.bootDelete]: {"bootId":{"kind":"string","required":true}},
   [commands.bootFlash]: {"confirmationText":{"kind":"string","required":false},"partition":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":false}},
   [commands.bootInventory]: {},
   [commands.bootLive]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},

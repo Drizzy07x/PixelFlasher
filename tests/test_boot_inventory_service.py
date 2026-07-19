@@ -14,6 +14,7 @@ from pixelflasher_core.boot_inventory import (
 )
 from pixelflasher_core.cancellation import CancellationToken
 from pixelflasher_core.contracts import (
+    ActiveOperation,
     AppCommand,
     AppSnapshot,
     FileArtifact,
@@ -103,6 +104,81 @@ def import_boot_in_worker(
 
 
 class BootInventoryServiceTests(unittest.TestCase):
+    def test_delete_removes_unshared_record_and_object(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "boot.img"
+            source.write_bytes(android_boot())
+            repository = ArtifactRepository(root / "repository")
+            service = BootInventoryService(BootRepository(repository))
+            imported = service.import_image(source, partition="boot")
+            object_path = Path(imported.info.path)
+
+            receipt = service.delete(imported.info.id)
+
+            self.assertEqual(imported.info.id, receipt.boot_id)
+            self.assertEqual(imported.info.hash, receipt.sha256)
+            self.assertFalse(receipt.object_retained)
+            self.assertFalse(receipt.cleanup_deferred)
+            self.assertIsNone(repository.get(imported.info.id))
+            self.assertFalse(object_path.exists())
+            repository.close()
+
+    def test_delete_preserves_content_shared_by_another_boot_record(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "boot.img"
+            source.write_bytes(android_boot())
+            repository = ArtifactRepository(root / "repository")
+            boots = BootRepository(repository)
+            first = boots.import_boot(
+                source,
+                partition="boot",
+                artifact_id="1" * 32,
+            )
+            second = boots.import_boot(
+                source,
+                partition="init_boot",
+                artifact_id="2" * 32,
+            )
+            service = BootInventoryService(boots)
+
+            receipt = service.delete(first.artifact_id)
+
+            self.assertTrue(receipt.object_retained)
+            self.assertFalse(receipt.cleanup_deferred)
+            self.assertIsNone(repository.get(first.artifact_id))
+            self.assertIsNotNone(repository.get(second.artifact_id))
+            self.assertTrue(second.path.is_file())
+            self.assertTrue(repository.verify(second.artifact_id))
+            repository.close()
+
+    def test_delete_reports_deferred_cleanup_after_metadata_commit(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "boot.img"
+            source.write_bytes(android_boot())
+            repository = ArtifactRepository(root / "repository")
+            service = BootInventoryService(BootRepository(repository))
+            imported = service.import_image(source, partition="boot")
+            object_path = Path(imported.info.path)
+            original_unlink = Path.unlink
+
+            def fail_object_unlink(path, *args, **kwargs):
+                if path == object_path:
+                    raise PermissionError("synthetic object cleanup failure")
+                return original_unlink(path, *args, **kwargs)
+
+            with patch.object(Path, "unlink", fail_object_unlink):
+                receipt = service.delete(imported.info.id)
+
+            self.assertTrue(receipt.cleanup_deferred)
+            self.assertFalse(receipt.object_retained)
+            self.assertIsNone(repository.get(imported.info.id))
+            self.assertTrue(object_path.is_file())
+            object_path.unlink()
+            repository.close()
+
     def test_processed_stock_import_tracks_firmware_and_rolls_back_only_new_record(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -379,6 +455,95 @@ class BootInventoryServiceTests(unittest.TestCase):
 
 
 class BootInventoryEngineTests(unittest.TestCase):
+    def test_delete_is_revisioned_and_guards_selected_and_active_records(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_source = root / "first.img"
+            second_source = root / "second.img"
+            first_source.write_bytes(android_boot(b"first"))
+            second_source.write_bytes(android_boot(b"second"))
+            repository = ArtifactRepository(root / "repository")
+            service = BootInventoryService(BootRepository(repository))
+            first = service.import_image(first_source, partition="boot")
+            second = service.import_image(second_source, partition="boot")
+            store = AppStateStore(AppSnapshot(revision=4, boot=first.info))
+            engine = make_test_command_engine(
+                store=store,
+                boot_inventory_service=service,
+            )
+
+            selected = engine.execute(
+                AppCommand(
+                    "boot.delete",
+                    expected_revision=4,
+                    payload={"bootId": first.info.id},
+                    operation_id="delete-selected",
+                )
+            )
+            self.assertEqual(OperationStatus.FAILED, selected.status)
+            self.assertEqual("boot_delete_selected", selected.code)
+            self.assertIsNotNone(repository.get(first.info.id))
+            self.assertEqual(4, store.snapshot().revision)
+            engine.shutdown()
+
+            active_store = AppStateStore(
+                AppSnapshot(
+                    revision=5,
+                    boot=first.info,
+                    active_operation=ActiveOperation("flash", "flash.execute"),
+                )
+            )
+            active_engine = make_test_command_engine(
+                store=active_store,
+                boot_inventory_service=service,
+            )
+            active = active_engine.execute(
+                AppCommand(
+                    "boot.delete",
+                    expected_revision=5,
+                    payload={"bootId": second.info.id},
+                    operation_id="delete-active",
+                )
+            )
+            self.assertEqual(OperationStatus.FAILED, active.status)
+            self.assertEqual("boot_delete_operation_active", active.code)
+            self.assertIsNotNone(repository.get(second.info.id))
+            active_engine.shutdown()
+
+            store = AppStateStore(AppSnapshot(revision=6, boot=first.info))
+            engine = make_test_command_engine(
+                store=store,
+                boot_inventory_service=service,
+            )
+            stale = engine.execute(
+                AppCommand(
+                    "boot.delete",
+                    expected_revision=5,
+                    payload={"bootId": second.info.id},
+                    operation_id="delete-stale",
+                )
+            )
+            self.assertEqual(OperationStatus.FAILED, stale.status)
+            self.assertEqual("stale_revision", stale.code)
+            self.assertIsNotNone(repository.get(second.info.id))
+
+            deleted = engine.execute(
+                AppCommand(
+                    "boot.delete",
+                    expected_revision=6,
+                    payload={"bootId": second.info.id},
+                    operation_id="delete-unselected",
+                )
+            )
+            self.assertEqual(OperationStatus.SUCCESS, deleted.status)
+            self.assertEqual("boot_deleted", deleted.code)
+            self.assertEqual(second.info.id, deleted.value["bootId"])
+            self.assertEqual(7, deleted.value["revision"])
+            self.assertIsNone(repository.get(second.info.id))
+            self.assertEqual(first.info, store.snapshot().boot)
+            engine.shutdown()
+            repository.close()
+
     def test_failed_rollback_after_cancelled_import_is_explicit_failure(self):
         class CancelAfterImportService(BootInventoryService):
             def import_image(self, path, *, partition, cancellation=None):

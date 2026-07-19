@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import tempfile
@@ -271,6 +272,15 @@ class LegacyMigrationReport:
     missing_files: tuple[str, ...] = ()
     source_database: str = ""
     status: str = "not_found"
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanCollectionReport:
+    scanned_files: int = 0
+    removed_files: int = 0
+    retained_files: int = 0
+    failed_files: int = 0
+    scan_limited: bool = False
 
 
 class ArtifactRepository:
@@ -835,6 +845,114 @@ class ArtifactRepository:
                 object_path.unlink(missing_ok=True)
                 self._fsync_directory(object_path.parent)
             return True
+
+    def collect_orphaned_objects(
+        self,
+        *,
+        maximum_files: int = 10_000,
+        minimum_age_seconds: int = 300,
+    ) -> OrphanCollectionReport:
+        """Remove only canonical object files that have no SQLite owner.
+
+        Deletion intentionally commits metadata before unlinking. A transient
+        Windows handle can therefore leave one harmless content-addressed file
+        behind. This bounded startup pass reclaims such files without touching
+        unknown names, links, temporary imports, or database-owned objects.
+        """
+
+        if maximum_files <= 0 or minimum_age_seconds < 0:
+            raise ValueError(
+                "maximum_files must be positive and minimum_age_seconds non-negative"
+            )
+        with self._lock:
+            try:
+                active_digests = {
+                    _validate_digest(str(row["sha256"]))
+                    for row in self._connection.execute("SELECT sha256 FROM objects")
+                }
+            except (OSError, sqlite3.Error, RepositoryError):
+                return OrphanCollectionReport(failed_files=1)
+
+            candidates: list[tuple[Path, str]] = []
+            scanned = 0
+            retained = 0
+            prefix_entries = 0
+            now = time.time()
+            try:
+                for prefix in self.objects_root.iterdir():
+                    prefix_entries += 1
+                    if prefix_entries > 512:
+                        return OrphanCollectionReport(
+                            scanned_files=scanned,
+                            retained_files=retained + len(candidates),
+                            scan_limited=True,
+                        )
+                    if (
+                        self._is_link_like(prefix)
+                        or not prefix.is_dir()
+                        or re.fullmatch(r"[0-9a-f]{2}", prefix.name) is None
+                    ):
+                        continue
+                    for path in prefix.iterdir():
+                        scanned += 1
+                        if scanned > maximum_files:
+                            return OrphanCollectionReport(
+                                scanned_files=scanned,
+                                retained_files=retained + len(candidates),
+                                scan_limited=True,
+                            )
+                        if (
+                            self._is_link_like(path)
+                            or not path.is_file()
+                            or re.fullmatch(r"[0-9a-f]{62}", path.name) is None
+                        ):
+                            retained += 1
+                            continue
+                        digest = prefix.name + path.name
+                        try:
+                            old_enough = (
+                                now - path.stat().st_mtime >= minimum_age_seconds
+                            )
+                        except OSError:
+                            retained += 1
+                            continue
+                        if digest in active_digests or not old_enough:
+                            retained += 1
+                        else:
+                            candidates.append((path, digest))
+            except OSError:
+                return OrphanCollectionReport(
+                    scanned_files=scanned,
+                    retained_files=retained + len(candidates),
+                    failed_files=1,
+                )
+
+            removed = 0
+            failed = 0
+            for path, digest in candidates:
+                try:
+                    owner = self._connection.execute(
+                        "SELECT 1 FROM objects WHERE sha256 = ?",
+                        (digest,),
+                    ).fetchone()
+                    if owner is not None:
+                        retained += 1
+                        continue
+                    path.unlink()
+                except (OSError, sqlite3.Error):
+                    failed += 1
+                else:
+                    removed += 1
+                    try:
+                        self._fsync_directory(path.parent)
+                    except OSError:
+                        failed += 1
+            return OrphanCollectionReport(
+                scanned_files=scanned,
+                removed_files=removed,
+                retained_files=retained,
+                failed_files=failed,
+            )
 
     def migrate_legacy_v9(self, legacy_database: str | os.PathLike[str]) -> LegacyMigrationReport:
         source = Path(legacy_database).expanduser().resolve(strict=True)

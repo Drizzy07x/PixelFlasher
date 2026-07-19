@@ -1904,14 +1904,14 @@
       "area": "boot_images",
       "capability": "List, add, delete and inspect boot-image records and provenance",
       "owner": "boot_images",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "pixelflasher_core/boot_inventory.py:BootInventoryService",
         "pixelflasher_core/repositories.py:BootRepository",
-        "pixelflasher_core/engine.py:CommandEngine._select_boot",
+        "pixelflasher_core/engine.py:CommandEngine._select_boot/_delete_boot",
         "ui/web/src/pages/root/RootPage.tsx:Boot image inventory"
       ],
-      "gap": "Listing, opaque-grant import, SHA-256 verification and deterministic revisioned selection are native. Deletion remains deliberately unregistered until repository reference/selection semantics and rollback behavior have a dedicated safety contract.",
+      "gap": "",
       "exitCriteria": [
         "A native BootRepository lists, imports, verifies and selects boot images with complete provenance and deterministic selection.",
         "Deletion removes only the selected metadata record, preserves shared content-addressed objects and cannot invalidate canonical or in-flight plans."
@@ -1937,6 +1937,7 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
+        "boot.delete",
         "boot.inventory",
         "boot.select"
       ]

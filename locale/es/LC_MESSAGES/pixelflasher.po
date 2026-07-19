@@ -5457,3 +5457,25 @@ msgstr ""
 msgctxt "web.firmware.importCustom"
 msgid "Import custom ROM"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.boot.deletePrompt"
+msgid "Delete this stored boot image?"
+msgstr ""
+
+msgctxt "web.boot.deleteConfirm"
+msgid "Delete image"
+msgstr ""
+
+msgctxt "web.boot.deleteFailed"
+msgid "The boot image could not be deleted safely."
+msgstr ""
+
+msgctxt "web.boot.cleanupDeferred"
+msgid ""
+"The record was deleted, but physical storage cleanup was deferred and will "
+"be retried later."
+msgstr ""

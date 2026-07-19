@@ -633,6 +633,21 @@ _COMMAND_SPECS = (
         postconditions=("boot_repository_verified", "boot_snapshot_matches"),
     ),
     _command(
+        "boot.delete",
+        "bootDelete",
+        _payload(("bootId", PayloadKind.STRING, True)),
+        owner=CommandOwner.BOOT_IMAGES,
+        **_LIVE,
+        mutability=CommandMutability.MUTATING,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.HOST_WRITE,
+        valid_device_states=ANY_DEVICE_STATE,
+        target_scope=TargetScope.APPLICATION,
+        planner="boot_inventory.delete",
+        timeout_ms=10 * 60_000,
+        postconditions=("boot_record_absent", "shared_object_preserved"),
+    ),
+    _command(
         "boot.patch",
         "bootPatch",
         _payload(

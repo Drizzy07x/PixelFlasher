@@ -120,12 +120,15 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [bootImages, setBootImages] = useState<BootInventoryEntry[]>([]);
   const [bootImagesLoaded, setBootImagesLoaded] = useState(false);
   const [bootPartition, setBootPartition] = useState<BootInventoryEntry['partition']>('boot');
+  const [confirmBootDelete, setConfirmBootDelete] = useState('');
+  const [bootDeleteNotice, setBootDeleteNotice] = useState<'failed' | 'deferred' | ''>('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
   const apatchResolverRef = useRef<((value: string | null) => void) | null>(null);
   const apatchDialogRef = useRef<HTMLElement>(null);
   const apatchInputRef = useRef<HTMLInputElement>(null);
+  const bootDeleteConfirmRef = useRef<HTMLButtonElement>(null);
   const inventoryMethods = rootApps.flatMap((app) => {
     const id = methodForProvider(app.provider);
     const definition = methodCatalog.find((entry) => entry.id === id);
@@ -147,6 +150,11 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     if (!apatchPromptOpen) return;
     window.requestAnimationFrame(() => apatchInputRef.current?.focus());
   }, [apatchPromptOpen]);
+
+  useEffect(() => {
+    if (!confirmBootDelete) return;
+    window.requestAnimationFrame(() => bootDeleteConfirmRef.current?.focus());
+  }, [confirmBootDelete]);
 
   useEffect(() => () => {
     apatchResolverRef.current?.(null);
@@ -323,6 +331,35 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     }
   };
 
+  const deleteBootImage = async (bootId: string) => {
+    if (busy || confirmBootDelete !== bootId) return;
+    setBusy(`boot:delete:${bootId}`);
+    setBootDeleteNotice('');
+    try {
+      const response = await onCommand(commands.bootDelete, { bootId });
+      if (!response) return;
+      const receipt = record(record(response.result).value);
+      const keys = Object.keys(receipt).sort();
+      const expected = ['bootId', 'cleanupDeferred', 'objectRetained', 'revision', 'sha256'];
+      if (
+        keys.length !== expected.length || !keys.every((key, index) => key === expected[index]) ||
+        receipt.bootId !== bootId ||
+        typeof receipt.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(receipt.sha256) ||
+        typeof receipt.objectRetained !== 'boolean' ||
+        typeof receipt.cleanupDeferred !== 'boolean' ||
+        typeof receipt.revision !== 'number' || !Number.isSafeInteger(receipt.revision) || receipt.revision < 0
+      ) {
+        setBootDeleteNotice('failed');
+        return;
+      }
+      setBootImages((current) => current.filter((entry) => entry.bootId !== bootId));
+      setConfirmBootDelete('');
+      setBootDeleteNotice(receipt.cleanupDeferred ? 'deferred' : '');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const patchBoot = async () => {
     if (!singleAdb || !primary || !method || !compatibleApp || !snapshot.boot || busy) return;
     setBusy('boot-patch');
@@ -391,6 +428,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           </div>
         )}>{t('boot.inventoryTitle')}</CardTitle>
         <p className="root-manager__detail">{t('boot.inventoryDetail')}</p>
+        {bootDeleteNotice === 'failed' ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('boot.deleteFailed')}</p> : null}
+        {bootDeleteNotice === 'deferred' ? <p className="root-manager__guard" role="status"><Icon name="warningPng" size={16} />{t('boot.cleanupDeferred')}</p> : null}
         <div className="root-inventory" role="list" aria-label={t('boot.inventoryTitle')}>
           {bootImages.map((entry) => {
             const selected = snapshot.boot?.id === entry.bootId;
@@ -409,7 +448,25 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 {selected ? (
                   <Badge tone="success">{t('common.selected')}</Badge>
                 ) : (
-                  <Button icon="right" onClick={() => void selectBootImage(entry.bootId)} disabled={Boolean(busy) || !entry.verified}>{t('boot.use')}</Button>
+                  <span className="root-inventory__actions">
+                    {confirmBootDelete === entry.bootId ? (
+                      <span className="root-inventory__delete-confirm" role="group" aria-label={t('boot.deletePrompt')}>
+                        <span>{t('boot.deletePrompt')}</span>
+                        <Button
+                          ref={bootDeleteConfirmRef}
+                          variant="danger"
+                          onClick={() => void deleteBootImage(entry.bootId)}
+                          disabled={Boolean(busy)}
+                        >{t('boot.deleteConfirm')}</Button>
+                        <Button variant="ghost" onClick={() => setConfirmBootDelete('')} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+                      </span>
+                    ) : (
+                      <>
+                        <Button icon="right" onClick={() => void selectBootImage(entry.bootId)} disabled={Boolean(busy) || !entry.verified}>{t('boot.use')}</Button>
+                        <Button variant="danger" onClick={() => { setBootDeleteNotice(''); setConfirmBootDelete(entry.bootId); }} disabled={Boolean(busy)}>{t('boot.delete')}</Button>
+                      </>
+                    )}
+                  </span>
                 )}
               </article>
             );

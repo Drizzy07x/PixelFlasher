@@ -302,6 +302,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         },
                     )
                     if command in {
+                        "boot.delete",
                         "device.inspect",
                         "device.openUrl",
                         "firmware.catalog.refresh",
@@ -318,6 +319,31 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                             project_operation_result(command, result)
                     else:
                         self.assert_route_free(project_operation_result(command, result))
+
+    def test_boot_delete_result_is_closed_and_contains_storage_evidence(self):
+        value = {
+            "bootId": "a" * 32,
+            "sha256": "b" * 64,
+            "objectRetained": True,
+            "cleanupDeferred": False,
+            "revision": 8,
+        }
+        public = project_operation_result(
+            "boot.delete",
+            OperationResult.success("delete-boot", value=value),
+        )
+        self.assertEqual(value, public["value"])
+
+        for hostile in (
+            {**value, "path": r"C:\private\boot.img"},
+            {**value, "bootId": "A" * 32},
+            {**value, "cleanupDeferred": "false"},
+        ):
+            with self.subTest(hostile=hostile), self.assertRaises(PublicProjectionError):
+                project_operation_result(
+                    "boot.delete",
+                    OperationResult.success("delete-boot", value=hostile),
+                )
 
     def test_ota_diagnostic_results_have_closed_bounded_public_dtos(self):
         status = {

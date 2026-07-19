@@ -19,8 +19,10 @@ from .backups import (
     BackupService,
 )
 from .boot_inventory import (
+    BOOT_DELETE_COMMAND,
     BOOT_INVENTORY_COMMAND,
     BOOT_SELECT_COMMAND,
+    BootDeletionReceipt,
     BootInventoryError,
     BootInventoryService,
     BootSelection,
@@ -331,6 +333,8 @@ class CommandEngine:
             return self._list_boot_inventory(command)
         if command.kind == BOOT_SELECT_COMMAND:
             return self._select_boot(command)
+        if command.kind == BOOT_DELETE_COMMAND:
+            return self._delete_boot(command)
         if command.kind == "firmware.process":
             return self._process_firmware(command)
         if command.kind == SUPPORT_COMMAND:
@@ -1606,6 +1610,96 @@ class CommandEngine:
                     "revision": updated.revision,
                 },
             )
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _delete_boot(self, command: AppCommand) -> OperationResult:
+        if set(command.payload) != {"bootId"}:
+            return self._invalid(command, "boot.delete requires exactly one bootId")
+        boot_id = command.payload.get("bootId")
+        if not isinstance(boot_id, str):
+            return self._invalid(command, "bootId must be a string")
+        service = self.boot_inventory_service
+        if service is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="boot_repository_unavailable",
+                message="the boot image repository is not configured",
+            )
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="boot_delete_cancelled",
+                        cancelled_message="boot image deletion was cancelled",
+                        timeout_message="boot image deletion timed out",
+                    )
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                if snapshot.active_operation is not None:
+                    return self._denied(
+                        command,
+                        "boot_delete_operation_active",
+                        "boot images cannot be deleted while an operation is active",
+                    )
+                if snapshot.boot.id == boot_id:
+                    return self._denied(
+                        command,
+                        "boot_delete_selected",
+                        "the selected boot image cannot be deleted",
+                    )
+                receipt: BootDeletionReceipt | None = None
+
+                def prepare(current: AppSnapshot) -> Mapping[str, object]:
+                    if current.active_operation is not None:
+                        raise BootInventoryError(
+                            "boot_delete_operation_active",
+                            "boot images cannot be deleted while an operation is active",
+                        )
+                    if current.boot.id == boot_id:
+                        raise BootInventoryError(
+                            "boot_delete_selected",
+                            "the selected boot image cannot be deleted",
+                        )
+                    return {}
+
+                def remove(_current: AppSnapshot, _updated: AppSnapshot) -> None:
+                    nonlocal receipt
+                    receipt = service.delete(boot_id)
+
+                try:
+                    updated = self.store.transactional_update(
+                        expected_revision=command.expected_revision,
+                        prepare=prepare,
+                        side_effect=remove,
+                    )
+                except StaleRevisionError as error:
+                    return self._denied(command, "stale_revision", str(error))
+                except BootInventoryError as error:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                if receipt is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="boot_delete_failed",
+                        message="the boot image deletion produced no receipt",
+                    )
+                return OperationResult.success(
+                    command.operation_id,
+                    code="boot_deleted",
+                    message="boot image record deleted",
+                    value={**receipt.to_public_dict(), "revision": updated.revision},
+                )
         finally:
             self._unregister_cancellation(command.operation_id)
 

@@ -2833,6 +2833,17 @@ code {
   gap: 0.35rem;
 }
 
+.root-inventory__delete-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  max-width: 26rem;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
 .root-inventory .empty-state {
   min-height: 12rem;
 }

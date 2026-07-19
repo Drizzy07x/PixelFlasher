@@ -163,6 +163,9 @@ class ApplicationRuntime:
         self.artifact_repository = ArtifactRepository(
             self._content_artifact_repository_path(config_store.path)
         )
+        self.artifact_cleanup_report = (
+            self.artifact_repository.collect_orphaned_objects()
+        )
         # Compatibility alias for callers introduced before the shared
         # FirmwareRepository/BootRepository composition became canonical.
         self.content_artifact_repository = self.artifact_repository

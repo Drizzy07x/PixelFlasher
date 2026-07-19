@@ -27,6 +27,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
     {
         "device.openUrl",
         "device.inspect",
+        "boot.delete",
         "firmware.catalog.refresh",
         "firmware.download",
         "firmware.process",
@@ -1063,6 +1064,29 @@ def _project_boot_select(value: object) -> JSONValue:
     })
 
 
+def _project_boot_delete(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"bootId", "sha256", "objectRetained", "cleanupDeferred", "revision"}
+        ),
+    )
+    boot_id = source["bootId"]
+    digest = source["sha256"]
+    revision = source["revision"]
+    if not isinstance(boot_id, str) or re.fullmatch(r"[0-9a-f]{32}", boot_id) is None:
+        raise PublicProjectionError("boot deletion id is invalid")
+    if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+        raise PublicProjectionError("boot deletion digest is invalid")
+    if not isinstance(source["objectRetained"], bool) or not isinstance(
+        source["cleanupDeferred"], bool
+    ):
+        raise PublicProjectionError("boot deletion storage evidence is invalid")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PublicProjectionError("boot deletion revision is invalid")
+    return ensure_public_json(source)
+
+
 def _project_boot_patch(value: object) -> JSONValue:
     source = _record(value)
     patched = _record(source.get("patchedBoot", {}))
@@ -1908,6 +1932,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "backups.create": _project_none,
     "backups.restore": _project_none,
     "boot.flash": _project_confirmation,
+    "boot.delete": _project_boot_delete,
     "boot.inventory": _project_boot_inventory,
     "boot.live": _project_confirmation,
     "boot.patch": _project_boot_patch,

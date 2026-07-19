@@ -59,6 +59,7 @@ class SafetyPolicy:
             "boot.live",
             "boot.patch",
             "boot.inventory",
+            "boot.delete",
             "boot.select",
             "apps.list",
             "apps.action",

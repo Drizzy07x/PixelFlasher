@@ -25,9 +25,11 @@ const bootEntry = {
 function renderRoot(onCommand: (
   command: BridgeCommand,
   payload?: Record<string, unknown>,
-) => Promise<{ result: Record<string, unknown> } | null>) {
+) => Promise<{ result: Record<string, unknown> } | null>, selectedBootId = '') {
   const snapshot = structuredClone(demoSnapshot);
-  snapshot.boot = null;
+  snapshot.boot = selectedBootId && demoSnapshot.boot
+    ? { ...structuredClone(demoSnapshot.boot), id: selectedBootId }
+    : null;
   return render(
     <I18nProvider locale="en">
       <RootPage
@@ -117,5 +119,63 @@ describe('boot image inventory', () => {
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
     expect(await screen.findByText('No boot images are stored in the local repository.')).toBeVisible();
     expect(document.body.textContent).not.toContain('private');
+  });
+
+  it('deletes only an unselected opaque record after accessible confirmation', async () => {
+    const user = userEvent.setup();
+    const removable = {
+      ...bootEntry,
+      bootId: 'c'.repeat(32),
+      sha256: 'd'.repeat(64),
+      partition: 'init_boot',
+    };
+    const onCommand = vi.fn(async (command: BridgeCommand) => {
+      if (command === 'boot.inventory') {
+        return {
+          result: {
+            value: {
+              boots: [bootEntry, removable],
+              selectedBootId: bootEntry.bootId,
+              revision: 4,
+            },
+          },
+        };
+      }
+      if (command === 'boot.delete') {
+        return {
+          result: {
+            value: {
+              bootId: removable.bootId,
+              sha256: removable.sha256,
+              objectRetained: false,
+              cleanupDeferred: false,
+              revision: 5,
+            },
+          },
+        };
+      }
+      return null;
+    });
+    renderRoot(onCommand, bootEntry.bootId);
+
+    const card = screen.getByText('Boot image inventory').closest('.card');
+    if (!card) throw new Error('boot inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
+    const inventory = screen.getByRole('list', { name: 'Boot image inventory' });
+    expect(await within(inventory).findByText('init_boot')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    const confirm = screen.getByRole('button', { name: 'Delete image' });
+    await waitFor(() => expect(confirm).toHaveFocus());
+    expect(screen.getByRole('group', { name: 'Delete this stored boot image?' })).toBeVisible();
+    await user.click(confirm);
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('boot.delete', {
+      bootId: removable.bootId,
+    }));
+    expect(within(inventory).queryByText('init_boot')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(JSON.stringify(onCommand.mock.calls)).not.toMatch(/(?:[A-Za-z]:\\|\/home\/)/);
   });
 });

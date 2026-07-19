@@ -13,14 +13,14 @@ from scripts.sync_react_gettext import (
 
 EXPECTED_TRANSLATED_COUNTS = {
     "en": 21,
-    "es": 425,
-    "fr": 425,
-    "it": 425,
-    "zh_CN": 425,
-    "zh_TW": 425,
+    "es": 426,
+    "fr": 426,
+    "it": 426,
+    "zh_CN": 426,
+    "zh_TW": 426,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 519
+EXPECTED_WEB_CONTEXT_COUNT = 523
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     # Official firmware catalog/download UI awaits the next coordinated
     # translation pass and uses its canonical English source in the meantime.
@@ -133,6 +133,10 @@ EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.boot.stock",
     "web.boot.integrityFailed",
     "web.boot.provenance",
+    "web.boot.deletePrompt",
+    "web.boot.deleteConfirm",
+    "web.boot.deleteFailed",
+    "web.boot.cleanupDeferred",
     # Typed Scrcpy options landed after the reviewed 2026-07-19 translation
     # pass. They use source fallback until all five translated catalogs are
     # reviewed together.

@@ -84,6 +84,34 @@ class BridgeContractTests(unittest.TestCase):
         )
         self.assertIsNone(loaded.expected_revision)
 
+    def test_boot_delete_accepts_only_one_opaque_repository_id(self):
+        loaded = BridgeRequest.from_json(
+            message(
+                command="boot.delete",
+                payload={"bootId": "a" * 32},
+                expectedRevision=7,
+            )
+        )
+        self.assertEqual({"bootId": "a" * 32}, loaded.payload)
+
+        for payload in (
+            {},
+            {"bootId": "A" * 32},
+            {"bootId": "a" * 31},
+            {"bootId": "a" * 32, "path": "C:/private/boot.img"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(
+                BridgeProtocolError
+            ) as rejected:
+                BridgeRequest.from_json(
+                    message(
+                        command="boot.delete",
+                        payload=payload,
+                        expectedRevision=7,
+                    )
+                )
+            self.assertEqual("invalid_payload", rejected.exception.code)
+
     def test_logcat_clear_contract_binds_one_serial_to_an_exact_revision(self):
         loaded = BridgeRequest.from_json(
             message(

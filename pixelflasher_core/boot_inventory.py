@@ -19,7 +19,10 @@ from .repositories import (
 
 BOOT_INVENTORY_COMMAND = "boot.inventory"
 BOOT_SELECT_COMMAND = "boot.select"
-BOOT_INVENTORY_COMMANDS = frozenset({BOOT_INVENTORY_COMMAND, BOOT_SELECT_COMMAND})
+BOOT_DELETE_COMMAND = "boot.delete"
+BOOT_INVENTORY_COMMANDS = frozenset(
+    {BOOT_INVENTORY_COMMAND, BOOT_SELECT_COMMAND, BOOT_DELETE_COMMAND}
+)
 
 BOOT_CHAIN_PARTITIONS = frozenset(
     {"boot", "init_boot", "vendor_boot", "vendor_kernel_boot"}
@@ -82,6 +85,22 @@ class BootSelection:
     info: BootInfo
     entry: BootInventoryEntry
     imported: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class BootDeletionReceipt:
+    boot_id: str
+    sha256: str
+    object_retained: bool
+    cleanup_deferred: bool
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "bootId": self.boot_id,
+            "sha256": self.sha256,
+            "objectRetained": self.object_retained,
+            "cleanupDeferred": self.cleanup_deferred,
+        }
 
 
 class BootInventoryService:
@@ -156,6 +175,53 @@ class BootInventoryService:
                 "the stored boot image failed SHA-256 verification",
             )
         return self._selection(record, verified=True)
+
+    def delete(self, boot_id: str) -> BootDeletionReceipt:
+        """Delete one metadata record while preserving shared content objects."""
+
+        normalized_id = self._validate_id(boot_id)
+        try:
+            record = self.repository.repository.get(normalized_id)
+            if record is None or record.kind is not ArtifactKind.BOOT:
+                raise BootInventoryError(
+                    "boot_not_found",
+                    "the requested boot image is not in the repository",
+                )
+            shared = sum(
+                candidate.sha256 == record.sha256
+                for candidate in self.repository.repository.list()
+            ) > 1
+            cleanup_deferred = False
+            try:
+                removed = self.repository.repository.delete(normalized_id)
+            except (OSError, RepositoryError) as error:
+                # Metadata commits before an unshared object is unlinked. If
+                # the row is gone, deletion succeeded and only GC is deferred.
+                if self.repository.repository.get(normalized_id) is not None:
+                    raise BootInventoryError(
+                        "boot_delete_failed",
+                        "the boot image record could not be deleted safely",
+                    ) from error
+                removed = True
+                cleanup_deferred = True
+        except BootInventoryError:
+            raise
+        except (OSError, RepositoryError) as error:
+            raise BootInventoryError(
+                "boot_repository_unavailable",
+                "the boot image repository could not be updated",
+            ) from error
+        if not removed:
+            raise BootInventoryError(
+                "boot_not_found",
+                "the requested boot image is not in the repository",
+            )
+        return BootDeletionReceipt(
+            boot_id=normalized_id,
+            sha256=record.sha256,
+            object_retained=shared,
+            cleanup_deferred=cleanup_deferred,
+        )
 
     def import_image(
         self,

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sqlite3
 import unittest
 from pathlib import Path
@@ -17,6 +18,37 @@ from pixelflasher_core.repositories import (
 
 
 class ArtifactRepositoryTests(unittest.TestCase):
+    def test_orphan_collection_is_bounded_and_preserves_owned_or_unknown_files(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "boot.img"
+            image.write_bytes(b"boot")
+            repository = ArtifactRepository(root / "repository")
+            owned = BootRepository(repository).import_boot(image, partition="boot")
+            orphan_digest = hashlib.sha256(b"orphan").hexdigest()
+            orphan = repository.objects_root / orphan_digest[:2] / orphan_digest[2:]
+            orphan.parent.mkdir(parents=True, exist_ok=True)
+            orphan.write_bytes(b"orphan")
+            unknown = orphan.parent / "manual-file"
+            unknown.write_bytes(b"unknown")
+
+            limited = repository.collect_orphaned_objects(maximum_files=1)
+            self.assertTrue(limited.scan_limited)
+            self.assertTrue(orphan.is_file())
+            orphan.touch()
+            orphan_mtime = 1
+            os.utime(orphan, (orphan_mtime, orphan_mtime))
+
+            report = repository.collect_orphaned_objects()
+            self.assertEqual(1, report.removed_files)
+            self.assertEqual(0, report.failed_files)
+            self.assertFalse(report.scan_limited)
+            self.assertFalse(orphan.exists())
+            self.assertTrue(owned.path.is_file())
+            self.assertTrue(unknown.is_file())
+            self.assertTrue(repository.verify(owned.artifact_id))
+            repository.close()
+
     def test_content_addressed_import_deduplicates_bytes_and_hides_paths(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
