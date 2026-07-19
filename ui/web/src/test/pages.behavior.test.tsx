@@ -111,10 +111,19 @@ describe('dashboard and firmware host-backed states', () => {
       />,
     );
     expect(screen.getByText('None')).toBeVisible();
-    const importButton = screen.getByRole('button', { name: 'Import package' });
+    const importButton = screen.getByRole('button', { name: 'Import factory or OTA' });
     await user.click(importButton);
     await user.click(importButton);
-    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.select', { grant: 'firmware-grant' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.select', {
+      grant: 'firmware-grant',
+      expectedKind: 'stock',
+    }));
+
+    await user.click(screen.getByRole('button', { name: 'Import custom ROM' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.select', {
+      grant: 'firmware-grant',
+      expectedKind: 'custom',
+    }));
   });
 
   it('processes an unprocessed real-host firmware and shows verified ready state after rerender', async () => {

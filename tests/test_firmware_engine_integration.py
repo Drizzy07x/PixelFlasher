@@ -39,6 +39,7 @@ from pixelflasher_core import (
 )
 from pixelflasher_core.boot_inventory import BootInventoryService
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.test_payload_processing import minimal_payload, payload_properties
 
 
 def archive_bytes(entries: list[tuple[str, bytes]]) -> bytes:
@@ -430,6 +431,90 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             self.assertEqual("custom", engine.store.snapshot().firmware.type)
             self.assertEqual("boot", engine.store.snapshot().boot.flavor)
             self.assertFalse(engine.store.snapshot().boot.patched)
+
+    def test_runtime_processes_custom_payload_into_persistent_stock_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "PixelFlasher.json"
+            custom = root / "custom-payload.zip"
+            payload = minimal_payload(
+                {"boot": b"ANDROID!verified custom payload boot"},
+            )
+            custom.write_bytes(
+                archive_bytes(
+                    [
+                        ("android-info.txt", b"require product=husky\n"),
+                        ("payload.bin", payload),
+                        ("payload_properties.txt", payload_properties(payload)),
+                    ]
+                )
+            )
+            runtime = ApplicationRuntime.open(config)
+            try:
+                selected = runtime.execute(
+                    AppCommand(
+                        "firmware.select",
+                        expected_revision=0,
+                        payload={"path": str(custom)},
+                    )
+                )
+                processed = runtime.execute(
+                    AppCommand("firmware.process", expected_revision=1)
+                )
+                snapshot = runtime.snapshot()
+                boot_records = runtime.boot_repository.list()
+
+                self.assertTrue(selected.ok)
+                self.assertTrue(processed.ok)
+                self.assertEqual("custom", snapshot.firmware.type)
+                self.assertTrue(snapshot.firmware.processed)
+                self.assertEqual("boot", snapshot.boot.flavor)
+                self.assertEqual(1, len(boot_records))
+                self.assertEqual(snapshot.boot.id, boot_records[0].artifact_id)
+                self.assertEqual(snapshot.firmware.hash, boot_records[0].source_hash)
+                self.assertEqual(("husky",), boot_records[0].device_codenames)
+                self.assertEqual("processed", boot_records[0].provenance.value)
+            finally:
+                runtime.shutdown()
+
+    def test_stock_and_custom_picker_intents_reject_the_wrong_package_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            custom = root / "custom.zip"
+            write_factory(factory)
+            custom.write_bytes(
+                archive_bytes(
+                    [
+                        ("android-info.txt", b"require product=husky\n"),
+                        ("boot.img", b"ANDROID!custom boot"),
+                    ]
+                )
+            )
+            cases = (
+                (factory, "custom"),
+                (custom, "stock"),
+            )
+            for index, (path, expected_kind) in enumerate(cases):
+                with self.subTest(expected_kind=expected_kind):
+                    engine, _planner, _service = self.make_engine(
+                        root / f"cache-{index}",
+                    )
+                    result = engine.execute(
+                        AppCommand(
+                            "firmware.select",
+                            expected_revision=0,
+                            payload={
+                                "path": str(path),
+                                "expectedKind": expected_kind,
+                            },
+                        )
+                    )
+
+                    self.assertEqual(OperationStatus.FAILED, result.status)
+                    self.assertEqual("firmware_kind_mismatch", result.code)
+                    self.assertEqual(0, engine.store.snapshot().revision)
+                    self.assertEqual(FirmwareInfo(), engine.store.snapshot().firmware)
 
     def test_failed_and_cancelled_processing_never_mutate_firmware_or_boot(self):
         with tempfile.TemporaryDirectory() as directory:

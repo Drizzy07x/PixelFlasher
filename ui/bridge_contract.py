@@ -323,6 +323,8 @@ def _validate_payload_values(
         has_id = _nonempty_string(payload.get("firmwareId"), limit=256)
         if has_grant == has_id:
             _payload_error("firmware.select requires one native grant or firmwareId", request_id)
+        if payload.get("expectedKind") not in {None, "stock", "custom"}:
+            _payload_error("firmware.select expectedKind is invalid", request_id)
     elif command == "tools.pushFiles" and "grants" not in payload:
         _payload_error("tools.pushFiles requires native grants", request_id)
     elif command == "firmware.catalog.refresh":

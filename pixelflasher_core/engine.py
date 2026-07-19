@@ -1206,6 +1206,7 @@ class CommandEngine:
                     (downloaded.entry.device,),
                     token,
                     provenance=ArtifactProvenance.OFFICIAL,
+                    expected_kind="stock",
                 )
                 if not inspected.ok:
                     return inspected
@@ -1229,7 +1230,7 @@ class CommandEngine:
         self,
         command: AppCommand,
     ) -> OperationResult:
-        unknown = set(command.payload) - {"path"}
+        unknown = set(command.payload) - {"path", "expectedKind"}
         if unknown:
             return self._invalid(
                 command,
@@ -1240,6 +1241,12 @@ class CommandEngine:
         if not isinstance(path, str) or not path.strip():
             return self._invalid(command, "payload.path must be a non-empty string")
         path = path.strip()
+        expected_kind = command.payload.get("expectedKind")
+        if expected_kind not in {None, "stock", "custom"}:
+            return self._invalid(
+                command,
+                "payload.expectedKind must be exactly stock or custom",
+            )
         decision = self.safety_policy.evaluate(command, snapshot)
         if not decision.allowed:
             return self._denied(command, decision.code, decision.message)
@@ -1267,6 +1274,7 @@ class CommandEngine:
                     path,
                     expected_devices,
                     token,
+                    expected_kind=cast(str | None, expected_kind),
                 )
         finally:
             self._unregister_cancellation(command.operation_id)
@@ -1280,6 +1288,7 @@ class CommandEngine:
         token: CancellationToken,
         *,
         provenance: ArtifactProvenance = ArtifactProvenance.USER_SUPPLIED,
+        expected_kind: str | None = None,
     ) -> OperationResult:
         imported_artifact_id = ""
         imported_artifact_created = False
@@ -1316,6 +1325,15 @@ class CommandEngine:
                 command.operation_id,
                 code=inspection.code,
                 message=inspection.message,
+            )
+        if (
+            (expected_kind == "stock" and inspection.kind.value not in {"factory", "ota"})
+            or (expected_kind == "custom" and inspection.kind.value != "custom")
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="firmware_kind_mismatch",
+                message=f"selected package is {inspection.kind.value}, expected {expected_kind}",
             )
         if self.firmware_repository is not None:
             try:

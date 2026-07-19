@@ -20,7 +20,7 @@ EXPECTED_TRANSLATED_COUNTS = {
     "zh_TW": 425,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 517
+EXPECTED_WEB_CONTEXT_COUNT = 519
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     # Official firmware catalog/download UI awaits the next coordinated
     # translation pass and uses its canonical English source in the meantime.
@@ -44,6 +44,8 @@ EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.firmware.detectedDevice",
     "web.firmware.evidenceCount",
     "web.firmware.invalidInspection",
+    "web.firmware.importStock",
+    "web.firmware.importCustom",
     # update_engine status preflight landed after the reviewed 2026-07-19
     # translation pass and falls back to its canonical English msgid.
     "web.device.otaStatus",

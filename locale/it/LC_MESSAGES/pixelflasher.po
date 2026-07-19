@@ -5446,3 +5446,15 @@ msgstr ""
 msgctxt "web.firmware.invalidInspection"
 msgid "The host returned an invalid firmware verification receipt."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.firmware.importStock"
+msgid "Import factory or OTA"
+msgstr ""
+
+msgctxt "web.firmware.importCustom"
+msgid "Import custom ROM"
+msgstr ""

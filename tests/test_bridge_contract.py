@@ -142,10 +142,19 @@ class BridgeContractTests(unittest.TestCase):
         selected = BridgeRequest.from_json(
             message(
                 command="firmware.select",
-                payload={"grant": token},
+                payload={"grant": token, "expectedKind": "custom"},
                 expectedRevision=7,
             )
         )
+        with self.assertRaises(BridgeProtocolError) as invalid_kind:
+            BridgeRequest.from_json(
+                message(
+                    command="firmware.select",
+                    payload={"grant": token, "expectedKind": "unknown"},
+                    expectedRevision=7,
+                )
+            )
+        self.assertEqual("invalid_payload", invalid_kind.exception.code)
         prompt = BridgeRequest.from_json(
             message(
                 command="secret.issue",

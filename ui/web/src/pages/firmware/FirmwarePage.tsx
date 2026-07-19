@@ -165,19 +165,19 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
     }
   };
 
-  const pickFirmware = async () => {
+  const pickFirmware = async (expectedKind: 'stock' | 'custom') => {
     if (busy) return;
     setBusy(true);
     try {
       const picked = await onCommand(commands.nativePickFile, {
         purpose: 'firmware.select',
-        title: t('firmware.import'),
-        filters: [{ label: t('firmware.title'), extensions: ['zip', 'tgz', 'tar'] }],
+        title: expectedKind === 'custom' ? t('firmware.importCustom') : t('firmware.importStock'),
+        filters: [{ label: t('firmware.title'), extensions: ['zip'] }],
       });
       if (!picked) return;
       const grant = selectedGrant(picked);
       if (grant) {
-        const response = await onCommand(commands.firmwareSelect, { grant });
+        const response = await onCommand(commands.firmwareSelect, { grant, expectedKind });
         const diagnostics = responseInspection(response);
         setInspection(diagnostics);
         setInspectionError(!diagnostics);
@@ -205,7 +205,16 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
   };
   return (
     <>
-      <PageHeader title={t('firmware.title')} subtitle={t('firmware.subtitle')} actions={<Button variant="primary" icon="folderPng" onClick={() => void pickFirmware()} disabled={busy}>{t('firmware.import')}</Button>} />
+      <PageHeader
+        title={t('firmware.title')}
+        subtitle={t('firmware.subtitle')}
+        actions={(
+          <>
+            <Button variant="secondary" icon="folderPng" onClick={() => void pickFirmware('custom')} disabled={busy}>{t('firmware.importCustom')}</Button>
+            <Button variant="primary" icon="firmware" onClick={() => void pickFirmware('stock')} disabled={busy}>{t('firmware.importStock')}</Button>
+          </>
+        )}
+      />
       <Card aria-busy={busy}>
         <CardTitle icon="download" after={<Badge tone="accent">{catalog.length}</Badge>}>{t('firmware.officialCatalog')}</CardTitle>
         <div className="firmware-catalog-toolbar">
@@ -286,7 +295,7 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
               </div>
             );
           })}
-          {!available.length ? <EmptyState icon="firmware" title={t('common.none')} detail={t('firmware.import')} /> : null}
+          {!available.length ? <EmptyState icon="firmware" title={t('common.none')} detail={t('firmware.importStock')} /> : null}
         </div>
       </Card>
     </>

@@ -175,10 +175,16 @@ class CoreCommandFactoryTests(unittest.TestCase):
             )
 
             selected = factory(
-                request("firmware.select", payload={"grant": grant.token})
+                request(
+                    "firmware.select",
+                    payload={"grant": grant.token, "expectedKind": "custom"},
+                )
             )
 
-            self.assertEqual({"path": str(firmware.resolve())}, selected.payload)
+            self.assertEqual(
+                {"path": str(firmware.resolve()), "expectedKind": "custom"},
+                selected.payload,
+            )
             self.assertIsNone(selected.target_serial)
             self.assertNotIn("grant", selected.payload)
 

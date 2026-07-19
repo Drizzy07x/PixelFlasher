@@ -182,6 +182,7 @@ export interface BridgePayloadByCommand {
   };
   "firmware.process": Record<string, never>;
   "firmware.select": {
+    "expectedKind"?: string;
     "firmwareId"?: string;
     "grant"?: string;
   };
@@ -591,7 +592,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.firmwareCatalogRefresh]: {"channel":{"kind":"string","required":false},"device":{"kind":"string","required":false}},
   [commands.firmwareDownload]: {"artifactId":{"kind":"string","required":true}},
   [commands.firmwareProcess]: {},
-  [commands.firmwareSelect]: {"firmwareId":{"kind":"string","required":false},"grant":{"kind":"string","required":false}},
+  [commands.firmwareSelect]: {"expectedKind":{"kind":"string","required":false},"firmwareId":{"kind":"string","required":false},"grant":{"kind":"string","required":false}},
   [commands.flashExecute]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.flashPlanPreview]: {"serial":{"kind":"string","required":false}},
   [commands.flashPlanUpdate]: {"dryRun":{"kind":"boolean","required":false},"mode":{"kind":"string","required":false},"options":{"kind":"object","required":false}},

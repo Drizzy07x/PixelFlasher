@@ -313,6 +313,8 @@ export const sourceMessages = {
   'firmware.invalidInspection': 'The host returned an invalid firmware verification receipt.',
   'firmware.use': 'Use package',
   'firmware.import': 'Import package',
+  'firmware.importStock': 'Import factory or OTA',
+  'firmware.importCustom': 'Import custom ROM',
   'firmware.process': 'Process package',
   'boot.inventoryTitle': 'Boot image inventory',
   'boot.inventoryDetail': 'Import and select SHA-256 verified boot-chain images without exposing host paths.',

@@ -523,7 +523,6 @@
         "select_firmware"
       ],
       "modernCommandIds": [
-        "firmware.pick",
         "firmware.select"
       ]
     },
@@ -532,13 +531,15 @@
       "area": "firmware",
       "capability": "Select a custom ROM archive",
       "owner": "firmware",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "pixelflasher_core/firmware.py:FirmwareInspector",
-        "ui/web/src/pages/Pages.tsx:FirmwarePage",
+        "pixelflasher_core/engine.py:_inspect_and_promote_firmware",
+        "ui/bridge_contract.py:_validate_payload_values",
+        "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage",
         "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_custom"
       ],
-      "gap": "A dedicated custom-ROM flow, payload.bin support and complete stock/custom substitution diagnostics remain open.",
+      "gap": "",
       "exitCriteria": [
         "Select a custom ROM archive is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -552,7 +553,9 @@
         "linux"
       ],
       "tests": [
-        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility"
+        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility",
+        "tests/test_firmware_engine_integration.py:test_stock_and_custom_picker_intents_reject_the_wrong_package_kind",
+        "ui/web/src/test/pages.behavior.test.tsx:real-host empty firmware library"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -563,9 +566,7 @@
       "modernActionIds": [
         "select_custom_rom"
       ],
-      "modernCommandIds": [
-        "firmware.pickCustomRom"
-      ]
+      "modernCommandIds": []
     },
     {
       "id": "firmware.process_stock",
@@ -620,12 +621,16 @@
       "area": "firmware",
       "capability": "Process custom ROM packages",
       "owner": "firmware",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_custom",
-        "pixelflasher_core/engine.py:_process_firmware"
+        "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService._process_payload",
+        "pixelflasher_core/payload.py:PayloadParser",
+        "pixelflasher_core/payload_extractor.py:BuiltinPayloadExtractor",
+        "pixelflasher_core/engine.py:_process_firmware",
+        "pixelflasher_core/boot_inventory.py:BootInventoryService.import_processed"
       ],
-      "gap": "Custom payload.bin processing is unsupported.",
+      "gap": "",
       "exitCriteria": [
         "Process custom ROM packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -639,8 +644,11 @@
         "linux"
       ],
       "tests": [
-        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility/test_payload_only_custom_rom_fails_explicitly_and_leaves_no_partial_files",
-        "tests/test_firmware_engine_integration.py:test_custom_direct_image_package_requires_and_promotes_stock_boot"
+        "tests/test_firmware_artifact_service.py:test_custom_direct_images_use_android_info_for_compatibility",
+        "tests/test_payload_processing.py:PayloadFirmwareProcessingTests",
+        "tests/test_builtin_payload_extractor.py",
+        "tests/test_firmware_engine_integration.py:test_custom_direct_image_package_requires_and_promotes_stock_boot",
+        "tests/test_firmware_engine_integration.py:test_runtime_processes_custom_payload_into_persistent_stock_inventory"
       ],
       "blockReason": null,
       "releaseGate": true,
