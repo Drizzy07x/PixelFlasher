@@ -597,11 +597,35 @@ class CommandEngine:
         if isinstance(compilation, DeviceToolCompilation) and compilation.execution != "process":
             return self._execute_process(
                 planned,
+                result_parser=(
+                    self._strip_logcat_execution_metadata
+                    if compilation.action == "logcat"
+                    else None
+                ),
                 operation_executor=(
-                    lambda _command, _plan, cancellation: self.device_tools_service.execute_special(
-                        compilation,
-                        command.operation_id,
-                        cancellation,
+                    lambda _command, _plan, cancellation: (
+                        self.device_tools_service.execute_special(
+                            compilation,
+                            command.operation_id,
+                            cancellation,
+                            progress=(
+                                lambda phase, message, percent, current, total, item: self._publish_progress(
+                                    command,
+                                    phase,
+                                    message,
+                                    percent,
+                                    current=current,
+                                    total=total,
+                                    item=item,
+                                )
+                            ),
+                        )
+                        if compilation.action == "logcat"
+                        else self.device_tools_service.execute_special(
+                            compilation,
+                            command.operation_id,
+                            cancellation,
+                        )
                     )
                 ),
                 cancellation_cleanup=(
@@ -632,6 +656,19 @@ class CommandEngine:
                 ),
                 cancellation=planning_token,
             )
+        if isinstance(compilation, DeviceToolCompilation) and compilation.action == "logcat":
+            return self._execute_process(
+                planned,
+                self._strip_logcat_execution_metadata,
+                result_finalizer=(
+                    lambda result, cancellation: self.device_tools_service.finalize_logcat(
+                        compilation,
+                        result,
+                        cancellation,
+                    )
+                ),
+                cancellation=planning_token,
+            )
         return self._execute_process(
             planned,
             lambda result: self._parse_service_result(
@@ -641,6 +678,19 @@ class CommandEngine:
             ),
             cancellation=planning_token,
         )
+
+    @staticmethod
+    def _strip_logcat_execution_metadata(result: OperationResult) -> OperationResult:
+        """Keep runner-only plan evidence out of the closed Logcat DTO."""
+
+        raw_value = cast(object, result.value)
+        if not result.ok or not isinstance(raw_value, dict):
+            return result
+        source = cast(dict[str, object], raw_value)
+        value = source.copy()
+        value.pop("planId", None)
+        value.pop("postconditions", None)
+        return replace(result, value=value)
 
     def _parse_service_result(
         self,
@@ -710,18 +760,6 @@ class CommandEngine:
                 value={
                     "count": len(partitions),
                     "partitions": [partition.to_dict() for partition in partitions],
-                },
-            )
-        if kind == "tools.logcat":
-            lines = result.stdout.splitlines()
-            return replace(
-                result,
-                code="logcat_collected",
-                message=f"collected {len(lines)} log line(s)",
-                value={
-                    "lineCount": len(lines),
-                    "lines": lines,
-                    "text": result.stdout,
                 },
             )
         if kind == "tools.pushFiles":
@@ -2404,7 +2442,10 @@ class CommandEngine:
                         # request; never retain them in AppSnapshot or support data.
                         stored_result = (
                             replace(result, value=None, stdout="", stderr="")
-                            if command.kind == "tools.wifi.discover"
+                            if command.kind in {
+                                "tools.logcat",
+                                "tools.wifi.discover",
+                            }
                             else result
                         )
                         self.store.complete_operation(stored_result, boot=promoted_boot)

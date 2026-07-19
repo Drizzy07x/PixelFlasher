@@ -4119,8 +4119,8 @@ msgid "Arbitrary shell input stays unavailable until a bounded command policy ex
 msgstr "在實作受限命令政策之前，任意 shell 輸入維持停用。"
 
 msgctxt "web.tools.logcatDetail"
-msgid "Collect a bounded Android system log snapshot."
-msgstr "收集有範圍限制的 Android 系統記錄快照。"
+msgid "Collect or stream bounded, redacted Android system logs."
+msgstr "收集或串流顯示有界且已遮蔽的 Android 系統記錄。"
 
 msgctxt "web.tools.partitionDetail"
 msgid "Inspect allow-listed slots and partition metadata."
@@ -4879,3 +4879,167 @@ msgstr "已驗證"
 msgctxt "web.tools.pushReceipts"
 msgid "Verified file receipts"
 msgstr "已驗證的檔案收據"
+
+msgctxt "web.tools.logcatMode"
+msgid "Log collection mode"
+msgstr "記錄收集模式"
+
+msgctxt "web.tools.logcatSnapshot"
+msgid "Snapshot"
+msgstr "快照"
+
+msgctxt "web.tools.logcatSnapshotDetail"
+msgid "Collect the latest bounded set of lines and stop."
+msgstr "收集最新的有界記錄行集後停止。"
+
+msgctxt "web.tools.logcatStream"
+msgid "Bounded stream"
+msgstr "有界串流"
+
+msgctxt "web.tools.logcatStreamDetail"
+msgid "Follow new lines for a fixed duration or until the line limit is reached."
+msgstr "在固定時間內追蹤新記錄行，或在達到行數上限時停止。"
+
+msgctxt "web.tools.logcatBuffers"
+msgid "Android log buffers"
+msgstr "Android 記錄緩衝區"
+
+msgctxt "web.tools.logcatFormat"
+msgid "Line format"
+msgstr "行格式"
+
+msgctxt "web.tools.logcatDuration"
+msgid "Duration in seconds"
+msgstr "持續時間（秒）"
+
+msgctxt "web.tools.logcatRedaction"
+msgid "Redaction policy"
+msgstr "遮蔽原則"
+
+msgctxt "web.tools.logcatRedactionStrict"
+msgid "Strict"
+msgstr "嚴格"
+
+msgctxt "web.tools.logcatRedactionStandard"
+msgid "Standard"
+msgstr "標準"
+
+msgctxt "web.tools.logcatRedactionNone"
+msgid "None (Expert)"
+msgstr "無（專家）"
+
+msgctxt "web.tools.logcatRedactionStrictDetail"
+msgid "Masks device identifiers, network addresses, account data, and sensitive file paths."
+msgstr "遮蔽裝置識別碼、網路位址、帳戶資料和敏感檔案路徑。"
+
+msgctxt "web.tools.logcatRedactionStandardDetail"
+msgid "Masks high-confidence secrets and identifiers while preserving more diagnostic context."
+msgstr "遮蔽高可信度的機密和識別碼，同時保留更多診斷內容。"
+
+msgctxt "web.tools.logcatRedactionNoneDetail"
+msgid "Logs may contain personal data and secrets. Review them before sharing."
+msgstr "記錄可能包含個人資料和機密。分享前請先檢查。"
+
+msgctxt "web.tools.logcatCollectSnapshot"
+msgid "Collect snapshot"
+msgstr "收集快照"
+
+msgctxt "web.tools.logcatStartStream"
+msgid "Start bounded stream"
+msgstr "啟動有界串流"
+
+msgctxt "web.tools.logcatCancel"
+msgid "Cancel log collection"
+msgstr "取消記錄收集"
+
+msgctxt "web.tools.logcatCancelling"
+msgid "Cancelling log collection…"
+msgstr "正在取消記錄收集…"
+
+msgctxt "web.tools.logcatCollecting"
+msgid "Collecting log snapshot…"
+msgstr "正在收集記錄快照…"
+
+msgctxt "web.tools.logcatStreaming"
+msgid "Streaming bounded logs…"
+msgstr "正在串流顯示有界記錄…"
+
+msgctxt "web.tools.logcatChoosingExport"
+msgid "Choosing export destination…"
+msgstr "正在選擇匯出目的地…"
+
+msgctxt "web.tools.logcatBoundedStatus"
+msgid "Up to {count} lines will be retained."
+msgstr "最多保留 {count} 行。"
+
+msgctxt "web.tools.logcatProgressLines"
+msgid "{count} lines received"
+msgstr "已接收 {count} 行"
+
+msgctxt "web.tools.logcatProgress"
+msgid "Log collection progress"
+msgstr "記錄收集進度"
+
+msgctxt "web.tools.logcatCancelled"
+msgid "Log collection cancelled."
+msgstr "記錄收集已取消。"
+
+msgctxt "web.tools.logcatFailed"
+msgid "Log collection failed."
+msgstr "記錄收集失敗。"
+
+msgctxt "web.tools.logcatInvalidResult"
+msgid "The host returned an invalid log report."
+msgstr "主機傳回了無效的記錄報告。"
+
+msgctxt "web.tools.logcatSummary"
+msgid "Log collection summary"
+msgstr "記錄收集摘要"
+
+msgctxt "web.tools.logcatLineCount"
+msgid "{count} lines"
+msgstr "{count} 行"
+
+msgctxt "web.tools.logcatRedactedCount"
+msgid "{count} values redacted"
+msgstr "已遮蔽 {count} 個值"
+
+msgctxt "web.tools.logcatBounded"
+msgid "Bounded"
+msgstr "有界"
+
+msgctxt "web.tools.logcatTruncated"
+msgid "Limit reached"
+msgstr "已達到上限"
+
+msgctxt "web.tools.logcatExport"
+msgid "Capture and export"
+msgstr "擷取並匯出"
+
+msgctxt "web.tools.logcatExportDetail"
+msgid "Runs a new capture with the current settings and writes that exact result to the selected destination."
+msgstr "使用目前設定執行新擷取，並將該次結果原樣寫入所選目的地。"
+
+msgctxt "web.tools.logcatTextFiles"
+msgid "Text log files"
+msgstr "文字記錄檔"
+
+msgctxt "web.tools.logcatExported"
+msgid "Exported {name}"
+msgstr "已匯出 {name}"
+
+msgctxt "web.tools.logcatClear"
+msgid "Clear viewer"
+msgstr "清除檢視器"
+
+msgctxt "web.tools.logcatOutput"
+msgid "Logcat output"
+msgstr "Logcat 輸出"
+
+msgctxt "web.tools.logcatPreviewLimited"
+msgid "Showing the last {shown} of {total} lines."
+msgstr "正在顯示最後 {shown} 行，共 {total} 行。"
+
+msgctxt "web.tools.logcatEmpty"
+msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
+msgstr "選擇快照或有界串流。輸出會保存在記憶體中，直到您清除檢視器。"

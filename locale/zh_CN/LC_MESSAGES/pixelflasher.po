@@ -4128,8 +4128,8 @@ msgid "Arbitrary shell input stays unavailable until a bounded command policy ex
 msgstr "在实现受限命令策略之前，任意 shell 输入保持不可用。"
 
 msgctxt "web.tools.logcatDetail"
-msgid "Collect a bounded Android system log snapshot."
-msgstr "收集有边界的 Android 系统日志快照。"
+msgid "Collect or stream bounded, redacted Android system logs."
+msgstr "收集或流式显示有界且已脱敏的 Android 系统日志。"
 
 msgctxt "web.tools.partitionDetail"
 msgid "Inspect allow-listed slots and partition metadata."
@@ -4888,3 +4888,167 @@ msgstr "已验证"
 msgctxt "web.tools.pushReceipts"
 msgid "Verified file receipts"
 msgstr "已验证的文件回执"
+
+msgctxt "web.tools.logcatMode"
+msgid "Log collection mode"
+msgstr "日志收集模式"
+
+msgctxt "web.tools.logcatSnapshot"
+msgid "Snapshot"
+msgstr "快照"
+
+msgctxt "web.tools.logcatSnapshotDetail"
+msgid "Collect the latest bounded set of lines and stop."
+msgstr "收集最新的有界日志行集后停止。"
+
+msgctxt "web.tools.logcatStream"
+msgid "Bounded stream"
+msgstr "有界流"
+
+msgctxt "web.tools.logcatStreamDetail"
+msgid "Follow new lines for a fixed duration or until the line limit is reached."
+msgstr "在固定时长内跟踪新日志行，或在达到行数上限时停止。"
+
+msgctxt "web.tools.logcatBuffers"
+msgid "Android log buffers"
+msgstr "Android 日志缓冲区"
+
+msgctxt "web.tools.logcatFormat"
+msgid "Line format"
+msgstr "行格式"
+
+msgctxt "web.tools.logcatDuration"
+msgid "Duration in seconds"
+msgstr "持续时间（秒）"
+
+msgctxt "web.tools.logcatRedaction"
+msgid "Redaction policy"
+msgstr "脱敏策略"
+
+msgctxt "web.tools.logcatRedactionStrict"
+msgid "Strict"
+msgstr "严格"
+
+msgctxt "web.tools.logcatRedactionStandard"
+msgid "Standard"
+msgstr "标准"
+
+msgctxt "web.tools.logcatRedactionNone"
+msgid "None (Expert)"
+msgstr "无（专家）"
+
+msgctxt "web.tools.logcatRedactionStrictDetail"
+msgid "Masks device identifiers, network addresses, account data, and sensitive file paths."
+msgstr "隐藏设备标识符、网络地址、账户数据和敏感文件路径。"
+
+msgctxt "web.tools.logcatRedactionStandardDetail"
+msgid "Masks high-confidence secrets and identifiers while preserving more diagnostic context."
+msgstr "隐藏高可信度的机密和标识符，同时保留更多诊断上下文。"
+
+msgctxt "web.tools.logcatRedactionNoneDetail"
+msgid "Logs may contain personal data and secrets. Review them before sharing."
+msgstr "日志可能包含个人数据和机密。共享前请先检查。"
+
+msgctxt "web.tools.logcatCollectSnapshot"
+msgid "Collect snapshot"
+msgstr "收集快照"
+
+msgctxt "web.tools.logcatStartStream"
+msgid "Start bounded stream"
+msgstr "启动有界流"
+
+msgctxt "web.tools.logcatCancel"
+msgid "Cancel log collection"
+msgstr "取消日志收集"
+
+msgctxt "web.tools.logcatCancelling"
+msgid "Cancelling log collection…"
+msgstr "正在取消日志收集…"
+
+msgctxt "web.tools.logcatCollecting"
+msgid "Collecting log snapshot…"
+msgstr "正在收集日志快照…"
+
+msgctxt "web.tools.logcatStreaming"
+msgid "Streaming bounded logs…"
+msgstr "正在流式显示有界日志…"
+
+msgctxt "web.tools.logcatChoosingExport"
+msgid "Choosing export destination…"
+msgstr "正在选择导出目标…"
+
+msgctxt "web.tools.logcatBoundedStatus"
+msgid "Up to {count} lines will be retained."
+msgstr "最多保留 {count} 行。"
+
+msgctxt "web.tools.logcatProgressLines"
+msgid "{count} lines received"
+msgstr "已接收 {count} 行"
+
+msgctxt "web.tools.logcatProgress"
+msgid "Log collection progress"
+msgstr "日志收集进度"
+
+msgctxt "web.tools.logcatCancelled"
+msgid "Log collection cancelled."
+msgstr "日志收集已取消。"
+
+msgctxt "web.tools.logcatFailed"
+msgid "Log collection failed."
+msgstr "日志收集失败。"
+
+msgctxt "web.tools.logcatInvalidResult"
+msgid "The host returned an invalid log report."
+msgstr "主机返回了无效的日志报告。"
+
+msgctxt "web.tools.logcatSummary"
+msgid "Log collection summary"
+msgstr "日志收集摘要"
+
+msgctxt "web.tools.logcatLineCount"
+msgid "{count} lines"
+msgstr "{count} 行"
+
+msgctxt "web.tools.logcatRedactedCount"
+msgid "{count} values redacted"
+msgstr "已脱敏 {count} 个值"
+
+msgctxt "web.tools.logcatBounded"
+msgid "Bounded"
+msgstr "有界"
+
+msgctxt "web.tools.logcatTruncated"
+msgid "Limit reached"
+msgstr "已达到上限"
+
+msgctxt "web.tools.logcatExport"
+msgid "Capture and export"
+msgstr "捕获并导出"
+
+msgctxt "web.tools.logcatExportDetail"
+msgid "Runs a new capture with the current settings and writes that exact result to the selected destination."
+msgstr "使用当前设置执行新捕获，并将该次结果原样写入所选目标。"
+
+msgctxt "web.tools.logcatTextFiles"
+msgid "Text log files"
+msgstr "文本日志文件"
+
+msgctxt "web.tools.logcatExported"
+msgid "Exported {name}"
+msgstr "已导出 {name}"
+
+msgctxt "web.tools.logcatClear"
+msgid "Clear viewer"
+msgstr "清空查看器"
+
+msgctxt "web.tools.logcatOutput"
+msgid "Logcat output"
+msgstr "Logcat 输出"
+
+msgctxt "web.tools.logcatPreviewLimited"
+msgid "Showing the last {shown} of {total} lines."
+msgstr "正在显示最后 {shown} 行，共 {total} 行。"
+
+msgctxt "web.tools.logcatEmpty"
+msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
+msgstr "选择快照或有界流。输出会保存在内存中，直到您清空查看器。"

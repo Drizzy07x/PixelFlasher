@@ -3,6 +3,7 @@ import pickle
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -22,12 +23,14 @@ from pixelflasher_core.device_tools import (
     DeviceToolPlanningError,
     DeviceToolsService,
     LaunchOutcome,
+    LogcatStreamOutcome,
     ManagedProcessLauncher,
     ManagedProcessTerminationError,
+    SubprocessLogcatStreamRunner,
     SubprocessSecretRunner,
 )
 from pixelflasher_core.executor import CancellationToken, TransportOutcome
-from pixelflasher_core.grants import PathGrantStore
+from pixelflasher_core.grants import AtomicWriteOutcomeUnknownError, GrantAccess, PathGrantStore
 
 
 class RecordingLauncher:
@@ -61,6 +64,29 @@ class RecordingSecretRunner:
     def run(self, request, secret, cancellation):
         self.calls.append((request, secret, cancellation))
         return self.outcome
+
+
+class RecordingLogcatRunner:
+    def __init__(self, lines, *, outcome=None):
+        self.lines = tuple(lines)
+        self.outcome = outcome
+        self.calls = []
+        self.shutdown_called = False
+
+    def run(self, request, cancellation, *, max_lines, line_handler):
+        self.calls.append((request, cancellation, max_lines))
+        safe = tuple(line_handler(line) for line in self.lines[:max_lines])
+        if self.outcome is not None:
+            return self.outcome
+        return LogcatStreamOutcome(
+            -15,
+            safe,
+            duration_completed=True,
+            line_limit_reached=len(self.lines) >= max_lines,
+        )
+
+    def shutdown(self):
+        self.shutdown_called = True
 
 
 def write_scrcpy_executable(path: Path) -> bytes:
@@ -160,6 +186,461 @@ class DeviceToolsServiceTests(unittest.TestCase):
             compilation.plan.request.argv,
         )
         self.assertEqual(30.0, compilation.plan.request.timeout_seconds)
+        self.assertEqual(16 * 1024 * 1024, compilation.plan.request.output_limit_bytes)
+        self.assertEqual("snapshot", compilation.logcat_mode)
+        self.assertEqual("strict", compilation.logcat_redaction)
+
+    def test_logcat_stream_is_incremental_shell_free_and_uses_canonical_filter_array(self):
+        compilation = self.compile(
+            "tools.logcat",
+            {
+                "mode": "stream",
+                "filters": ["ActivityManager:info", "*:warning"],
+                "maxLines": 40,
+                "timeoutSeconds": 7,
+                "redaction": "standard",
+            },
+        )
+
+        self.assertEqual(
+            (
+                "ADB",
+                "-s",
+                "SERIAL",
+                "logcat",
+                "-b",
+                "main",
+                "-v",
+                "threadtime",
+                "ActivityManager:I",
+                "*:W",
+            ),
+            compilation.plan.request.argv,
+        )
+        self.assertNotIn("-d", compilation.plan.request.argv)
+        self.assertNotIn("-t", compilation.plan.request.argv)
+        self.assertNotIn("shell", compilation.plan.request.argv)
+        self.assertEqual("logcat-stream", compilation.execution)
+        self.assertEqual("standard", compilation.logcat_redaction)
+
+    def test_logcat_rejects_unknown_mode_redaction_and_arbitrary_export_path(self):
+        cases = (
+            ({"mode": "follow-forever"}, "logcat_mode_invalid"),
+            ({"redaction": "custom-regex"}, "logcat_redaction_invalid"),
+            ({"exportDestination": "C:/tmp/log.txt"}, "logcat_export_grant_required"),
+        )
+        for payload, code in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaises(DeviceToolPlanningError) as raised:
+                    self.compile("tools.logcat", payload)
+                self.assertEqual(code, raised.exception.code)
+
+    def test_logcat_snapshot_redacts_bounds_and_discards_raw_process_output(self):
+        compilation = self.compile(
+            "tools.logcat",
+            {"redaction": "strict", "maxLines": 2},
+        )
+        raw = (
+            "I/Auth: SERIAL token=hunter2 user@example.com 192.168.1.4\n"
+            "I/File: /data/user/0/example secret=value\x00\n"
+            "I/Extra: ignored\n"
+        )
+
+        result = self.service.finalize_logcat(
+            compilation,
+            OperationResult.success("logcat-snapshot", stdout=raw, stderr="raw"),
+            CancellationToken(),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("logcat_collected", result.code)
+        self.assertEqual(2, result.value["lineCount"])
+        self.assertEqual(result.value["text"], "\n".join(result.value["lines"]))
+        self.assertEqual(2, result.value["redactedCount"])
+        self.assertTrue(result.value["truncated"])
+        rendered = result.value["text"]
+        for secret in ("SERIAL", "hunter2", "user@example.com", "192.168.1.4", "/data/user"):
+            self.assertNotIn(secret, rendered)
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+
+    def test_logcat_none_still_removes_host_paths_required_by_public_boundary(self):
+        compilation = self.compile(
+            "tools.logcat",
+            {"redaction": "none", "maxLines": 5},
+        )
+        result = self.service.finalize_logcat(
+            compilation,
+            OperationResult.success(
+                "logcat-none",
+                stdout=(
+                    "I/Test: C:\\Users\\Alice Smith\\secret.txt; "
+                    "/home/Alice Smith/token; WindowsPath('relative') "
+                    "/data/local/tmp/device.txt\n"
+                ),
+            ),
+            CancellationToken(),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertNotIn("C:\\Users", result.value["text"])
+        self.assertNotIn("Alice Smith", result.value["text"])
+        self.assertNotIn("/home/Alice", result.value["text"])
+        self.assertNotIn("WindowsPath(", result.value["text"])
+        self.assertIn("/data/local/tmp/device.txt", result.value["text"])
+        self.assertEqual(1, result.value["redactedCount"])
+
+    def test_logcat_strict_redacts_quoted_json_secrets_with_spaces(self):
+        compilation = self.compile(
+            "tools.logcat",
+            {"redaction": "strict", "maxLines": 5},
+        )
+        result = self.service.finalize_logcat(
+            compilation,
+            OperationResult.success(
+                "logcat-json-secrets",
+                stdout=(
+                    'I/Auth: {"access_token":"opaque-secret-123",'
+                    '"password":"hello world","status":"ok"}\n'
+                ),
+            ),
+            CancellationToken(),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertNotIn("opaque-secret-123", result.value["text"])
+        self.assertNotIn("hello world", result.value["text"])
+        self.assertIn('"access_token":"<redacted>"', result.value["text"])
+        self.assertIn('"password":"<redacted>"', result.value["text"])
+        self.assertIn('"status":"ok"', result.value["text"])
+        self.assertEqual(1, result.value["redactedCount"])
+
+    def test_logcat_export_writes_only_safe_text_atomically_with_hash_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="tools.logcat.export",
+            )
+            compilation = self.compile(
+                "tools.logcat",
+                {
+                    "maxLines": 5,
+                    "redaction": "strict",
+                    "exportDestination": bound,
+                },
+            )
+
+            result = self.service.finalize_logcat(
+                compilation,
+                OperationResult.success(
+                    "logcat-export",
+                    stdout="I/Auth: SERIAL password=hunter2\nI/Ready: ok\n",
+                ),
+                CancellationToken(),
+            )
+
+            self.assertTrue(result.ok)
+            payload = result.value["text"].encode("utf-8")
+            self.assertEqual(payload, destination.read_bytes())
+            self.assertNotIn(b"hunter2", payload)
+            self.assertEqual(destination.name, result.value["export"]["fileName"])
+            self.assertEqual(len(payload), result.value["export"]["size"])
+            self.assertEqual(
+                hashlib.sha256(payload).hexdigest(),
+                result.value["export"]["sha256"],
+            )
+            self.assertEqual([], list(Path(directory).glob(".pixelflasher-*")))
+
+    def test_logcat_export_cancellation_preserves_existing_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            destination.write_text("original", encoding="utf-8")
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            compilation = self.compile(
+                "tools.logcat",
+                {
+                    "exportDestination": grants.resolve_bound_write_file(
+                        issued.token,
+                        purpose="tools.logcat.export",
+                    )
+                },
+            )
+            token = CancellationToken()
+            real_fsync = __import__("os").fsync
+
+            def cancel_after_flush(descriptor):
+                real_fsync(descriptor)
+                token.cancel()
+
+            with patch(
+                "pixelflasher_core.device_tools.os.fsync",
+                side_effect=cancel_after_flush,
+            ):
+                result = self.service.finalize_logcat(
+                    compilation,
+                    OperationResult.success("cancel-export", stdout="new contents\n"),
+                    token,
+                )
+
+            self.assertEqual(OperationStatus.CANCELLED, result.status)
+            self.assertEqual("original", destination.read_text(encoding="utf-8"))
+            self.assertEqual([], list(Path(directory).glob(".pixelflasher-*")))
+
+    def test_logcat_export_preserves_typed_outcome_unknown_from_transaction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="tools.logcat.export",
+            )
+            compilation = self.compile(
+                "tools.logcat",
+                {"exportDestination": bound},
+            )
+
+            with patch.object(
+                type(bound),
+                "begin_atomic_replace",
+                side_effect=AtomicWriteOutcomeUnknownError("directory durability is unknown"),
+            ):
+                result = self.service.finalize_logcat(
+                    compilation,
+                    OperationResult.success("unknown-export", stdout="I/Ready: complete\n"),
+                    CancellationToken(),
+                )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("outcome_unknown", result.code)
+            self.assertNotIn(str(destination), result.message)
+
+    def test_logcat_export_cancelled_during_post_commit_verification_is_outcome_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            compilation = self.compile(
+                "tools.logcat",
+                {
+                    "exportDestination": grants.resolve_bound_write_file(
+                        issued.token,
+                        purpose="tools.logcat.export",
+                    )
+                },
+            )
+            token = CancellationToken()
+
+            from pixelflasher_core.grants import BoundWriteTransaction
+
+            real_open_committed = BoundWriteTransaction.open_committed
+
+            def cancel_after_commit(transaction):
+                token.cancel()
+                return real_open_committed(transaction)
+
+            with patch.object(
+                BoundWriteTransaction,
+                "open_committed",
+                autospec=True,
+                side_effect=cancel_after_commit,
+            ):
+                result = self.service.finalize_logcat(
+                    compilation,
+                    OperationResult.success("cancel-after-commit", stdout="I/Ready: complete\n"),
+                    token,
+                )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("outcome_unknown", result.code)
+            self.assertEqual("I/Ready: complete", destination.read_text(encoding="utf-8"))
+            self.assertEqual([], list(Path(directory).glob(".pixelflasher-*")))
+
+    def test_logcat_stream_progress_contains_only_redacted_bounded_lines(self):
+        raw_line = "I/Auth: SERIAL password=hunter2 " + ("x" * 5000)
+        runner = RecordingLogcatRunner((raw_line, "I/Ready: ok"))
+        service = DeviceToolsService(logcat_stream_runner=runner)
+        compilation = service.compile(
+            AppCommand(
+                "tools.logcat",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={"mode": "stream", "maxLines": 2},
+            ),
+            self.snapshot,
+        )
+        progress = []
+
+        result = service.execute_special(
+            compilation,
+            "stream-op",
+            CancellationToken(),
+            progress=lambda *values: progress.append(values),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("logcat_stream_completed", result.code)
+        self.assertEqual(2, result.value["lineCount"])
+        self.assertTrue(result.value["truncated"])
+        self.assertEqual(2, len(progress))
+        self.assertEqual((1, 2, None), progress[0][3:])
+        self.assertNotIn("hunter2", progress[0][1])
+        self.assertNotIn("SERIAL", progress[0][1])
+        self.assertLessEqual(len(progress[0][1].encode("utf-8")), 4096)
+
+    def test_logcat_stream_rejects_an_injected_runner_that_bypasses_sanitizer(self):
+        class UnsafeRunner:
+            def run(self, request, cancellation, *, max_lines, line_handler):
+                del request, cancellation, max_lines, line_handler
+                return LogcatStreamOutcome(
+                    0,
+                    ("I/Auth: SERIAL password=hunter2\x00",),
+                    duration_completed=True,
+                )
+
+            def shutdown(self):
+                pass
+
+        service = DeviceToolsService(logcat_stream_runner=UnsafeRunner())
+        compilation = service.compile(
+            AppCommand(
+                "tools.logcat",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={"mode": "stream", "maxLines": 10},
+            ),
+            self.snapshot,
+        )
+
+        result = service.execute_special(
+            compilation,
+            "unsafe-stream",
+            CancellationToken(),
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("logcat_stream_result_invalid", result.code)
+        self.assertNotIn("hunter2", repr(result))
+
+    def test_real_logcat_stream_runner_emits_before_cancellable_process_finishes(self):
+        runner = SubprocessLogcatStreamRunner()
+        token = CancellationToken()
+        first_line = threading.Event()
+        seen = []
+        outcome = []
+
+        def run_stream():
+            outcome.append(
+                runner.run(
+                    ProcessRequest(
+                        (
+                            sys.executable,
+                            "-u",
+                            "-c",
+                            "import time; print('first', flush=True); time.sleep(30)",
+                        ),
+                        timeout_seconds=20,
+                        output_limit_bytes=1024 * 1024,
+                    ),
+                    token,
+                    max_lines=10,
+                    line_handler=lambda line: seen.append(line) or first_line.set() or line,
+                )
+            )
+
+        worker = threading.Thread(target=run_stream)
+        worker.start()
+        self.assertTrue(first_line.wait(3), "first line was not streamed incrementally")
+        self.assertTrue(worker.is_alive(), "stream waited for process completion")
+        token.cancel()
+        worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(["first"], seen)
+        self.assertTrue(outcome[0].cancelled)
+
+    def test_real_logcat_stream_distinguishes_duration_from_global_deadline(self):
+        request = ProcessRequest(
+            (
+                sys.executable,
+                "-u",
+                "-c",
+                "import time; print('first', flush=True); time.sleep(30)",
+            ),
+            timeout_seconds=0.15,
+            output_limit_bytes=1024 * 1024,
+        )
+        duration = SubprocessLogcatStreamRunner().run(
+            request,
+            CancellationToken(),
+            max_lines=10,
+            line_handler=lambda line: line,
+        )
+        deadline_token = CancellationToken()
+        deadline_token.set_deadline(0.05)
+        deadline = SubprocessLogcatStreamRunner().run(
+            ProcessRequest(
+                request.argv,
+                timeout_seconds=5,
+                output_limit_bytes=1024 * 1024,
+            ),
+            deadline_token,
+            max_lines=10,
+            line_handler=lambda line: line,
+        )
+
+        self.assertTrue(duration.duration_completed)
+        self.assertFalse(duration.timed_out)
+        self.assertFalse(duration.cancelled)
+        self.assertTrue(deadline.timed_out)
+        self.assertFalse(deadline.duration_completed)
+        self.assertFalse(deadline.cancelled)
+
+    def test_logcat_stop_failure_keeps_child_tracked_for_shutdown_retry(self):
+        runner = SubprocessLogcatStreamRunner()
+        token = CancellationToken()
+        token.set_deadline(0.05)
+        request = ProcessRequest(
+            (
+                sys.executable,
+                "-u",
+                "-c",
+                "import time; time.sleep(30)",
+            ),
+            timeout_seconds=5,
+            output_limit_bytes=1024 * 1024,
+        )
+
+        with patch.object(ManagedProcessLauncher, "_stop_child", return_value=False):
+            with self.assertRaises(ManagedProcessTerminationError):
+                runner.run(
+                    request,
+                    token,
+                    max_lines=10,
+                    line_handler=lambda line: line,
+                )
+            self.assertEqual(1, len(runner._children))
+        runner.shutdown()
+        self.assertEqual({}, runner._children)
 
     def test_logcat_rejects_filter_format_buffer_and_limit_injection(self):
         cases = (

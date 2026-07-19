@@ -1,9 +1,16 @@
+import io
+import os
+import stat
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+import pixelflasher_core.grants as grant_module
 from pixelflasher_core.contracts import is_valid_target_serial
 from pixelflasher_core.grants import (
+    AtomicWriteOutcomeUnknownError,
+    BoundWriteTransaction,
     GrantAccess,
     GrantError,
     GrantTarget,
@@ -224,6 +231,333 @@ class PathGrantStoreTests(unittest.TestCase):
                     access=GrantAccess.WRITE,
                 )
             self.assertEqual("grant_resource_changed", removed.exception.code)
+
+    def test_atomic_write_transaction_replaces_new_and_existing_destinations(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing), TemporaryDirectory() as directory:
+                destination = Path(directory) / "logcat.txt"
+                if existing:
+                    destination.write_bytes(b"old contents")
+                store = PathGrantStore()
+                grant = store.issue_file(
+                    destination,
+                    purpose="tools.logcat.export",
+                    access=GrantAccess.WRITE,
+                )
+                bound = store.resolve_bound_write_file(
+                    grant.token,
+                    purpose="tools.logcat.export",
+                )
+
+                with bound.begin_atomic_replace() as transaction:
+                    transaction.stream.write(b"approved contents")
+                    transaction.stream.flush()
+                    os.fsync(transaction.stream.fileno())
+                    transaction.commit()
+                    with transaction.open_committed() as committed:
+                        self.assertEqual(b"approved contents", committed.read())
+
+                self.assertEqual(b"approved contents", destination.read_bytes())
+                self.assertEqual([], list(Path(directory).glob(".pixelflasher-*")))
+
+    def test_atomic_write_uses_approved_directory_handle_after_path_swap(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            approved_path = root / "selected"
+            approved_path.mkdir()
+            destination = approved_path / "logcat.txt"
+            moved_approved_directory = root / "approved-object"
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+            real_open = grant_module._open_bound_write_anchor
+
+            def swap_path_after_anchor(resource):
+                anchor = real_open(resource)
+                approved_path.rename(moved_approved_directory)
+                approved_path.mkdir()
+                (approved_path / "attacker-marker.txt").write_text("unapproved", encoding="utf-8")
+                return anchor
+
+            with patch(
+                "pixelflasher_core.grants._open_bound_write_anchor",
+                side_effect=swap_path_after_anchor,
+            ):
+                with bound.begin_atomic_replace() as transaction:
+                    transaction.stream.write(b"raw token=secret-value")
+                    transaction.stream.flush()
+                    os.fsync(transaction.stream.fileno())
+                    transaction.commit()
+                    with transaction.open_committed() as committed:
+                        self.assertEqual(b"raw token=secret-value", committed.read())
+
+            self.assertEqual(
+                b"raw token=secret-value",
+                (moved_approved_directory / "logcat.txt").read_bytes(),
+            )
+            self.assertFalse((approved_path / "logcat.txt").exists())
+            self.assertEqual(
+                ["attacker-marker.txt"],
+                sorted(path.name for path in approved_path.iterdir()),
+            )
+
+    def test_atomic_write_rejects_destination_replacement_before_commit(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "logcat.txt"
+            destination.write_bytes(b"approved old contents")
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+
+            with bound.begin_atomic_replace() as transaction:
+                replacement = root / "replacement.txt"
+                replacement.write_bytes(b"attacker contents")
+                replacement.replace(destination)
+                transaction.stream.write(b"new approved contents")
+                transaction.stream.flush()
+                os.fsync(transaction.stream.fileno())
+                with self.assertRaises(GrantError) as changed:
+                    transaction.commit()
+
+            self.assertEqual("grant_resource_changed", changed.exception.code)
+            self.assertEqual(b"attacker contents", destination.read_bytes())
+            self.assertEqual([], list(root.glob(".pixelflasher-*")))
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle identity contract")
+    def test_windows_file_id_info_matches_python_stat_identity(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.txt"
+            target.write_bytes(b"identity")
+            api = grant_module._win32_api()
+            directory_handle = api.open_directory(root)
+            try:
+                root_stat = root.stat()
+                self.assertEqual(
+                    (int(root_stat.st_dev), int(root_stat.st_ino), stat.S_IFMT(root_stat.st_mode)),
+                    api.identity(directory_handle),
+                )
+                target_stat = target.stat()
+                self.assertEqual(
+                    (int(target_stat.st_dev), int(target_stat.st_ino), stat.S_IFMT(target_stat.st_mode)),
+                    api.relative_identity(directory_handle, target.name),
+                )
+            finally:
+                api.close_handle(directory_handle)
+
+    def test_transaction_cleanup_does_not_mask_primary_outcome_unknown(self):
+        class CleanupFailureBackend:
+            stream = io.BytesIO()
+            committed = False
+
+            def commit(self):
+                raise AssertionError("not used")
+
+            def open_committed(self):
+                raise AssertionError("not used")
+
+            def close(self):
+                raise RuntimeError("cleanup failed")
+
+        primary = AtomicWriteOutcomeUnknownError("primary publication outcome is unknown")
+        with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
+            with BoundWriteTransaction(CleanupFailureBackend()):
+                raise primary
+        self.assertIs(primary, raised.exception)
+
+    @unittest.skipIf(os.name == "nt", "POSIX descriptor cleanup contract")
+    def test_posix_cleanup_closes_every_descriptor_when_unlink_fails(self):
+        with TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+            transaction = bound.begin_atomic_replace()
+            backend = transaction._backend
+            directory_fd = backend._directory_fd
+            staging_fd = backend._staging_fd
+
+            with patch("pixelflasher_core.grants.os.unlink", side_effect=PermissionError("denied")):
+                with self.assertRaises(PermissionError):
+                    transaction.close()
+
+            for descriptor in (directory_fd, staging_fd):
+                with self.assertRaises(OSError):
+                    os.fstat(descriptor)
+
+    @unittest.skipIf(os.name == "nt", "POSIX durability classification contract")
+    def test_posix_directory_fsync_failure_after_publication_is_outcome_unknown(self):
+        with TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+
+            with bound.begin_atomic_replace() as transaction:
+                transaction.stream.write(b"durable payload")
+                transaction.stream.flush()
+                os.fsync(transaction.stream.fileno())
+                directory_fd = transaction._backend._directory_fd
+                real_fsync = os.fsync
+
+                def fail_anchor_sync(descriptor):
+                    if descriptor == directory_fd:
+                        raise OSError("directory fsync failed")
+                    return real_fsync(descriptor)
+
+                with patch("pixelflasher_core.grants.os.fsync", side_effect=fail_anchor_sync):
+                    with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
+                        transaction.commit()
+
+            self.assertEqual("outcome_unknown", raised.exception.code)
+            self.assertEqual(b"durable payload", destination.read_bytes())
+
+    @unittest.skipIf(os.name == "nt", "POSIX exchange rollback contract")
+    def test_posix_displaced_mismatch_rolls_back_without_deleting_foreign_inode(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "logcat.txt"
+            destination.write_bytes(b"approved old contents")
+            replacement = root / "replacement.txt"
+            replacement.write_bytes(b"foreign contents")
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+            real_exchange = grant_module._posix_exchange
+            exchanges = 0
+
+            def attack_then_exchange(source_fd, source_name, destination_fd, destination_name):
+                nonlocal exchanges
+                if exchanges == 0:
+                    replacement.replace(destination)
+                exchanges += 1
+                return real_exchange(source_fd, source_name, destination_fd, destination_name)
+
+            with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
+                with patch(
+                    "pixelflasher_core.grants._posix_exchange",
+                    side_effect=attack_then_exchange,
+                ), bound.begin_atomic_replace() as transaction:
+                    transaction.stream.write(b"new approved contents")
+                    transaction.stream.flush()
+                    os.fsync(transaction.stream.fileno())
+                    transaction.commit()
+
+            self.assertEqual("outcome_unknown", raised.exception.code)
+            self.assertEqual(2, exchanges)
+            self.assertEqual(b"foreign contents", destination.read_bytes())
+            self.assertEqual([], list(root.glob(".pixelflasher-*")))
+
+    @unittest.skipIf(os.name == "nt", "POSIX exchange preservation contract")
+    def test_posix_failed_rollback_preserves_displaced_foreign_inode_in_staging(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "logcat.txt"
+            destination.write_bytes(b"approved old contents")
+            replacement = root / "replacement.txt"
+            replacement.write_bytes(b"foreign contents")
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+            real_exchange = grant_module._posix_exchange
+            exchanges = 0
+
+            def block_rollback(source_fd, source_name, destination_fd, destination_name):
+                nonlocal exchanges
+                exchanges += 1
+                if exchanges == 1:
+                    replacement.replace(destination)
+                    return real_exchange(source_fd, source_name, destination_fd, destination_name)
+                raise OSError("rollback blocked")
+
+            with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
+                with patch(
+                    "pixelflasher_core.grants._posix_exchange",
+                    side_effect=block_rollback,
+                ), bound.begin_atomic_replace() as transaction:
+                    transaction.stream.write(b"new approved contents")
+                    transaction.stream.flush()
+                    os.fsync(transaction.stream.fileno())
+                    transaction.commit()
+
+            self.assertEqual("outcome_unknown", raised.exception.code)
+            staging_directories = list(root.glob(".pixelflasher-*.stage"))
+            self.assertEqual(1, len(staging_directories))
+            self.assertEqual(
+                b"foreign contents",
+                (staging_directories[0] / "payload").read_bytes(),
+            )
+            self.assertEqual(b"new approved contents", destination.read_bytes())
+
+    @unittest.skipIf(os.name == "nt", "POSIX post-publication verification contract")
+    def test_posix_open_committed_oserror_is_outcome_unknown(self):
+        with TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            store = PathGrantStore()
+            grant = store.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = store.resolve_bound_write_file(
+                grant.token,
+                purpose="tools.logcat.export",
+            )
+
+            with bound.begin_atomic_replace() as transaction:
+                transaction.stream.write(b"published contents")
+                transaction.stream.flush()
+                os.fsync(transaction.stream.fileno())
+                transaction.commit()
+                with patch("pixelflasher_core.grants.os.open", side_effect=OSError("open failed")):
+                    with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
+                        transaction.open_committed()
+
+            self.assertEqual("outcome_unknown", raised.exception.code)
+            self.assertEqual(b"published contents", destination.read_bytes())
 
 
 class SecretGrantStoreTests(unittest.TestCase):

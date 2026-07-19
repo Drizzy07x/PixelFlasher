@@ -336,7 +336,13 @@ class ModernParityInventoryTests(unittest.TestCase):
             diagnostics["tests"],
         )
         self.assertEqual(["tools.logcat"], logs["modernCommandIds"])
-        self.assertIn("update_engine snapshot", logs["gap"])
+        self.assertEqual("partial", logs["modernStatus"])
+        self.assertIn("Bounded snapshot and streaming capture", logs["gap"])
+        self.assertIn("Remote buffer clearing", logs["gap"])
+        self.assertIn(
+            "ui/web/src/test/logcat.test.tsx",
+            logs["tests"],
+        )
 
     def test_every_registered_bridge_command_has_one_parity_owner(self):
         inventoried = [

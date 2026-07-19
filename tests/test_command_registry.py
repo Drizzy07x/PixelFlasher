@@ -158,6 +158,31 @@ class CommandRegistryTests(unittest.TestCase):
             ("remote_files_written",),
             COMMAND_REGISTRY["tools.pushFiles"].postconditions,
         )
+        logcat = COMMAND_REGISTRY["tools.logcat"]
+        self.assertEqual(CommandMutability.MUTATING, logcat.mutability)
+        self.assertEqual(CommandRisk.HOST_WRITE, logcat.risk)
+        self.assertEqual(
+            {
+                "serial",
+                "mode",
+                "buffers",
+                "format",
+                "filters",
+                "maxLines",
+                "timeoutSeconds",
+                "redaction",
+                "grant",
+            },
+            set(logcat.payload.fields),
+        )
+        self.assertEqual((1, 6), (
+            logcat.payload.fields["buffers"].min_items,
+            logcat.payload.fields["buffers"].max_items,
+        ))
+        self.assertEqual((0, 32), (
+            logcat.payload.fields["filters"].min_items,
+            logcat.payload.fields["filters"].max_items,
+        ))
 
     def test_ota_diagnostic_contracts_are_closed_read_only_device_reads(self):
         expected_payloads = {

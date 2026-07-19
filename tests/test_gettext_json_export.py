@@ -14,15 +14,15 @@ from scripts.export_gettext_json import (
 )
 
 EXPECTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_MESSAGE_COUNT = 1355
-EXPECTED_WEB_MESSAGE_COUNT = 385
+EXPECTED_MESSAGE_COUNT = 1396
+EXPECTED_WEB_MESSAGE_COUNT = 426
 EXPECTED_WEB_TRANSLATED_COUNTS = {
     "en": 21,
-    "es": 320,
-    "fr": 320,
-    "it": 320,
-    "zh_CN": 320,
-    "zh_TW": 320,
+    "es": 361,
+    "fr": 361,
+    "it": 361,
+    "zh_CN": 361,
+    "zh_TW": 361,
 }
 
 

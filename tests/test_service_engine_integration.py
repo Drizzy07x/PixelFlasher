@@ -19,12 +19,16 @@ from pixelflasher_core import (
     DeviceToolsService,
     FakeProcessTransport,
     FakeTransportStep,
+    GrantAccess,
     InteractionBroker,
     InteractionDecision,
     LaunchOutcome,
+    LogcatStreamOutcome,
     OperationResult,
+    OperationRisk,
     OperationStatus,
     PackageService,
+    PathGrantStore,
     ProgressEvent,
     ProgressPhase,
     RootAppSource,
@@ -69,6 +73,27 @@ class RecordingSecretRunner:
     def run(self, request, secret, cancellation):
         self.calls.append((request, secret))
         return self.outcome
+
+
+class EngineLogcatRunner:
+    def __init__(self, lines, *, duration_completed=True, returncode=-15):
+        self.lines = tuple(lines)
+        self.duration_completed = duration_completed
+        self.returncode = returncode
+        self.calls = []
+
+    def run(self, request, cancellation, *, max_lines, line_handler):
+        self.calls.append((request, cancellation, max_lines))
+        safe = tuple(line_handler(line) for line in self.lines[:max_lines])
+        return LogcatStreamOutcome(
+            self.returncode,
+            safe,
+            duration_completed=self.duration_completed,
+            line_limit_reached=len(self.lines) >= max_lines,
+        )
+
+    def shutdown(self):
+        pass
 
 
 def write_scrcpy_executable(path: Path) -> None:
@@ -388,6 +413,171 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             transport.calls[0].argv,
         )
         self.assertNotIn("shell", transport.calls[0].argv)
+        retained = engine.store.snapshot().last_result
+        self.assertIsNotNone(retained)
+        self.assertIsNone(retained.value)
+        self.assertEqual("", retained.stdout)
+        self.assertEqual("", retained.stderr)
+
+    def test_logcat_stream_publishes_redacted_incremental_progress_and_safe_result(self):
+        runner = EngineLogcatRunner(
+            (
+                "I/Auth: SERIAL token=hunter2 user@example.com",
+                "I/Ready: complete",
+            )
+        )
+        service = DeviceToolsService(logcat_stream_runner=runner)
+        engine, transport = self.engine_for(
+            "adb",
+            [],
+            device_tools_service=service,
+        )
+        events = []
+        engine.executor.progress_listener = events.append
+
+        result = engine.execute(
+            command(
+                "tools.logcat",
+                {
+                    "mode": "stream",
+                    "maxLines": 10,
+                    "timeoutSeconds": 3,
+                    "redaction": "strict",
+                },
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("logcat_stream_completed", result.code)
+        self.assertEqual([], transport.calls)
+        running = [event for event in events if event.phase is ProgressPhase.RUNNING]
+        self.assertEqual(2, len(running))
+        self.assertEqual((1, 10, None), (running[0].current, running[0].total, running[0].item))
+        self.assertNotIn("hunter2", running[0].message)
+        self.assertNotIn("SERIAL", running[0].message)
+        self.assertNotIn("user@example.com", running[0].message)
+        self.assertEqual(result.value["text"], "\n".join(result.value["lines"]))
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+        retained = engine.store.snapshot().last_result
+        self.assertIsNotNone(retained)
+        self.assertIsNone(retained.value)
+        self.assertEqual("", retained.stdout)
+        self.assertEqual("", retained.stderr)
+
+    def test_logcat_stream_natural_exit_is_not_a_false_success(self):
+        runner = EngineLogcatRunner(
+            ("I/Ready: one line",),
+            duration_completed=False,
+            returncode=0,
+        )
+        engine, transport = self.engine_for(
+            "adb",
+            [],
+            device_tools_service=DeviceToolsService(logcat_stream_runner=runner),
+        )
+
+        result = engine.execute(
+            command(
+                "tools.logcat",
+                {"mode": "stream", "maxLines": 10, "timeoutSeconds": 3},
+            )
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("logcat_stream_ended", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_logcat_export_is_a_verified_host_mutation_with_a_closed_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="tools.logcat.export",
+            )
+            service = DeviceToolsService()
+            engine, _transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0, "I/Ready: exported\n")],
+                device_tools_service=service,
+            )
+
+            compilation = service.compile(
+                command(
+                    "tools.logcat",
+                    {"exportDestination": bound},
+                ),
+                engine.store.snapshot(),
+            )
+            self.assertEqual(OperationRisk.MUTATING, compilation.plan.risk)
+            self.assertEqual(
+                ["host_artifact_written"],
+                [condition.kind for condition in compilation.plan.postconditions],
+            )
+
+            result = engine.execute(
+                command(
+                    "tools.logcat",
+                    {"exportDestination": bound},
+                )
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(b"I/Ready: exported", destination.read_bytes())
+            self.assertEqual("logcat_collected", result.code)
+            self.assertNotIn("planId", result.value)
+            self.assertNotIn("postconditions", result.value)
+            self.assertEqual(
+                result.value["export"]["sha256"],
+                hashlib.sha256(destination.read_bytes()).hexdigest(),
+            )
+
+    def test_logcat_export_cancelled_after_replace_never_reports_cancelled(self):
+        class CancelAfterCommitService(DeviceToolsService):
+            @staticmethod
+            def _export_logcat(destination, text, cancellation):
+                receipt = DeviceToolsService._export_logcat(
+                    destination,
+                    text,
+                    cancellation,
+                )
+                cancellation.cancel()
+                return receipt
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "logcat.txt"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="tools.logcat.export",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="tools.logcat.export",
+            )
+            engine, _transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0, "I/Ready: committed\n")],
+                device_tools_service=CancelAfterCommitService(),
+            )
+
+            result = engine.execute(
+                command(
+                    "tools.logcat",
+                    {"exportDestination": bound},
+                )
+            )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("outcome_unknown", result.code)
+            self.assertEqual(b"I/Ready: committed", destination.read_bytes())
 
     def test_scrcpy_launch_is_serial_bound_managed_and_never_uses_executor(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -983,16 +983,38 @@ export function installDevelopmentBridge() {
             );
             break;
           }
-          case 'tools.logcat':
+          case 'tools.logcat': {
+            const lines = [
+              '07-18 17:12:01.100 I/ActivityManager: PixelFlasher test ready',
+              '07-18 17:12:01.220 D/PackageManager: package scan complete',
+              '07-18 17:12:01.440 W/DeviceIdle: mock preview only',
+            ];
+            const targetSerial = typeof request.payload.serial === 'string'
+              ? request.payload.serial
+              : snapshot.selectedSerial ?? '';
+            const safeSerial = targetSerial.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 96) || 'device';
             respond(request, success('Collected 3 log lines.', {
-              lineCount: 3,
-              lines: [
-                '07-18 17:12:01.100 I/ActivityManager: PixelFlasher test ready',
-                '07-18 17:12:01.220 D/PackageManager: package scan complete',
-                '07-18 17:12:01.440 W/DeviceIdle: mock preview only',
-              ],
+              targetSerial,
+              mode: request.payload.mode === 'stream' ? 'stream' : 'snapshot',
+              lineCount: lines.length,
+              lines,
+              text: lines.join('\n'),
+              redaction: ['strict', 'standard', 'none'].includes(String(request.payload.redaction))
+                ? request.payload.redaction
+                : 'strict',
+              redactedCount: 1,
+              bounded: true,
+              truncated: false,
+              ...(typeof request.payload.grant === 'string' ? {
+                export: {
+                  fileName: `PixelFlasher-logcat-${safeSerial}.txt`,
+                  sha256: '0a23f3916c7cc8c5bd40fd0a2b7304f1672daf8e3906d8af0000b2a912007ec3',
+                  size: lines.join('\n').length,
+                },
+              } : {}),
             }));
             break;
+          }
           case 'tools.scrcpy':
             respond(request, success('scrcpy launched for the selected device', { pid: 4242 }));
             break;

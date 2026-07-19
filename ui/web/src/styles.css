@@ -2836,6 +2836,236 @@ code {
   white-space: pre-wrap;
 }
 
+.logcat-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.logcat-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.logcat-mode button {
+  display: flex;
+  min-height: 4.25rem;
+  flex-direction: column;
+  gap: 0.25rem;
+  justify-content: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.58rem;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.logcat-mode button:hover,
+.logcat-mode button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.logcat-mode button strong {
+  font-size: 0.68rem;
+}
+
+.logcat-mode button small,
+.logcat-export-help {
+  color: var(--muted);
+  font-size: 0.57rem;
+  line-height: 1.45;
+}
+
+.logcat-controls {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1.7fr) repeat(3, minmax(8rem, 0.75fr));
+  align-items: end;
+  gap: 0.65rem;
+}
+
+.logcat-controls > label,
+.logcat-buffers {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.34rem;
+  margin: 0;
+}
+
+.logcat-controls > label > span,
+.logcat-buffers legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.59rem;
+  font-weight: 750;
+}
+
+.logcat-controls select,
+.logcat-controls input[type="number"] {
+  width: 100%;
+  min-height: 2.3rem;
+  padding: 0 0.62rem;
+  border: 1px solid var(--border);
+  border-radius: 0.46rem;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 0.66rem;
+}
+
+.logcat-buffers {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.logcat-buffers legend {
+  grid-column: 1 / -1;
+  margin-bottom: 0.34rem;
+}
+
+.logcat-buffers label {
+  display: flex;
+  min-height: 2.3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.58rem;
+}
+
+.logcat-buffers label:first-of-type {
+  border-radius: 0.46rem 0 0 0.46rem;
+}
+
+.logcat-buffers label:last-of-type {
+  border-radius: 0 0.46rem 0.46rem 0;
+}
+
+.logcat-buffers label + label {
+  border-left: 0;
+}
+
+.logcat-redaction-note {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1.45;
+}
+
+.logcat-redaction-note.is-warning {
+  border-color: color-mix(in srgb, var(--warning) 58%, var(--border));
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface));
+  color: var(--text-soft);
+}
+
+.logcat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.logcat-export-help {
+  margin: -0.35rem 0 0;
+}
+
+.logcat-progress {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(7rem, 0.45fr);
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.68rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.55rem;
+  background: var(--accent-soft);
+}
+
+.logcat-progress > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.logcat-progress strong,
+.logcat-progress small {
+  overflow-wrap: anywhere;
+}
+
+.logcat-progress strong {
+  color: var(--text-soft);
+  font-size: 0.63rem;
+}
+
+.logcat-progress small {
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
+.logcat-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.logcat-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.logcat-export-receipt {
+  display: grid;
+  grid-template-columns: auto minmax(8rem, 0.8fr) minmax(12rem, 1.2fr);
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--success) 55%, var(--border));
+  border-radius: 0.52rem;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+
+.logcat-export-receipt > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.logcat-export-receipt strong,
+.logcat-export-receipt small,
+.logcat-export-receipt code {
+  overflow-wrap: anywhere;
+  font-size: 0.57rem;
+}
+
+.logcat-export-receipt small {
+  color: var(--muted);
+}
+
+.logcat-export-receipt code {
+  color: var(--accent-text);
+}
+
+.logcat-panel .tool-log-viewer {
+  min-height: 10rem;
+  max-height: 30rem;
+}
+
 [data-theme="light"] .tool-log-viewer {
   background: #edf2fb;
 }
@@ -3022,6 +3252,24 @@ code {
   .push-progress .button,
   .push-outcome .button {
     width: 100%;
+  }
+
+  .logcat-mode,
+  .logcat-controls,
+  .logcat-progress,
+  .logcat-export-receipt {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .logcat-buffers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .logcat-buffers label,
+  .logcat-buffers label:first-of-type,
+  .logcat-buffers label:last-of-type {
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
   }
 }
 

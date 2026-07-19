@@ -17,6 +17,7 @@ from pixelflasher_core import (
     AppCommand,
     AppSnapshot,
     BoundReadFile,
+    BoundWriteFile,
     GrantAccess,
     GrantError,
     GrantTarget,
@@ -127,6 +128,13 @@ _NATIVE_GRANT_SPECS = (
         GrantAccess.READ,
         multiple=True,
         max_selections=32,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
+        "tools.logcat.export",
+        "tools.logcat",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
     ),
     NativeGrantSpec(
         "native.saveFile",
@@ -406,6 +414,24 @@ class CoreCommandFactory:
             except GrantError as exc:
                 raise CommandFactoryError(exc.code, str(exc)) from exc
             payload["paths"] = bound_paths
+        elif command == "tools.logcat":
+            token = payload.pop("grant", None)
+            if token is not None:
+                if not isinstance(token, str):
+                    raise CommandFactoryError(
+                        "grant_required", "A native export grant is required."
+                    )
+                spec = _SPECS_BY_PURPOSE["tools.logcat.export"]
+                try:
+                    destination: BoundWriteFile = (
+                        self.path_grants.resolve_bound_write_file(
+                            token,
+                            purpose=spec.purpose,
+                        )
+                    )
+                except GrantError as exc:
+                    raise CommandFactoryError(exc.code, str(exc)) from exc
+                payload["exportDestination"] = destination
         elif command == "tools.wifi":
             secret_token = payload.pop("secretGrant", None)
             if payload.get("action") == "pair":

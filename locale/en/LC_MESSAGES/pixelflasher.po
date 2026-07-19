@@ -4086,7 +4086,7 @@ msgid "Arbitrary shell input stays unavailable until a bounded command policy ex
 msgstr ""
 
 msgctxt "web.tools.logcatDetail"
-msgid "Collect a bounded Android system log snapshot."
+msgid "Collect or stream bounded, redacted Android system logs."
 msgstr ""
 
 msgctxt "web.tools.partitionDetail"
@@ -4845,4 +4845,168 @@ msgstr ""
 
 msgctxt "web.tools.pushReceipts"
 msgid "Verified file receipts"
+msgstr ""
+
+msgctxt "web.tools.logcatMode"
+msgid "Log collection mode"
+msgstr ""
+
+msgctxt "web.tools.logcatSnapshot"
+msgid "Snapshot"
+msgstr ""
+
+msgctxt "web.tools.logcatSnapshotDetail"
+msgid "Collect the latest bounded set of lines and stop."
+msgstr ""
+
+msgctxt "web.tools.logcatStream"
+msgid "Bounded stream"
+msgstr ""
+
+msgctxt "web.tools.logcatStreamDetail"
+msgid "Follow new lines for a fixed duration or until the line limit is reached."
+msgstr ""
+
+msgctxt "web.tools.logcatBuffers"
+msgid "Android log buffers"
+msgstr ""
+
+msgctxt "web.tools.logcatFormat"
+msgid "Line format"
+msgstr ""
+
+msgctxt "web.tools.logcatDuration"
+msgid "Duration in seconds"
+msgstr ""
+
+msgctxt "web.tools.logcatRedaction"
+msgid "Redaction policy"
+msgstr ""
+
+msgctxt "web.tools.logcatRedactionStrict"
+msgid "Strict"
+msgstr ""
+
+msgctxt "web.tools.logcatRedactionStandard"
+msgid "Standard"
+msgstr ""
+
+msgctxt "web.tools.logcatRedactionNone"
+msgid "None (Expert)"
+msgstr ""
+
+msgctxt "web.tools.logcatRedactionStrictDetail"
+msgid "Masks device identifiers, network addresses, account data, and sensitive file paths."
+msgstr ""
+
+msgctxt "web.tools.logcatRedactionStandardDetail"
+msgid "Masks high-confidence secrets and identifiers while preserving more diagnostic context."
+msgstr ""
+
+msgctxt "web.tools.logcatRedactionNoneDetail"
+msgid "Logs may contain personal data and secrets. Review them before sharing."
+msgstr ""
+
+msgctxt "web.tools.logcatCollectSnapshot"
+msgid "Collect snapshot"
+msgstr ""
+
+msgctxt "web.tools.logcatStartStream"
+msgid "Start bounded stream"
+msgstr ""
+
+msgctxt "web.tools.logcatCancel"
+msgid "Cancel log collection"
+msgstr ""
+
+msgctxt "web.tools.logcatCancelling"
+msgid "Cancelling log collection…"
+msgstr ""
+
+msgctxt "web.tools.logcatCollecting"
+msgid "Collecting log snapshot…"
+msgstr ""
+
+msgctxt "web.tools.logcatStreaming"
+msgid "Streaming bounded logs…"
+msgstr ""
+
+msgctxt "web.tools.logcatChoosingExport"
+msgid "Choosing export destination…"
+msgstr ""
+
+msgctxt "web.tools.logcatBoundedStatus"
+msgid "Up to {count} lines will be retained."
+msgstr ""
+
+msgctxt "web.tools.logcatProgressLines"
+msgid "{count} lines received"
+msgstr ""
+
+msgctxt "web.tools.logcatProgress"
+msgid "Log collection progress"
+msgstr ""
+
+msgctxt "web.tools.logcatCancelled"
+msgid "Log collection cancelled."
+msgstr ""
+
+msgctxt "web.tools.logcatFailed"
+msgid "Log collection failed."
+msgstr ""
+
+msgctxt "web.tools.logcatInvalidResult"
+msgid "The host returned an invalid log report."
+msgstr ""
+
+msgctxt "web.tools.logcatSummary"
+msgid "Log collection summary"
+msgstr ""
+
+msgctxt "web.tools.logcatLineCount"
+msgid "{count} lines"
+msgstr ""
+
+msgctxt "web.tools.logcatRedactedCount"
+msgid "{count} values redacted"
+msgstr ""
+
+msgctxt "web.tools.logcatBounded"
+msgid "Bounded"
+msgstr ""
+
+msgctxt "web.tools.logcatTruncated"
+msgid "Limit reached"
+msgstr ""
+
+msgctxt "web.tools.logcatExport"
+msgid "Capture and export"
+msgstr ""
+
+msgctxt "web.tools.logcatExportDetail"
+msgid "Runs a new capture with the current settings and writes that exact result to the selected destination."
+msgstr ""
+
+msgctxt "web.tools.logcatTextFiles"
+msgid "Text log files"
+msgstr ""
+
+msgctxt "web.tools.logcatExported"
+msgid "Exported {name}"
+msgstr ""
+
+msgctxt "web.tools.logcatClear"
+msgid "Clear viewer"
+msgstr ""
+
+msgctxt "web.tools.logcatOutput"
+msgid "Logcat output"
+msgstr ""
+
+msgctxt "web.tools.logcatPreviewLimited"
+msgid "Showing the last {shown} of {total} lines."
+msgstr ""
+
+msgctxt "web.tools.logcatEmpty"
+msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
 msgstr ""

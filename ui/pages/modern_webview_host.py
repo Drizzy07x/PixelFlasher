@@ -11,13 +11,13 @@ import math
 import os
 import sys
 import threading
-from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections import OrderedDict, deque
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import unquote, urlparse
 
 import wx
@@ -103,6 +103,199 @@ class ReplayAction(StrEnum):
     CAPACITY = "capacity"
 
 
+_REPLAY_ENTRY_OVERHEAD_BYTES = 512
+_REPLAY_MINIMUM_RESERVATION_BYTES = 2 * 1_024
+_REPLAY_DEFAULT_MAXIMUM_BYTES = 128 * 1_024 * 1_024
+_REPLAY_DEFAULT_RESERVATION_BYTES = 8 * 1_024 * 1_024
+# A valid Logcat result can contain the same 16 MiB of bounded content in both
+# ``lines`` and ``text``. JSON quoting can double ASCII-heavy input, so reserve
+# four output windows plus envelope/array overhead before dispatching it.
+_REPLAY_LOGCAT_RESERVATION_BYTES = 68 * 1_024 * 1_024
+_REPLAY_DEFAULT_MAXIMUM_WAITERS = 4
+
+_LOGCAT_PROGRESS_QUEUE_MAXIMUM_MESSAGES = 2_048
+_LOGCAT_PROGRESS_QUEUE_MAXIMUM_BYTES = 32 * 1_024 * 1_024
+_LOGCAT_PROGRESS_BATCH_MAXIMUM_MESSAGES = 128
+# A projected ProgressEvent has one bounded public message.  Two MiB also
+# covers the worst-case JSON escaping of that message while keeping each
+# WebView script comfortably below the aggregate replay/result boundaries.
+_LOGCAT_PROGRESS_BATCH_MAXIMUM_BYTES = 2 * 1_024 * 1_024
+
+
+@dataclass(frozen=True, slots=True)
+class _BatchedBridgeMessage:
+    message: dict[str, Any] = field(repr=False)
+    encoded_bytes: int
+
+
+class _LogcatProgressBatcher:
+    """Bounded FIFO that turns a logcat burst into one scheduled GUI flush."""
+
+    def __init__(
+        self,
+        emit_batch: Callable[[Sequence[dict[str, Any]]], None],
+        schedule_flush: Callable[[Callable[[], None]], None],
+        *,
+        is_gui_thread: Callable[[], bool] | None = None,
+        maximum_messages: int = _LOGCAT_PROGRESS_QUEUE_MAXIMUM_MESSAGES,
+        maximum_bytes: int = _LOGCAT_PROGRESS_QUEUE_MAXIMUM_BYTES,
+        batch_maximum_messages: int = _LOGCAT_PROGRESS_BATCH_MAXIMUM_MESSAGES,
+        batch_maximum_bytes: int = _LOGCAT_PROGRESS_BATCH_MAXIMUM_BYTES,
+    ) -> None:
+        if maximum_messages <= 0:
+            raise ValueError("maximum_messages must be positive")
+        if maximum_bytes <= 0:
+            raise ValueError("maximum_bytes must be positive")
+        if not 1 <= batch_maximum_messages <= maximum_messages:
+            raise ValueError("batch_maximum_messages must fit within the queue")
+        if not 1 <= batch_maximum_bytes <= maximum_bytes:
+            raise ValueError("batch_maximum_bytes must fit within the queue")
+        self._emit_batch = emit_batch
+        self._schedule_flush = schedule_flush
+        self._is_gui_thread = is_gui_thread or (lambda: threading.current_thread() is threading.main_thread())
+        self._maximum_messages = maximum_messages
+        self._maximum_bytes = maximum_bytes
+        self._batch_maximum_messages = batch_maximum_messages
+        self._batch_maximum_bytes = batch_maximum_bytes
+        self._queue: deque[_BatchedBridgeMessage] = deque()
+        self._queued_bytes = 0
+        self._flush_scheduled = False
+        self._closed = False
+        self._condition = threading.Condition(threading.RLock())
+
+    @property
+    def queued_messages(self) -> int:
+        with self._condition:
+            return len(self._queue)
+
+    @property
+    def queued_bytes(self) -> int:
+        with self._condition:
+            return self._queued_bytes
+
+    @property
+    def flush_scheduled(self) -> bool:
+        with self._condition:
+            return self._flush_scheduled
+
+    def enqueue(self, message: Mapping[str, Any]) -> bool:
+        item = _prepare_batched_bridge_message(message)
+        if item.encoded_bytes + 2 > self._batch_maximum_bytes:
+            raise PublicProjectionError("logcat progress event exceeds the batch byte limit")
+        gui_thread = self._is_gui_thread()
+        while True:
+            appended = False
+            flush_inline = False
+            schedule = False
+            with self._condition:
+                while not self._closed and not self._has_capacity(item):
+                    if gui_thread:
+                        flush_inline = True
+                        break
+                    # Backpressure is deliberate: the bounded producer may
+                    # wait, but no device log event is evicted or coalesced.
+                    self._condition.wait()
+                if self._closed:
+                    return False
+                if not flush_inline:
+                    self._queue.append(item)
+                    self._queued_bytes += item.encoded_bytes
+                    appended = True
+                    if not self._flush_scheduled:
+                        self._flush_scheduled = True
+                        if gui_thread:
+                            flush_inline = True
+                        else:
+                            schedule = True
+            if flush_inline:
+                self.flush()
+                if schedule:
+                    raise RuntimeError("logcat flush cannot be inline and scheduled")
+                if appended:
+                    return True
+                # The queue was full before this item was appended.  The
+                # synchronous GUI drain made room, so retry the insertion.
+                continue
+            if schedule:
+                self._schedule_flush(self.flush)
+            return True
+
+    def flush(self) -> None:
+        """Drain every queued item now, splitting only the WebView scripts."""
+
+        while True:
+            with self._condition:
+                if self._closed:
+                    self._flush_scheduled = False
+                    return
+                batch = self._take_batch_locked()
+                if not batch:
+                    # Empty and transition to unscheduled are atomic.  A
+                    # producer arriving next will schedule exactly one new
+                    # CallAfter, while a producer already present is consumed
+                    # by this same callback before it returns.
+                    self._flush_scheduled = False
+                    self._condition.notify_all()
+                    return
+            self._emit_batch(tuple(item.message for item in batch))
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._queue.clear()
+            self._queued_bytes = 0
+            self._flush_scheduled = False
+            self._condition.notify_all()
+
+    def _has_capacity(self, item: _BatchedBridgeMessage) -> bool:
+        return (
+            len(self._queue) < self._maximum_messages and self._queued_bytes + item.encoded_bytes <= self._maximum_bytes
+        )
+
+    def _take_batch_locked(self) -> tuple[_BatchedBridgeMessage, ...]:
+        batch: list[_BatchedBridgeMessage] = []
+        batch_bytes = 2  # JSON array brackets.
+        while self._queue and len(batch) < self._batch_maximum_messages:
+            candidate = self._queue[0]
+            separator_bytes = 1 if batch else 0
+            if batch_bytes + separator_bytes + candidate.encoded_bytes > self._batch_maximum_bytes:
+                break
+            batch.append(self._queue.popleft())
+            self._queued_bytes -= candidate.encoded_bytes
+            batch_bytes += separator_bytes + candidate.encoded_bytes
+        if self._queue and not batch:
+            raise RuntimeError("queued logcat event cannot fit its configured batch")
+        if batch:
+            self._condition.notify_all()
+        return tuple(batch)
+
+
+def _prepare_batched_bridge_message(message: Mapping[str, Any]) -> _BatchedBridgeMessage:
+    stable = _bounded_bridge_message(message)
+    payload = _encode_bridge_message(stable)
+    return _BatchedBridgeMessage(stable, len(payload.encode("ascii")))
+
+
+def _bounded_bridge_message(message: Mapping[str, Any]) -> dict[str, Any]:
+    bounded = _limit_bridge_payload(dict(message))
+    if not isinstance(bounded, dict):
+        raise PublicProjectionError("bridge message must remain an object")
+    return cast("dict[str, Any]", bounded)
+
+
+def _encode_bridge_message(message: Mapping[str, Any]) -> str:
+    return json.dumps(
+        dict(message),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _schedule_wx_callback(callback: Callable[[], None]) -> None:
+    call_after = cast("Callable[[Callable[[], None]], object]", vars(wx)["CallAfter"])
+    call_after(callback)
+
+
 @dataclass(frozen=True, slots=True)
 class ReplayDecision:
     action: ReplayAction
@@ -112,25 +305,64 @@ class ReplayDecision:
 @dataclass(slots=True)
 class _InflightReplay:
     fingerprint: str
+    reserved_bytes: int
     waiters: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class _CompletedReplay:
     fingerprint: str
-    message: dict[str, Any] = field(repr=False)
+    payload: bytes = field(repr=False)
+    accounted_bytes: int
 
 
 class _RequestReplayLedger:
     """Session-bounded requestId ledger for exact at-most-once dispatch."""
 
-    def __init__(self, *, maximum_completed: int = 1_024) -> None:
+    def __init__(
+        self,
+        *,
+        maximum_completed: int = 1_024,
+        maximum_bytes: int = _REPLAY_DEFAULT_MAXIMUM_BYTES,
+        default_reservation_bytes: int = _REPLAY_DEFAULT_RESERVATION_BYTES,
+        logcat_reservation_bytes: int = _REPLAY_LOGCAT_RESERVATION_BYTES,
+        maximum_waiters: int = _REPLAY_DEFAULT_MAXIMUM_WAITERS,
+    ) -> None:
         if maximum_completed <= 0:
             raise ValueError("maximum_completed must be positive")
+        if maximum_bytes <= 0:
+            raise ValueError("maximum_bytes must be positive")
+        if default_reservation_bytes < _REPLAY_MINIMUM_RESERVATION_BYTES:
+            raise ValueError("default_reservation_bytes is below the safe minimum")
+        if logcat_reservation_bytes < _REPLAY_MINIMUM_RESERVATION_BYTES:
+            raise ValueError("logcat_reservation_bytes is below the safe minimum")
+        if maximum_waiters < 0:
+            raise ValueError("maximum_waiters must not be negative")
         self._maximum_completed = maximum_completed
+        self._maximum_bytes = maximum_bytes
+        self._default_reservation_bytes = default_reservation_bytes
+        self._logcat_reservation_bytes = logcat_reservation_bytes
+        self._maximum_waiters = maximum_waiters
         self._inflight: dict[str, _InflightReplay] = {}
         self._completed: OrderedDict[str, _CompletedReplay] = OrderedDict()
+        self._reserved_bytes = 0
+        self._completed_bytes = 0
         self._lock = threading.RLock()
+
+    @property
+    def reserved_bytes(self) -> int:
+        with self._lock:
+            return self._reserved_bytes
+
+    @property
+    def retained_bytes(self) -> int:
+        with self._lock:
+            return self._completed_bytes
+
+    @property
+    def accounted_bytes(self) -> int:
+        with self._lock:
+            return self._reserved_bytes + self._completed_bytes
 
     def begin(self, request: BridgeRequest) -> ReplayDecision:
         fingerprint = request.fingerprint()
@@ -140,13 +372,22 @@ class _RequestReplayLedger:
                 if completed.fingerprint != fingerprint:
                     return ReplayDecision(ReplayAction.CONFLICT)
                 self._completed.move_to_end(request.request_id)
-                return ReplayDecision(ReplayAction.REPLAY, dict(completed.message))
+                return ReplayDecision(
+                    ReplayAction.REPLAY,
+                    _decode_replay_payload(completed.payload),
+                )
 
             inflight = self._inflight.get(request.request_id)
             if inflight is not None:
                 if inflight.fingerprint != fingerprint:
                     return ReplayDecision(ReplayAction.CONFLICT)
-                inflight.waiters += 1
+                # Every duplicate has the same requestId on the same WebView
+                # channel, so one terminal response is sufficient to resolve
+                # callers beyond this bounded fan-out. Silently coalesce them
+                # instead of emitting an early error that could reject the
+                # original request while its operation is still running.
+                if inflight.waiters < self._maximum_waiters:
+                    inflight.waiters += 1
                 return ReplayDecision(ReplayAction.WAIT)
 
             # Never evict an ID: eviction would make an old request executable
@@ -154,7 +395,14 @@ class _RequestReplayLedger:
             # require a new host session instead of weakening idempotency.
             if len(self._completed) + len(self._inflight) >= self._maximum_completed:
                 return ReplayDecision(ReplayAction.CAPACITY)
-            self._inflight[request.request_id] = _InflightReplay(fingerprint)
+            reservation = self._reservation_bytes(request)
+            if self.accounted_bytes + reservation > self._maximum_bytes:
+                return ReplayDecision(ReplayAction.CAPACITY)
+            self._inflight[request.request_id] = _InflightReplay(
+                fingerprint,
+                reservation,
+            )
+            self._reserved_bytes += reservation
             return ReplayDecision(ReplayAction.EXECUTE)
 
     def complete(
@@ -163,25 +411,81 @@ class _RequestReplayLedger:
         message: Mapping[str, Any],
     ) -> tuple[dict[str, Any], ...]:
         with self._lock:
-            inflight = self._inflight.pop(request.request_id, None)
+            inflight = self._inflight.get(request.request_id)
             if inflight is None or inflight.fingerprint != request.fingerprint():
                 raise RuntimeError("request replay ledger completion is inconsistent")
             bounded = _limit_bridge_payload(dict(message))
             if not isinstance(bounded, dict):
                 raise TypeError("request replay payload must remain an object")
-            stable_message = bounded
+            stable_message = cast("dict[str, Any]", bounded)
+            payload = _encode_replay_payload(stable_message)
+            accounted_bytes = _accounted_replay_bytes(payload)
+            base_bytes = self._completed_bytes + self._reserved_bytes - inflight.reserved_bytes
+            if base_bytes + accounted_bytes > self._maximum_bytes:
+                # The request has already crossed its at-most-once boundary.
+                # Retain and replay a compact, explicit tombstone rather than
+                # evicting the ID or allowing a later duplicate to execute it.
+                stable_message = response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={
+                        "code": "response_replay_budget_exceeded",
+                        "message": (
+                            "The operation response exceeded the safe replay "
+                            "budget. Its requestId remains consumed; do not retry it."
+                        ),
+                    },
+                )
+                payload = _encode_replay_payload(stable_message)
+                accounted_bytes = _accounted_replay_bytes(payload)
+                if accounted_bytes > inflight.reserved_bytes or base_bytes + accounted_bytes > self._maximum_bytes:
+                    raise RuntimeError("reserved replay capacity cannot retain its failure tombstone")
+
+            self._inflight.pop(request.request_id)
+            self._reserved_bytes -= inflight.reserved_bytes
             completed = _CompletedReplay(
                 inflight.fingerprint,
-                stable_message,
+                payload,
+                accounted_bytes,
             )
             self._completed[request.request_id] = completed
             self._completed.move_to_end(request.request_id)
+            self._completed_bytes += accounted_bytes
             return tuple(dict(stable_message) for _ in range(inflight.waiters + 1))
 
     def clear(self) -> None:
         with self._lock:
             self._inflight.clear()
             self._completed.clear()
+            self._reserved_bytes = 0
+            self._completed_bytes = 0
+
+    def _reservation_bytes(self, request: BridgeRequest) -> int:
+        return self._logcat_reservation_bytes if request.command == "tools.logcat" else self._default_reservation_bytes
+
+
+def _encode_replay_payload(message: Mapping[str, Any]) -> bytes:
+    return json.dumps(
+        dict(message),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _decode_replay_payload(payload: bytes) -> dict[str, Any]:
+    decoded: object = json.loads(payload)
+    if not isinstance(decoded, dict):
+        raise RuntimeError("stored request replay payload is not an object")
+    decoded_mapping = cast("dict[object, object]", decoded)
+    if any(not isinstance(key, str) for key in decoded_mapping):
+        raise RuntimeError("stored request replay payload is not an object")
+    return cast("dict[str, Any]", decoded_mapping)
+
+
+def _accounted_replay_bytes(payload: bytes) -> int:
+    return len(payload) + _REPLAY_ENTRY_OVERHEAD_BYTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,9 +623,7 @@ def frontend_index_path() -> Path:
             return candidate
 
     checked = ", ".join(str(root / "ui" / "web" / "dist" / "index.html") for root in roots)
-    raise FrontendAssetsNotFound(
-        "The React application has not been built. Expected index.html at: " + checked
-    )
+    raise FrontendAssetsNotFound("The React application has not been built. Expected index.html at: " + checked)
 
 
 def create_modern_webview_frame(
@@ -372,13 +674,15 @@ class ModernWebViewFrame(wx.Frame):
         self._loaded = False
         self._closing = False
         self._pending_messages: list[dict[str, Any]] = []
+        self._logcat_progress_batcher = _LogcatProgressBatcher(
+            self._emit_batch,
+            _schedule_wx_callback,
+        )
         self._replay_ledger = _RequestReplayLedger()
         self._operation_commands: dict[str, str] = {}
         self._operation_commands_lock = threading.RLock()
         self._subscription: Callable[[], None] | None = None
-        self._command_factory.bind_support_destination_registrar(
-            support_destination_registrar
-        )
+        self._command_factory.bind_support_destination_registrar(support_destination_registrar)
         self._command_worker = _SerialCommandWorker(self._engine, self._command_finished)
 
         backend = _preferred_backend()
@@ -473,7 +777,7 @@ class ModernWebViewFrame(wx.Frame):
                     error={
                         "code": "request_ledger_full",
                         "message": (
-                            "The request ledger reached its safe session limit; "
+                            "The request ledger reached its safe session ID or memory limit; "
                             "restart PixelFlasher before sending more commands."
                         ),
                     },
@@ -502,7 +806,7 @@ class ModernWebViewFrame(wx.Frame):
                         "message": "Bridge ready.",
                         "revision": _revision(self._engine.snapshot()),
                     },
-                )
+                ),
             )
             self._emit_snapshot()
             return
@@ -514,7 +818,7 @@ class ModernWebViewFrame(wx.Frame):
                     request.request_id,
                     ok=True,
                     result=_mapping(snapshot),
-                )
+                ),
             )
             return
         if request.command == "operation.cancel":
@@ -540,7 +844,7 @@ class ModernWebViewFrame(wx.Frame):
                             fallback="The command payload is invalid.",
                         ),
                     },
-                )
+                ),
             )
             return
         except Exception:
@@ -605,11 +909,13 @@ class ModernWebViewFrame(wx.Frame):
                     "message": acknowledgement_message,
                     "revision": _revision(self._engine.snapshot()),
                 },
-                error={} if accepted else {
+                error={}
+                if accepted
+                else {
                     "code": acknowledgement.code,
                     "message": acknowledgement_message,
                 },
-            )
+            ),
         )
 
     def _handle_interaction_response(self, request: BridgeRequest) -> None:
@@ -649,11 +955,13 @@ class ModernWebViewFrame(wx.Frame):
                     "message": acknowledgement_message,
                     "revision": _revision(self._engine.snapshot()),
                 },
-                error={} if accepted else {
+                error={}
+                if accepted
+                else {
                     "code": acknowledgement.code,
                     "message": acknowledgement_message,
                 },
-            )
+            ),
         )
 
     def _command_finished(
@@ -749,12 +1057,14 @@ class ModernWebViewFrame(wx.Frame):
                 request.request_id,
                 ok=status == "SUCCESS",
                 result=result,
-                error={} if status == "SUCCESS" else {
+                error={}
+                if status == "SUCCESS"
+                else {
                     "code": str(result.get("code", "operation_cancelled")),
                     "message": str(result.get("message", "Selection cancelled.")),
                     "details": result,
                 },
-            )
+            ),
         )
 
     def _handle_secret_issue(self, request: BridgeRequest) -> None:
@@ -791,6 +1101,7 @@ class ModernWebViewFrame(wx.Frame):
         if self._closing:
             return
         revision = _revision(self._engine.snapshot())
+        batch_logcat_progress = False
         if isinstance(event, SnapshotChanged):
             event_type = "snapshot"
             payload = _mapping(event.snapshot)
@@ -798,6 +1109,8 @@ class ModernWebViewFrame(wx.Frame):
         elif isinstance(event, ProgressEvent):
             event_type = "progress"
             payload = _mapping(event)
+            with self._operation_commands_lock:
+                batch_logcat_progress = self._operation_commands.get(event.operation_id) == "tools.logcat"
         elif isinstance(event, InteractionRequest):
             event_type = "interaction"
             payload = _mapping(event)
@@ -805,15 +1118,14 @@ class ModernWebViewFrame(wx.Frame):
             event_type = "runtime"
             with self._operation_commands_lock:
                 command = self._operation_commands.get(event.result.operation_id)
-            if command == "tools.wifi.discover":
-                # Discovery data belongs only to the correlated request. The
-                # terminal runtime event carries status, never LAN endpoints.
+            if command in {"tools.logcat", "tools.wifi.discover"}:
+                # Discovery endpoints and high-volume device logs belong only
+                # to their correlated request. The terminal runtime event
+                # carries status and never rebroadcasts either payload.
                 payload = public_operation_summary(event.result)
             else:
                 payload = (
-                    project_operation_result(command, event.result)
-                    if command is not None
-                    else _mapping(event.result)
+                    project_operation_result(command, event.result) if command is not None else _mapping(event.result)
                 )
         else:
             return
@@ -822,7 +1134,9 @@ class ModernWebViewFrame(wx.Frame):
             payload,
             revision=revision,
         )
-        if threading.current_thread() is threading.main_thread():
+        if batch_logcat_progress:
+            self._logcat_progress_batcher.enqueue(message)
+        elif threading.current_thread() is threading.main_thread():
             self._emit(message)
         else:
             wx.CallAfter(self._emit, message)
@@ -854,14 +1168,30 @@ class ModernWebViewFrame(wx.Frame):
         if not self._loaded:
             self._pending_messages.append(message)
             return
-        payload = json.dumps(
-            _limit_bridge_payload(message),
-            ensure_ascii=True,
-            separators=(",", ":"),
-        )
+        payload = _encode_bridge_message(_bounded_bridge_message(message))
+        script = f"window.dispatchEvent(new CustomEvent('pixelflasher:message',{{detail:{payload}}}));"
+        self._view.RunScriptAsync(script)
+
+    def _emit_batch(self, messages: Sequence[dict[str, Any]]) -> None:
+        if self._closing or not messages:
+            return
+        if len(messages) > _LOGCAT_PROGRESS_BATCH_MAXIMUM_MESSAGES:
+            raise ValueError("bridge event batch exceeds its message limit")
+        bounded_messages: list[dict[str, Any]] = []
+        payloads: list[str] = []
+        for message in messages:
+            stable = _bounded_bridge_message(message)
+            bounded_messages.append(stable)
+            payloads.append(_encode_bridge_message(stable))
+        payload = f"[{','.join(payloads)}]"
+        if len(payload.encode("ascii")) > _LOGCAT_PROGRESS_BATCH_MAXIMUM_BYTES:
+            raise ValueError("bridge event batch exceeds its byte limit")
+        if not self._loaded:
+            self._pending_messages.extend(bounded_messages)
+            return
         script = (
-            "window.dispatchEvent(new CustomEvent('pixelflasher:message',"
-            f"{{detail:{payload}}}));"
+            f"for(const detail of {payload})"
+            "{window.dispatchEvent(new CustomEvent('pixelflasher:message',{detail}));}"
         )
         self._view.RunScriptAsync(script)
 
@@ -870,6 +1200,10 @@ class ModernWebViewFrame(wx.Frame):
             event.Skip()
             return
         self._closing = True
+        # Wake a producer held by bounded logcat backpressure before engine
+        # shutdown waits for the worker.  Pending UI-only events are discarded
+        # at this explicit session boundary.
+        self._logcat_progress_batcher.close()
         if self._subscription is not None:
             self._subscription()
         try:
@@ -877,9 +1211,7 @@ class ModernWebViewFrame(wx.Frame):
         finally:
             stopped = self._command_worker.shutdown()
             if not stopped:
-                wx.LogWarning(
-                    "PixelFlasher's operation worker did not stop within the shutdown timeout."
-                )
+                wx.LogWarning("PixelFlasher's operation worker did not stop within the shutdown timeout.")
             self._command_factory.path_grants.clear()
             self._command_factory.secret_grants.clear()
             with self._operation_commands_lock:
@@ -1047,22 +1379,70 @@ def _jsonable(value: Any) -> Any:
     return ensure_public_json(value)
 
 
-def _limit_bridge_payload(value: Any, *, depth: int = 0, field: str = "") -> Any:
+_LOGCAT_RESULT_FIELDS = frozenset(
+    {
+        "targetSerial",
+        "mode",
+        "lineCount",
+        "lines",
+        "text",
+        "redaction",
+        "redactedCount",
+        "bounded",
+        "truncated",
+    }
+)
+
+
+def _limit_bridge_payload(
+    value: Any,
+    *,
+    depth: int = 0,
+    field: str = "",
+    scope: str = "",
+) -> Any:
     """Keep logs and malformed service data from overwhelming the WebView."""
 
     if depth > 20:
         return "[depth limit]"
     if isinstance(value, Mapping):
+        keys = frozenset(key for key in value if isinstance(key, str))
+        child_scope = (
+            "logcat"
+            if keys in {_LOGCAT_RESULT_FIELDS, _LOGCAT_RESULT_FIELDS | {"export"}}
+            and value.get("bounded") is True
+            and value.get("mode") in {"snapshot", "stream"}
+            else scope
+        )
         result: dict[str, Any] = {}
         for key, item in list(value.items())[:2048]:
             if not isinstance(key, str):
                 raise PublicProjectionError("public bridge keys must be strings")
-            result[key] = _limit_bridge_payload(item, depth=depth + 1, field=key)
+            result[key] = _limit_bridge_payload(
+                item,
+                depth=depth + 1,
+                field=key,
+                scope=child_scope,
+            )
         return result
     if isinstance(value, (list, tuple)):
-        return [_limit_bridge_payload(item, depth=depth + 1, field=field) for item in value[:2048]]
+        item_limit = 10_000 if scope == "logcat" and field == "lines" else 2_048
+        return [
+            _limit_bridge_payload(
+                item,
+                depth=depth + 1,
+                field=field,
+                scope=scope,
+            )
+            for item in value[:item_limit]
+        ]
     if isinstance(value, str):
-        limit = 32_768 if field.lower() in {"stdout", "stderr", "log", "logs"} else 131_072
+        if scope == "logcat" and field == "text":
+            limit = 16 * 1_024 * 1_024 + 10_000
+        elif scope == "logcat" and field == "lines":
+            limit = 4_096
+        else:
+            limit = 32_768 if field.lower() in {"stdout", "stderr", "log", "logs"} else 131_072
         if len(value) > limit:
             return value[:limit] + f"\n[truncated {len(value) - limit} characters]"
         return value

@@ -3,8 +3,19 @@ import type { AssetName } from '../../assets';
 import { normalizeOperationStatus, validTargetSerial } from '../../bridge';
 import { commands, type BridgeCommand } from '../../commands';
 import { useI18n } from '../../i18n';
+import type { ActiveOperation } from '../../types';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
 import { isToolchainReady, record, selectedGrant, selectedGrants, type CommandRunOptions, type SharedPageProps } from '../shared';
+import {
+  LogcatPanel,
+  MAX_LOGCAT_PREVIEW_LINES,
+  appendLogcatProgressBatch,
+  hasUnredactedLogcatState,
+  initialLogcatUiState,
+  purgeUnredactedLogcatState,
+  useLogcatExpertGuard,
+  type LogcatUiState,
+} from './LogcatPanel';
 
 type ToolPanel = 'wifi' | 'logcat' | 'partitions' | 'push' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
@@ -47,6 +58,16 @@ export const initialPushUiState: PushUiState = {
   operationId: null,
   contextSerial: null,
   contextMode: null,
+};
+
+export {
+  initialLogcatUiState,
+  MAX_LOGCAT_PREVIEW_LINES,
+  appendLogcatProgressBatch,
+  hasUnredactedLogcatState,
+  purgeUnredactedLogcatState,
+  useLogcatExpertGuard,
+  type LogcatUiState,
 };
 
 const WIFI_DISCOVERY_FIELDS = ['action', 'bounded', 'count', 'discardedCount', 'services'] as const;
@@ -192,10 +213,16 @@ export function ToolsPage({
   expertMode,
   pushUiState,
   onPushUiStateChange,
+  logcatUiState,
+  logcatProgressBatch,
+  onLogcatUiStateChange,
 }: SharedPageProps & {
   expertMode: boolean;
   pushUiState?: PushUiState;
   onPushUiStateChange?: Dispatch<SetStateAction<PushUiState>>;
+  logcatUiState?: LogcatUiState;
+  logcatProgressBatch?: readonly ActiveOperation[];
+  onLogcatUiStateChange?: Dispatch<SetStateAction<LogcatUiState>>;
 }) {
   const { t } = useI18n();
   const primary = selectedSerials.length === 1
@@ -212,8 +239,6 @@ export function ToolsPage({
   ));
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
-  const [logLines, setLogLines] = useState<string[]>([]);
-  const [maxLines, setMaxLines] = useState(500);
   const [partitions, setPartitions] = useState<PartitionRow[]>([]);
   const [partition, setPartition] = useState('');
   const [wifiAction, setWifiAction] = useState<'pair' | 'connect' | 'disconnect' | 'status'>('status');
@@ -312,19 +337,6 @@ export function ToolsPage({
     } finally {
       setBusy('');
     }
-  };
-
-  const collectLogcat = async () => {
-    if (!primary || !adbReady) return;
-    const response = await runTool(commands.toolsLogcat, {
-      serial: primary.serial,
-      buffers: ['main'],
-      format: 'threadtime',
-      maxLines,
-      timeoutSeconds: 30,
-    });
-    const value = record(record(response?.result).value);
-    setLogLines(Array.isArray(value.lines) ? value.lines.filter((line): line is string => typeof line === 'string') : []);
   };
 
   const listPartitions = async () => {
@@ -688,10 +700,17 @@ export function ToolsPage({
             </div>
           ) : null}
           {panel === 'logcat' ? (
-            <div className="tool-panel-body">
-              <div className="tool-form-grid tool-form-grid--compact"><label><span>{t('tools.maxLines')}</span><input type="number" min="1" max="10000" value={maxLines} onChange={(event) => setMaxLines(Math.max(1, Math.min(10000, Number(event.currentTarget.value))))} /></label><Button variant="primary" icon="logs" onClick={() => void collectLogcat()} disabled={Boolean(busy) || !adbReady}>{t('tools.collectLogs')}</Button></div>
-              {logLines.length ? <pre className="tool-log-viewer" aria-label={t('tools.logs')}>{logLines.join('\n')}</pre> : <EmptyState icon="logs" title={t('common.none')} detail={t('tools.logcatDetail')} />}
-            </div>
+            <LogcatPanel
+              device={primary}
+              operation={snapshot.activeOperation}
+              progressBatch={logcatProgressBatch}
+              adbReady={adbReady}
+              hostBusy={Boolean(busy)}
+              expertMode={expertMode}
+              onCommand={onCommand}
+              uiState={logcatUiState}
+              onUiStateChange={onLogcatUiStateChange}
+            />
           ) : null}
           {panel === 'partitions' ? (
             <div className="tool-panel-body">

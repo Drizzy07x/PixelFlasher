@@ -9,6 +9,7 @@ It deliberately does not expose a general-purpose ADB shell.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
 import json
 import os
@@ -20,7 +21,7 @@ import threading
 import time
 import xml.etree.ElementTree as ElementTree
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Protocol, cast
 
@@ -39,7 +40,12 @@ from .contracts import (
     SensitiveText,
 )
 from .executor import CancellationReason, CancellationToken, TransportOutcome
-from .grants import BoundReadFile, GrantError
+from .grants import (
+    AtomicWriteOutcomeUnknownError,
+    BoundReadFile,
+    BoundWriteFile,
+    GrantError,
+)
 
 DEVICE_TOOL_COMMANDS = frozenset(
     {
@@ -87,6 +93,63 @@ _LOGCAT_PRIORITIES = {
     "silent": "S",
 }
 _LOGCAT_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_LOGCAT_MODES = frozenset({"snapshot", "stream"})
+_LOGCAT_REDACTION_PROFILES = frozenset({"strict", "standard", "none"})
+_LOGCAT_OUTPUT_LIMIT = 16 * 1024 * 1024
+_LOGCAT_LINE_LIMIT_BYTES = 4_096
+_LOGCAT_STDERR_LIMIT = 64 * 1_024
+_LOGCAT_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_LOGCAT_UNSAFE_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_LOGCAT_EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_LOGCAT_MAC = re.compile(r"(?i)(?<![0-9A-F])(?:[0-9A-F]{2}:){5}[0-9A-F]{2}(?![0-9A-F])")
+_LOGCAT_SENSITIVE_HEADER = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key)"
+    r"\s*:\s*[^\r\n]*"
+)
+_LOGCAT_QUOTED_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)(?P<prefix>[\"'](?:access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"token|password|passwd|secret|api[_-]?key)[\"']\s*:\s*)"
+    r"(?P<quote>[\"'])(?:\\.|(?!(?P=quote)).)*(?P=quote)"
+)
+_LOGCAT_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)(?P<prefix>[\"']?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"token|password|passwd|secret|api[_-]?key)\b[\"']?\s*[:=]\s*)"
+    r"(?![\"'])[^\s,;}]+"
+)
+_LOGCAT_AUTH_SECRET = re.compile(r"(?i)\b(Bearer|Basic)\s+[^\s,;]+")
+_LOGCAT_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
+_LOGCAT_IPV4 = re.compile(
+    r"(?<![A-Za-z0-9])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|1?\d?\d)(?::\d{1,5})?(?![A-Za-z0-9])"
+)
+_LOGCAT_IPV6 = re.compile(r"\[[0-9A-Fa-f:]{2,}\](?::\d{1,5})?")
+_LOGCAT_PATH_TAIL = r"[^\r\n,;|\"'<>()[\]{}]+"
+_LOGCAT_DEVICE_PATH = re.compile(
+    rf"(?<![A-Za-z0-9_:/])/(?:data|sdcard|storage|system|vendor|product)/{_LOGCAT_PATH_TAIL}"
+)
+_LOGCAT_WINDOWS_HOST_PATH = re.compile(
+    rf"(?i)(?<![A-Za-z0-9_])(?:[A-Z]:[\\/]|\\\\){_LOGCAT_PATH_TAIL}"
+)
+_LOGCAT_PATH_CONSTRUCTOR = re.compile(
+    r"(?i)\b(?:WindowsPath|PosixPath|PurePath)\([^)]*\)"
+)
+_LOGCAT_POSIX_PATH = re.compile(
+    rf"(?<![A-Za-z0-9_:/])/(?!/){_LOGCAT_PATH_TAIL}"
+)
+_LOGCAT_PUBLIC_ANDROID_PATH_PREFIXES = (
+    "/data/",
+    "/dev/",
+    "/metadata/",
+    "/mnt/",
+    "/odm/",
+    "/proc/",
+    "/product/",
+    "/sdcard/",
+    "/storage/",
+    "/sys/",
+    "/system/",
+    "/vendor/",
+)
 
 _PUSH_DESTINATIONS = frozenset({"/data/local/tmp/", "/sdcard/Download/"})
 _REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -189,6 +252,7 @@ _MACH_EXECUTABLE_MAGICS = frozenset(
 _EXECUTION_PROCESS = "process"
 _EXECUTION_LAUNCH = "managed-launch"
 _EXECUTION_SECRET_PROCESS = "secret-stdin"
+_EXECUTION_LOGCAT_STREAM = "logcat-stream"
 
 DeviceToolProgress = Callable[
     [ProgressPhase, str, int | None, int | None, int | None, str | None],
@@ -230,8 +294,42 @@ class SecretProcessRunner(Protocol):
     def shutdown(self) -> None: ...
 
 
+LogcatLineHandler = Callable[[str], str]
+
+
+@dataclass(frozen=True, slots=True)
+class LogcatStreamOutcome:
+    """Bounded, already-sanitized output from one incremental logcat child."""
+
+    returncode: int | None
+    lines: tuple[str, ...] = ()
+    cancelled: bool = False
+    timed_out: bool = False
+    duration_completed: bool = False
+    line_limit_reached: bool = False
+    output_limited: bool = False
+    truncated_lines: int = 0
+
+
+class LogcatStreamRunner(Protocol):
+    def run(
+        self,
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        *,
+        max_lines: int,
+        line_handler: LogcatLineHandler,
+    ) -> LogcatStreamOutcome: ...
+
+    def shutdown(self) -> None: ...
+
+
 class ManagedProcessTerminationError(RuntimeError):
     """A child process could not be stopped and remains tracked for shutdown."""
+
+
+class LogcatExportVerificationError(OSError):
+    """A committed Logcat export did not match the redacted payload."""
 
 
 class ManagedProcessLauncher:
@@ -346,6 +444,240 @@ class ManagedProcessLauncher:
             except subprocess.TimeoutExpired:
                 return False
         return process.poll() is not None
+
+
+class SubprocessLogcatStreamRunner:
+    """Read logcat incrementally with hard duration, line and byte bounds."""
+
+    poll_interval_seconds = 0.05
+    read_chunk_bytes = 16 * 1_024
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._children: dict[int, subprocess.Popen[bytes]] = {}
+        self._closed = False
+
+    def run(
+        self,
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        *,
+        max_lines: int,
+        line_handler: LogcatLineHandler,
+    ) -> LogcatStreamOutcome:
+        if not 1 <= max_lines <= 10_000:
+            raise ValueError("max_lines must be between 1 and 10000")
+        if request.timeout_seconds is None:
+            raise ValueError("streaming logcat requires a bounded duration")
+        output_limit = min(
+            request.output_limit_bytes or _LOGCAT_OUTPUT_LIMIT,
+            _LOGCAT_OUTPUT_LIMIT,
+        )
+        if cancellation.cancelled:
+            return LogcatStreamOutcome(
+                None,
+                cancelled=cancellation.reason is CancellationReason.USER,
+                timed_out=cancellation.reason is CancellationReason.DEADLINE,
+            )
+        environment = None
+        if request.env:
+            environment = os.environ.copy()
+            environment.update(dict(request.env))
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("logcat stream runner has shut down")
+            self._reap_finished()
+            process: subprocess.Popen[bytes] = subprocess.Popen(  # noqa: S603
+                list(request.argv),
+                cwd=request.cwd,
+                env=environment,
+                shell=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                start_new_session=not sys.platform.startswith("win"),
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    if sys.platform.startswith("win")
+                    else 0
+                ),
+            )
+            self._children[process.pid] = process
+        assert process.stdout is not None
+        assert process.stderr is not None
+        stdout_stream = process.stdout
+        stderr_stream = process.stderr
+
+        lines: list[str] = []
+        lines_lock = threading.Lock()
+        stop_requested = threading.Event()
+        line_limit_reached = threading.Event()
+        output_limited = threading.Event()
+        reader_failed = threading.Event()
+        truncated_lines = 0
+        captured_bytes = 0
+        pending = bytearray()
+        pending_truncated = False
+
+        def emit_pending() -> None:
+            nonlocal pending_truncated, truncated_lines
+            if stop_requested.is_set():
+                return
+            raw_line = bytes(pending).decode(request.encoding, errors="replace")
+            pending.clear()
+            if raw_line.endswith("\r"):
+                raw_line = raw_line[:-1]
+            if pending_truncated:
+                truncated_lines += 1
+                pending_truncated = False
+            try:
+                safe_line = line_handler(raw_line)
+            except Exception:
+                reader_failed.set()
+                stop_requested.set()
+                return
+            if not isinstance(safe_line, str):
+                reader_failed.set()
+                stop_requested.set()
+                return
+            with lines_lock:
+                if len(lines) >= max_lines:
+                    stop_requested.set()
+                    return
+                lines.append(safe_line)
+                if len(lines) >= max_lines:
+                    line_limit_reached.set()
+                    stop_requested.set()
+
+        def collect_stdout() -> None:
+            nonlocal captured_bytes, pending_truncated
+            try:
+                while not stop_requested.is_set():
+                    chunk = os.read(stdout_stream.fileno(), self.read_chunk_bytes)
+                    if not chunk:
+                        break
+                    captured_bytes += len(chunk)
+                    if captured_bytes > output_limit:
+                        output_limited.set()
+                        stop_requested.set()
+                        break
+                    for byte in chunk:
+                        if stop_requested.is_set():
+                            break
+                        if byte == 0x0A:
+                            emit_pending()
+                        elif len(pending) < _LOGCAT_LINE_LIMIT_BYTES:
+                            pending.append(byte)
+                        else:
+                            pending_truncated = True
+                if pending and not stop_requested.is_set():
+                    emit_pending()
+            except (OSError, ValueError):
+                if process.poll() is None and not stop_requested.is_set():
+                    reader_failed.set()
+                    stop_requested.set()
+
+        stderr_bytes = 0
+
+        def drain_stderr() -> None:
+            nonlocal stderr_bytes
+            try:
+                while not stop_requested.is_set():
+                    chunk = os.read(stderr_stream.fileno(), self.read_chunk_bytes)
+                    if not chunk:
+                        return
+                    stderr_bytes += len(chunk)
+                    if stderr_bytes > _LOGCAT_STDERR_LIMIT:
+                        output_limited.set()
+                        stop_requested.set()
+                        return
+            except (OSError, ValueError):
+                return
+
+        readers = (
+            threading.Thread(
+                target=collect_stdout,
+                name="pixelflasher-logcat-stdout",
+                daemon=True,
+            ),
+            threading.Thread(
+                target=drain_stderr,
+                name="pixelflasher-logcat-stderr",
+                daemon=True,
+            ),
+        )
+        for reader in readers:
+            reader.start()
+
+        duration_deadline = time.monotonic() + request.timeout_seconds
+        cancelled = False
+        timed_out = False
+        duration_completed = False
+        forced_stop = False
+        while process.poll() is None:
+            if cancellation.cancelled:
+                cancelled = cancellation.reason is CancellationReason.USER
+                timed_out = cancellation.reason is CancellationReason.DEADLINE
+                forced_stop = True
+                break
+            if output_limited.is_set() or reader_failed.is_set():
+                forced_stop = True
+                break
+            if stop_requested.is_set():
+                duration_completed = True
+                forced_stop = True
+                break
+            if time.monotonic() >= duration_deadline:
+                duration_completed = True
+                stop_requested.set()
+                forced_stop = True
+                break
+            cancellation.wait(self.poll_interval_seconds)
+
+        if forced_stop and process.poll() is None and not ManagedProcessLauncher._stop_child(process):
+            # The child must remain tracked for a later shutdown retry, but its
+            # reader callbacks must not keep publishing progress after the
+            # operation has already failed terminally.
+            stop_requested.set()
+            raise ManagedProcessTerminationError(
+                "logcat stream could not be terminated and remains tracked"
+            )
+        for reader in readers:
+            reader.join(timeout=1)
+        for stream, reader in zip((stdout_stream, stderr_stream), readers, strict=True):
+            if reader.is_alive():
+                stream.close()
+                reader.join(timeout=1)
+        with self._lock:
+            if process.poll() is not None:
+                self._children.pop(process.pid, None)
+        if reader_failed.is_set():
+            raise RuntimeError("logcat stream reader failed")
+        with lines_lock:
+            captured_lines = tuple(lines)
+        return LogcatStreamOutcome(
+            process.returncode,
+            captured_lines,
+            cancelled=cancelled,
+            timed_out=timed_out,
+            duration_completed=duration_completed,
+            line_limit_reached=line_limit_reached.is_set(),
+            output_limited=output_limited.is_set(),
+            truncated_lines=truncated_lines,
+        )
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._closed = True
+            for pid, process in tuple(self._children.items()):
+                if ManagedProcessLauncher._stop_child(process):
+                    self._children.pop(pid, None)
+
+    def _reap_finished(self) -> None:
+        for pid, process in tuple(self._children.items()):
+            if process.poll() is not None:
+                self._children.pop(pid, None)
 
 
 class SubprocessSecretRunner:
@@ -1027,6 +1359,10 @@ class DeviceToolCompilation:
     endpoint: str = ""
     pairing_code: SensitiveText | None = None
     push_files: tuple[PushFileReceipt, ...] = ()
+    logcat_mode: str = ""
+    logcat_redaction: str = ""
+    logcat_max_lines: int = 0
+    export_destination: BoundWriteFile | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "push_files", tuple(self.push_files))
@@ -1036,6 +1372,22 @@ class DeviceToolCompilation:
             raise ValueError("push compilation requires file receipts")
         if self.action != "pushFiles" and self.push_files:
             raise ValueError("push file receipts are valid only for pushFiles")
+        if self.action == "logcat":
+            if self.logcat_mode not in _LOGCAT_MODES:
+                raise ValueError("logcat compilation mode is invalid")
+            if self.logcat_redaction not in _LOGCAT_REDACTION_PROFILES:
+                raise ValueError("logcat compilation redaction profile is invalid")
+            if not 1 <= self.logcat_max_lines <= 10_000:
+                raise ValueError("logcat compilation line limit is invalid")
+        elif any(
+            (
+                self.logcat_mode,
+                self.logcat_redaction,
+                self.logcat_max_lines,
+                self.export_destination,
+            )
+        ):
+            raise ValueError("logcat metadata is valid only for logcat")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -1046,6 +1398,10 @@ class DeviceToolCompilation:
             "execution": self.execution,
             "endpoint": self.endpoint,
             "push_files": [item.to_dict() for item in self.push_files],
+            "logcat_mode": self.logcat_mode,
+            "logcat_redaction": self.logcat_redaction,
+            "logcat_max_lines": self.logcat_max_lines,
+            "export": self.export_destination is not None,
             "plan": self.plan.to_dict(),
         }
 
@@ -1060,6 +1416,7 @@ class DeviceToolsService:
         scrcpy_executable: str | Path | None = None,
         process_launcher: ProcessLauncher | None = None,
         secret_runner: SecretProcessRunner | None = None,
+        logcat_stream_runner: LogcatStreamRunner | None = None,
     ) -> None:
         if not isinstance(hash_chunk_size, int) or isinstance(hash_chunk_size, bool):
             raise TypeError("hash_chunk_size must be an integer")
@@ -1069,6 +1426,7 @@ class DeviceToolsService:
         self.scrcpy_executable = Path(scrcpy_executable).expanduser() if scrcpy_executable is not None else None
         self.process_launcher = process_launcher or ManagedProcessLauncher()
         self.secret_runner = secret_runner or SubprocessSecretRunner()
+        self.logcat_stream_runner = logcat_stream_runner or SubprocessLogcatStreamRunner()
 
     def compile(
         self,
@@ -1105,7 +1463,10 @@ class DeviceToolsService:
         if command.kind == "tools.wifi.status":
             return self._compile_wifi_status(command, snapshot, device, adb)
         if command.kind == "tools.logcat":
-            return self._compile_logcat(command, snapshot, device, adb)
+            self._check_planning_cancelled(cancellation)
+            compilation = self._compile_logcat(command, snapshot, device, adb)
+            self._check_planning_cancelled(cancellation)
+            return compilation
         return self._compile_push_files(
             command,
             snapshot,
@@ -1336,8 +1697,156 @@ class DeviceToolsService:
         compilation: DeviceToolCompilation,
         operation_id: str,
         cancellation: CancellationToken,
+        progress: DeviceToolProgress | None = None,
     ) -> OperationResult:
         """Cross one special boundary without exposing secrets or orphaning tests."""
+
+        if compilation.execution == _EXECUTION_LOGCAT_STREAM:
+            if compilation.action != "logcat" or compilation.logcat_mode != "stream":
+                return OperationResult.failed(
+                    operation_id,
+                    code="device_tool_execution_invalid",
+                    message="logcat streaming requires a typed stream plan",
+                )
+            if cancellation.cancelled:
+                return self._logcat_stopped(operation_id, cancellation)
+            redacted_count = 0
+            emitted = 0
+            sanitized_truncated = False
+            handled_lines: list[str] = []
+
+            def handle_line(raw_line: str) -> str:
+                nonlocal emitted, redacted_count, sanitized_truncated
+                safe_line, changed, line_truncated = self._sanitize_logcat_line(
+                    raw_line,
+                    compilation.plan.target_serial or "",
+                    compilation.logcat_redaction,
+                )
+                emitted += 1
+                if changed:
+                    redacted_count += 1
+                sanitized_truncated = sanitized_truncated or line_truncated
+                handled_lines.append(safe_line)
+                if progress is not None:
+                    progress(
+                        ProgressPhase.RUNNING,
+                        safe_line,
+                        min(99, int((emitted / compilation.logcat_max_lines) * 100)),
+                        emitted,
+                        compilation.logcat_max_lines,
+                        None,
+                    )
+                return safe_line
+
+            try:
+                outcome = self.logcat_stream_runner.run(
+                    compilation.plan.request,
+                    cancellation,
+                    max_lines=compilation.logcat_max_lines,
+                    line_handler=handle_line,
+                )
+            except ManagedProcessTerminationError:
+                return OperationResult.failed(
+                    operation_id,
+                    code="managed_process_termination_failed",
+                    message="logcat cancellation could not terminate the managed process",
+                )
+            except Exception:
+                return OperationResult.failed(
+                    operation_id,
+                    code="logcat_stream_failed",
+                    message="the bounded logcat stream could not be executed",
+                )
+            outcome_valid = isinstance(outcome, LogcatStreamOutcome)
+            if outcome_valid:
+                outcome_valid = bool(
+                    isinstance(outcome.lines, tuple)
+                    and outcome.lines == tuple(handled_lines)
+                    and len(outcome.lines) <= compilation.logcat_max_lines
+                    and (
+                        outcome.returncode is None
+                        or isinstance(outcome.returncode, int)
+                        and not isinstance(outcome.returncode, bool)
+                    )
+                    and all(
+                        isinstance(value, bool)
+                        for value in (
+                            outcome.cancelled,
+                            outcome.timed_out,
+                            outcome.duration_completed,
+                            outcome.line_limit_reached,
+                            outcome.output_limited,
+                        )
+                    )
+                    and isinstance(outcome.truncated_lines, int)
+                    and not isinstance(outcome.truncated_lines, bool)
+                    and 0 <= outcome.truncated_lines <= len(outcome.lines)
+                    and sum(
+                        (outcome.cancelled, outcome.timed_out, outcome.output_limited)
+                    )
+                    <= 1
+                    and not (
+                        (outcome.cancelled or outcome.timed_out)
+                        and outcome.duration_completed
+                    )
+                    and (
+                        not outcome.line_limit_reached
+                        or outcome.duration_completed
+                        and len(outcome.lines) == compilation.logcat_max_lines
+                    )
+                )
+            if not outcome_valid:
+                return OperationResult.failed(
+                    operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned output outside its typed boundary",
+                )
+            if outcome.cancelled or cancellation.reason is CancellationReason.USER:
+                return OperationResult.cancelled(
+                    operation_id,
+                    code="cancelled",
+                    message="logcat streaming was cancelled",
+                )
+            if outcome.timed_out or cancellation.reason is CancellationReason.DEADLINE:
+                return OperationResult.failed(
+                    operation_id,
+                    code="timed_out",
+                    message="logcat streaming exceeded the command deadline",
+                )
+            if outcome.output_limited:
+                return OperationResult.failed(
+                    operation_id,
+                    code="output_limit_exceeded",
+                    message="logcat streaming exceeded its output limit",
+                    exit_code=outcome.returncode,
+                )
+            if not outcome.duration_completed:
+                return OperationResult.failed(
+                    operation_id,
+                    code="logcat_stream_ended",
+                    message="ADB logcat exited before the bounded stream completed",
+                    exit_code=outcome.returncode,
+                )
+            provisional = OperationResult.success(
+                operation_id,
+                exit_code=0,
+                value={
+                    "lines": list(outcome.lines),
+                    "redactedCount": redacted_count,
+                    "truncated": (
+                        outcome.line_limit_reached
+                        or outcome.output_limited
+                        or outcome.truncated_lines > 0
+                        or sanitized_truncated
+                    ),
+                },
+            )
+            return self._complete_logcat(
+                compilation,
+                provisional,
+                cancellation,
+                pre_sanitized=True,
+            )
 
         if compilation.execution == _EXECUTION_LAUNCH:
             if compilation.action != "scrcpy":
@@ -1701,10 +2210,342 @@ class DeviceToolsService:
             value=value,
         )
 
+    def finalize_logcat(
+        self,
+        compilation: DeviceToolCompilation,
+        result: OperationResult,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        """Sanitize a snapshot and optionally commit only its safe form."""
+
+        return self._complete_logcat(
+            compilation,
+            result,
+            cancellation,
+            pre_sanitized=False,
+        )
+
+    def _complete_logcat(
+        self,
+        compilation: DeviceToolCompilation,
+        result: OperationResult,
+        cancellation: CancellationToken,
+        *,
+        pre_sanitized: bool,
+    ) -> OperationResult:
+        if compilation.action != "logcat":
+            return OperationResult.failed(
+                result.operation_id,
+                code="logcat_compilation_invalid",
+                message="logcat finalization received a non-logcat plan",
+            )
+        if cancellation.cancelled:
+            return self._logcat_stopped(result.operation_id, cancellation)
+        if result.status is OperationStatus.CANCELLED:
+            return OperationResult.cancelled(
+                result.operation_id,
+                code=result.code,
+                message=result.message,
+            )
+        if not result.ok:
+            return OperationResult.failed(
+                result.operation_id,
+                code=result.code,
+                message=result.message,
+                exit_code=result.exit_code,
+            )
+
+        lines: list[str] = []
+        redacted_count = 0
+        truncated = False
+        if pre_sanitized:
+            raw_value = cast(object, result.value)
+            if not isinstance(raw_value, Mapping):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned an invalid typed result",
+                )
+            values = cast(Mapping[object, object], raw_value)
+            if set(values) != {"lines", "redactedCount", "truncated"}:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned unexpected metadata",
+                )
+            raw_lines = cast(object, values.get("lines"))
+            if not isinstance(raw_lines, (tuple, list)):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned invalid lines",
+                )
+            line_values = cast(tuple[object, ...] | list[object], raw_lines)
+            if any(not isinstance(line, str) for line in line_values):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned invalid lines",
+                )
+            lines = [line for line in line_values if isinstance(line, str)]
+            if len(lines) > compilation.logcat_max_lines:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream exceeded its line limit",
+                )
+            for line in lines:
+                safe_line, changed, line_truncated = self._sanitize_logcat_line(
+                    line,
+                    compilation.plan.target_serial or "",
+                    compilation.logcat_redaction,
+                )
+                if changed or line_truncated or safe_line != line:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="logcat_stream_result_invalid",
+                        message="logcat stream returned an unsafe line",
+                    )
+            raw_redacted = values.get("redactedCount", 0)
+            if (
+                not isinstance(raw_redacted, int)
+                or isinstance(raw_redacted, bool)
+                or not 0 <= raw_redacted <= len(lines)
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned invalid redaction metadata",
+                )
+            redacted_count = raw_redacted
+            raw_truncated = values.get("truncated")
+            if not isinstance(raw_truncated, bool):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_stream_result_invalid",
+                    message="logcat stream returned invalid truncation metadata",
+                )
+            truncated = raw_truncated
+        else:
+            source_lines = result.stdout.split("\n")
+            if source_lines and source_lines[-1] == "":
+                source_lines.pop()
+            if len(source_lines) > compilation.logcat_max_lines:
+                source_lines = source_lines[: compilation.logcat_max_lines]
+                truncated = True
+            for raw_line in source_lines:
+                if cancellation.cancelled:
+                    return self._logcat_stopped(result.operation_id, cancellation)
+                safe_line, changed, line_truncated = self._sanitize_logcat_line(
+                    raw_line,
+                    compilation.plan.target_serial or "",
+                    compilation.logcat_redaction,
+                )
+                lines.append(safe_line)
+                if changed:
+                    redacted_count += 1
+                truncated = truncated or line_truncated
+
+        text = "\n".join(lines)
+        if len(text.encode("utf-8")) > _LOGCAT_OUTPUT_LIMIT:
+            return OperationResult.failed(
+                result.operation_id,
+                code="logcat_stream_result_invalid",
+                message="logcat result exceeded its aggregate output limit",
+            )
+        export_value: dict[str, object] | None = None
+        if compilation.export_destination is not None:
+            try:
+                export_value = self._export_logcat(
+                    compilation.export_destination,
+                    text,
+                    cancellation,
+                )
+            except InterruptedError:
+                return self._logcat_stopped(result.operation_id, cancellation)
+            except GrantError as error:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            except LogcatExportVerificationError:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="postcondition_mismatch",
+                    message="the committed logcat export did not match its receipt",
+                )
+            except OSError:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_export_failed",
+                    message="the redacted logcat export could not be written",
+                )
+
+        value: dict[str, object] = {
+            "targetSerial": compilation.plan.target_serial,
+            "mode": compilation.logcat_mode,
+            "lineCount": len(lines),
+            "lines": lines,
+            "text": text,
+            "redaction": compilation.logcat_redaction,
+            "redactedCount": redacted_count,
+            "bounded": True,
+            "truncated": truncated,
+        }
+        if export_value is not None:
+            value["export"] = export_value
+        code = (
+            "logcat_stream_completed"
+            if compilation.logcat_mode == "stream"
+            else "logcat_collected"
+        )
+        return OperationResult.success(
+            result.operation_id,
+            code=code,
+            message=f"collected {len(lines)} bounded log line(s)",
+            exit_code=result.exit_code,
+            value=value,
+        )
+
+    @staticmethod
+    def _logcat_stopped(
+        operation_id: str,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        if cancellation.reason is CancellationReason.DEADLINE:
+            return OperationResult.failed(
+                operation_id,
+                code="timed_out",
+                message="logcat collection exceeded the command deadline",
+            )
+        return OperationResult.cancelled(
+            operation_id,
+            code="cancelled",
+            message="logcat collection was cancelled",
+        )
+
+    @staticmethod
+    def _sanitize_logcat_line(
+        raw_line: str,
+        serial: str,
+        profile: str,
+    ) -> tuple[str, bool, bool]:
+        original = raw_line
+        line_truncated = False
+        safe = _LOGCAT_ANSI_ESCAPE.sub("", raw_line)
+        safe = _LOGCAT_UNSAFE_CONTROL.sub("", safe)
+        encoded = safe.encode("utf-8", errors="replace")
+        if len(encoded) > _LOGCAT_LINE_LIMIT_BYTES:
+            line_truncated = True
+            safe = encoded[:_LOGCAT_LINE_LIMIT_BYTES].decode(
+                "utf-8", errors="ignore"
+            )
+        # Host-like paths are never allowed across the public bridge, even
+        # when an Expert explicitly disables PII redaction.
+        safe = _LOGCAT_WINDOWS_HOST_PATH.sub("<host-path>", safe)
+        safe = _LOGCAT_PATH_CONSTRUCTOR.sub("<host-path>", safe)
+
+        def redact_host_path(match: re.Match[str]) -> str:
+            path = match.group(0)
+            if any(
+                path == prefix[:-1] or path.startswith(prefix)
+                for prefix in _LOGCAT_PUBLIC_ANDROID_PATH_PREFIXES
+            ):
+                return path
+            return "<host-path>"
+
+        safe = _LOGCAT_POSIX_PATH.sub(redact_host_path, safe)
+        if profile != "none":
+            if serial:
+                safe = safe.replace(serial, "<serial>")
+            safe = _LOGCAT_SENSITIVE_HEADER.sub(
+                lambda match: f"{match.group(1)}: <redacted>", safe
+            )
+            safe = _LOGCAT_AUTH_SECRET.sub(
+                lambda match: f"{match.group(1)} <redacted>", safe
+            )
+            safe = _LOGCAT_JWT.sub("<token>", safe)
+            safe = _LOGCAT_QUOTED_SENSITIVE_ASSIGNMENT.sub(
+                lambda match: (
+                    f"{match.group('prefix')}{match.group('quote')}"
+                    f"<redacted>{match.group('quote')}"
+                ),
+                safe,
+            )
+            safe = _LOGCAT_SENSITIVE_ASSIGNMENT.sub(
+                lambda match: f"{match.group('prefix')}<redacted>", safe
+            )
+        if profile == "strict":
+            safe = _LOGCAT_EMAIL.sub("<email>", safe)
+            safe = _LOGCAT_MAC.sub("<mac-address>", safe)
+            safe = _LOGCAT_IPV4.sub("<network-address>", safe)
+            safe = _LOGCAT_IPV6.sub("<network-address>", safe)
+            safe = _LOGCAT_DEVICE_PATH.sub("<device-path>", safe)
+        final_bytes = safe.encode("utf-8", errors="replace")
+        if len(final_bytes) > _LOGCAT_LINE_LIMIT_BYTES:
+            line_truncated = True
+            safe = final_bytes[:_LOGCAT_LINE_LIMIT_BYTES].decode(
+                "utf-8", errors="ignore"
+            )
+        return safe, safe != original, line_truncated
+
+    @staticmethod
+    def _export_logcat(
+        destination: BoundWriteFile,
+        text: str,
+        cancellation: CancellationToken,
+    ) -> dict[str, object]:
+        if cancellation.cancelled:
+            raise InterruptedError("logcat export was cancelled")
+        payload = text.encode("utf-8")
+        expected_digest = hashlib.sha256(payload).hexdigest()
+        with destination.begin_atomic_replace() as transaction:
+            stream = transaction.stream
+            for offset in range(0, len(payload), 64 * 1_024):
+                if cancellation.cancelled:
+                    raise InterruptedError("logcat export was cancelled")
+                stream.write(payload[offset : offset + 64 * 1_024])
+            stream.flush()
+            os.fsync(stream.fileno())
+            if cancellation.cancelled:
+                raise InterruptedError("logcat export was cancelled")
+            transaction.commit()
+            actual_digest = hashlib.sha256()
+            actual_size = 0
+            with transaction.open_committed() as committed:
+                while chunk := committed.read(64 * 1_024):
+                    if cancellation.cancelled:
+                        raise AtomicWriteOutcomeUnknownError(
+                            "logcat export was cancelled after atomic publication"
+                        )
+                    actual_size += len(chunk)
+                    if actual_size > len(payload):
+                        raise LogcatExportVerificationError(
+                            "committed logcat export exceeds its expected size"
+                        )
+                    actual_digest.update(chunk)
+            if actual_size != len(payload) or not hmac.compare_digest(
+                actual_digest.hexdigest(),
+                expected_digest,
+            ):
+                raise LogcatExportVerificationError(
+                    "committed logcat export differs from its redacted payload"
+                )
+        return {
+            "fileName": destination.name,
+            "sha256": expected_digest,
+            "size": len(payload),
+        }
+
     def shutdown(self) -> None:
         """Terminate every managed child owned by this service."""
 
-        for boundary in (self.process_launcher, self.secret_runner):
+        for boundary in (
+            self.process_launcher,
+            self.secret_runner,
+            self.logcat_stream_runner,
+        ):
             try:
                 boundary.shutdown()
             except Exception:
@@ -1719,11 +2560,23 @@ class DeviceToolsService:
     ) -> DeviceToolCompilation:
         self._validate_payload(
             command,
-            {"serial", "buffers", "format", "filters", "maxLines", "timeoutSeconds"},
+            {
+                "serial",
+                "mode",
+                "buffers",
+                "format",
+                "filters",
+                "maxLines",
+                "timeoutSeconds",
+                "redaction",
+                "exportDestination",
+            },
         )
+        mode = self._logcat_mode(command.payload.get("mode"))
         buffers = self._logcat_buffers(command.payload.get("buffers"))
         output_format = self._logcat_format(command.payload.get("format"))
         filters = self._logcat_filters(command.payload.get("filters"))
+        redaction = self._logcat_redaction(command.payload.get("redaction"))
         max_lines = self._bounded_integer(
             command.payload.get("maxLines", 1000),
             field="maxLines",
@@ -1736,14 +2589,20 @@ class DeviceToolsService:
             minimum=1,
             maximum=120,
         )
+        raw_destination = command.payload.get("exportDestination")
+        if raw_destination is not None and not isinstance(raw_destination, BoundWriteFile):
+            raise DeviceToolPlanningError(
+                "logcat_export_grant_required",
+                "logcat export requires an opaque native write grant",
+            )
+        export_destination = (
+            raw_destination if isinstance(raw_destination, BoundWriteFile) else None
+        )
 
         buffer_argv = tuple(argument for buffer in buffers for argument in ("-b", buffer))
         filter_argv = tuple(f"{tag}:{priority}" for tag, priority in filters)
-        request = ProcessRequest(
+        logcat_argv = (
             (
-                adb,
-                "-s",
-                device.serial,
                 "logcat",
                 "-d",
                 *buffer_argv,
@@ -1752,16 +2611,74 @@ class DeviceToolsService:
                 "-t",
                 str(max_lines),
                 *filter_argv,
+            )
+            if mode == "snapshot"
+            else (
+                "logcat",
+                *buffer_argv,
+                "-v",
+                output_format,
+                *filter_argv,
+            )
+        )
+        request = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                *logcat_argv,
             ),
             timeout_seconds=timeout_seconds,
+            output_limit_bytes=_LOGCAT_OUTPUT_LIMIT,
         )
         plan = self._base_plan(
             snapshot,
             device,
             (request,),
-            label=f"Collect up to {max_lines} log lines from {device.serial}",
+            label=(
+                f"Collect up to {max_lines} log lines from {device.serial}"
+                if mode == "snapshot"
+                else f"Stream up to {max_lines} log lines from {device.serial}"
+            ),
+            risk=(
+                OperationRisk.MUTATING
+                if export_destination is not None
+                else OperationRisk.READ_ONLY
+            ),
+            postconditions=(
+                (
+                    OperationPostcondition(
+                        "host_artifact_written",
+                        {
+                            "path": str(export_destination.path),
+                            "minimumBytes": 0,
+                            "maximumBytes": _LOGCAT_OUTPUT_LIMIT,
+                        },
+                        "the redacted log export is present within its byte bound",
+                    ),
+                )
+                if export_destination is not None
+                else ()
+            ),
+            data_behavior=(
+                "host_write"
+                if export_destination is not None
+                else "preserve"
+            ),
         )
-        return DeviceToolCompilation(plan, "logcat")
+        return DeviceToolCompilation(
+            plan,
+            "logcat",
+            execution=(
+                _EXECUTION_PROCESS
+                if mode == "snapshot"
+                else _EXECUTION_LOGCAT_STREAM
+            ),
+            logcat_mode=mode,
+            logcat_redaction=redaction,
+            logcat_max_lines=max_lines,
+            export_destination=export_destination,
+        )
 
     def _compile_push_files(
         self,
@@ -1870,6 +2787,40 @@ class DeviceToolsService:
         )
 
     @staticmethod
+    def _logcat_mode(raw_mode: object) -> str:
+        if raw_mode is None:
+            return "snapshot"
+        if not isinstance(raw_mode, str):
+            raise DeviceToolPlanningError(
+                "logcat_mode_invalid",
+                "logcat mode must be a string",
+            )
+        mode = raw_mode.strip().casefold()
+        if mode not in _LOGCAT_MODES:
+            raise DeviceToolPlanningError(
+                "logcat_mode_invalid",
+                "logcat mode must be exactly snapshot or stream",
+            )
+        return mode
+
+    @staticmethod
+    def _logcat_redaction(raw_redaction: object) -> str:
+        if raw_redaction is None:
+            return "strict"
+        if not isinstance(raw_redaction, str):
+            raise DeviceToolPlanningError(
+                "logcat_redaction_invalid",
+                "logcat redaction profile must be a string",
+            )
+        profile = raw_redaction.strip().casefold()
+        if profile not in _LOGCAT_REDACTION_PROFILES:
+            raise DeviceToolPlanningError(
+                "logcat_redaction_invalid",
+                "logcat redaction must be exactly strict, standard, or none",
+            )
+        return profile
+
+    @staticmethod
     def _logcat_buffers(raw_buffers: object) -> tuple[str, ...]:
         if raw_buffers is None:
             return ("main",)
@@ -1931,19 +2882,38 @@ class DeviceToolsService:
     def _logcat_filters(raw_filters: object) -> tuple[tuple[str, str], ...]:
         if raw_filters is None:
             return ()
-        if not isinstance(raw_filters, Mapping):
+        if isinstance(raw_filters, Mapping):
+            filter_values = tuple(cast(Mapping[object, object], raw_filters).items())
+        elif isinstance(raw_filters, Sequence) and not isinstance(
+            raw_filters, (str, bytes)
+        ):
+            parsed: list[tuple[object, object]] = []
+            for raw_filter in cast(Sequence[object], raw_filters):
+                if not isinstance(raw_filter, str):
+                    raise DeviceToolPlanningError(
+                        "logcat_filter_invalid",
+                        "logcat filter entries must be strings",
+                    )
+                tag, separator, priority = raw_filter.rpartition(":")
+                if not separator or not tag or not priority:
+                    raise DeviceToolPlanningError(
+                        "logcat_filter_invalid",
+                        "logcat filters must use the Tag:priority form",
+                    )
+                parsed.append((tag, priority))
+            filter_values = tuple(parsed)
+        else:
             raise DeviceToolPlanningError(
                 "logcat_filter_invalid",
-                "filters must be an object mapping tags to priorities",
+                "filters must be an array of Tag:priority strings",
             )
-        filter_values = cast(Mapping[object, object], raw_filters)
         if len(filter_values) > 32:
             raise DeviceToolPlanningError(
                 "logcat_filter_invalid",
                 "at most 32 logcat filters are allowed",
             )
         normalized: dict[str, tuple[str, str]] = {}
-        for raw_tag, raw_priority in filter_values.items():
+        for raw_tag, raw_priority in filter_values:
             if not isinstance(raw_tag, str) or (raw_tag != "*" and not _LOGCAT_TAG_PATTERN.fullmatch(raw_tag)):
                 raise DeviceToolPlanningError(
                     "logcat_filter_invalid",
@@ -2336,12 +3306,15 @@ __all__ = [
     "DeviceInspectionParseError",
     "MdnsDiscoveryParseError",
     "LaunchOutcome",
+    "LogcatStreamOutcome",
+    "LogcatStreamRunner",
     "ManagedProcessTerminationError",
     "ManagedProcessLauncher",
     "ProcessLauncher",
     "PushFileReceipt",
     "SecretProcessRunner",
     "SubprocessSecretRunner",
+    "SubprocessLogcatStreamRunner",
     "parse_bounded_getprop",
     "parse_bounded_screen_xml",
     "parse_adb_mdns_discovery",

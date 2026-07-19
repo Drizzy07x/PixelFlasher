@@ -23,7 +23,7 @@ JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
-    {"tools.pushFiles", "tools.wifi.discover"}
+    {"tools.logcat", "tools.pushFiles", "tools.wifi.discover"}
 )
 
 _WINDOWS_PATH = re.compile(r"(?i)(?:^|[^a-z0-9])(?:[a-z]:[\\/])")
@@ -1223,9 +1223,100 @@ def _string_map(value: object, *, maximum: int = 4096) -> dict[str, JSONValue]:
 
 
 def _project_logcat(value: object) -> JSONValue:
-    source = _record(value)
-    lines = _strings(source.get("lines", []), maximum=20_000)
-    return ensure_public_json({"lineCount": len(lines), "lines": lines})
+    base_fields = frozenset(
+        {
+            "targetSerial",
+            "mode",
+            "lineCount",
+            "lines",
+            "text",
+            "redaction",
+            "redactedCount",
+            "bounded",
+            "truncated",
+        }
+    )
+    raw = _record(value)
+    fields = base_fields | ({"export"} if "export" in raw else set())
+    source = _closed_record(value, fields=frozenset(fields))
+
+    target_serial = source["targetSerial"]
+    if not isinstance(target_serial, str) or not is_valid_target_serial(target_serial):
+        raise PublicProjectionError("Logcat result target serial is invalid")
+    mode = source["mode"]
+    if mode not in {"snapshot", "stream"}:
+        raise PublicProjectionError("Logcat result mode is invalid")
+    redaction = source["redaction"]
+    if redaction not in {"strict", "standard", "none"}:
+        raise PublicProjectionError("Logcat result redaction policy is invalid")
+    if source["bounded"] is not True or not isinstance(source["truncated"], bool):
+        raise PublicProjectionError("Logcat result is not a bounded response")
+
+    line_count = source["lineCount"]
+    redacted_count = source["redactedCount"]
+    if (
+        not isinstance(line_count, int)
+        or isinstance(line_count, bool)
+        or not 0 <= line_count <= 10_000
+        or not isinstance(redacted_count, int)
+        or isinstance(redacted_count, bool)
+        or not 0 <= redacted_count <= line_count
+    ):
+        raise PublicProjectionError("Logcat result counters are invalid")
+    lines = _closed_bounded_strings(
+        source["lines"],
+        maximum_items=10_000,
+        maximum_item_utf8_bytes=4_096,
+        maximum_utf8_bytes=16 * 1_024 * 1_024,
+    )
+    if line_count != len(lines) or any(_UNSAFE_LOG_CONTROL.search(line) for line in lines):
+        raise PublicProjectionError("Logcat result contains invalid lines")
+    text = source["text"]
+    if not isinstance(text, str) or text != "\n".join(lines):
+        raise PublicProjectionError("Logcat result text does not match its lines")
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) > 16 * 1_024 * 1_024 + 10_000:
+        raise PublicProjectionError("Logcat result text exceeds its byte limit")
+
+    projected: dict[str, object] = {
+        "targetSerial": target_serial,
+        "mode": mode,
+        "lineCount": line_count,
+        "lines": lines,
+        "text": text,
+        "redaction": redaction,
+        "redactedCount": redacted_count,
+        "bounded": True,
+        "truncated": source["truncated"],
+    }
+    if "export" in source:
+        receipt = _closed_record(
+            source["export"],
+            fields=frozenset({"fileName", "sha256", "size"}),
+        )
+        file_name = receipt["fileName"]
+        digest = receipt["sha256"]
+        size = receipt["size"]
+        if (
+            not isinstance(file_name, str)
+            or not 1 <= len(file_name) <= 255
+            or not file_name.isprintable()
+            or ntpath.basename(posixpath.basename(file_name.replace("\\", "/")))
+            != file_name
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or digest != hashlib.sha256(text_bytes).hexdigest()
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size != len(text_bytes)
+        ):
+            raise PublicProjectionError("Logcat export receipt is invalid")
+        projected["export"] = {
+            "fileName": file_name,
+            "sha256": digest,
+            "size": size,
+        }
+    return ensure_public_json(projected)
 
 
 def _project_support(value: object) -> JSONValue:

@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pixelflasher_core import AppSnapshot, BoundReadFile, GrantAccess, SensitiveText
+from pixelflasher_core import (
+    AppSnapshot,
+    BoundReadFile,
+    BoundWriteFile,
+    GrantAccess,
+    SensitiveText,
+)
 from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
 from ui.command_registry import COMMAND_REGISTRY
 from ui.core_command_factory import CommandFactoryError, create_command_factory
@@ -278,6 +284,47 @@ class CoreCommandFactoryTests(unittest.TestCase):
             with self.assertRaises(CommandFactoryError) as replay:
                 factory(request("support.create", payload=payload, request_id="support-replay"))
             self.assertEqual("grant_not_found", replay.exception.code)
+
+    def test_logcat_export_consumes_exact_purpose_write_grant_without_public_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "device-logcat.txt"
+            factory = create_command_factory(
+                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-LOG")
+            )
+            picker = request(
+                "native.saveFile",
+                payload={"purpose": "tools.logcat.export"},
+            )
+            issued = factory.issue_native_grants(picker, (destination,))
+            payload = {
+                "mode": "snapshot",
+                "redaction": "strict",
+                "grant": issued["grant"],
+            }
+
+            selected = factory(request("tools.logcat", payload=payload))
+
+            self.assertIsInstance(
+                selected.payload["exportDestination"], BoundWriteFile
+            )
+            self.assertNotIn("grant", selected.payload)
+            self.assertNotIn(str(destination), repr(selected))
+            with self.assertRaises(CommandFactoryError) as replay:
+                factory(
+                    request(
+                        "tools.logcat",
+                        payload=payload,
+                        request_id="logcat-export-replay",
+                    )
+                )
+            self.assertEqual("grant_not_found", replay.exception.code)
+
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "tools.logcat",
+                    payload={"destination": str(destination)},
+                    request_id="logcat-arbitrary-path",
+                )
 
     def test_wifi_secret_grant_is_one_use_and_never_serializes_plaintext(self):
         factory = create_command_factory(

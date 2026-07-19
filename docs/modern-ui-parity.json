@@ -1734,12 +1734,14 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat",
+        "pixelflasher_core/device_tools.py:SubprocessLogcatStreamRunner",
+        "pixelflasher_core/device_tools.py:DeviceToolsService.finalize_logcat",
         "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService._compile_logs",
-        "pixelflasher_core/engine.py:_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:ToolsPage",
+        "ui/public_bridge.py:_project_logcat",
+        "ui/web/src/pages/tooling/LogcatPanel.tsx:LogcatPanel",
         "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Generic logcat continuous streaming, in-flight cancellation, export and configurable redaction remain open; a bounded, redacted update_engine snapshot with operation cancellation is native.",
+      "gap": "Bounded snapshot and streaming capture, in-flight cancellation, configurable redaction, grant-based export and the filtered update_engine snapshot are native. Remote buffer clearing, the remaining format verbs and adverb modifiers, regex and UID filters, and React tag/priority controls remain open.",
       "exitCriteria": [
         "Logcat viewer and filtered update_engine logs is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -1747,7 +1749,7 @@
         "device.discovery",
         "platform_tools.setup"
       ],
-      "risk": "device_read",
+      "risk": "host_write",
       "platforms": [
         "windows",
         "macos",
@@ -1755,9 +1757,11 @@
       ],
       "tests": [
         "tests/test_device_tools_service.py",
-        "tests/test_service_engine_integration.py:test_logcat_returns_bounded_line_model_and_never_uses_shell",
+        "tests/test_service_engine_integration.py",
+        "tests/test_logcat_public_contract.py",
         "tests/test_ota_diagnostics_service.py",
         "tests/test_ota_diagnostics_engine_integration.py",
+        "ui/web/src/test/logcat.test.tsx",
         "ui/web/src/test/ota-diagnostics.test.tsx"
       ],
       "blockReason": null,

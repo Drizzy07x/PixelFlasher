@@ -301,7 +301,11 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                             "outputDirectory": route,
                         },
                     )
-                    if command in {"tools.pushFiles", "tools.wifi.discover"}:
+                    if command in {
+                        "tools.logcat",
+                        "tools.pushFiles",
+                        "tools.wifi.discover",
+                    }:
                         with self.assertRaises(PublicProjectionError):
                             project_operation_result(command, result)
                     else:

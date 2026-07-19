@@ -8,7 +8,14 @@ export { AppsPage } from './apps/AppsPage';
 export { BackupsPage } from './backups/BackupsPage';
 export {
   ToolsPage,
+  MAX_LOGCAT_PREVIEW_LINES,
+  appendLogcatProgressBatch,
+  hasUnredactedLogcatState,
+  initialLogcatUiState,
   initialPushUiState,
+  purgeUnredactedLogcatState,
+  useLogcatExpertGuard,
+  type LogcatUiState,
   type PushUiState,
 } from './tooling/ToolsPage';
 export { SettingsPage } from './settings/SettingsPage';

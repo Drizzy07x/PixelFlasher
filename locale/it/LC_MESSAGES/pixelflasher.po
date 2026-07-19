@@ -4123,8 +4123,8 @@ msgid "Arbitrary shell input stays unavailable until a bounded command policy ex
 msgstr "I comandi arbitrari restano non disponibili finché non esiste una policy di comandi limitati."
 
 msgctxt "web.tools.logcatDetail"
-msgid "Collect a bounded Android system log snapshot."
-msgstr "Acquisisci un'istantanea limitata del registro di sistema Android."
+msgid "Collect or stream bounded, redacted Android system logs."
+msgstr "Acquisisci o trasmetti log di sistema Android limitati e oscurati."
 
 msgctxt "web.tools.partitionDetail"
 msgid "Inspect allow-listed slots and partition metadata."
@@ -4883,3 +4883,167 @@ msgstr "Verificato"
 msgctxt "web.tools.pushReceipts"
 msgid "Verified file receipts"
 msgstr "Ricevute dei file verificati"
+
+msgctxt "web.tools.logcatMode"
+msgid "Log collection mode"
+msgstr "Modalità di raccolta dei log"
+
+msgctxt "web.tools.logcatSnapshot"
+msgid "Snapshot"
+msgstr "Istantanea"
+
+msgctxt "web.tools.logcatSnapshotDetail"
+msgid "Collect the latest bounded set of lines and stop."
+msgstr "Acquisisce il più recente insieme limitato di righe e si arresta."
+
+msgctxt "web.tools.logcatStream"
+msgid "Bounded stream"
+msgstr "Streaming limitato"
+
+msgctxt "web.tools.logcatStreamDetail"
+msgid "Follow new lines for a fixed duration or until the line limit is reached."
+msgstr "Segue le nuove righe per una durata fissa o fino al raggiungimento del limite."
+
+msgctxt "web.tools.logcatBuffers"
+msgid "Android log buffers"
+msgstr "Buffer dei log Android"
+
+msgctxt "web.tools.logcatFormat"
+msgid "Line format"
+msgstr "Formato delle righe"
+
+msgctxt "web.tools.logcatDuration"
+msgid "Duration in seconds"
+msgstr "Durata in secondi"
+
+msgctxt "web.tools.logcatRedaction"
+msgid "Redaction policy"
+msgstr "Criterio di oscuramento"
+
+msgctxt "web.tools.logcatRedactionStrict"
+msgid "Strict"
+msgstr "Rigoroso"
+
+msgctxt "web.tools.logcatRedactionStandard"
+msgid "Standard"
+msgstr "Standard"
+
+msgctxt "web.tools.logcatRedactionNone"
+msgid "None (Expert)"
+msgstr "Nessuno (Esperto)"
+
+msgctxt "web.tools.logcatRedactionStrictDetail"
+msgid "Masks device identifiers, network addresses, account data, and sensitive file paths."
+msgstr "Oscura identificatori del dispositivo, indirizzi di rete, dati degli account e percorsi di file sensibili."
+
+msgctxt "web.tools.logcatRedactionStandardDetail"
+msgid "Masks high-confidence secrets and identifiers while preserving more diagnostic context."
+msgstr "Oscura segreti e identificatori ad alta confidenza conservando più contesto diagnostico."
+
+msgctxt "web.tools.logcatRedactionNoneDetail"
+msgid "Logs may contain personal data and secrets. Review them before sharing."
+msgstr "I log possono contenere dati personali e segreti. Controllali prima di condividerli."
+
+msgctxt "web.tools.logcatCollectSnapshot"
+msgid "Collect snapshot"
+msgstr "Acquisisci istantanea"
+
+msgctxt "web.tools.logcatStartStream"
+msgid "Start bounded stream"
+msgstr "Avvia streaming limitato"
+
+msgctxt "web.tools.logcatCancel"
+msgid "Cancel log collection"
+msgstr "Annulla raccolta dei log"
+
+msgctxt "web.tools.logcatCancelling"
+msgid "Cancelling log collection…"
+msgstr "Annullamento della raccolta dei log…"
+
+msgctxt "web.tools.logcatCollecting"
+msgid "Collecting log snapshot…"
+msgstr "Acquisizione dell’istantanea dei log…"
+
+msgctxt "web.tools.logcatStreaming"
+msgid "Streaming bounded logs…"
+msgstr "Streaming dei log limitati…"
+
+msgctxt "web.tools.logcatChoosingExport"
+msgid "Choosing export destination…"
+msgstr "Scelta della destinazione di esportazione…"
+
+msgctxt "web.tools.logcatBoundedStatus"
+msgid "Up to {count} lines will be retained."
+msgstr "Verranno conservate fino a {count} righe."
+
+msgctxt "web.tools.logcatProgressLines"
+msgid "{count} lines received"
+msgstr "{count} righe ricevute"
+
+msgctxt "web.tools.logcatProgress"
+msgid "Log collection progress"
+msgstr "Avanzamento della raccolta dei log"
+
+msgctxt "web.tools.logcatCancelled"
+msgid "Log collection cancelled."
+msgstr "Raccolta dei log annullata."
+
+msgctxt "web.tools.logcatFailed"
+msgid "Log collection failed."
+msgstr "Raccolta dei log non riuscita."
+
+msgctxt "web.tools.logcatInvalidResult"
+msgid "The host returned an invalid log report."
+msgstr "L’host ha restituito un rapporto dei log non valido."
+
+msgctxt "web.tools.logcatSummary"
+msgid "Log collection summary"
+msgstr "Riepilogo della raccolta dei log"
+
+msgctxt "web.tools.logcatLineCount"
+msgid "{count} lines"
+msgstr "{count} righe"
+
+msgctxt "web.tools.logcatRedactedCount"
+msgid "{count} values redacted"
+msgstr "{count} valori oscurati"
+
+msgctxt "web.tools.logcatBounded"
+msgid "Bounded"
+msgstr "Limitato"
+
+msgctxt "web.tools.logcatTruncated"
+msgid "Limit reached"
+msgstr "Limite raggiunto"
+
+msgctxt "web.tools.logcatExport"
+msgid "Capture and export"
+msgstr "Acquisisci ed esporta"
+
+msgctxt "web.tools.logcatExportDetail"
+msgid "Runs a new capture with the current settings and writes that exact result to the selected destination."
+msgstr "Esegue una nuova acquisizione con le impostazioni correnti e scrive esattamente quel risultato nella destinazione selezionata."
+
+msgctxt "web.tools.logcatTextFiles"
+msgid "Text log files"
+msgstr "File di log di testo"
+
+msgctxt "web.tools.logcatExported"
+msgid "Exported {name}"
+msgstr "{name} esportato"
+
+msgctxt "web.tools.logcatClear"
+msgid "Clear viewer"
+msgstr "Pulisci visualizzatore"
+
+msgctxt "web.tools.logcatOutput"
+msgid "Logcat output"
+msgstr "Output Logcat"
+
+msgctxt "web.tools.logcatPreviewLimited"
+msgid "Showing the last {shown} of {total} lines."
+msgstr "Visualizzazione delle ultime {shown} righe su {total}."
+
+msgctxt "web.tools.logcatEmpty"
+msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
+msgstr "Scegli un’istantanea o uno streaming limitato. L’output resta in memoria finché non pulisci il visualizzatore."

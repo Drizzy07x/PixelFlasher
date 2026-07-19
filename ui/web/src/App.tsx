@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import { assets, type AssetName } from './assets';
 import { BridgeError, bridge, interactionFromEvent, normalizeOperationStatus, operationFromEvent, snapshotFromEvent } from './bridge';
 import { commands, type BridgeCommand } from './commands';
@@ -12,13 +12,19 @@ import {
   DashboardPage,
   DevicePage,
   FirmwarePage,
+  MAX_LOGCAT_PREVIEW_LINES,
   RootPage,
   SettingsPage,
   ToolsPage,
+  appendLogcatProgressBatch,
+  initialLogcatUiState,
   initialPushUiState,
+  purgeUnredactedLogcatState,
+  useLogcatExpertGuard,
+  type LogcatUiState,
   type PushUiState,
 } from './pages/Pages';
-import type { HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme } from './types';
+import type { ActiveOperation, HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme } from './types';
 
 type Notice = { tone: 'success' | 'warning' | 'error'; message: string };
 type CommandResponse = { result: Record<string, unknown>; revision?: number };
@@ -113,6 +119,24 @@ const emptyHostSnapshot: HostSnapshot = {
   last_result: null,
 };
 
+function stripLogcatPayload(
+  operation: ActiveOperation | null | undefined,
+  forceLogcat = false,
+): ActiveOperation | null {
+  if (!operation || (!forceLogcat && operation.kind !== commands.toolsLogcat)) return operation ?? null;
+  return {
+    id: operation.id,
+    kind: operation.kind ?? commands.toolsLogcat,
+    label: commands.toolsLogcat,
+    status: operation.status,
+    progress: operation.progress,
+    current: operation.current,
+    total: operation.total,
+    targetSerial: operation.targetSerial,
+    target_serial: operation.target_serial,
+  };
+}
+
 export default function App() {
   const [isMockHost] = useState(() => window.pixelflasher?.__mock === true);
   const [initialPreferences] = useState<ModernPreferences>(() => isMockHost ? mockPreferences() : defaultPreferences);
@@ -150,6 +174,8 @@ function PixelFlasherApp({
   const [reducedMotion, setReducedMotion] = useState(initialPreferences.reducedMotion);
   const [zoom, setZoom] = useState(initialPreferences.zoom);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [logcatUiState, setLogcatUiState] = useState<LogcatUiState>(initialLogcatUiState);
+  const [logcatProgressBatch, setLogcatProgressBatch] = useState<readonly ActiveOperation[]>([]);
   const [pushUiState, setPushUiState] = useState<PushUiState>(initialPushUiState);
   const [bridgeState, setBridgeState] = useState<'connecting' | 'ready' | 'error'>('connecting');
   const [interaction, setInteraction] = useState<InteractionRequest | null>(null);
@@ -165,6 +191,57 @@ function PixelFlasherApp({
   const preferencesLoadRef = useRef<Promise<void> | null>(null);
   const preferencesQueueRef = useRef<Promise<void>>(Promise.resolve());
   const preferencesMountedRef = useRef(true);
+  const activeOperationRef = useRef<ActiveOperation | null>(snapshot.activeOperation ?? null);
+  const logcatProgressQueueRef = useRef<ActiveOperation[]>([]);
+  const logcatProgressLatestRef = useRef<{ operation: ActiveOperation; revision?: number } | null>(null);
+  const logcatProgressFrameRef = useRef<number | null>(null);
+  const expertModeRef = useRef(expertMode);
+  const logcatUiStateRef = useRef(logcatUiState);
+  expertModeRef.current = expertMode;
+  logcatUiStateRef.current = logcatUiState;
+  const updateLogcatUiState = useCallback((update: SetStateAction<LogcatUiState>) => {
+    setLogcatUiState((current) => {
+      const next = typeof update === 'function' ? update(current) : update;
+      return expertModeRef.current ? next : purgeUnredactedLogcatState(next);
+    });
+  }, []);
+  const clearLogcatProgress = useCallback(() => {
+    if (logcatProgressFrameRef.current !== null) {
+      window.cancelAnimationFrame(logcatProgressFrameRef.current);
+      logcatProgressFrameRef.current = null;
+    }
+    logcatProgressQueueRef.current = [];
+    logcatProgressLatestRef.current = null;
+    setLogcatProgressBatch((current) => (current.length ? [] : current));
+  }, []);
+  const flushLogcatProgress = useCallback(() => {
+    if (logcatProgressFrameRef.current !== null) {
+      window.cancelAnimationFrame(logcatProgressFrameRef.current);
+      logcatProgressFrameRef.current = null;
+    }
+    const batch = logcatProgressQueueRef.current;
+    logcatProgressQueueRef.current = [];
+    logcatProgressLatestRef.current = null;
+    if (batch.length) {
+      updateLogcatUiState((current) => appendLogcatProgressBatch(current, batch));
+    }
+    setLogcatProgressBatch((current) => (current.length ? [] : current));
+  }, [updateLogcatUiState]);
+  const purgeLogcatProgress = useCallback(() => {
+    clearLogcatProgress();
+    activeOperationRef.current = stripLogcatPayload(
+      activeOperationRef.current,
+      activeOperationRef.current?.id === logcatUiStateRef.current.operationId,
+    );
+    setSnapshot((current) => {
+      const active = stripLogcatPayload(
+        current.activeOperation,
+        current.activeOperation?.id === logcatUiStateRef.current.operationId,
+      );
+      if (active === current.activeOperation) return current;
+      return { ...current, activeOperation: active, active_operation: active };
+    });
+  }, [clearLogcatProgress]);
 
   const selectedPushDevice = selectedSerials.length === 1
     ? snapshot.devices.find((device) => device.serial === selectedSerials[0])
@@ -222,25 +299,83 @@ function PixelFlasherApp({
 
   useEffect(() => {
     let mounted = true;
+    const scheduleLogcatProgress = () => {
+      if (logcatProgressFrameRef.current !== null) return;
+      logcatProgressFrameRef.current = window.requestAnimationFrame(() => {
+        logcatProgressFrameRef.current = null;
+        const batch = logcatProgressQueueRef.current;
+        const latest = logcatProgressLatestRef.current;
+        logcatProgressQueueRef.current = [];
+        logcatProgressLatestRef.current = null;
+        if (!mounted || !latest) return;
+        if (batch.length) {
+          updateLogcatUiState((current) => appendLogcatProgressBatch(current, batch));
+        }
+        setLogcatProgressBatch(batch);
+        setSnapshot((current) => ({
+          ...current,
+          revision: latest.revision ?? current.revision,
+          activeOperation: latest.operation,
+          active_operation: latest.operation,
+        }));
+      });
+    };
     const unsubscribe = bridge.subscribe((event) => {
       const nextSnapshot = snapshotFromEvent(event);
       if (nextSnapshot) {
-        snapshotRevisionRef.current = nextSnapshot.revision;
-        setSnapshot(nextSnapshot);
+        // A completion snapshot is delivered after the final progress event
+        // and can arrive before the next animation frame. Commit that FIFO
+        // first so cancelled/failed streams retain their bounded final tail.
+        flushLogcatProgress();
+        const unsafeOutsideExpert = !expertModeRef.current
+          && logcatUiStateRef.current.requestedRedaction === 'none';
+        const nextActive = unsafeOutsideExpert
+          ? stripLogcatPayload(
+              nextSnapshot.activeOperation,
+              nextSnapshot.activeOperation?.id === logcatUiStateRef.current.operationId,
+            )
+          : nextSnapshot.activeOperation ?? null;
+        const exposedSnapshot = nextActive === nextSnapshot.activeOperation
+          ? nextSnapshot
+          : { ...nextSnapshot, activeOperation: nextActive, active_operation: nextActive };
+        activeOperationRef.current = nextActive;
+        snapshotRevisionRef.current = exposedSnapshot.revision;
+        setSnapshot(exposedSnapshot);
         setBridgeState('ready');
       }
-      const operation = operationFromEvent(event);
+      const operation = operationFromEvent(event, activeOperationRef.current);
       if (operation) {
         if (typeof event.revision === 'number') snapshotRevisionRef.current = event.revision;
-        setSnapshot((current) => {
-          const correlated = operationFromEvent(event, current.activeOperation) ?? operation;
-          return {
+        if (operation.kind === commands.toolsLogcat) {
+          const unsafeOutsideExpert = !expertModeRef.current
+            && logcatUiStateRef.current.requestedRedaction === 'none';
+          const exposedOperation: ActiveOperation = unsafeOutsideExpert
+            ? stripLogcatPayload(operation, true) as ActiveOperation
+            : operation;
+          activeOperationRef.current = exposedOperation;
+          logcatProgressLatestRef.current = {
+            operation: exposedOperation,
+            ...(typeof event.revision === 'number' ? { revision: event.revision } : {}),
+          };
+          if (!unsafeOutsideExpert) {
+            logcatProgressQueueRef.current.push(operation);
+            if (logcatProgressQueueRef.current.length > MAX_LOGCAT_PREVIEW_LINES) {
+              logcatProgressQueueRef.current.splice(
+                0,
+                logcatProgressQueueRef.current.length - MAX_LOGCAT_PREVIEW_LINES,
+              );
+            }
+          }
+          scheduleLogcatProgress();
+        } else {
+          activeOperationRef.current = operation;
+          setSnapshot((current) => ({
             ...current,
             revision: event.revision ?? current.revision,
-            activeOperation: correlated,
-            active_operation: correlated,
-          };
-        });
+            activeOperation: operation,
+            active_operation: operation,
+          }));
+        }
       }
       const requestedInteraction = interactionFromEvent(event);
       if (requestedInteraction) setInteraction(requestedInteraction);
@@ -262,8 +397,14 @@ function PixelFlasherApp({
     return () => {
       mounted = false;
       unsubscribe();
+      if (logcatProgressFrameRef.current !== null) {
+        window.cancelAnimationFrame(logcatProgressFrameRef.current);
+        logcatProgressFrameRef.current = null;
+      }
+      logcatProgressQueueRef.current = [];
+      logcatProgressLatestRef.current = null;
     };
-  }, []);
+  }, [flushLogcatProgress, updateLogcatUiState]);
 
   const reportError = useCallback((error: unknown) => {
     const code = error instanceof BridgeError && typeof error.response?.error === 'object'
@@ -484,6 +625,19 @@ function PixelFlasherApp({
     }
   }, [reportError, snapshot.revision]);
 
+  const cancelUnsafeLogcat = useCallback((operationId: string) => runCommand(
+    commands.operationCancel,
+    { operationId },
+    { returnFailed: true, suppressNotice: true },
+  ), [runCommand]);
+  useLogcatExpertGuard({
+    expertMode,
+    state: logcatUiState,
+    setState: setLogcatUiState,
+    cancelOperation: cancelUnsafeLogcat,
+    clearBufferedProgress: purgeLogcatProgress,
+  });
+
   const finishReinforcedChallenge = useCallback(async (accepted: boolean) => {
     const challenge = reinforcedChallenge;
     const resolve = reinforcedResolveRef.current;
@@ -652,7 +806,10 @@ function PixelFlasherApp({
       case 'tools': return (
         <ToolsPage
           {...sharedProps}
-          expertMode={expertMode}
+           expertMode={expertMode}
+           logcatUiState={logcatUiState}
+           logcatProgressBatch={logcatProgressBatch}
+           onLogcatUiStateChange={updateLogcatUiState}
           pushUiState={pushUiState}
           onPushUiStateChange={setPushUiState}
         />

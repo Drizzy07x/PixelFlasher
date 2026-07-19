@@ -252,7 +252,10 @@ export interface BridgePayloadByCommand {
     "buffers"?: string[];
     "filters"?: string[];
     "format"?: string;
+    "grant"?: string;
     "maxLines"?: number;
+    "mode"?: string;
+    "redaction"?: string;
     "serial"?: string;
     "timeoutSeconds"?: number;
   };
@@ -440,7 +443,7 @@ export const bridgeCommandMetadata = {
   [commands.settingsUpdate]: {"owner":"settings","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"runtime.settings_update","confirmation":"none","postconditions":["preferences_persisted"]},
   [commands.snapshotGet]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"engine.snapshot","confirmation":"none","postconditions":["snapshot_returned"]},
   [commands.supportCreate]: {"owner":"support","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"support.package_v2","confirmation":"none","postconditions":["encrypted_container_verified"]},
-  [commands.toolsLogcat]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
+  [commands.toolsLogcat]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
   [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"standard","postconditions":["remote_files_written"]},
   [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
   [commands.toolsWifi]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.wifi","confirmation":"none","postconditions":["adb_endpoint_observed"]},
@@ -522,7 +525,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.settingsUpdate]: {"highContrast":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"reducedMotion":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"zoom":{"kind":"integer","required":false}},
   [commands.snapshotGet]: {},
   [commands.supportCreate]: {"grant":{"kind":"string","required":true},"includeConfig":{"kind":"boolean","required":false},"includeLogs":{"kind":"boolean","required":false},"includeState":{"kind":"boolean","required":false},"includeSystemInfo":{"kind":"boolean","required":false}},
-  [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false},"filters":{"kind":"string_array","required":false},"format":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false}},
+  [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"string_array","required":false,"minItems":0,"maxItems":32},"format":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false}},
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},
   [commands.toolsScrcpy]: {"serial":{"kind":"string","required":false}},
   [commands.toolsWifi]: {"action":{"kind":"string","required":true},"host":{"kind":"string","required":true},"port":{"kind":"integer","required":true},"secretGrant":{"kind":"string","required":false}},

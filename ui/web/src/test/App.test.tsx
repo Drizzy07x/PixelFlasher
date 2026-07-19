@@ -415,7 +415,7 @@ describe('PixelFlasher web workspace', () => {
     await user.click(screen.getByRole('checkbox', { name: /Expert Mode/i }));
     await user.click(await screen.findByRole('button', { name: /Logcat/i }));
     const logcatPanel = document.querySelector('.tool-workspace') as HTMLElement;
-    await user.click(within(logcatPanel).getByRole('button', { name: 'Collect logs' }));
+    await user.click(within(logcatPanel).getByRole('button', { name: 'Collect snapshot' }));
     expect(await within(logcatPanel).findByText(/PixelFlasher test ready/)).toBeVisible();
     await user.click(within(logcatPanel).getByRole('button', { name: 'Close' }));
 
@@ -450,10 +450,12 @@ describe('PixelFlasher web workspace', () => {
     });
     expect(requests.find((request) => request.command === 'tools.logcat')?.payload).toEqual({
       serial: '47161FDJH00A8L',
+      mode: 'snapshot',
       buffers: ['main'],
       format: 'threadtime',
       maxLines: 500,
       timeoutSeconds: 30,
+      redaction: 'strict',
     });
     expect(requests.find((request) => request.command === 'native.pickFiles')?.payload).toEqual({
       purpose: 'tools.pushFiles.sources',
