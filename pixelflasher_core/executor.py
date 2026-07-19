@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import BinaryIO, Protocol, runtime_checkable
+from typing import Any, BinaryIO, Protocol, cast, runtime_checkable
 
 from .cancellation import CancellationReason, CancellationToken
 from .contracts import (
@@ -191,7 +192,27 @@ class SubprocessTransport:
             text=True,
             encoding=request.encoding,
             errors="replace",
+            start_new_session=os.name != "nt",
+            creationflags=self._creation_flags(),
         )
+        self._attach_windows_job(process)
+        try:
+            return self._communicate_process(
+                process,
+                request,
+                cancellation,
+                stdin_text,
+            )
+        finally:
+            self._release_windows_job(process)
+
+    def _communicate_process(
+        self,
+        process: subprocess.Popen[str],
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        stdin_text: str | None,
+    ) -> TransportOutcome:
         deadline = (
             time.monotonic() + request.timeout_seconds
             if request.timeout_seconds is not None
@@ -200,7 +221,7 @@ class SubprocessTransport:
         pending_input = stdin_text
         while True:
             if cancellation.cancelled:
-                stdout, stderr = self._terminate(process)
+                stdout, stderr = self._terminate(process, request.encoding)
                 return self._cancellation_outcome(
                     cancellation,
                     process.returncode,
@@ -209,7 +230,7 @@ class SubprocessTransport:
                 )
             now = time.monotonic()
             if deadline is not None and now >= deadline:
-                stdout, stderr = self._terminate(process)
+                stdout, stderr = self._terminate(process, request.encoding)
                 return TransportOutcome(
                     process.returncode,
                     stdout,
@@ -262,7 +283,10 @@ class SubprocessTransport:
             stderr=subprocess.PIPE,
             stdin=subprocess.PIPE if stdin_text is not None else None,
             text=False,
+            start_new_session=os.name != "nt",
+            creationflags=self._creation_flags(),
         )
+        self._attach_windows_job(process)
         assert process.stdout is not None
         assert process.stderr is not None
         stdout_buffer = bytearray()
@@ -326,7 +350,7 @@ class SubprocessTransport:
         )
         cancelled = False
         timed_out = False
-        while process.poll() is None:
+        while process.poll() is None or any(reader.is_alive() for reader in readers):
             if output_limited.is_set():
                 self._stop_process(process)
                 break
@@ -357,14 +381,17 @@ class SubprocessTransport:
                 stream.close()
                 reader.join(timeout=1)
 
-        return TransportOutcome(
-            process.returncode,
-            stdout_buffer.decode(request.encoding, errors="replace"),
-            stderr_buffer.decode(request.encoding, errors="replace"),
-            cancelled=cancelled,
-            timed_out=timed_out,
-            output_limited=output_limited.is_set(),
-        )
+        try:
+            return TransportOutcome(
+                process.returncode,
+                stdout_buffer.decode(request.encoding, errors="replace"),
+                stderr_buffer.decode(request.encoding, errors="replace"),
+                cancelled=cancelled,
+                timed_out=timed_out,
+                output_limited=output_limited.is_set(),
+            )
+        finally:
+            self._release_windows_job(process)
 
     def _next_poll_timeout(
         self,
@@ -402,30 +429,193 @@ class SubprocessTransport:
         )
 
     @staticmethod
-    def _stop_process(process: subprocess.Popen[bytes]) -> None:
-        if process.poll() is not None:
-            return
-        try:
-            process.terminate()
-        except OSError:
-            pass
+    def _creation_flags() -> int:
+        if os.name != "nt":
+            return 0
+        return int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+
+    @classmethod
+    def _stop_process(cls, process: subprocess.Popen[bytes]) -> None:
+        cls._signal_process_tree(process, force=False)
         try:
             process.wait(timeout=1)
         except subprocess.TimeoutExpired:
+            cls._signal_process_tree(process, force=True)
             try:
-                process.kill()
-            except OSError:
-                pass
-            process.wait()
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                # A failed OS termination boundary must not turn a bounded
+                # timeout/cancellation into another unbounded wait.
+                return
 
-    @staticmethod
-    def _terminate(process: subprocess.Popen[str]) -> tuple[str, str]:
-        process.terminate()
+    @classmethod
+    def _terminate(
+        cls,
+        process: subprocess.Popen[str],
+        encoding: str,
+    ) -> tuple[str, str]:
+        cls._signal_process_tree(process, force=False)
         try:
             return process.communicate(timeout=1)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            return process.communicate()
+        except subprocess.TimeoutExpired as first_timeout:
+            cls._signal_process_tree(process, force=True)
+            try:
+                return process.communicate(timeout=1)
+            except subprocess.TimeoutExpired as final_timeout:
+                cls._close_process_pipes(process)
+                return (
+                    cls._partial_text(
+                        final_timeout.output
+                        if final_timeout.output is not None
+                        else first_timeout.output,
+                        encoding,
+                    ),
+                    cls._partial_text(
+                        final_timeout.stderr
+                        if final_timeout.stderr is not None
+                        else first_timeout.stderr,
+                        encoding,
+                    ),
+                )
+
+    @staticmethod
+    def _signal_process_tree(
+        process: subprocess.Popen[Any],
+        *,
+        force: bool,
+    ) -> None:
+        if os.name == "nt":
+            if SubprocessTransport._terminate_windows_job(process):
+                return
+            # CREATE_NEW_PROCESS_GROUP isolates the launched command. taskkill
+            # is invoked directly with an integer PID and shell=False semantics
+            # so descendants cannot retain inherited output pipes.
+            flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                subprocess.run(  # noqa: S603 - fixed system argv and owned PID
+                    (
+                        "taskkill.exe",
+                        "/PID",
+                        str(process.pid),
+                        "/T",
+                        "/F",
+                    ),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=2,
+                    shell=False,
+                    creationflags=flags,
+                )
+            except (OSError, subprocess.SubprocessError):
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+            return
+
+        tree_signal = signal.SIGKILL if force else signal.SIGTERM
+        try:
+            os.killpg(process.pid, tree_signal)
+        except ProcessLookupError:
+            return
+        except OSError:
+            try:
+                process.kill() if force else process.terminate()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _attach_windows_job(process: subprocess.Popen[Any]) -> None:
+        """Assign a new Windows process to an owned descendant-tracking job."""
+
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+            kernel32.AssignProcessToJobObject.argtypes = (
+                wintypes.HANDLE,
+                wintypes.HANDLE,
+            )
+            kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            job_handle = kernel32.CreateJobObjectW(None, None)
+            if not job_handle:
+                return
+            raw_process_handle: object = vars(process).get("_handle")
+            try:
+                process_handle = int(cast(Any, raw_process_handle))
+            except (TypeError, ValueError):
+                kernel32.CloseHandle(job_handle)
+                return
+            if not kernel32.AssignProcessToJobObject(job_handle, process_handle):
+                kernel32.CloseHandle(job_handle)
+                return
+            vars(process)["_pixelflasher_job_handle"] = int(job_handle)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return
+
+    @staticmethod
+    def _terminate_windows_job(process: subprocess.Popen[Any]) -> bool:
+        if os.name != "nt":
+            return False
+        raw_job_handle: object = vars(process).get("_pixelflasher_job_handle")
+        if not isinstance(raw_job_handle, int) or raw_job_handle <= 0:
+            return False
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+            kernel32.TerminateJobObject.restype = wintypes.BOOL
+            return bool(kernel32.TerminateJobObject(raw_job_handle, 1))
+        except (AttributeError, OSError, TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _release_windows_job(process: subprocess.Popen[Any]) -> None:
+        if os.name != "nt":
+            return
+        raw_job_handle: object = vars(process).get("_pixelflasher_job_handle")
+        if not isinstance(raw_job_handle, int) or raw_job_handle <= 0:
+            return
+        vars(process)["_pixelflasher_job_handle"] = None
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            kernel32.CloseHandle(raw_job_handle)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return
+
+    @staticmethod
+    def _close_process_pipes(process: subprocess.Popen[Any]) -> None:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except OSError:
+                continue
+
+    @staticmethod
+    def _partial_text(value: bytes | str | None, encoding: str) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return value.decode(encoding, errors="replace")
 
 
 @dataclass(slots=True)

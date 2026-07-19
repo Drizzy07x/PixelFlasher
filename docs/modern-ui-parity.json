@@ -1813,6 +1813,7 @@
         "tests/test_resource_grants.py:test_bound_read_file_rejects_path_replacement_after_resolution",
         "tests/test_core_command_factory.py:test_push_picker_and_command_share_the_thirty_two_file_limit",
         "tests/test_executor_deadlines.py:test_output_limit_stops_a_still_running_child_immediately",
+        "tests/test_executor_deadlines.py:test_timeout_terminates_the_isolated_descendant_tree",
         "tests/test_service_engine_integration.py:test_push_files_confirms_revalidates_and_returns_verified_mapping",
         "tests/test_service_engine_integration.py:test_push_progress_is_monotonic_and_identifies_each_remote_file",
         "tests/test_service_engine_integration.py:test_push_cancel_before_first_mutation_is_cancelled",

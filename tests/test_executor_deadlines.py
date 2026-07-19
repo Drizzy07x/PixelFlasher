@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
 from unittest.mock import patch
+
+import psutil
 
 from pixelflasher_core.contracts import (
     AppCommand,
@@ -146,6 +150,37 @@ class CancellationTokenDeadlineTests(unittest.TestCase):
 
 
 class SubprocessDeadlineTests(unittest.TestCase):
+    def test_timeout_terminates_the_isolated_descendant_tree(self) -> None:
+        for bounded in (False, True):
+            with self.subTest(bounded=bounded), tempfile.TemporaryDirectory() as directory:
+                pid_path = os.path.join(directory, "child.pid")
+                child_code = "import time; time.sleep(30)"
+                parent_code = (
+                    "import pathlib,subprocess,sys,time; "
+                    f"child=subprocess.Popen([sys.executable,'-c',{child_code!r}]); "
+                    f"pathlib.Path({pid_path!r}).write_text(str(child.pid), encoding='ascii'); "
+                    "time.sleep(0.05)"
+                )
+                request = ProcessRequest(
+                    (sys.executable, "-c", parent_code),
+                    timeout_seconds=0.2,
+                    output_limit_bytes=1_024 if bounded else None,
+                )
+
+                started = time.monotonic()
+                outcome = SubprocessTransport().run(request, CancellationToken())
+                elapsed = time.monotonic() - started
+
+                self.assertTrue(os.path.isfile(pid_path))
+                child_pid = int(open(pid_path, encoding="ascii").read())
+                deadline = time.monotonic() + 2
+                while psutil.pid_exists(child_pid) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+
+                self.assertTrue(outcome.timed_out)
+                self.assertLess(elapsed, 3)
+                self.assertFalse(psutil.pid_exists(child_pid))
+
     def test_preexpired_deadline_never_starts_bounded_or_unbounded_process(self) -> None:
         token = CancellationToken()
         token.set_deadline(0.01)
