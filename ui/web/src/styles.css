@@ -1333,6 +1333,74 @@ code {
   overflow: hidden;
 }
 
+.device-open-url-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.device-open-url-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.7rem;
+  padding: 0.85rem;
+}
+
+.device-open-url-form label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.34rem;
+  color: var(--muted);
+  font-size: 0.59rem;
+  font-weight: 750;
+}
+
+.device-open-url-form input {
+  width: 100%;
+  min-height: 2.3rem;
+  padding: 0 0.62rem;
+  border: 1px solid var(--border);
+  border-radius: 0.46rem;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font: 0.64rem/1.4 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+
+.device-open-url-receipt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(12rem, auto);
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0.85rem 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, var(--border));
+  border-radius: 0.52rem;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-soft));
+  color: var(--text-soft);
+  font-size: 0.65rem;
+}
+
+.device-open-url-receipt > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.device-open-url-receipt small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.device-open-url-receipt code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.55rem;
+  text-overflow: ellipsis;
+}
+
 .device-inspection-card__detail {
   margin: 0;
   padding: 0.8rem 1rem 0;
@@ -3602,6 +3670,15 @@ code {
   .device-inspection-summary,
   .device-inspection-profile {
     grid-template-columns: 1fr;
+  }
+
+  .device-open-url-form,
+  .device-open-url-receipt {
+    grid-template-columns: 1fr;
+  }
+
+  .device-open-url-form .button {
+    width: 100%;
   }
 
   .device-inspection-summary > div,

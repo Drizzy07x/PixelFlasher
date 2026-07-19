@@ -395,6 +395,36 @@ export function installDevelopmentBridge() {
             });
             break;
           }
+          case 'device.openUrl': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : '';
+            const rawUrl = typeof request.payload.url === 'string' ? request.payload.url : '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            let parsed: URL;
+            try {
+              parsed = new URL(rawUrl);
+            } catch {
+              emit(errorMessage('The URL is invalid.', request));
+              break;
+            }
+            if (!target || target.mode !== 'adb' || !['http:', 'https:'].includes(parsed.protocol)) {
+              emit(errorMessage('Opening a URL requires one ADB device and an HTTP(S) address.', request));
+              break;
+            }
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'device_open_url_succeeded',
+              message: 'The device accepted the browser intent.',
+              value: {
+                action: 'openUrl',
+                targetSerial: serial,
+                scheme: parsed.protocol.slice(0, -1),
+                host: parsed.hostname,
+                urlSha256: 'd'.repeat(64),
+                intentAccepted: true,
+              },
+            });
+            break;
+          }
           case 'device.select': {
             const serials = Array.isArray(request.payload.serials)
               ? request.payload.serials.filter((serial): serial is string => typeof serial === 'string')

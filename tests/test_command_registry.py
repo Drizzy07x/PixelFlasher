@@ -122,6 +122,9 @@ class CommandRegistryTests(unittest.TestCase):
             ("device.ota.certificates", {"path": "/system/etc/security"}, "unsupported"),
             ("device.ota.logs", {"maxLines": True}, "integer"),
             ("device.ota.logs", {"timeoutSeconds": "30"}, "integer"),
+            ("device.openUrl", {}, "required"),
+            ("device.openUrl", {"url": 7}, "string"),
+            ("device.openUrl", {"url": "https://example.com", "alias": True}, "unsupported"),
             ("snapshot.get", {"alias": True}, "unsupported"),
         )
         for command, payload, detail in cases:
@@ -143,6 +146,7 @@ class CommandRegistryTests(unittest.TestCase):
             "tools.wifi.status",
             "tools.logcat",
             "tools.logcat.clear",
+            "device.openUrl",
             "device.ota.certificates",
             "device.ota.logs",
             "tools.pushFiles",
@@ -196,6 +200,16 @@ class CommandRegistryTests(unittest.TestCase):
             logcat.payload.fields["filters"].min_items,
             logcat.payload.fields["filters"].max_items,
         ))
+
+        open_url = COMMAND_REGISTRY["device.openUrl"]
+        self.assertEqual(CommandOwner.DEVICE_TOOLS, open_url.owner)
+        self.assertEqual(CommandMutability.MUTATING, open_url.mutability)
+        self.assertEqual(CommandRisk.DEVICE_WRITE, open_url.risk)
+        self.assertEqual(ConfirmationPolicy.STANDARD, open_url.confirmation)
+        self.assertEqual(TargetScope.SELECTED_DEVICE, open_url.target_scope)
+        self.assertEqual({"serial", "url"}, set(open_url.payload.fields))
+        self.assertTrue(open_url.payload.fields["url"].required)
+        self.assertEqual(("view_intent_accepted",), open_url.postconditions)
 
     def test_ota_diagnostic_contracts_are_closed_read_only_device_reads(self):
         expected_payloads = {

@@ -135,6 +135,21 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertFalse(logs.destructive)
         self.assertFalse(logs.requires_confirmation)
 
+    def test_device_open_url_binds_target_and_backend_confirmation_metadata(self):
+        factory = create_command_factory(
+            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-URL")
+        )
+
+        command = factory(
+            request("device.openUrl", payload={"url": "https://example.com/path"})
+        )
+
+        self.assertEqual("SERIAL-URL", command.target_serial)
+        self.assertEqual({"url": "https://example.com/path"}, command.payload)
+        self.assertFalse(command.destructive)
+        self.assertTrue(command.requires_confirmation)
+        self.assertEqual(4, command.expected_revision)
+
     def test_settings_and_local_inventory_are_not_device_scoped(self):
         factory = create_command_factory(
             lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3")

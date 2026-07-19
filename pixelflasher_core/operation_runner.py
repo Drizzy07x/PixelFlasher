@@ -1320,6 +1320,7 @@ class OperationRunner:
             "adb_wifi_pairing_recorded",
             "package_data_cleared",
             "logcat_buffers_cleared",
+            "view_intent_accepted",
         }
 
     def _validate_execution_postcondition(
@@ -1395,6 +1396,33 @@ class OperationRunner:
             ):
                 raise ValueError("Logcat clear verification markers are invalid")
             return
+        if postcondition.kind == "view_intent_accepted":
+            if set(expected) != {"targetSerial", "scheme", "host", "urlSha256"}:
+                raise ValueError("browser intent postcondition fields are invalid")
+            target_serial = expected.get("targetSerial")
+            scheme = expected.get("scheme")
+            host = expected.get("host")
+            digest = expected.get("urlSha256")
+            if (
+                not isinstance(target_serial, str)
+                or not target_serial
+                or len(target_serial) > 256
+                or any(character.isspace() or ord(character) < 0x20 for character in target_serial)
+            ):
+                raise ValueError("browser intent target serial is invalid")
+            if scheme not in {"http", "https"}:
+                raise ValueError("browser intent scheme is invalid")
+            if (
+                not isinstance(host, str)
+                or not host
+                or not host.isascii()
+                or len(host) > 253
+                or any(character.isspace() or ord(character) < 0x20 for character in host)
+            ):
+                raise ValueError("browser intent host is invalid")
+            if not isinstance(digest, str) or not self._sha256_valid(digest):
+                raise ValueError("browser intent URL digest is invalid")
+            return
         if postcondition.kind != "host_artifact_written":
             raise ValueError(f"no execution-evidence mapping exists for {postcondition.kind}")
         allowed = {
@@ -1466,6 +1494,8 @@ class OperationRunner:
                 evidence = self._verify_package_clear_evidence(postcondition, result)
             elif postcondition.kind == "logcat_buffers_cleared":
                 evidence = self._verify_logcat_clear_evidence(postcondition, result)
+            elif postcondition.kind == "view_intent_accepted":
+                evidence = self._verify_view_intent_evidence(postcondition, result)
             else:
                 evidence = self._verify_host_artifact(postcondition, token)
             if evidence.status is OperationStatus.CANCELLED or not evidence.ok:
@@ -1614,6 +1644,50 @@ class OperationRunner:
         return OperationResult.success(
             result.operation_id,
             code="logcat_clear_protocol_verified",
+        )
+
+    @staticmethod
+    def _verify_view_intent_evidence(
+        postcondition: OperationPostcondition,
+        result: OperationResult,
+    ) -> OperationResult:
+        expected = postcondition.expected
+        value = OperationRunner._result_value_mapping(cast(object, result.value))
+        exact_fields = {
+            "action",
+            "targetSerial",
+            "scheme",
+            "host",
+            "urlSha256",
+            "intentAccepted",
+        }
+        digest = value.get("urlSha256")
+        expected_digest = expected.get("urlSha256")
+        verified = (
+            result.code == "device_open_url_succeeded"
+            and result.exit_code == 0
+            and not result.stdout
+            and not result.stderr
+            and set(value) == exact_fields
+            and value.get("action") == "openUrl"
+            and isinstance(value.get("targetSerial"), str)
+            and value.get("targetSerial") == expected.get("targetSerial")
+            and value.get("scheme") == expected.get("scheme")
+            and value.get("host") == expected.get("host")
+            and value.get("intentAccepted") is True
+            and isinstance(digest, str)
+            and isinstance(expected_digest, str)
+            and hmac.compare_digest(digest, expected_digest)
+        )
+        if not verified:
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_mismatch",
+                message="the browser VIEW intent receipt did not match its immutable plan",
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code="view_intent_protocol_verified",
         )
 
     @classmethod

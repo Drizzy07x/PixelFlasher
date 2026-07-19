@@ -5100,3 +5100,47 @@ msgid ""
 "The all-buffer clear control completed and main-buffer sentinel removal was "
 "verified. One verification entry remains."
 msgstr "全緩衝區清除命令已完成，並已驗證主緩衝區標記被移除。仍保留一筆驗證記錄。"
+
+msgctxt "web.device.openUrlTitle"
+msgid "Open URL on device"
+msgstr "在裝置上開啟網址"
+
+msgctxt "web.device.openUrlDetail"
+msgid "Open one validated HTTP or HTTPS address with the selected device browser."
+msgstr "使用所選裝置的瀏覽器開啟一個已驗證的 HTTP 或 HTTPS 位址。"
+
+msgctxt "web.device.openUrlGuard"
+msgid "Select exactly one device in ADB mode to open a URL."
+msgstr "請選取一個且僅一個處於 ADB 模式的裝置來開啟網址。"
+
+msgctxt "web.device.openUrlLabel"
+msgid "Web address"
+msgstr "網址"
+
+msgctxt "web.device.openUrlAction"
+msgid "Open on device"
+msgstr "在裝置上開啟"
+
+msgctxt "web.device.openUrlRunning"
+msgid "Opening the validated address..."
+msgstr "正在開啟已驗證的位址..."
+
+msgctxt "web.device.openUrlCancelling"
+msgid "Cancelling URL launch..."
+msgstr "正在取消開啟網址..."
+
+msgctxt "web.device.openUrlCancel"
+msgid "Cancel URL launch"
+msgstr "取消開啟網址"
+
+msgctxt "web.device.openUrlSucceeded"
+msgid "The device accepted the browser intent."
+msgstr "裝置已接受瀏覽器 intent。"
+
+msgctxt "web.device.openUrlCancelled"
+msgid "URL launch cancelled"
+msgstr "已取消開啟網址"
+
+msgctxt "web.device.openUrlFailed"
+msgid "The device did not verify the browser launch."
+msgstr "裝置未能驗證瀏覽器是否已開啟。"

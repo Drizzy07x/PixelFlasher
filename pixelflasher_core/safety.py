@@ -59,6 +59,7 @@ class SafetyPolicy:
             "tools.wifi.status",
             "tools.wifi.discover",
             "device.inspect",
+            "device.openUrl",
             "backups.create",
             "backups.restore",
             "root.apps.list",
@@ -252,10 +253,17 @@ class SafetyPolicy:
         if self.is_destructive(command) or command.requires_confirmation:
             plan = command.operation_plan
             interaction_target = plan.target_serial if plan is not None else command.target_serial
+            destructive = self.is_destructive(command)
             request = InteractionRequest(
                 operation_id=command.operation_id,
                 kind=InteractionKind.CONFIRM,
-                title=("Confirm high-risk destructive operation" if reinforced else "Confirm destructive operation"),
+                title=(
+                    "Confirm high-risk destructive operation"
+                    if reinforced
+                    else "Confirm destructive operation"
+                    if destructive
+                    else "Confirm device operation"
+                ),
                 message=(
                     f"Run {command.kind!r} on device {interaction_target!r}?"
                     if interaction_target
@@ -263,7 +271,7 @@ class SafetyPolicy:
                 ),
                 expected_revision=snapshot.revision,
                 target_serial=interaction_target,
-                destructive=self.is_destructive(command),
+                destructive=destructive,
                 reinforced=reinforced,
                 confirmation_nonce=plan.confirmation_nonce if plan is not None else None,
             )

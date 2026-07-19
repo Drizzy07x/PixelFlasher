@@ -5103,3 +5103,47 @@ msgid ""
 "The all-buffer clear control completed and main-buffer sentinel removal was "
 "verified. One verification entry remains."
 msgstr "El control de limpieza de todos los búferes terminó y se verificó la eliminación de la marca del búfer principal. Queda una entrada de verificación."
+
+msgctxt "web.device.openUrlTitle"
+msgid "Open URL on device"
+msgstr "Abrir URL en el dispositivo"
+
+msgctxt "web.device.openUrlDetail"
+msgid "Open one validated HTTP or HTTPS address with the selected device browser."
+msgstr "Abre una dirección HTTP o HTTPS validada con el navegador del dispositivo seleccionado."
+
+msgctxt "web.device.openUrlGuard"
+msgid "Select exactly one device in ADB mode to open a URL."
+msgstr "Selecciona exactamente un dispositivo en modo ADB para abrir una URL."
+
+msgctxt "web.device.openUrlLabel"
+msgid "Web address"
+msgstr "Dirección web"
+
+msgctxt "web.device.openUrlAction"
+msgid "Open on device"
+msgstr "Abrir en el dispositivo"
+
+msgctxt "web.device.openUrlRunning"
+msgid "Opening the validated address..."
+msgstr "Abriendo la dirección validada..."
+
+msgctxt "web.device.openUrlCancelling"
+msgid "Cancelling URL launch..."
+msgstr "Cancelando la apertura de la URL..."
+
+msgctxt "web.device.openUrlCancel"
+msgid "Cancel URL launch"
+msgstr "Cancelar la apertura de la URL"
+
+msgctxt "web.device.openUrlSucceeded"
+msgid "The device accepted the browser intent."
+msgstr "El dispositivo aceptó el intent del navegador."
+
+msgctxt "web.device.openUrlCancelled"
+msgid "URL launch cancelled"
+msgstr "Apertura de URL cancelada"
+
+msgctxt "web.device.openUrlFailed"
+msgid "The device did not verify the browser launch."
+msgstr "El dispositivo no pudo verificar la apertura del navegador."

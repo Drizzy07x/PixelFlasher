@@ -6,6 +6,7 @@ import { DeviceSelector } from '../../components/DeviceSelector';
 import { Badge, Button, Card, CardTitle, Icon, Meter, PageHeader } from '../../components/ui';
 import { isToolchainReady, record, type SharedPageProps } from '../shared';
 import { DeviceInspectionPanel } from './DeviceInspectionPanel';
+import { DeviceOpenUrlPanel } from './DeviceOpenUrlPanel';
 import { OtaDiagnosticsPanel } from './OtaDiagnosticsPanel';
 
 type RebootMode = 'system' | 'recovery' | 'bootloader' | 'fastbootd' | 'sideload' | 'safemode';
@@ -74,6 +75,12 @@ export function DevicePage({ snapshot, selectedSerials, onSelectionChange, onCom
           onCommand={onCommand}
         />
         <DeviceInspectionPanel
+          device={operationTarget}
+          toolchainReady={isToolchainReady(snapshot)}
+          activeOperation={activeOperation}
+          onCommand={onCommand}
+        />
+        <DeviceOpenUrlPanel
           device={operationTarget}
           toolchainReady={isToolchainReady(snapshot)}
           activeOperation={activeOperation}

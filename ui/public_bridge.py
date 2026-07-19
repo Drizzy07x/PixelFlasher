@@ -24,6 +24,7 @@ JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
     {
+        "device.openUrl",
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
@@ -49,6 +50,7 @@ _ANDROID_PATH_PREFIXES = (
     "/vendor/",
 )
 _UNSAFE_LOG_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _MDNS_LOCAL_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("100.64.0.0/10"),
@@ -1133,6 +1135,55 @@ def _project_device_inspect(value: object) -> JSONValue:
     return result
 
 
+def _project_device_open_url(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "action",
+                "targetSerial",
+                "scheme",
+                "host",
+                "urlSha256",
+                "intentAccepted",
+            }
+        ),
+    )
+    target_serial = source["targetSerial"]
+    scheme = source["scheme"]
+    host = source["host"]
+    digest = source["urlSha256"]
+    if source["action"] != "openUrl" or source["intentAccepted"] is not True:
+        raise PublicProjectionError("browser intent result is not verified")
+    if not isinstance(target_serial, str) or not is_valid_target_serial(target_serial):
+        raise PublicProjectionError("browser intent target serial is invalid")
+    if scheme not in {"http", "https"}:
+        raise PublicProjectionError("browser intent scheme is invalid")
+    if (
+        not isinstance(host, str)
+        or not host
+        or not host.isascii()
+        or host != host.casefold()
+        or len(host) > 253
+    ):
+        raise PublicProjectionError("browser intent host is invalid")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if any(_DNS_LABEL.fullmatch(label) is None for label in host.split(".")):
+            raise PublicProjectionError("browser intent host is invalid") from None
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise PublicProjectionError("browser intent URL digest is invalid")
+    return {
+        "action": "openUrl",
+        "targetSerial": target_serial,
+        "scheme": scheme,
+        "host": host,
+        "urlSha256": digest,
+        "intentAccepted": True,
+    }
+
+
 def _project_ota_certificates(value: object) -> JSONValue:
     source = _closed_record(
         value,
@@ -1421,6 +1472,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.bootloader.lock": _project_confirmation,
     "device.bootloader.unlock": _project_confirmation,
     "device.inspect": _project_device_inspect,
+    "device.openUrl": _project_device_open_url,
     "device.ota.certificates": _project_ota_certificates,
     "device.ota.logs": _project_ota_logs,
     "device.reboot": _project_none,

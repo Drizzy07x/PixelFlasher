@@ -5102,3 +5102,47 @@ msgid ""
 "The all-buffer clear control completed and main-buffer sentinel removal was "
 "verified. One verification entry remains."
 msgstr "La commande d’effacement de tous les tampons est terminée et la suppression du marqueur principal a été vérifiée. Une entrée de vérification subsiste."
+
+msgctxt "web.device.openUrlTitle"
+msgid "Open URL on device"
+msgstr "Ouvrir une URL sur l’appareil"
+
+msgctxt "web.device.openUrlDetail"
+msgid "Open one validated HTTP or HTTPS address with the selected device browser."
+msgstr "Ouvrez une adresse HTTP ou HTTPS validée avec le navigateur de l’appareil sélectionné."
+
+msgctxt "web.device.openUrlGuard"
+msgid "Select exactly one device in ADB mode to open a URL."
+msgstr "Sélectionnez exactement un appareil en mode ADB pour ouvrir une URL."
+
+msgctxt "web.device.openUrlLabel"
+msgid "Web address"
+msgstr "Adresse Web"
+
+msgctxt "web.device.openUrlAction"
+msgid "Open on device"
+msgstr "Ouvrir sur l’appareil"
+
+msgctxt "web.device.openUrlRunning"
+msgid "Opening the validated address..."
+msgstr "Ouverture de l’adresse validée..."
+
+msgctxt "web.device.openUrlCancelling"
+msgid "Cancelling URL launch..."
+msgstr "Annulation de l’ouverture de l’URL..."
+
+msgctxt "web.device.openUrlCancel"
+msgid "Cancel URL launch"
+msgstr "Annuler l’ouverture de l’URL"
+
+msgctxt "web.device.openUrlSucceeded"
+msgid "The device accepted the browser intent."
+msgstr "L’appareil a accepté l’intention du navigateur."
+
+msgctxt "web.device.openUrlCancelled"
+msgid "URL launch cancelled"
+msgstr "Ouverture de l’URL annulée"
+
+msgctxt "web.device.openUrlFailed"
+msgid "The device did not verify the browser launch."
+msgstr "L’appareil n’a pas pu vérifier l’ouverture du navigateur."

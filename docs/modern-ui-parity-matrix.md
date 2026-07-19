@@ -118,6 +118,10 @@ atomic-operation boundaries:
   device summary, a bounded PIF profile, validated/sanitized screen XML, or the
   current ADB-reported bootloader version from fixed argv. React presents those
   reports through serial-bound, typed views and copies only the sanitized value.
+  The separate `device.openUrl` mutation accepts only canonical HTTP(S) URLs,
+  quotes the Android remote shell boundary, requires confirmation and reports
+  success only from bounded `am start -W` completion evidence without returning
+  the URL itself.
   Arbitrary ADB shell is explicitly rejected without execution.
 - `BackupService` creates and restores bounded boot-chain partition images,
   finalizing created files into verified artifacts and confirming restore.
@@ -171,7 +175,7 @@ becomes implicit success.
 |---|---|
 | Device connection | Bounded mDNS discovery is native without a selected device. Pair/connect without a selected ADB target, disconnected-device handoff and hotplug tuning remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | React APK install, download, denylist, SU controls and the remaining package actions. |
-| Device tools | Safe URL opening, independently extracted per-slot bootloader versions, the explicit expert ADB shell decision, packaged scrcpy discovery/lifecycle and OTA cancel/reset. Read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing and the filtered update_engine snapshot are now native. |
+| Device tools | Independently extracted per-slot bootloader versions, the explicit expert ADB shell decision, packaged scrcpy discovery/lifecycle and OTA cancel/reset. Safe HTTP(S) URL opening, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing and the filtered update_engine snapshot are now native. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, trusted stock-flash evidence production before bootloader lock, downgrade artifact production, custom `payload.bin`, runtime recovery/fastbootd transitions, real patch APK/runner resources and KMI/architecture-based kernel selection. |
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
 | Backups | Persisted raw-backup inventory/results and complete Magisk list/import/delete behavior. |

@@ -15,16 +15,19 @@ import json
 import os
 import re
 import secrets
+import shlex
 import signal
 import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import xml.etree.ElementTree as ElementTree
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Protocol, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from .contracts import (
     AppCommand,
@@ -59,6 +62,7 @@ DEVICE_TOOL_COMMANDS = frozenset(
         "tools.wifi.status",
         "tools.wifi.discover",
         "device.inspect",
+        "device.openUrl",
     }
 )
 
@@ -194,6 +198,18 @@ _SCREEN_XML_NODE_LIMIT = 20_000
 _SCREEN_XML_DEPTH_LIMIT = 128
 _SCREEN_XML_ATTRIBUTE_LIMIT = 64
 _SCREEN_XML_ATTRIBUTE_VALUE_LIMIT = 16 * 1024
+_OPEN_URL_MAX_BYTES = 2_048
+_OPEN_URL_OUTPUT_LIMIT = 64 * 1_024
+_OPEN_URL_MAX_LINES = 256
+_OPEN_URL_MAX_LINE_BYTES = 4 * 1_024
+_OPEN_URL_DNS_LABEL_PATTERN = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
+_OPEN_URL_REMOTE_PREFIX = (
+    "am start -W --user current "
+    "-a android.intent.action.VIEW "
+    "-c android.intent.category.BROWSABLE -d "
+)
 _SCREEN_XML_STATUS_LINES = frozenset(
     {
         "UI hierarchy dumped to: /dev/tty",
@@ -1024,6 +1040,147 @@ def parse_adb_mdns_discovery(output: str) -> dict[str, object]:
     }
 
 
+def _invalid_open_url(message: str) -> DeviceToolPlanningError:
+    return DeviceToolPlanningError("device_open_url_invalid", message)
+
+
+def _canonical_open_url(raw_value: object) -> tuple[str, str, str]:
+    """Return one canonical browser URL without accepting URL-parser ambiguity."""
+
+    if not isinstance(raw_value, str) or not raw_value:
+        raise _invalid_open_url("url must be a non-empty string")
+    try:
+        raw_size = len(raw_value.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise _invalid_open_url("url must contain valid Unicode text") from error
+    if raw_size > _OPEN_URL_MAX_BYTES:
+        raise _invalid_open_url("url exceeds the 2048-byte limit")
+    if "\\" in raw_value:
+        raise _invalid_open_url("url must not contain a backslash")
+    if any(
+        character.isspace()
+        or unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+        for character in raw_value
+    ):
+        raise _invalid_open_url("url must not contain whitespace or control characters")
+    if re.search(r"%(?![0-9A-Fa-f]{2})", raw_value):
+        raise _invalid_open_url("url contains an invalid percent escape")
+
+    try:
+        parsed = urlsplit(raw_value)
+    except ValueError as error:
+        raise _invalid_open_url("url is malformed") from error
+    scheme = parsed.scheme.casefold()
+    if scheme not in {"http", "https"}:
+        raise _invalid_open_url("url scheme must be exactly http or https")
+    if not parsed.netloc or parsed.username is not None or parsed.password is not None:
+        raise _invalid_open_url("url must have a host and must not contain userinfo")
+    raw_host = parsed.hostname
+    if not raw_host or "%" in raw_host or raw_host.endswith("."):
+        raise _invalid_open_url("url host is invalid")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise _invalid_open_url("url port is invalid") from error
+    if port is not None and not 1 <= port <= 65_535:
+        raise _invalid_open_url("url port must be between 1 and 65535")
+
+    try:
+        address = ipaddress.ip_address(raw_host)
+    except ValueError:
+        if re.fullmatch(r"[0-9.]+", raw_host):
+            raise _invalid_open_url("url host contains an invalid IP address") from None
+        try:
+            canonical_host = raw_host.encode("idna").decode("ascii").casefold()
+        except (UnicodeError, ValueError) as error:
+            raise _invalid_open_url("url host is not valid IDNA") from error
+        labels = canonical_host.split(".")
+        if (
+            len(canonical_host) > 253
+            or any(_OPEN_URL_DNS_LABEL_PATTERN.fullmatch(label) is None for label in labels)
+        ):
+            raise _invalid_open_url("url host is not valid IDNA") from None
+        netloc_host = canonical_host
+    else:
+        canonical_host = address.compressed.casefold()
+        netloc_host = f"[{canonical_host}]" if address.version == 6 else canonical_host
+
+    netloc = f"{netloc_host}:{port}" if port is not None else netloc_host
+    canonical = urlunsplit(
+        (scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+    try:
+        canonical_size = len(canonical.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise _invalid_open_url("canonical URL must contain valid Unicode text") from error
+    if canonical_size > _OPEN_URL_MAX_BYTES:
+        raise _invalid_open_url("canonical URL exceeds the 2048-byte limit")
+    return canonical, scheme, canonical_host
+
+
+def _open_url_output_verified(stdout: str, stderr: str) -> bool:
+    """Accept only bounded ``am start -W`` completion evidence."""
+
+    if not isinstance(stdout, str) or not isinstance(stderr, str) or stderr:
+        return False
+    try:
+        if len(stdout.encode("utf-8")) + len(stderr.encode("utf-8")) > _OPEN_URL_OUTPUT_LIMIT:
+            return False
+    except UnicodeEncodeError:
+        return False
+    if "\x00" in stdout or "\ufffd" in stdout or "\r" in stdout.replace("\r\n", ""):
+        return False
+    lines = stdout.replace("\r\n", "\n").splitlines()
+    if not lines or len(lines) > _OPEN_URL_MAX_LINES:
+        return False
+    normalized: list[str] = []
+    for line in lines:
+        try:
+            if len(line.encode("utf-8")) > _OPEN_URL_MAX_LINE_BYTES:
+                return False
+        except UnicodeEncodeError:
+            return False
+        if any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+            for character in line
+        ):
+            return False
+        normalized.append(line.strip())
+    meaningful = [line for line in normalized if line]
+    status_positions = [index for index, line in enumerate(meaningful) if line == "Status: ok"]
+    complete_positions = [index for index, line in enumerate(meaningful) if line == "Complete"]
+    if (
+        len(status_positions) != 1
+        or len(complete_positions) != 1
+        or status_positions[0] >= complete_positions[0]
+        or complete_positions[0] != len(meaningful) - 1
+    ):
+        return False
+    return not any(
+        line.casefold().startswith(("error", "failure", "exception", "status: timeout"))
+        for line in meaningful
+    )
+
+
+def _valid_canonical_open_url_host(value: object) -> bool:
+    if (
+        not isinstance(value, str)
+        or not value
+        or not value.isascii()
+        or len(value) > 253
+        or value != value.casefold()
+        or value.endswith(".")
+    ):
+        return False
+    try:
+        return ipaddress.ip_address(value).compressed.casefold() == value
+    except ValueError:
+        return all(
+            _OPEN_URL_DNS_LABEL_PATTERN.fullmatch(label) is not None
+            for label in value.split(".")
+        )
+
+
 def _bounded_output_bytes(value: str, *, maximum: int, kind: str) -> None:
     if not isinstance(value, str):
         raise DeviceInspectionParseError(
@@ -1472,6 +1629,8 @@ class DeviceToolsService:
             return compilation
         if command.kind == "device.inspect":
             return self._compile_inspection(command, snapshot, device, adb)
+        if command.kind == "device.openUrl":
+            return self._compile_open_url(command, snapshot, device, adb)
         if command.kind == "tools.wifi.status":
             return self._compile_wifi_status(command, snapshot, device, adb)
         if command.kind == "tools.logcat.clear":
@@ -1500,6 +1659,47 @@ class DeviceToolsService:
                 "device_tool_cancelled",
                 "device tool planning was cancelled",
             )
+
+    def _compile_open_url(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> DeviceToolCompilation:
+        self._validate_payload(command, {"serial", "url"})
+        canonical_url, scheme, host = _canonical_open_url(command.payload.get("url"))
+        url_sha256 = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()
+        remote_script = f"{_OPEN_URL_REMOTE_PREFIX}{shlex.quote(canonical_url)}"
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", remote_script),
+            timeout_seconds=30.0,
+            output_limit_bytes=_OPEN_URL_OUTPUT_LIMIT,
+        )
+        postcondition = OperationPostcondition(
+            "view_intent_accepted",
+            {
+                "targetSerial": device.serial,
+                "scheme": scheme,
+                "host": host,
+                "urlSha256": url_sha256,
+            },
+            "bounded Activity Manager output proves that the browser VIEW intent was accepted",
+        )
+        return DeviceToolCompilation(
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Open a verified browser URL on {device.serial}",
+                risk=OperationRisk.MUTATING,
+                postconditions=(postcondition,),
+                data_behavior="device_view_intent",
+            ),
+            "openUrl",
+            device_write=True,
+            requires_confirmation=True,
+        )
 
     def _compile_inspection(
         self,
@@ -2035,6 +2235,87 @@ class DeviceToolsService:
                 message="scrcpy cancellation could not terminate the managed process",
             )
         return result
+
+    def finalize_open_url(
+        self,
+        compilation: DeviceToolCompilation,
+        result: OperationResult,
+    ) -> OperationResult:
+        """Reduce untrusted ``am start -W`` output to one closed receipt."""
+
+        postconditions = compilation.plan.postconditions
+        if (
+            compilation.action != "openUrl"
+            or not compilation.device_write
+            or compilation.destructive
+            or not compilation.requires_confirmation
+            or compilation.plan.risk is not OperationRisk.MUTATING
+            or not compilation.plan.target_serial
+            or len(postconditions) != 1
+            or postconditions[0].kind != "view_intent_accepted"
+        ):
+            return OperationResult.failed(
+                result.operation_id,
+                code="device_open_url_compilation_invalid",
+                message="browser URL execution received an invalid verified plan",
+            )
+        evidence = postconditions[0].expected
+        target_serial = evidence.get("targetSerial")
+        scheme = evidence.get("scheme")
+        host = evidence.get("host")
+        url_sha256 = evidence.get("urlSha256")
+        if (
+            set(evidence) != {"targetSerial", "scheme", "host", "urlSha256"}
+            or target_serial != compilation.plan.target_serial
+            or scheme not in {"http", "https"}
+            or not _valid_canonical_open_url_host(host)
+            or not isinstance(url_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", url_sha256) is None
+        ):
+            return OperationResult.failed(
+                result.operation_id,
+                code="device_open_url_compilation_invalid",
+                message="browser URL execution evidence is invalid",
+            )
+        if result.status is OperationStatus.CANCELLED:
+            return OperationResult.cancelled(
+                result.operation_id,
+                code=result.code or "cancelled",
+                message="Opening the browser URL was cancelled before completion.",
+            )
+        if not result.ok:
+            preserved_code = result.code if result.code in {
+                "outcome_unknown",
+                "postcondition_mismatch",
+                "postcondition_unverified",
+            } else "device_open_url_failed"
+            return OperationResult.failed(
+                result.operation_id,
+                code=preserved_code,
+                message="The device did not return verified browser-intent evidence.",
+                exit_code=result.exit_code,
+            )
+        if result.exit_code != 0 or not _open_url_output_verified(result.stdout, result.stderr):
+            return OperationResult.failed(
+                result.operation_id,
+                code="device_open_url_evidence_invalid",
+                message="Activity Manager did not return bounded Status: ok and Complete evidence.",
+                exit_code=result.exit_code,
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code="device_open_url_succeeded",
+            message="The device accepted the browser VIEW intent.",
+            exit_code=result.exit_code,
+            value={
+                "action": "openUrl",
+                "targetSerial": compilation.plan.target_serial,
+                "scheme": scheme,
+                "host": host,
+                "urlSha256": url_sha256,
+                "intentAccepted": True,
+            },
+        )
 
     def finalize_result(
         self,

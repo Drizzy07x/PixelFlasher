@@ -648,6 +648,18 @@ class CommandEngine:
                 ),
                 cancellation=planning_token,
             )
+        if isinstance(compilation, DeviceToolCompilation) and compilation.action == "openUrl":
+            return self._execute_process(
+                planned,
+                self._strip_closed_execution_metadata,
+                result_finalizer=(
+                    lambda result, _cancellation: self.device_tools_service.finalize_open_url(
+                        compilation,
+                        result,
+                    )
+                ),
+                cancellation=planning_token,
+            )
         if isinstance(compilation, DeviceToolCompilation) and compilation.action.startswith("wifi."):
             return self._execute_process(
                 planned,
@@ -690,6 +702,21 @@ class CommandEngine:
         value = source.copy()
         value.pop("planId", None)
         value.pop("postconditions", None)
+        return replace(result, value=value)
+
+    @staticmethod
+    def _strip_closed_execution_metadata(result: OperationResult) -> OperationResult:
+        """Remove runner-only proof fields from a domain-owned closed DTO."""
+
+        raw_value = cast(object, result.value)
+        if not result.ok or not isinstance(raw_value, dict):
+            return result
+        source = cast(dict[str, object], raw_value)
+        value = {
+            key: item
+            for key, item in source.items()
+            if key not in {"planId", "postconditions"}
+        }
         return replace(result, value=value)
 
     def _parse_service_result(
