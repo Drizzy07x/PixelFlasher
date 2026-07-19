@@ -789,6 +789,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             self.assertEqual("SERIAL-B", transport.calls[1].argv[2])
             self.assertIsNone(store.snapshot().active_operation)
             self.assertEqual("batch-keep-data", store.snapshot().last_result.operation_id)
+            self.assertEqual((), store.snapshot().bootloader_lock_evidence)
 
     def test_custom_firmware_artifacts_require_canonical_processed_state(self):
         with TemporaryDirectory() as directory:
@@ -1962,6 +1963,86 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 ],
                 [request.argv for request in fastbootd_start.plan.requests],
             )
+
+    def test_verified_full_stock_flash_produces_one_use_relock_evidence(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            boot = root / "boot.img"
+            vbmeta = root / "vbmeta.img"
+            factory.write_bytes(b"factory")
+            boot.write_bytes(b"boot")
+            vbmeta.write_bytes(b"vbmeta")
+            firmware = FirmwareInfo(
+                str(factory),
+                "factory",
+                "AP4A.250205.002",
+                digest(factory),
+                True,
+                True,
+            )
+            plan = FlashPlan(
+                "factory",
+                {"verify": True, "slot": "both", "noReboot": True},
+                revision=3,
+                fingerprint="verified-full-stock",
+                dry_run=False,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (
+                    FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),
+                    FileArtifact(str(vbmeta.resolve()), digest(vbmeta), "partition:vbmeta"),
+                ),
+                firmware_hash=firmware.hash,
+            )
+            transport = FakeProcessTransport(
+                [TransportOutcome(0) for _ in range(5)]
+            )
+            store = AppStateStore(snapshot_for("fastboot", plan=plan, firmware=firmware))
+            engine = CommandEngine(
+                store=store,
+                executor=CommandExecutor(transport),
+                operation_planner=OperationPlanner(artifact_repository=repository),
+                postcondition_observer=StatefulPostconditionObserver(transport),
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            preview = engine.execute(command("flash.plan.preview"))
+            self.assertTrue(preview.value["compiled"]["ok"], preview.to_dict())
+            flashed = engine.execute(
+                command(
+                    "flash.execute",
+                    operation_id="verified-factory-flash",
+                )
+            )
+
+            self.assertEqual(OperationStatus.SUCCESS, flashed.status, flashed.to_dict())
+            evidence_snapshot = store.snapshot()
+            self.assertEqual(1, len(evidence_snapshot.bootloader_lock_evidence))
+            evidence = evidence_snapshot.bootloader_lock_evidence[0]
+            self.assertEqual("verified-factory-flash", evidence.flash_operation_id)
+            self.assertEqual(evidence_snapshot.revision, evidence.snapshot_revision)
+            self.assertEqual(("a", "b"), evidence.slots)
+            self.assertEqual({"boot", "vbmeta"}, set(evidence.required_partitions))
+
+            lock_preview = engine.execute(
+                AppCommand(
+                    "device.bootloader.lock",
+                    expected_revision=evidence_snapshot.revision,
+                    target_serial="SERIAL-A",
+                )
+            )
+            lock_text = lock_preview.value["confirmation"]["required_text"]
+            locked = engine.execute(
+                AppCommand(
+                    "device.bootloader.lock",
+                    expected_revision=evidence_snapshot.revision,
+                    target_serial="SERIAL-A",
+                    payload={"confirmationText": lock_text},
+                )
+            )
+            self.assertEqual(OperationStatus.SUCCESS, locked.status, locked.to_dict())
+            self.assertEqual((), store.snapshot().bootloader_lock_evidence)
 
     def test_reinforced_challenge_is_ttl_bounded_and_one_use(self):
         snapshot = snapshot_for("fastboot")

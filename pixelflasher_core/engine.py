@@ -39,6 +39,7 @@ from .contracts import (
     AppEvent,
     AppSnapshot,
     BootInfo,
+    BootloaderLockEvidence,
     CommandAck,
     CommandKind,
     DeviceInfo,
@@ -3054,6 +3055,11 @@ class CommandEngine:
                             message=str(error),
                         )
                         self._abort_operation_safely(result)
+                if result.ok:
+                    self._promote_stock_lock_evidence(
+                        compilation.batch.plans,
+                        result,
+                    )
                 return result
             except Exception as error:
                 result = OperationResult.failed(
@@ -3116,7 +3122,86 @@ class CommandEngine:
                 code="dry_run_succeeded",
                 message="dry run completed without launching a subprocess",
             )
+        if result.ok:
+            self._promote_stock_lock_evidence((compilation.plan,), result)
         return result
+
+    def _promote_stock_lock_evidence(
+        self,
+        plans: tuple[OperationPlan, ...],
+        result: OperationResult,
+    ) -> None:
+        """Persist one-use relock eligibility only after a verified full stock flash."""
+
+        if not result.ok or not plans:
+            return
+        snapshot = self.store.snapshot()
+        firmware = snapshot.firmware
+        flash_plan = snapshot.plan
+        unsafe_options = {
+            "disableVerity",
+            "disableVerification",
+            "disable_verity",
+            "disable_verification",
+            "force",
+            "temporaryRoot",
+            "temporary_root",
+            "downgrade",
+        }
+        if (
+            firmware.type.casefold() != "factory"
+            or not firmware.verified
+            or not firmware.processed
+            or not firmware.hash
+            or not firmware.build
+            or flash_plan.mode.casefold() != "factory"
+            or flash_plan.dry_run
+            or flash_plan.options.get("slot") != "both"
+            or "partitions" in flash_plan.options
+            or any(flash_plan.options.get(option) is True for option in unsafe_options)
+            or snapshot.last_result is None
+            or snapshot.last_result.operation_id != result.operation_id
+        ):
+            return
+
+        next_revision = snapshot.revision + 1
+        evidence: list[BootloaderLockEvidence] = []
+        try:
+            for plan in plans:
+                required = tuple(dict.fromkeys(plan.partitions))
+                if (
+                    plan.dry_run
+                    or plan.firmware_hash.casefold() != firmware.hash.casefold()
+                    or plan.fingerprint != flash_plan.fingerprint
+                    or set(plan.slots) != {"a", "b"}
+                    or "vbmeta" not in required
+                    or not {"boot", "init_boot"}.intersection(required)
+                    or not plan.target_serial
+                    or not plan.expected_codename
+                ):
+                    return
+                evidence.append(
+                    BootloaderLockEvidence(
+                        serial=plan.target_serial,
+                        device_codename=plan.expected_codename,
+                        firmware_hash=firmware.hash,
+                        firmware_build=firmware.build,
+                        flash_operation_id=result.operation_id,
+                        flash_plan_fingerprint=flash_plan.fingerprint,
+                        snapshot_revision=next_revision,
+                        required_partitions=required,
+                        flashed_partitions=required,
+                        slots=("a", "b"),
+                    )
+                )
+            self.store.update(
+                expected_revision=snapshot.revision,
+                bootloader_lock_evidence=tuple(evidence),
+            )
+        except (StaleRevisionError, TypeError, ValueError):
+            # Relock eligibility is optional metadata. Any race or malformed
+            # evidence fails closed without changing the verified flash result.
+            return
 
     def _update_flash_plan(self, command: AppCommand) -> OperationResult:
         snapshot = self.store.snapshot()

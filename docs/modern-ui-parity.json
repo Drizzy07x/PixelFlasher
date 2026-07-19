@@ -903,7 +903,7 @@
         "pixelflasher_core/operation_runner.py:OperationRunner.execute/execute_batch",
         "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService"
       ],
-      "gap": "Factory-stock relock evidence plus packaged-platform, WebView E2E and hardware validation remain open; payload processing, OTA/fastbootd transitions and sequential fail-fast batches are implemented.",
+      "gap": "Packaged-platform, WebView E2E and hardware validation remain open; payload processing, OTA/fastbootd transitions, sequential fail-fast batches and revision-bound stock relock evidence are implemented.",
       "exitCriteria": [
         "React submits semantic intent only; the backend previews and executes an immutable hash-bound plan after revision, serial, mode and artifact revalidation.",
         "Factory, OTA and supported custom-ROM flows cover success, cancellation, timeout, disconnect and recovery transitions without legacy code."
@@ -2071,9 +2071,10 @@
         "ui/web/src/pages/Pages.tsx:DeviceOperations",
         "pixelflasher_core/planner.py:OperationPlanner._bootloader",
         "pixelflasher_core/bootloader.py:BootloaderLockPolicy",
-        "pixelflasher_core/contracts.py:BootloaderLockEvidence"
+        "pixelflasher_core/contracts.py:BootloaderLockEvidence",
+        "pixelflasher_core/engine.py:CommandEngine._promote_stock_lock_evidence"
       ],
-      "gap": "No trusted producer creates the stock-flash evidence required for locking, and post-operation state is not verified.",
+      "gap": "Trusted stock-flash evidence production, one-use consumption and final-state observation are implemented; packaged-platform and hardware locked/unlocked validation remain open.",
       "exitCriteria": [
         "Unlock and lock use exact serial-bound reinforced plans; lock requires trusted revision-bound stock evidence and both operations verify final state."
       ],
@@ -2089,10 +2090,11 @@
       ],
       "tests": [
         "tests/test_operation_planner.py:test_bootloader_unlock_is_backend_compiled_and_lock_fails_without_stock_evidence",
+        "tests/test_operation_planner.py:test_verified_full_stock_flash_produces_one_use_relock_evidence",
         "tests/test_bootloader_lock_policy.py:BootloaderLockPolicyTests",
         "ui/web/src/test/App.test.tsx:Device operations"
       ],
-      "blockReason": "Lock remains disabled because no trusted producer emits the required revision-bound complete-stock-flash evidence.",
+      "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
         "README.md:240",
