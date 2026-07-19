@@ -221,6 +221,20 @@ describe('bridge v2 validation boundaries', () => {
     expect(operationFromEvent({
       ...runtime,
       event: 'progress',
+      payload: { operation_id: 'op', phase: 'running', percent: 25 },
+    }, {
+      id: 'op', kind: 'device.ota.logs', label: 'OTA logs', status: 'running',
+    })).toMatchObject({ id: 'op', kind: 'device.ota.logs', status: 'running' });
+    expect(operationFromEvent({
+      ...runtime,
+      event: 'progress',
+      payload: { operation_id: 'other', phase: 'running' },
+    }, {
+      id: 'op', kind: 'flash.execute', label: 'Flash', status: 'running',
+    })).not.toHaveProperty('kind');
+    expect(operationFromEvent({
+      ...runtime,
+      event: 'progress',
       payload: { operation_id: 'op-2', phase: 3 },
     })).toEqual({ id: 'op-2', label: 'running', status: 'running', progress: undefined, detail: undefined });
 

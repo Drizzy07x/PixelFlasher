@@ -1669,9 +1669,15 @@
       "area": "device_tools",
       "capability": "Cancel Google OTA, inspect otacerts and monitor update_engine",
       "owner": "device_tools",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No typed modern flow exists for OTA cancellation, otacerts or update_engine diagnostics.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService",
+        "pixelflasher_core/executor.py:SubprocessTransport._run_bounded_process",
+        "pixelflasher_core/engine.py:CommandEngine._compile_service_command",
+        "ui/public_bridge.py:_project_ota_certificates",
+        "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
+      ],
+      "gap": "Read-only otacerts inspection and a bounded, redacted update_engine snapshot are native. OTA cancellation/reset remains open until a bundled mutating runner and an explicit idle-state postcondition are implemented.",
       "exitCriteria": [
         "Cancel Google OTA, inspect otacerts and monitor update_engine is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1686,7 +1692,13 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_ota_diagnostics_service.py",
+        "tests/test_ota_diagnostics_engine_integration.py",
+        "tests/test_headless_core.py:test_subprocess_transport_terminates_at_the_aggregate_output_limit",
+        "tests/test_modern_artifact_boundary.py:test_ota_diagnostic_results_have_closed_bounded_public_dtos",
+        "ui/web/src/test/ota-diagnostics.test.tsx"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
@@ -1694,7 +1706,10 @@
         "Main.py:1681-1683"
       ],
       "modernActionIds": [],
-      "modernCommandIds": []
+      "modernCommandIds": [
+        "device.ota.certificates",
+        "device.ota.logs"
+      ]
     },
     {
       "id": "device.logs",
@@ -1704,10 +1719,12 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat",
+        "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService._compile_logs",
         "pixelflasher_core/engine.py:_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:ToolsPage"
+        "ui/web/src/pages/Pages.tsx:ToolsPage",
+        "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Streaming, in-flight cancellation, redaction, export and update_engine-specific views remain open.",
+      "gap": "Generic logcat continuous streaming, in-flight cancellation, export and configurable redaction remain open; a bounded, redacted update_engine snapshot with operation cancellation is native.",
       "exitCriteria": [
         "Logcat viewer and filtered update_engine logs is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -1723,7 +1740,10 @@
       ],
       "tests": [
         "tests/test_device_tools_service.py",
-        "tests/test_service_engine_integration.py:test_logcat_returns_bounded_line_model_and_never_uses_shell"
+        "tests/test_service_engine_integration.py:test_logcat_returns_bounded_line_model_and_never_uses_shell",
+        "tests/test_ota_diagnostics_service.py",
+        "tests/test_ota_diagnostics_engine_integration.py",
+        "ui/web/src/test/ota-diagnostics.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,

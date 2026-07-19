@@ -209,12 +209,15 @@ function PixelFlasherApp({
       const operation = operationFromEvent(event);
       if (operation) {
         if (typeof event.revision === 'number') snapshotRevisionRef.current = event.revision;
-        setSnapshot((current) => ({
-          ...current,
-          revision: event.revision ?? current.revision,
-          activeOperation: operation,
-          active_operation: operation,
-        }));
+        setSnapshot((current) => {
+          const correlated = operationFromEvent(event, current.activeOperation) ?? operation;
+          return {
+            ...current,
+            revision: event.revision ?? current.revision,
+            activeOperation: correlated,
+            active_operation: correlated,
+          };
+        });
       }
       const requestedInteraction = interactionFromEvent(event);
       if (requestedInteraction) setInteraction(requestedInteraction);

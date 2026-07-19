@@ -17,6 +17,8 @@ export const commands = {
   deviceBootloaderLock: "device.bootloader.lock",
   deviceBootloaderUnlock: "device.bootloader.unlock",
   deviceInspect: "device.inspect",
+  deviceOtaCertificates: "device.ota.certificates",
+  deviceOtaLogs: "device.ota.logs",
   deviceReboot: "device.reboot",
   deviceScan: "device.scan",
   deviceSelect: "device.select",
@@ -116,6 +118,14 @@ export interface BridgePayloadByCommand {
   "device.inspect": {
     "action": string;
     "serial"?: string;
+  };
+  "device.ota.certificates": {
+    "serial"?: string;
+  };
+  "device.ota.logs": {
+    "maxLines"?: number;
+    "serial"?: string;
+    "timeoutSeconds"?: number;
   };
   "device.reboot": {
     "mode"?: string;
@@ -282,6 +292,8 @@ export const allowedCommands = [
   commands.deviceBootloaderLock,
   commands.deviceBootloaderUnlock,
   commands.deviceInspect,
+  commands.deviceOtaCertificates,
+  commands.deviceOtaLogs,
   commands.deviceReboot,
   commands.deviceScan,
   commands.deviceSelect,
@@ -337,6 +349,8 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.deviceBootloaderLock]: 60000,
   [commands.deviceBootloaderUnlock]: 60000,
   [commands.deviceInspect]: 45000,
+  [commands.deviceOtaCertificates]: 45000,
+  [commands.deviceOtaLogs]: 180000,
   [commands.deviceReboot]: 60000,
   [commands.deviceScan]: 60000,
   [commands.deviceSelect]: 60000,
@@ -386,6 +400,8 @@ export const bridgeCommandMetadata = {
   [commands.deviceBootloaderLock]: {"owner":"bootloader","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.bootloader_lock","confirmation":"lock_serial","postconditions":["bootloader_locked","relock_evidence_consumed"]},
   [commands.deviceBootloaderUnlock]: {"owner":"bootloader","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.bootloader_unlock","confirmation":"unlock_serial","postconditions":["bootloader_unlocked"]},
   [commands.deviceInspect]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.inspect","confirmation":"none","postconditions":["bounded_typed_report_returned"]},
+  [commands.deviceOtaCertificates]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.certificates","confirmation":"none","postconditions":["bounded_certificate_inventory_returned"]},
+  [commands.deviceOtaLogs]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.logs","confirmation":"none","postconditions":["bounded_redacted_logs_returned"]},
   [commands.deviceReboot]: {"owner":"device","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"operation.device_reboot","confirmation":"none","postconditions":["device_reconnected","expected_mode_observed"]},
   [commands.deviceScan]: {"owner":"device","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.scan","confirmation":"none","postconditions":["device_inventory_refreshed"]},
   [commands.deviceSelect]: {"owner":"device","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.selection","confirmation":"none","postconditions":["selected_serials_match"]},
@@ -462,6 +478,8 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.deviceBootloaderLock]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceBootloaderUnlock]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceInspect]: {"action":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
+  [commands.deviceOtaCertificates]: {"serial":{"kind":"string","required":false}},
+  [commands.deviceOtaLogs]: {"maxLines":{"kind":"integer","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false}},
   [commands.deviceReboot]: {"mode":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceScan]: {"includeBattery":{"kind":"boolean","required":false},"includeProperties":{"kind":"boolean","required":false}},
   [commands.deviceSelect]: {"serials":{"kind":"string_array","required":true}},

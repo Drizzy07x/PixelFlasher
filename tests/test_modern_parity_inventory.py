@@ -308,6 +308,29 @@ class ModernParityInventoryTests(unittest.TestCase):
             push["tests"],
         )
 
+    def test_ota_diagnostics_inventory_matches_the_read_only_slice(self):
+        rows = {row["id"]: row for row in self.capabilities}
+        diagnostics = rows["device.ota_diagnostics"]
+        logs = rows["device.logs"]
+
+        self.assertEqual("partial", diagnostics["modernStatus"])
+        self.assertEqual(
+            {"device.ota.certificates", "device.ota.logs"},
+            set(diagnostics["modernCommandIds"]),
+        )
+        self.assertIn("OTA cancellation/reset remains open", diagnostics["gap"])
+        self.assertNotIn("No typed modern flow", diagnostics["gap"])
+        self.assertIn(
+            "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService",
+            diagnostics["currentEvidence"],
+        )
+        self.assertIn(
+            "ui/web/src/test/ota-diagnostics.test.tsx",
+            diagnostics["tests"],
+        )
+        self.assertEqual(["tools.logcat"], logs["modernCommandIds"])
+        self.assertIn("update_engine snapshot", logs["gap"])
+
     def test_every_registered_bridge_command_has_one_parity_owner(self):
         inventoried = [
             command_id

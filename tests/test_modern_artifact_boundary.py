@@ -303,6 +303,101 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                     )
                     self.assert_route_free(project_operation_result(command, result))
 
+    def test_ota_diagnostic_results_have_closed_bounded_public_dtos(self):
+        certificates = {
+            "action": "certificates",
+            "archivePresent": True,
+            "count": 2,
+            "entries": [
+                "META-INF/com/android/otacert.x509.pem",
+                "releasekey.x509.pem",
+            ],
+            "bounded": True,
+        }
+        logs = {
+            "action": "logs",
+            "lineCount": 2,
+            "lines": [
+                "update_engine: payload verified",
+                "update_engine_client: status=UPDATED_NEED_REBOOT",
+            ],
+            "redactedCount": 1,
+            "bounded": True,
+        }
+
+        for command, value in (
+            ("device.ota.certificates", certificates),
+            ("device.ota.logs", logs),
+        ):
+            with self.subTest(command=command):
+                public = project_operation_result(
+                    command,
+                    OperationResult.success("ota-diagnostic", value=value),
+                )
+                self.assertEqual(value, public["value"])
+                self.assert_route_free(public)
+
+        invalid_certificates = (
+            {**certificates, "signed": True},
+            {key: item for key, item in certificates.items() if key != "archivePresent"},
+            {**certificates, "action": "certificatePaths"},
+            {**certificates, "archivePresent": False},
+            {**certificates, "count": 1},
+            {**certificates, "count": True},
+            {**certificates, "entries": tuple(certificates["entries"])},
+            {**certificates, "count": 1_025, "entries": ["cert.pem"] * 1_025},
+            {**certificates, "count": 1, "entries": [f"{'x' * 257}.pem"]},
+            {**certificates, "count": 1, "entries": ["é" * 129]},
+        )
+        invalid_logs = (
+            {**logs, "path": "update_engine.log"},
+            {**logs, "action": "logcat"},
+            {**logs, "bounded": False},
+            {**logs, "lineCount": 1},
+            {**logs, "redactedCount": True},
+            {**logs, "lines": tuple(logs["lines"])},
+            {**logs, "lineCount": 5_001, "lines": ["update_engine"] * 5_001},
+            {**logs, "lineCount": 1, "lines": ["x" * 4_097]},
+            {
+                **logs,
+                "lineCount": 1,
+                "lines": [f"update_engine: {'😀' * 1_022}"],
+            },
+            {**logs, "lineCount": 1, "lines": ["ordinary log line"]},
+            {**logs, "lineCount": 1, "lines": ["update_engine:\x07 bell"]},
+        )
+        for command, invalid_values in (
+            ("device.ota.certificates", invalid_certificates),
+            ("device.ota.logs", invalid_logs),
+        ):
+            for value in invalid_values:
+                with self.subTest(command=command, value=value):
+                    public = project_operation_result(
+                        command,
+                        OperationResult.success("ota-diagnostic", value=value),
+                    )
+                    self.assertNotIn("value", public)
+                    self.assert_route_free(public)
+
+        for route in HOST_PATH_SENTINELS:
+            unsafe_certificates = {
+                **certificates,
+                "count": 1,
+                "entries": [route],
+            }
+            unsafe_logs = {**logs, "lineCount": 1, "lines": [route]}
+            for command, value in (
+                ("device.ota.certificates", unsafe_certificates),
+                ("device.ota.logs", unsafe_logs),
+            ):
+                with self.subTest(command=command, route=route):
+                    public = project_operation_result(
+                        command,
+                        OperationResult.success("ota-diagnostic", value=value),
+                    )
+                    self.assertNotIn("value", public)
+                    self.assert_route_free(public)
+
     def test_platform_tools_result_exposes_closed_installation_receipt_without_routes(self):
         digest = "d" * 64
         receipt = {

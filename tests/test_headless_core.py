@@ -1,6 +1,7 @@
 import ast
 import inspect
 import json
+import sys
 import threading
 import time
 import unittest
@@ -15,6 +16,7 @@ from pixelflasher_core import (
     AppSnapshot,
     AppStateStore,
     BootInfo,
+    CancellationToken,
     CommandExecutor,
     CommandKind,
     ConfigStore,
@@ -215,6 +217,15 @@ class ContractTests(unittest.TestCase):
             _ = operation_plan.request
         with self.assertRaises(FrozenInstanceError):
             operation_plan.slots += ("c",)
+
+    def test_process_output_limits_are_bounded_and_serialized(self):
+        request = ProcessRequest(("adb", "devices"), output_limit_bytes=8_192)
+
+        self.assertEqual(8_192, request.to_dict()["output_limit_bytes"])
+        self.assertEqual(8_192, request.to_public_dict()["output_limit_bytes"])
+        for invalid in (True, 0, 1_023, 64 * 1_024 * 1_024 + 1):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                ProcessRequest(("adb", "devices"), output_limit_bytes=invalid)
 
     def test_core_never_imports_wx_or_legacy_runtime_modules(self):
         package = Path(__file__).resolve().parents[1] / "pixelflasher_core"
@@ -504,6 +515,43 @@ class ExecutorAndInteractionTests(unittest.TestCase):
             args[0],
         )
         self.assertIs(False, kwargs["shell"])
+
+    def test_subprocess_transport_terminates_at_the_aggregate_output_limit(self):
+        request = ProcessRequest(
+            (
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.buffer.write(b'x' * 1048576)",
+            ),
+            timeout_seconds=5,
+            output_limit_bytes=4_096,
+        )
+
+        outcome = SubprocessTransport().run(request, CancellationToken())
+
+        self.assertTrue(outcome.output_limited)
+        self.assertFalse(outcome.timed_out)
+        self.assertLessEqual(
+            len(outcome.stdout.encode("utf-8"))
+            + len(outcome.stderr.encode("utf-8")),
+            4_096,
+        )
+
+    def test_executor_fails_closed_on_an_oversized_injected_transport(self):
+        request = ProcessRequest(("adb", "devices"), output_limit_bytes=1_024)
+        executor = CommandExecutor(
+            FakeProcessTransport([TransportOutcome(0, "x" * 1_025)])
+        )
+
+        result = executor.execute(
+            AppCommand("test.bounded", operation_id="bounded-output"),
+            OperationPlan(requests=(request,)),
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("output_limit_exceeded", result.code)
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
 
     def test_interaction_broker_checks_revision_and_releases_waiters(self):
         broker = InteractionBroker(timeout_seconds=1)

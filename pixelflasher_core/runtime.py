@@ -48,6 +48,7 @@ from .operation_runner import (
     PostconditionObserverLike,
     SnapshotProvider,
 )
+from .ota_diagnostics import OtaDiagnosticsService
 from .packages import PackageService
 from .partitions import PartitionService
 from .payload_extractor import BuiltinPayloadExtractor
@@ -233,6 +234,7 @@ class ApplicationRuntime:
             device_tools_service=DeviceToolsService(
                 scrcpy_executable=self._configured_scrcpy_path(config_document),
             ),
+            ota_diagnostics_service=OtaDiagnosticsService(),
             backup_service=BackupService(),
             rooting_service=rooting_service,
             boot_patch_service=BootPatchService(rooting_service, ()),

@@ -17,7 +17,12 @@ from ui.command_registry import (
     PAYLOAD_FIELDS,
     REGISTERED_COMMANDS,
     REGISTERED_PAYLOAD_FIELDS,
+    CommandMutability,
+    CommandOwner,
+    CommandRisk,
     ExpectedRevision,
+    PayloadKind,
+    TargetScope,
 )
 
 
@@ -77,6 +82,9 @@ class CommandRegistryTests(unittest.TestCase):
             ),
             ("settings.update", {"zoom": True}, "integer"),
             ("tools.wifi", {"action": "connect", "port": "37123"}, "integer"),
+            ("device.ota.certificates", {"path": "/system/etc/security"}, "unsupported"),
+            ("device.ota.logs", {"maxLines": True}, "integer"),
+            ("device.ota.logs", {"timeoutSeconds": "30"}, "integer"),
             ("snapshot.get", {"alias": True}, "unsupported"),
         )
         for command, payload, detail in cases:
@@ -97,12 +105,41 @@ class CommandRegistryTests(unittest.TestCase):
             "tools.scrcpy",
             "tools.wifi",
             "tools.logcat",
+            "device.ota.certificates",
+            "device.ota.logs",
             "tools.pushFiles",
         ):
             with self.subTest(command=command):
                 self.assertEqual(
                     frozenset({"adb"}),
                     COMMAND_REGISTRY[command].valid_device_states,
+                )
+
+    def test_ota_diagnostic_contracts_are_closed_read_only_device_reads(self):
+        expected_payloads = {
+            "device.ota.certificates": {"serial": PayloadKind.STRING},
+            "device.ota.logs": {
+                "serial": PayloadKind.STRING,
+                "maxLines": PayloadKind.INTEGER,
+                "timeoutSeconds": PayloadKind.INTEGER,
+            },
+        }
+        for command, expected_payload in expected_payloads.items():
+            with self.subTest(command=command):
+                spec = COMMAND_REGISTRY[command]
+                self.assertEqual(CommandOwner.DEVICE_TOOLS, spec.owner)
+                self.assertEqual(CommandMutability.READ_ONLY, spec.mutability)
+                self.assertEqual(CommandRisk.DEVICE_READ, spec.risk)
+                self.assertEqual(ExpectedRevision.REQUIRED, spec.expected_revision)
+                self.assertEqual(TargetScope.SELECTED_DEVICE, spec.target_scope)
+                self.assertEqual(frozenset({"adb"}), spec.valid_device_states)
+                self.assertEqual(command, spec.planner)
+                self.assertEqual(
+                    expected_payload,
+                    {name: field.kind for name, field in spec.payload.fields.items()},
+                )
+                self.assertFalse(
+                    any(field.required for field in spec.payload.fields.values())
                 )
 
     def test_expected_revision_policy_is_registry_owned(self):

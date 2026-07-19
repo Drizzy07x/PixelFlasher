@@ -9,7 +9,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import BinaryIO, Protocol, runtime_checkable
 
 from .contracts import (
     AppCommand,
@@ -46,6 +46,7 @@ class TransportOutcome:
     stderr: str = ""
     cancelled: bool = False
     timed_out: bool = False
+    output_limited: bool = False
 
 
 class ProcessTransport(Protocol):
@@ -115,6 +116,7 @@ def _redact_secret_outcome(
         secret.redact(outcome.stderr),
         outcome.cancelled,
         outcome.timed_out,
+        outcome.output_limited,
     )
 
 
@@ -182,6 +184,14 @@ class SubprocessTransport:
             environment = os.environ.copy()
             environment.update(dict(request.env))
 
+        if request.output_limit_bytes is not None:
+            return self._run_bounded_process(
+                request,
+                cancellation,
+                environment=environment,
+                stdin_text=stdin_text,
+            )
+
         process = subprocess.Popen(  # noqa: S603 - argv is an explicit typed contract
             list(request.argv),
             cwd=request.cwd,
@@ -229,6 +239,134 @@ class SubprocessTransport:
                 pending_input = None
                 continue
             return TransportOutcome(process.returncode, stdout, stderr)
+
+    def _run_bounded_process(
+        self,
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        *,
+        environment: dict[str, str] | None,
+        stdin_text: str | None,
+    ) -> TransportOutcome:
+        """Drain both pipes concurrently and terminate at the aggregate byte cap."""
+
+        limit = request.output_limit_bytes
+        assert limit is not None
+        process: subprocess.Popen[bytes] = subprocess.Popen(  # noqa: S603
+            list(request.argv),
+            cwd=request.cwd,
+            env=environment,
+            shell=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE if stdin_text is not None else None,
+            text=False,
+        )
+        assert process.stdout is not None
+        assert process.stderr is not None
+        stdout_buffer = bytearray()
+        stderr_buffer = bytearray()
+        capture_lock = threading.Lock()
+        output_limited = threading.Event()
+        captured_bytes = 0
+
+        def collect(stream: BinaryIO, target: bytearray) -> None:
+            nonlocal captured_bytes
+            while True:
+                chunk = stream.read(64 * 1_024)
+                if not chunk:
+                    return
+                with capture_lock:
+                    remaining = max(0, limit - captured_bytes)
+                    accepted = min(len(chunk), remaining)
+                    if accepted:
+                        target.extend(chunk[:accepted])
+                        captured_bytes += accepted
+                    if accepted != len(chunk):
+                        output_limited.set()
+                        return
+
+        readers = (
+            threading.Thread(
+                target=collect,
+                args=(process.stdout, stdout_buffer),
+                name="pixelflasher-stdout-capture",
+                daemon=True,
+            ),
+            threading.Thread(
+                target=collect,
+                args=(process.stderr, stderr_buffer),
+                name="pixelflasher-stderr-capture",
+                daemon=True,
+            ),
+        )
+        for reader in readers:
+            reader.start()
+
+        if stdin_text is not None and process.stdin is not None:
+            try:
+                process.stdin.write(
+                    stdin_text.encode(request.encoding, errors="replace")
+                )
+                process.stdin.flush()
+            except BrokenPipeError:
+                pass
+            finally:
+                process.stdin.close()
+
+        deadline = (
+            time.monotonic() + request.timeout_seconds
+            if request.timeout_seconds is not None
+            else None
+        )
+        cancelled = False
+        timed_out = False
+        while process.poll() is None:
+            if output_limited.is_set():
+                self._stop_process(process)
+                break
+            if cancellation.cancelled:
+                cancelled = True
+                self._stop_process(process)
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                timed_out = True
+                self._stop_process(process)
+                break
+            cancellation.wait(self.poll_interval_seconds)
+
+        for reader in readers:
+            reader.join(timeout=1)
+        for stream, reader in zip((process.stdout, process.stderr), readers, strict=True):
+            if reader.is_alive():
+                stream.close()
+                reader.join(timeout=1)
+
+        return TransportOutcome(
+            process.returncode,
+            stdout_buffer.decode(request.encoding, errors="replace"),
+            stderr_buffer.decode(request.encoding, errors="replace"),
+            cancelled=cancelled,
+            timed_out=timed_out,
+            output_limited=output_limited.is_set(),
+        )
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen[bytes]) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+            process.wait()
 
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> tuple[str, str]:
@@ -475,6 +613,27 @@ class CommandExecutor:
                     command.operation_id,
                     code="executor_error",
                     message=message,
+                    stdout="".join(stdout_parts),
+                    stderr="".join(stderr_parts),
+                )
+            captured_bytes = len(outcome.stdout.encode(request.encoding, errors="replace"))
+            captured_bytes += len(
+                outcome.stderr.encode(request.encoding, errors="replace")
+            )
+            if outcome.output_limited or (
+                request.output_limit_bytes is not None
+                and captured_bytes > request.output_limit_bytes
+            ):
+                self._progress(
+                    command,
+                    ProgressPhase.FAILED,
+                    "process output exceeded its safety limit",
+                )
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="output_limit_exceeded",
+                    message=f"command {index} of {total} exceeded its output limit",
+                    exit_code=outcome.returncode,
                     stdout="".join(stdout_parts),
                     stderr="".join(stderr_parts),
                 )

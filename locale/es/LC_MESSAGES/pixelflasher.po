@@ -4663,6 +4663,91 @@ msgctxt "web.device.inspectActiveSlot"
 msgid "Active slot"
 msgstr ""
 
+msgctxt "web.device.otaTitle"
+msgid "OTA diagnostics"
+msgstr "Diagnósticos OTA"
+
+msgctxt "web.device.otaDetail"
+msgid "Inspect OTA certificate archive entries and collect a bounded, redacted update_engine snapshot."
+msgstr "Inspecciona las entradas del archivo de certificados OTA y recopila una instantánea acotada y redactada de update_engine."
+
+msgctxt "web.device.otaGuard"
+msgid "Select exactly one device in ADB mode and set up Platform Tools to run OTA diagnostics."
+msgstr "Selecciona exactamente un dispositivo en modo ADB y configura Platform Tools para ejecutar los diagnósticos OTA."
+
+msgctxt "web.device.otaCertificates"
+msgid "OTA certificates"
+msgstr "Certificados OTA"
+
+msgctxt "web.device.otaCertificatesDetail"
+msgid "Inspect the bounded entry list from the system OTA certificate archive."
+msgstr "Inspecciona la lista acotada de entradas del archivo de certificados OTA del sistema."
+
+msgctxt "web.device.otaLogs"
+msgid "update_engine snapshot"
+msgstr "Instantánea de update_engine"
+
+msgctxt "web.device.otaLogsDetail"
+msgid "Collect up to 1,000 redacted update_engine log lines."
+msgstr "Recopila hasta 1.000 líneas redactadas del registro de update_engine."
+
+msgctxt "web.device.otaRunning"
+msgid "Running OTA diagnostic..."
+msgstr "Ejecutando diagnóstico OTA..."
+
+msgctxt "web.device.otaCancelling"
+msgid "Cancelling diagnostic..."
+msgstr "Cancelando diagnóstico..."
+
+msgctxt "web.device.otaCancel"
+msgid "Cancel diagnostic"
+msgstr "Cancelar diagnóstico"
+
+msgctxt "web.device.otaCancelled"
+msgid "OTA diagnostic cancelled"
+msgstr "Diagnóstico OTA cancelado"
+
+msgctxt "web.device.otaFailed"
+msgid "The OTA diagnostic did not return a valid typed report."
+msgstr "El diagnóstico OTA no devolvió un informe tipado válido."
+
+msgctxt "web.device.otaProgress"
+msgid "OTA diagnostic progress"
+msgstr "Progreso del diagnóstico OTA"
+
+msgctxt "web.device.otaArchive"
+msgid "Certificate archive"
+msgstr "Archivo de certificados"
+
+msgctxt "web.device.otaPresent"
+msgid "Present"
+msgstr "Presente"
+
+msgctxt "web.device.otaCertificateCount"
+msgid "Certificate entries"
+msgstr "Entradas de certificados"
+
+msgctxt "web.device.otaBound"
+msgid "Output policy"
+msgstr "Política de salida"
+
+msgctxt "web.device.otaBounded"
+msgid "Bounded"
+msgstr "Acotada"
+
+msgctxt "web.device.otaLogLines"
+msgid "{count} log lines"
+msgstr "{count} líneas de registro"
+
+msgctxt "web.device.otaRedacted"
+msgid "{count} redacted"
+msgstr "{count} redactadas"
+
+msgctxt "web.device.otaNoLogs"
+msgid "No update_engine lines were found."
+msgstr "No se encontraron líneas de update_engine."
+
+
 
 msgctxt "web.boot.inventoryTitle"
 msgid "Boot image inventory"

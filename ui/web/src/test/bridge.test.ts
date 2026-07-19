@@ -183,6 +183,7 @@ describe('PixelFlasher bridge protocol', () => {
       },
     } as unknown as HostSnapshot).activeOperation).toEqual({
       id: 'operation-123',
+      kind: 'apps.action',
       label: 'Install APK',
       status: 'running',
     });

@@ -178,6 +178,9 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
   const activeOperation = rawOperation && operationId
     ? {
         id: operationId,
+        ...(typeof rawOperation.kind === 'string' && rawOperation.kind
+          ? { kind: rawOperation.kind }
+          : {}),
         label: typeof rawOperation.label === 'string' && rawOperation.label
           ? rawOperation.label
           : 'Operation in progress',
@@ -395,13 +398,20 @@ export function snapshotFromEvent(event: BridgeEvent): HostSnapshot | null {
   return normalizeSnapshot(event.payload as unknown as HostSnapshot);
 }
 
-export function operationFromEvent(event: BridgeEvent): ActiveOperation | null {
+export function operationFromEvent(
+  event: BridgeEvent,
+  previous: ActiveOperation | null = null,
+): ActiveOperation | null {
   if (event.event !== 'progress') return null;
   const operationId = event.payload.operation_id;
   if (typeof operationId !== 'string' || !operationId) return null;
   const phase = typeof event.payload.phase === 'string' ? event.payload.phase : 'running';
+  const kind = typeof event.payload.kind === 'string' && event.payload.kind
+    ? event.payload.kind
+    : previous?.id === operationId ? previous.kind : undefined;
   return {
     id: operationId,
+    ...(kind ? { kind } : {}),
     label: typeof event.payload.message === 'string' && event.payload.message
       ? event.payload.message
       : phase,

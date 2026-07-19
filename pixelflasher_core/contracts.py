@@ -446,6 +446,7 @@ class ProcessRequest:
     timeout_seconds: float | None = None
     encoding: str = "utf-8"
     stdin_secret_field: str | None = None
+    output_limit_bytes: int | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.argv, str):
@@ -466,6 +467,14 @@ class ProcessRequest:
             raise ValueError("env must contain string key/value pairs")
         if not self.encoding:
             raise ValueError("encoding must not be empty")
+        if self.output_limit_bytes is not None and (
+            not isinstance(self.output_limit_bytes, int)
+            or isinstance(self.output_limit_bytes, bool)
+            or not 1_024 <= self.output_limit_bytes <= 64 * 1_024 * 1_024
+        ):
+            raise ValueError(
+                "output_limit_bytes must be between 1024 and 67108864 or null"
+            )
         if self.stdin_secret_field is not None and (
             not isinstance(self.stdin_secret_field, str)
             or not self.stdin_secret_field
@@ -490,6 +499,7 @@ class ProcessRequest:
             # This is only the backend payload field name. Secret material is
             # deliberately absent from process requests and operation plans.
             "stdin_secret_field": self.stdin_secret_field,
+            "output_limit_bytes": self.output_limit_bytes,
         }
 
     def to_public_dict(
@@ -516,6 +526,7 @@ class ProcessRequest:
             "timeout_seconds": self.timeout_seconds,
             "encoding": self.encoding,
             "stdin_secret_field": self.stdin_secret_field,
+            "output_limit_bytes": self.output_limit_bytes,
         }
 
 

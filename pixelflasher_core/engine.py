@@ -71,6 +71,12 @@ from .operation_runner import (
     PostconditionObserverLike,
     SnapshotProvider,
 )
+from .ota_diagnostics import (
+    OTA_DIAGNOSTIC_COMMANDS,
+    OtaDiagnosticCompilation,
+    OtaDiagnosticPlanningError,
+    OtaDiagnosticsService,
+)
 from .packages import (
     PACKAGE_COMMANDS,
     PackageCompilation,
@@ -145,6 +151,7 @@ _SERVICE_COMMANDS = (
     PACKAGE_COMMANDS
     | PARTITION_COMMANDS
     | DEVICE_TOOL_COMMANDS
+    | OTA_DIAGNOSTIC_COMMANDS
     | BACKUP_COMMANDS
     | ROOTING_COMMANDS
     | frozenset({BOOT_PATCH_COMMAND})
@@ -153,6 +160,7 @@ _ServiceCompilation = (
     PackageCompilation
     | PartitionCompilation
     | DeviceToolCompilation
+    | OtaDiagnosticCompilation
     | BackupCompilation
     | RootingCompilation
     | BootPatchCompilation
@@ -183,6 +191,7 @@ class CommandEngine:
         package_service: PackageService,
         partition_service: PartitionService,
         device_tools_service: DeviceToolsService,
+        ota_diagnostics_service: OtaDiagnosticsService,
         backup_service: BackupService,
         rooting_service: RootingService,
         boot_patch_service: BootPatchService,
@@ -229,6 +238,7 @@ class CommandEngine:
         self.package_service = package_service
         self.partition_service = partition_service
         self.device_tools_service = device_tools_service
+        self.ota_diagnostics_service = ota_diagnostics_service
         self.backup_service = backup_service
         self.rooting_service = rooting_service
         self.boot_patch_service = boot_patch_service
@@ -356,6 +366,8 @@ class CommandEngine:
                 compilation = self.backup_service.compile(command, snapshot)
             elif command.kind in ROOTING_COMMANDS:
                 compilation = self.rooting_service.compile(command, snapshot)
+            elif command.kind in OTA_DIAGNOSTIC_COMMANDS:
+                compilation = self.ota_diagnostics_service.compile(command, snapshot)
             else:
                 compilation = self.device_tools_service.compile(command, snapshot)
         except BootPatchPlanningError as error:
@@ -376,6 +388,7 @@ class CommandEngine:
             PackagePlanningError,
             PartitionPlanningError,
             DeviceToolPlanningError,
+            OtaDiagnosticPlanningError,
             BackupPlanningError,
             RootingPlanningError,
         ) as error:
@@ -446,12 +459,18 @@ class CommandEngine:
                 )
             execution_plan = reinforced.plan
 
+        if isinstance(compilation, OtaDiagnosticCompilation):
+            destructive = False
+            requires_confirmation = False
+        else:
+            destructive = compilation.destructive
+            requires_confirmation = compilation.requires_confirmation
         planned = replace(
             command,
             target_serial=execution_plan.target_serial,
             operation_plan=execution_plan,
-            destructive=compilation.destructive,
-            requires_confirmation=compilation.requires_confirmation,
+            destructive=destructive,
+            requires_confirmation=requires_confirmation,
         )
         if command.kind == BOOT_PATCH_COMMAND:
             if not isinstance(compilation, BootPatchCompilation):
@@ -471,6 +490,16 @@ class CommandEngine:
                 ),
                 completion_boot=self._boot_info_from_patch_result,
                 cancellation=planning_token,
+            )
+        if isinstance(compilation, OtaDiagnosticCompilation):
+            return self._execute_process(
+                planned,
+                result_finalizer=(
+                    lambda result, _cancellation: self.ota_diagnostics_service.finalize(
+                        compilation,
+                        result,
+                    )
+                ),
             )
         if isinstance(compilation, DeviceToolCompilation) and compilation.execution != "process":
             return self._execute_process(

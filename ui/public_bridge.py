@@ -38,6 +38,7 @@ _ANDROID_PATH_PREFIXES = (
     "/system/",
     "/vendor/",
 )
+_UNSAFE_LOG_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class PublicProjectionError(TypeError):
@@ -230,6 +231,49 @@ def _number(value: object, *, default: float = 0.0) -> int | float:
 
 def _strings(value: object, *, maximum: int = 2048) -> list[str]:
     return [item for item in _array(value)[:maximum] if isinstance(item, str)]
+
+
+def _closed_record(
+    value: object,
+    *,
+    fields: frozenset[str],
+) -> Mapping[str, object]:
+    source = _record(value)
+    if frozenset(source) != fields:
+        raise PublicProjectionError("public result fields do not match its contract")
+    return source
+
+
+def _closed_bounded_strings(
+    value: object,
+    *,
+    maximum_items: int,
+    maximum_item_utf8_bytes: int,
+    maximum_utf8_bytes: int,
+) -> list[str]:
+    if not isinstance(value, list):
+        raise PublicProjectionError("public result string array exceeds its item limit")
+    items = cast("list[object]", value)
+    if len(items) > maximum_items:
+        raise PublicProjectionError("public result string array exceeds its item limit")
+    result: list[str] = []
+    total_utf8_bytes = 0
+    for item in items:
+        if (
+            not isinstance(item, str)
+            or "\x00" in item
+            or "\r" in item
+            or "\n" in item
+        ):
+            raise PublicProjectionError("public result contains an invalid bounded string")
+        item_utf8_bytes = len(item.encode("utf-8"))
+        if item_utf8_bytes > maximum_item_utf8_bytes:
+            raise PublicProjectionError("public result string exceeds its byte limit")
+        total_utf8_bytes += item_utf8_bytes
+        if total_utf8_bytes > maximum_utf8_bytes:
+            raise PublicProjectionError("public result strings exceed their byte limit")
+        result.append(item)
+    return result
 
 
 def _public_preferences(value: object) -> dict[str, JSONValue]:
@@ -882,6 +926,89 @@ def _project_device_inspect(value: object) -> JSONValue:
     return result
 
 
+def _project_ota_certificates(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"action", "archivePresent", "count", "entries", "bounded"}
+        ),
+    )
+    if source["action"] != "certificates":
+        raise PublicProjectionError("OTA certificate result action is invalid")
+    if source["archivePresent"] is not True or source["bounded"] is not True:
+        raise PublicProjectionError("OTA certificate result is not bounded")
+    count = source["count"]
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise PublicProjectionError("OTA certificate result count is invalid")
+    entries = _closed_bounded_strings(
+        source["entries"],
+        maximum_items=1_024,
+        maximum_item_utf8_bytes=256,
+        maximum_utf8_bytes=256 * 1_024,
+    )
+    if count != len(entries):
+        raise PublicProjectionError("OTA certificate result count does not match")
+    for entry in entries:
+        if (
+            not entry
+            or not entry.isprintable()
+            or "\\" in entry
+            or entry.startswith("/")
+            or any(part in {"", ".", ".."} for part in entry.split("/"))
+        ):
+            raise PublicProjectionError("OTA certificate entry is invalid")
+    return ensure_public_json({
+        "action": "certificates",
+        "archivePresent": True,
+        "count": count,
+        "entries": entries,
+        "bounded": True,
+    })
+
+
+def _project_ota_logs(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"action", "lineCount", "lines", "redactedCount", "bounded"}
+        ),
+    )
+    if source["action"] != "logs" or source["bounded"] is not True:
+        raise PublicProjectionError("OTA log result is not a bounded log response")
+    line_count = source["lineCount"]
+    redacted_count = source["redactedCount"]
+    if (
+        not isinstance(line_count, int)
+        or isinstance(line_count, bool)
+        or line_count < 0
+        or not isinstance(redacted_count, int)
+        or isinstance(redacted_count, bool)
+        or not 0 <= redacted_count <= 5_000
+    ):
+        raise PublicProjectionError("OTA log result counters are invalid")
+    lines = _closed_bounded_strings(
+        source["lines"],
+        maximum_items=5_000,
+        maximum_item_utf8_bytes=4_096,
+        maximum_utf8_bytes=8 * 1_024 * 1_024,
+    )
+    if line_count != len(lines):
+        raise PublicProjectionError("OTA log result count does not match")
+    if any(
+        _UNSAFE_LOG_CONTROL.search(line)
+        or "update_engine" not in line.casefold()
+        for line in lines
+    ):
+        raise PublicProjectionError("OTA log result contains an invalid line")
+    return ensure_public_json({
+        "action": "logs",
+        "lineCount": line_count,
+        "lines": lines,
+        "redactedCount": redacted_count,
+        "bounded": True,
+    })
+
+
 def _string_map(value: object, *, maximum: int = 4096) -> dict[str, JSONValue]:
     source = _record(value)
     result: dict[str, JSONValue] = {}
@@ -958,6 +1085,8 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.bootloader.lock": _project_confirmation,
     "device.bootloader.unlock": _project_confirmation,
     "device.inspect": _project_device_inspect,
+    "device.ota.certificates": _project_ota_certificates,
+    "device.ota.logs": _project_ota_logs,
     "device.reboot": _project_none,
     "device.scan": _project_device_scan,
     "device.select": _project_snapshot,

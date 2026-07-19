@@ -4660,6 +4660,91 @@ msgctxt "web.device.inspectActiveSlot"
 msgid "Active slot"
 msgstr ""
 
+msgctxt "web.device.otaTitle"
+msgid "OTA diagnostics"
+msgstr "OTA 診斷"
+
+msgctxt "web.device.otaDetail"
+msgid "Inspect OTA certificate archive entries and collect a bounded, redacted update_engine snapshot."
+msgstr "檢查 OTA 憑證封存檔項目並收集有界且已遮蔽的 update_engine 快照。"
+
+msgctxt "web.device.otaGuard"
+msgid "Select exactly one device in ADB mode and set up Platform Tools to run OTA diagnostics."
+msgstr "請只選擇一台處於 ADB 模式的裝置，並設定 Platform Tools 以執行 OTA 診斷。"
+
+msgctxt "web.device.otaCertificates"
+msgid "OTA certificates"
+msgstr "OTA 憑證"
+
+msgctxt "web.device.otaCertificatesDetail"
+msgid "Inspect the bounded entry list from the system OTA certificate archive."
+msgstr "檢查系統 OTA 憑證封存檔中有界的項目清單。"
+
+msgctxt "web.device.otaLogs"
+msgid "update_engine snapshot"
+msgstr "update_engine 快照"
+
+msgctxt "web.device.otaLogsDetail"
+msgid "Collect up to 1,000 redacted update_engine log lines."
+msgstr "收集最多 1,000 行已遮蔽的 update_engine 記錄。"
+
+msgctxt "web.device.otaRunning"
+msgid "Running OTA diagnostic..."
+msgstr "正在執行 OTA 診斷..."
+
+msgctxt "web.device.otaCancelling"
+msgid "Cancelling diagnostic..."
+msgstr "正在取消診斷..."
+
+msgctxt "web.device.otaCancel"
+msgid "Cancel diagnostic"
+msgstr "取消診斷"
+
+msgctxt "web.device.otaCancelled"
+msgid "OTA diagnostic cancelled"
+msgstr "OTA 診斷已取消"
+
+msgctxt "web.device.otaFailed"
+msgid "The OTA diagnostic did not return a valid typed report."
+msgstr "OTA 診斷未傳回有效的型別化報告。"
+
+msgctxt "web.device.otaProgress"
+msgid "OTA diagnostic progress"
+msgstr "OTA 診斷進度"
+
+msgctxt "web.device.otaArchive"
+msgid "Certificate archive"
+msgstr "憑證封存檔"
+
+msgctxt "web.device.otaPresent"
+msgid "Present"
+msgstr "存在"
+
+msgctxt "web.device.otaCertificateCount"
+msgid "Certificate entries"
+msgstr "憑證項目"
+
+msgctxt "web.device.otaBound"
+msgid "Output policy"
+msgstr "輸出原則"
+
+msgctxt "web.device.otaBounded"
+msgid "Bounded"
+msgstr "有界"
+
+msgctxt "web.device.otaLogLines"
+msgid "{count} log lines"
+msgstr "{count} 行記錄"
+
+msgctxt "web.device.otaRedacted"
+msgid "{count} redacted"
+msgstr "已遮蔽 {count} 項"
+
+msgctxt "web.device.otaNoLogs"
+msgid "No update_engine lines were found."
+msgstr "找不到 update_engine 記錄行。"
+
+
 
 msgctxt "web.boot.inventoryTitle"
 msgid "Boot image inventory"

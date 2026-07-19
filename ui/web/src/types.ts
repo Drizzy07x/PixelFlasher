@@ -73,6 +73,7 @@ export type OperationStatus =
 
 export interface ActiveOperation {
   id: string;
+  kind?: string;
   label: string;
   status: OperationStatus | string;
   progress?: number;

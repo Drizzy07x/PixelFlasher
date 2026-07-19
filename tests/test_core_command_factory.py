@@ -54,6 +54,39 @@ class CoreCommandFactoryTests(unittest.TestCase):
         with self.assertRaisesRegex(CommandFactoryError, "target serial"):
             empty(request("partitions.erase", payload={"partition": "userdata"}))
 
+    def test_ota_diagnostics_bind_selected_or_explicit_serial_without_risk_flags(self):
+        factory = create_command_factory(
+            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-OTA")
+        )
+
+        certificates = factory(request("device.ota.certificates"))
+        logs = factory(
+            request(
+                "device.ota.logs",
+                payload={
+                    "serial": "SERIAL-EXPLICIT",
+                    "maxLines": 250,
+                    "timeoutSeconds": 12,
+                },
+            )
+        )
+
+        self.assertEqual("SERIAL-OTA", certificates.target_serial)
+        self.assertEqual({}, certificates.payload)
+        self.assertFalse(certificates.destructive)
+        self.assertFalse(certificates.requires_confirmation)
+        self.assertEqual("SERIAL-EXPLICIT", logs.target_serial)
+        self.assertEqual(
+            {
+                "serial": "SERIAL-EXPLICIT",
+                "maxLines": 250,
+                "timeoutSeconds": 12,
+            },
+            logs.payload,
+        )
+        self.assertFalse(logs.destructive)
+        self.assertFalse(logs.requires_confirmation)
+
     def test_settings_and_local_inventory_are_not_device_scoped(self):
         factory = create_command_factory(
             lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3")

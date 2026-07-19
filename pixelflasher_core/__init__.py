@@ -166,6 +166,15 @@ from .operation_runner import (
     OperationRunner,
     PostconditionObservation,
 )
+from .ota_diagnostics import (
+    OTA_CERTIFICATES_COMMAND,
+    OTA_DIAGNOSTIC_COMMANDS,
+    OTA_LOGS_COMMAND,
+    OtaDiagnosticCompilation,
+    OtaDiagnosticParseError,
+    OtaDiagnosticPlanningError,
+    OtaDiagnosticsService,
+)
 from .packages import (
     PACKAGE_COMMANDS,
     ApkIdentityInspector,
@@ -418,6 +427,13 @@ __all__ = [
     "OperationRisk",
     "OperationRunner",
     "OperationStatus",
+    "OTA_CERTIFICATES_COMMAND",
+    "OTA_DIAGNOSTIC_COMMANDS",
+    "OTA_LOGS_COMMAND",
+    "OtaDiagnosticCompilation",
+    "OtaDiagnosticParseError",
+    "OtaDiagnosticPlanningError",
+    "OtaDiagnosticsService",
     "ObservationProbe",
     "ObservationProbeUnavailable",
     "ObservationResult",

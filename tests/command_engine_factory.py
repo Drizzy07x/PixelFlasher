@@ -32,6 +32,7 @@ from pixelflasher_core.operation_runner import (
     PostconditionObserverLike,
     SnapshotProvider,
 )
+from pixelflasher_core.ota_diagnostics import OtaDiagnosticsService
 from pixelflasher_core.packages import PackageService
 from pixelflasher_core.partitions import PartitionService
 from pixelflasher_core.planner import OperationPlanner
@@ -61,6 +62,7 @@ def make_test_command_engine(
     package_service: PackageService | None = None,
     partition_service: PartitionService | None = None,
     device_tools_service: DeviceToolsService | None = None,
+    ota_diagnostics_service: OtaDiagnosticsService | None = None,
     backup_service: BackupService | None = None,
     rooting_service: RootingService | None = None,
     apk_inspector: RootApkInspector | None = None,
@@ -109,6 +111,7 @@ def make_test_command_engine(
     package_service = package_service or PackageService(apk_inspector=apk_inspector)
     partition_service = partition_service or PartitionService()
     device_tools_service = device_tools_service or DeviceToolsService()
+    ota_diagnostics_service = ota_diagnostics_service or OtaDiagnosticsService()
     backup_service = backup_service or BackupService()
     rooting_service = rooting_service or RootingService(apk_inspector=apk_inspector)
     boot_patch_service = BootPatchService(rooting_service, boot_patch_bundles)
@@ -140,6 +143,7 @@ def make_test_command_engine(
         package_service=package_service,
         partition_service=partition_service,
         device_tools_service=device_tools_service,
+        ota_diagnostics_service=ota_diagnostics_service,
         backup_service=backup_service,
         rooting_service=rooting_service,
         boot_patch_service=boot_patch_service,

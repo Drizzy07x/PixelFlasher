@@ -12,15 +12,15 @@ from scripts.sync_react_gettext import (
 )
 
 EXPECTED_TRANSLATED_COUNTS = {
-    "en": 0,
-    "es": 294,
-    "fr": 294,
-    "it": 294,
-    "zh_CN": 294,
-    "zh_TW": 294,
+    "en": 21,
+    "es": 315,
+    "fr": 315,
+    "it": 315,
+    "zh_CN": 315,
+    "zh_TW": 315,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 343
+EXPECTED_WEB_CONTEXT_COUNT = 364
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.apps.apkFiles",
     "web.apps.chooseApk",
