@@ -1120,6 +1120,100 @@ class OperationBatch:
         }
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class OperationPreviewBatch:
+    """An immutable, non-executable group of per-device dry-run plans."""
+
+    plans: tuple[OperationPlan, ...]
+    preview_id: str = ""
+    created: float = 0.0
+    expires: float = 0.0
+    fingerprint: str = ""
+
+    def __init__(
+        self,
+        plans: tuple[OperationPlan, ...] | list[OperationPlan],
+        *,
+        preview_id: str | None = None,
+        created: float | None = None,
+        expires: float | None = None,
+        fingerprint: str = "",
+    ) -> None:
+        normalized = tuple(plans)
+        if len(normalized) < 2:
+            raise ValueError("preview batch requires at least two plans")
+        if any(not isinstance(plan, OperationPlan) or not plan.dry_run for plan in normalized):
+            raise ValueError("preview batch accepts only dry-run operation plans")
+        serials = tuple(plan.target_serial for plan in normalized)
+        if any(not serial for serial in serials) or len(serials) != len(set(serials)):
+            raise ValueError("preview batch plans must target unique serials")
+        created_value = time.time() if created is None else float(created)
+        maximum_expiry = min(plan.expires for plan in normalized)
+        expires_value = (
+            min(created_value + OPERATION_PLAN_TTL_SECONDS, maximum_expiry)
+            if expires is None
+            else float(expires)
+        )
+        object.__setattr__(self, "plans", normalized)
+        object.__setattr__(self, "preview_id", preview_id or uuid4().hex)
+        object.__setattr__(self, "created", created_value)
+        object.__setattr__(self, "expires", expires_value)
+        computed = self.compute_fingerprint()
+        if fingerprint and fingerprint != computed:
+            raise ValueError("preview fingerprint does not match its ordered plans")
+        object.__setattr__(self, "fingerprint", fingerprint or computed)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        if not self.preview_id.strip():
+            raise ValueError("preview_id must be a non-empty string")
+        if not math.isfinite(self.created) or not math.isfinite(self.expires):
+            raise ValueError("preview timestamps must be finite")
+        if self.created < 0 or self.expires <= self.created:
+            raise ValueError("preview expires must be later than created")
+        if self.expires - self.created > OPERATION_PLAN_TTL_SECONDS + 1e-6:
+            raise ValueError("preview batch TTL cannot exceed five minutes")
+        if self.expires > min(plan.expires for plan in self.plans) + 1e-6:
+            raise ValueError("preview batch cannot outlive one of its plans")
+
+    @property
+    def target_serials(self) -> tuple[str, ...]:
+        return tuple(plan.target_serial or "" for plan in self.plans)
+
+    def compute_fingerprint(self) -> str:
+        material = {
+            "kind": "flash.preview.batch",
+            "plans": [
+                {"serial": plan.target_serial, "fingerprint": plan.execution_fingerprint()}
+                for plan in self.plans
+            ],
+        }
+        encoded = json.dumps(material, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "previewId": self.preview_id,
+            "created": self.created,
+            "expires": self.expires,
+            "fingerprint": self.fingerprint,
+            "targetSerials": list(self.target_serials),
+            "plans": [plan.to_dict() for plan in self.plans],
+            "dry_run": True,
+        }
+
+    def to_public_dict(self) -> dict[str, JSONValue]:
+        return {
+            "previewId": self.preview_id,
+            "created": self.created,
+            "expires": self.expires,
+            "fingerprint": self.fingerprint,
+            "targetSerials": list(self.target_serials),
+            "plans": [plan.to_public_dict() for plan in self.plans],
+            "dry_run": True,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class AppCommand:
     kind: CommandKind | str

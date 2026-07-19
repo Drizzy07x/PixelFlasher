@@ -641,6 +641,85 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     self.assertEqual(firmware.hash, store.snapshot().firmware.hash)
                     self.assertEqual(plan.fingerprint, store.snapshot().plan.fingerprint)
 
+    def test_multi_device_dry_run_uses_a_non_executable_preview_batch(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "factory.zip"
+            boot = root / "boot.img"
+            package.write_bytes(b"factory")
+            boot.write_bytes(b"boot")
+            firmware = FirmwareInfo(
+                str(package), "factory", "42", digest(package), True, True
+            )
+            plan = FlashPlan(
+                "factory",
+                {"verify": True, "noReboot": True},
+                revision=3,
+                fingerprint="multi-dry-plan",
+                dry_run=True,
+            )
+            first = DeviceInfo(
+                "SERIAL-A", codename="akita", mode="fastboot", online=True, bootloader="unlocked"
+            )
+            second = replace(first, serial="SERIAL-B")
+            snapshot = replace(
+                snapshot_for("fastboot", plan=plan, firmware=firmware),
+                devices=(first, second),
+                selected_serials=("SERIAL-A", "SERIAL-B"),
+                selected_serial="SERIAL-A",
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
+                firmware_hash=firmware.hash,
+            )
+            planner = OperationPlanner(artifact_repository=repository, clock=lambda: 100.0)
+            batch_command = AppCommand("flash.execute", expected_revision=0, target_serial=None)
+
+            first_compilation = planner.compile_preview_batch(batch_command, snapshot)
+            second_compilation = planner.compile_preview_batch(batch_command, snapshot)
+
+            self.assertTrue(first_compilation.ok)
+            self.assertTrue(second_compilation.ok)
+            self.assertIsNotNone(first_compilation.preview)
+            self.assertIsNotNone(second_compilation.preview)
+            assert first_compilation.preview is not None
+            assert second_compilation.preview is not None
+            self.assertEqual(("SERIAL-A", "SERIAL-B"), first_compilation.preview.target_serials)
+            self.assertEqual(
+                first_compilation.preview.fingerprint,
+                second_compilation.preview.fingerprint,
+            )
+            self.assertEqual(300.0, first_compilation.preview.expires - first_compilation.preview.created)
+            self.assertTrue(all(item.dry_run for item in first_compilation.preview.plans))
+
+            transport = FakeProcessTransport([])
+            engine = CommandEngine(
+                store=AppStateStore(snapshot),
+                executor=CommandExecutor(transport),
+                operation_planner=planner,
+                safety_policy=SafetyPolicy(clock=lambda: 100.0),
+                interaction_handler=lambda _request: self.fail("dry-run batch must not prompt"),
+            )
+            preview_result = engine.execute(
+                AppCommand("flash.plan.preview", expected_revision=0, target_serial=None)
+            )
+            execute_result = engine.execute(batch_command)
+
+            self.assertEqual(
+                OperationStatus.SUCCESS,
+                preview_result.status,
+                preview_result.to_dict(),
+            )
+            self.assertTrue(preview_result.value["batch"])
+            self.assertEqual(
+                ("SERIAL-A", "SERIAL-B"),
+                tuple(preview_result.value["compiled"]["preview"]["targetSerials"]),
+            )
+            self.assertEqual(OperationStatus.SUCCESS, execute_result.status)
+            self.assertEqual("dry_run_batch_succeeded", execute_result.code)
+            self.assertEqual([], transport.calls)
+
     def test_custom_firmware_artifacts_require_canonical_processed_state(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

@@ -11,6 +11,7 @@ const previewWithoutMutation: FlashPreview = {
   requiredConfirmation: '',
   label: 'Verified dry run',
   targetSerial: demoSnapshot.devices[1].serial,
+  targetSerials: [demoSnapshot.devices[1].serial],
   expectedDeviceState: 'fastboot',
   dataBehavior: 'preserve',
   partitions: [],
@@ -46,7 +47,11 @@ beforeEach(() => {
 describe('five-step flash planning edge behavior', () => {
   it('builds an expert dry-run plan and keeps failed/cancelled outcomes distinct', async () => {
     const user = userEvent.setup();
-    const onPrepare = vi.fn(async (plan: FlashPlan) => ({ ...previewWithoutMutation, targetSerial: plan.serials[0] }));
+    const onPrepare = vi.fn(async (plan: FlashPlan) => ({
+      ...previewWithoutMutation,
+      targetSerial: plan.serials[0],
+      targetSerials: [...plan.serials],
+    }));
     const onStart = vi.fn(async () => { throw 'backend unavailable'; });
     const { props, rerender } = wizard({ onPrepare, onStart });
 
@@ -94,7 +99,7 @@ describe('five-step flash planning edge behavior', () => {
     expect(screen.getByText('Flash was cancelled')).toBeVisible();
   });
 
-  it('normalizes multi-selection, resets OTA-incompatible options and recovers from preparation errors', async () => {
+  it('preserves multi-selection, resets OTA-incompatible options and recovers from preparation errors', async () => {
     const user = userEvent.setup();
     const onSelectionChange = vi.fn(async () => undefined);
     const onFirmwareChange = vi.fn()
@@ -109,7 +114,10 @@ describe('five-step flash planning edge behavior', () => {
       onFirmwareChange,
       onPrepare,
     });
-    await waitFor(() => expect(onSelectionChange).toHaveBeenCalledWith([demoSnapshot.devices[0].serial]));
+    expect(screen.getByLabelText(new RegExp(demoSnapshot.devices[0].name, 'i'))).toBeChecked();
+    expect(screen.getByLabelText(new RegExp(demoSnapshot.devices[1].name, 'i'))).toBeChecked();
+    expect(screen.getByText('2 selected')).toBeVisible();
+    expect(onSelectionChange).not.toHaveBeenCalled();
 
     rerender(<I18nProvider locale="en"><FlashWizard {...props} selectedSerials={[demoSnapshot.devices[0].serial]} /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Continue' }));

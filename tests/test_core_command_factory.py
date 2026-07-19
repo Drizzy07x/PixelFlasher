@@ -102,6 +102,22 @@ class CoreCommandFactoryTests(unittest.TestCase):
         with self.assertRaisesRegex(CommandFactoryError, "target serial"):
             empty(request("partitions.erase", payload={"partition": "userdata"}))
 
+    def test_multi_device_flash_preview_and_execute_preserve_batch_scope(self):
+        snapshot = AppSnapshot(
+            revision=4,
+            selected_serials=("SERIAL-1", "SERIAL-2"),
+            selected_serial="SERIAL-1",
+        )
+        factory = create_command_factory(lambda: snapshot)
+
+        preview = factory(request("flash.plan.preview"))
+        execute = factory(request("flash.execute"))
+        explicit = factory(request("flash.execute", payload={"serial": "SERIAL-2"}))
+
+        self.assertIsNone(preview.target_serial)
+        self.assertIsNone(execute.target_serial)
+        self.assertEqual("SERIAL-2", explicit.target_serial)
+
     def test_ota_diagnostics_bind_selected_or_explicit_serial_without_risk_flags(self):
         factory = create_command_factory(
             lambda: AppSnapshot(revision=4, selected_serial="SERIAL-OTA")

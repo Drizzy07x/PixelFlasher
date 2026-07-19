@@ -24,6 +24,7 @@ from .contracts import (
     OperationBatch,
     OperationPlan,
     OperationPostcondition,
+    OperationPreviewBatch,
     OperationRisk,
     ProcessRequest,
     confirmation_serial_suffix,
@@ -147,6 +148,28 @@ class BatchCompilation:
             }
             if self.confirmation_text
             else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewBatchCompilation:
+    preview: OperationPreviewBatch | None
+    code: str = "ok"
+    message: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.preview is not None and self.code == "ok"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "code": self.code,
+            "message": self.message,
+            "destructive": False,
+            "requires_confirmation": False,
+            "preview": self.preview.to_dict() if self.preview is not None else None,
+            "confirmation": None,
         }
 
 
@@ -420,6 +443,73 @@ class OperationPlanner:
         except (TypeError, ValueError) as error:
             return BatchCompilation(None, "batch_invalid", str(error))
         return self._bind_batch_confirmation(command, snapshot, batch, preview)
+
+    def compile_preview_batch(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+    ) -> PreviewBatchCompilation:
+        """Compile multiple dry-run plans without creating an executable batch."""
+
+        if command.kind != "flash.execute":
+            return PreviewBatchCompilation(None, "batch_kind_not_supported", "preview batch supports only flash.execute")
+        if command.expected_revision is None:
+            return PreviewBatchCompilation(None, "revision_required", "expected_revision is required")
+        if command.expected_revision != snapshot.revision:
+            return PreviewBatchCompilation(
+                None,
+                "stale_revision",
+                f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}",
+            )
+        if command.target_serial is not None or "serial" in command.payload:
+            return PreviewBatchCompilation(
+                None,
+                "batch_target_not_allowed",
+                "preview batch targets are derived from canonical selected serials",
+            )
+        if command.payload:
+            return PreviewBatchCompilation(
+                None,
+                "invalid_plan_payload",
+                f"unsupported semantic field: {sorted(command.payload)[0]}",
+            )
+        if not snapshot.plan.dry_run:
+            return PreviewBatchCompilation(
+                None,
+                "dry_run_required",
+                "a preview batch requires the canonical dry-run intent",
+            )
+        if len(snapshot.selected_serials) < 2:
+            return PreviewBatchCompilation(
+                None,
+                "batch_targets_required",
+                "at least two selected devices are required for a preview batch",
+            )
+
+        plans: list[OperationPlan] = []
+        for serial in snapshot.selected_serials:
+            per_device = replace(command, target_serial=serial, payload={}, operation_plan=None)
+            try:
+                plan, destructive, confirmation = self._flash(per_device, snapshot)
+            except PlanningError as error:
+                return PreviewBatchCompilation(None, error.code, f"{serial}: {error}")
+            if destructive or confirmation or not plan.dry_run:
+                return PreviewBatchCompilation(
+                    None,
+                    "preview_plan_not_read_only",
+                    "preview batch plans must remain non-destructive dry-runs",
+                )
+            plans.append(plan)
+        try:
+            created = self.clock()
+            preview = OperationPreviewBatch(
+                plans,
+                created=created,
+                expires=min(created + OPERATION_PLAN_TTL_SECONDS, *(plan.expires for plan in plans)),
+            )
+        except (TypeError, ValueError) as error:
+            return PreviewBatchCompilation(None, "preview_batch_invalid", str(error))
+        return PreviewBatchCompilation(preview)
 
     def revalidate(
         self,

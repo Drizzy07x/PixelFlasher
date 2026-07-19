@@ -77,6 +77,7 @@ from .contracts import (
     OperationFinished,
     OperationPlan,
     OperationPostcondition,
+    OperationPreviewBatch,
     OperationResult,
     OperationRisk,
     OperationStatus,
@@ -270,6 +271,7 @@ from .planner import (
     OperationPlanner,
     PlanCompilation,
     PlanningError,
+    PreviewBatchCompilation,
     ProcessedArtifactRepository,
 )
 from .platform_tools import (
@@ -525,6 +527,7 @@ __all__ = [
     "SecretGrantStore",
     "OperationPlan",
     "OperationBatch",
+    "OperationPreviewBatch",
     "OperationFinished",
     "OperationPostcondition",
     "OperationPlanner",
@@ -607,6 +610,7 @@ __all__ = [
     "PLANNED_COMMANDS",
     "PlanCompilation",
     "PlanningError",
+    "PreviewBatchCompilation",
     "ProcessedArtifactRepository",
     "PersistentProcessedArtifactRepository",
     "ProcessRequest",

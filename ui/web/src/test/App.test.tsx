@@ -351,6 +351,8 @@ describe('PixelFlasher web workspace', () => {
     await user.click(navigation.getByRole('button', { name: 'Flash' }));
     expect(await screen.findByRole('heading', { name: 'Devices' })).toBeVisible();
 
+    await user.click(screen.getByLabelText(/Pixel 8a/i));
+    await waitFor(() => expect(screen.getByLabelText(/Pixel 8a/i)).not.toBeChecked());
     await user.click(screen.getByLabelText(/Pixel 8 Pro/i));
     await waitFor(() => expect(screen.getByLabelText(/Pixel 8 Pro/i)).toBeChecked());
     expect(await screen.findByText(/1 selected/i)).toBeVisible();

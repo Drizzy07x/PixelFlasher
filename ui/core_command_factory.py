@@ -513,6 +513,12 @@ def _target_serial(
     raw = payload.get("serial")
     if raw is not None and (not isinstance(raw, str) or not raw.strip()):
         raise CommandFactoryError("target_serial_invalid", "payload.serial must be a non-empty string")
+    if (
+        raw is None
+        and command in {"flash.plan.preview", "flash.execute"}
+        and len(snapshot.selected_serials) > 1
+    ):
+        return None
     serial = raw.strip() if isinstance(raw, str) else snapshot.selected_serial
     if not serial:
         raise CommandFactoryError(

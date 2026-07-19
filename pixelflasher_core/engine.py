@@ -2857,7 +2857,12 @@ class CommandEngine:
         decision = self.safety_policy.evaluate(command, snapshot)
         if not decision.allowed:
             return self._denied(command, decision.code, decision.message)
-        target_serial = command.target_serial or snapshot.selected_serial
+        batch_requested = (
+            command.target_serial is None
+            and "serial" not in command.payload
+            and len(snapshot.selected_serials) > 1
+        )
+        target_serial = None if batch_requested else command.target_serial or snapshot.selected_serial
         synthetic = AppCommand(
             "flash.execute",
             expected_revision=command.expected_revision,
@@ -2870,7 +2875,12 @@ class CommandEngine:
             return self._denied(command, "operation_busy", "operation id is already active")
         try:
             try:
-                compilation = self.operation_planner.compile(synthetic, snapshot, preview=True)
+                if batch_requested and snapshot.plan.dry_run:
+                    compilation = self.operation_planner.compile_preview_batch(synthetic, snapshot)
+                elif batch_requested:
+                    compilation = self.operation_planner.compile_batch(synthetic, snapshot, preview=True)
+                else:
+                    compilation = self.operation_planner.compile(synthetic, snapshot, preview=True)
             except Exception as error:
                 if token.cancelled:
                     return self._stopped_result(
@@ -2912,6 +2922,7 @@ class CommandEngine:
                     "selected_serials": list(snapshot.selected_serials),
                     "firmware": snapshot.firmware.to_dict(),
                     "compiled": compilation.to_dict(),
+                    "batch": batch_requested,
                 },
             )
         finally:
@@ -2922,6 +2933,55 @@ class CommandEngine:
         token = self._register_cancellation(command)
         if token is None:
             return self._denied(command, "operation_busy", "operation id is already active")
+        batch_requested = (
+            command.kind == "flash.execute"
+            and command.target_serial is None
+            and "serial" not in command.payload
+            and len(snapshot.selected_serials) > 1
+        )
+        if batch_requested and snapshot.plan.dry_run:
+            try:
+                compilation = self.operation_planner.compile_preview_batch(command, snapshot)
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="planning_cancelled",
+                        cancelled_message="dry-run batch planning was cancelled",
+                        timeout_message="dry-run batch planning timed out",
+                    )
+                if not compilation.ok or compilation.preview is None:
+                    return replace(
+                        OperationResult.failed(
+                            command.operation_id,
+                            code=compilation.code,
+                            message=compilation.message,
+                        ),
+                        value=compilation.to_dict(),
+                    )
+                return OperationResult.success(
+                    command.operation_id,
+                    code="dry_run_batch_succeeded",
+                    message=(
+                        f"planned {len(compilation.preview.plans)} devices without launching a subprocess"
+                    ),
+                    value={"preview": compilation.preview.to_dict()},
+                )
+            except Exception as error:
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="planner_error",
+                    message=str(error),
+                )
+            finally:
+                self._unregister_cancellation(command.operation_id)
+        if batch_requested:
+            self._unregister_cancellation(command.operation_id)
+            return OperationResult.failed(
+                command.operation_id,
+                code="batch_execution_not_ready",
+                message="destructive batch execution requires the sequential G16 runner",
+            )
         try:
             compilation = self.operation_planner.compile(command, snapshot)
         except Exception as error:

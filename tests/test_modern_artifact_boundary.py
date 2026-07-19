@@ -17,6 +17,7 @@ from pixelflasher_core import (
     InteractionRequest,
     OperationFinished,
     OperationPlan,
+    OperationPreviewBatch,
     OperationResult,
     ProcessRequest,
     ProgressEvent,
@@ -282,6 +283,57 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                     f"@artifact/firmware/{digest[:12]}",
                     request["argv"][1],
                 )
+
+    def test_dry_run_batch_projection_is_closed_and_route_free(self):
+        route = HOST_PATH_SENTINELS[0]
+        digest = "d" * 64
+        artifact = FileArtifact(f"{route}/boot.img", digest, "partition:boot")
+        plans = tuple(
+            OperationPlan(
+                ProcessRequest((f"{route}/fastboot", "-s", serial, "flash", "boot", artifact.path)),
+                target_serial=serial,
+                artifacts=(artifact,),
+                dry_run=True,
+                created=100.0,
+                expires=400.0,
+            )
+            for serial in ("SERIAL-A", "SERIAL-B")
+        )
+        preview = OperationPreviewBatch(plans, created=100.0, expires=400.0)
+        preview_result = OperationResult.success(
+            "preview-batch",
+            value={
+                "revision": 9,
+                "canonical_plan": FlashPlan(dry_run=True).to_dict(),
+                "plan": FlashPlan(dry_run=True).to_dict(),
+                "selected_serials": ["SERIAL-A", "SERIAL-B"],
+                "firmware": FirmwareInfo(hash=digest).to_dict(),
+                "compiled": {
+                    "ok": True,
+                    "code": "ok",
+                    "message": "",
+                    "destructive": False,
+                    "requires_confirmation": False,
+                    "preview": preview.to_dict(),
+                    "confirmation": None,
+                },
+                "batch": True,
+            },
+        )
+        execute_result = OperationResult.success(
+            "execute-batch",
+            code="dry_run_batch_succeeded",
+            value={"preview": preview.to_dict()},
+        )
+
+        public_preview = project_operation_result("flash.plan.preview", preview_result)
+        public_execute = project_operation_result("flash.execute", execute_result)
+
+        self.assert_route_free(public_preview)
+        self.assert_route_free(public_execute)
+        batch = public_preview["value"]["compiled"]["batch"]
+        self.assertEqual(["SERIAL-A", "SERIAL-B"], batch["targetSerials"])
+        self.assertTrue(batch["dry_run"])
 
     def test_every_exposed_command_has_a_fail_closed_result_projector(self):
         self.assertEqual(ALLOWED_COMMANDS, frozenset(PUBLIC_RESULT_PROJECTORS))

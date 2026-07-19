@@ -793,14 +793,16 @@
       "area": "flash",
       "capability": "Generate and inspect a flash plan without device writes",
       "owner": "flash",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._flash",
-        "pixelflasher_core/executor.py:CommandExecutor"
+        "pixelflasher_core/contracts.py:OperationPreviewBatch",
+        "pixelflasher_core/planner.py:OperationPlanner.compile_preview_batch",
+        "pixelflasher_core/engine.py:CommandEngine._preview_flash_plan/_plan_and_execute",
+        "ui/public_bridge.py:_public_preview_batch"
       ],
-      "gap": "Single-device factory, OTA and custom dry-runs are process-free and stable; multi-device preview/simulation remains unsupported.",
+      "gap": "",
       "exitCriteria": [
         "Generate and inspect a flash plan without device writes is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -816,7 +818,11 @@
       ],
       "tests": [
         "tests/test_operation_planner.py:test_explicit_dry_run_launches_zero_subprocesses",
-        "tests/test_operation_planner.py:test_factory_custom_and_ota_dry_runs_are_stable_and_process_free"
+        "tests/test_operation_planner.py:test_factory_custom_and_ota_dry_runs_are_stable_and_process_free",
+        "tests/test_operation_planner.py:test_multi_device_dry_run_uses_a_non_executable_preview_batch",
+        "tests/test_core_command_factory.py:test_multi_device_flash_commands_preserve_batch_scope",
+        "tests/test_modern_artifact_boundary.py:test_flash_preview_batch_projection_is_closed_and_route_free",
+        "ui/web/src/test/flash-wizard.behavior.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,

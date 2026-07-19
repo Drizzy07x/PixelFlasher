@@ -965,7 +965,7 @@ def _project_plan_preview(value: object) -> JSONValue:
     compiled = _record(source.get("compiled"))
     raw_plan = compiled.get("plan")
     confirmation = _project_confirmation(compiled)
-    return ensure_public_json({
+    projected: dict[str, object] = {
         "revision": _integer(source.get("revision")),
         "canonical_plan": _public_flash_plan(source.get("canonical_plan")),
         "plan": _public_flash_plan(source.get("plan")),
@@ -979,7 +979,43 @@ def _project_plan_preview(value: object) -> JSONValue:
             "plan": _public_operation_plan(raw_plan) if raw_plan is not None else None,
             "confirmation": confirmation.get("confirmation") if isinstance(confirmation, dict) else None,
         },
+    }
+    if source.get("batch") is True:
+        raw_batch = compiled.get("preview", compiled.get("batch"))
+        projected["batch"] = True
+        projected_compiled = cast(dict[str, object], projected["compiled"])
+        projected_compiled["batch"] = _public_preview_batch(raw_batch)
+    return ensure_public_json(projected)
+
+
+def _public_preview_batch(value: object) -> dict[str, JSONValue]:
+    source = _record(value)
+    plans = [_public_operation_plan(item) for item in _array(source.get("plans", []))]
+    target_serials = _strings(source.get("targetSerials", []))
+    if not target_serials:
+        target_serials = [
+            str(plan.get("target_serial"))
+            for plan in plans
+            if isinstance(plan.get("target_serial"), str)
+        ]
+    if len(plans) < 2 or len(plans) != len(target_serials):
+        raise PublicProjectionError("flash preview batch targets are invalid")
+    return _public_object({
+        "previewId": _string(source.get("previewId", source.get("batchId"))),
+        "created": _number(source.get("created")),
+        "expires": _number(source.get("expires")),
+        "fingerprint": _string(source.get("fingerprint")),
+        "targetSerials": target_serials,
+        "plans": plans,
+        "dry_run": _boolean(source.get("dry_run"), default=False),
     })
+
+
+def _project_flash_execute(value: object) -> JSONValue | None:
+    source = _record(value)
+    if source.get("preview") is not None:
+        return ensure_public_json({"preview": _public_preview_batch(source.get("preview"))})
+    return _project_confirmation(value)
 
 
 def _project_apps_list(value: object) -> JSONValue:
@@ -2095,7 +2131,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.switchSlot": _project_confirmation,
     "firmware.process": _project_firmware_process,
     "firmware.select": _project_firmware_select,
-    "flash.execute": _project_confirmation,
+    "flash.execute": _project_flash_execute,
     "flash.plan.preview": _project_plan_preview,
     "flash.plan.update": _project_snapshot,
     "interaction.respond": _project_none,

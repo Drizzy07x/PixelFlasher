@@ -37,6 +37,7 @@ export interface FlashPreview {
   requiredConfirmation: string;
   label: string;
   targetSerial: string;
+  targetSerials: string[];
   expectedDeviceState: string;
   dataBehavior: string;
   partitions: string[];
@@ -89,8 +90,8 @@ export function FlashWizard({
     return activeFirmware ? [activeFirmware] : [];
   }, [activeFirmware]);
   const firmware = firmwareOptions.find((entry) => entry.id === firmwareId) ?? firmwareOptions[0];
-  const targetSerial = selectedSerials.length === 1 ? selectedSerials[0] : '';
-  const targets = devices.filter((device) => device.serial === targetSerial);
+  const targetSerial = selectedSerials[0] ?? '';
+  const targets = devices.filter((device) => selectedSerials.includes(device.serial));
   const operationStatus = String(operation?.status ?? 'idle').toLowerCase();
   const isRunning = operationStatus === 'running' || operationStatus === 'pending';
   const canContinue = !selectionBusy && (step === 0 ? Boolean(targetSerial) : step === 1 ? Boolean(firmware) : true);
@@ -99,13 +100,6 @@ export function FlashWizard({
     setSelectionBusy(true);
     void Promise.resolve(onSelectionChange(serials)).finally(() => setSelectionBusy(false));
   };
-
-  useEffect(() => {
-    if (selectedSerials.length > 1) selectTarget([selectedSerials[0]]);
-    // This normalization only runs when entering the wizard with a multi-device
-    // workspace selection; subsequent single-target changes do not retrigger it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onSelectionChange, selectedSerials]);
 
   useEffect(() => {
     if (mode !== 'ota') return;
@@ -141,7 +135,7 @@ export function FlashWizard({
   }, [firmwareId, mode, slotTarget, verify, disableVerity, disableVerification, force, noReboot, downgrade, temporaryRoot, dryRun, selectedSerials.join('\u0000')]);
 
   const steps = useMemo(() => [
-    { title: t('flash.step.devices'), detail: t('flash.singleDeviceDetail') },
+    { title: t('flash.step.devices'), detail: t('flash.devicesDetail') },
     { title: t('flash.step.firmware'), detail: t('flash.firmwareDetail') },
     { title: t('flash.step.options'), detail: t('flash.mode.keepDetail') },
     { title: t('flash.step.plan'), detail: t('flash.planDetail') },
@@ -149,7 +143,7 @@ export function FlashWizard({
   ], [t]);
 
   const plan: FlashPlan | null = firmware ? {
-    serials: targetSerial ? [targetSerial] : [],
+    serials: [...selectedSerials],
     firmware,
     mode,
     slotTarget,
@@ -239,13 +233,13 @@ export function FlashWizard({
 
         {step === 0 ? (
           <div className="wizard-panel">
-            <CardTitle icon="devices">{t('flash.singleDeviceTitle')}</CardTitle>
+            <CardTitle icon="devices">{t('flash.devicesTitle')}</CardTitle>
             <DeviceSelector
               devices={devices}
-              selected={targetSerial ? [targetSerial] : []}
+              selected={selectedSerials}
               onChange={selectTarget}
-              selectionMode="single"
-              ariaLabel={t('flash.singleDeviceTitle')}
+              selectionMode="multiple"
+              ariaLabel={t('flash.devicesTitle')}
             />
             {!targetSerial ? (
               <div className="inline-alert inline-alert--warning" role="alert">
@@ -341,7 +335,7 @@ export function FlashWizard({
         {step === 4 ? (
           <div className="wizard-panel review-panel">
             <div className="review-summary">
-              <div><span>{t('flash.review.targets')}</span><strong>{targets.map((device) => device.name).join(', ')}</strong><small>{targets[0]?.serial ?? t('status.targets', { count: 0 })}</small></div>
+              <div><span>{t('flash.review.targets')}</span><strong>{targets.map((device) => device.name).join(', ')}</strong><small>{targets.map((device) => device.serial).join(', ') || t('status.targets', { count: 0 })}</small></div>
               <div><span>{t('flash.review.firmware')}</span><strong>{firmware?.name ?? '—'}</strong><small>{firmware?.build ?? '—'}</small></div>
               <div><span>{t('flash.review.mode')}</span><strong>{t(`flash.mode.${mode}`)}</strong><small>{t(`flash.mode.${mode}Detail`)}</small></div>
               <div><span>{t('flash.review.slot')}</span><strong>{t(`flash.slot.${slotTarget}`)}</strong><small>{t(`flash.slot.${slotTarget}Detail`)}</small></div>
@@ -369,7 +363,7 @@ export function FlashWizard({
                 <Badge tone={preview?.destructive ? 'warning' : 'success'}>{preview?.dataBehavior || '—'}</Badge>
               </div>
               <dl className="exact-plan__facts">
-                <div><dt>{t('flash.review.targets')}</dt><dd><code>{preview?.targetSerial || '—'}</code></dd></div>
+                <div><dt>{t('flash.review.targets')}</dt><dd><code>{preview?.targetSerials.join(', ') || preview?.targetSerial || '—'}</code></dd></div>
                 <div><dt>{t('dashboard.deviceMode')}</dt><dd>{preview?.expectedDeviceState || '—'}</dd></div>
                 <div><dt>{t('tools.partition')}</dt><dd>{preview?.partitions.length ? preview.partitions.join(', ') : '—'}</dd></div>
                 <div><dt>{t('flash.review.slot')}</dt><dd>{preview?.slots.length ? preview.slots.join(', ') : '—'}</dd></div>
@@ -425,7 +419,7 @@ export function FlashWizard({
         <Button icon="left" onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0 || isRunning || busy}>
           {t('common.back')}
         </Button>
-        <span className="wizard-footer__selection">{targetSerial ? 1 : 0} {t('common.selected').toLowerCase()}</span>
+        <span className="wizard-footer__selection">{selectedSerials.length} {t('common.selected').toLowerCase()}</span>
         {step < 4 ? (
           <Button variant="primary" icon="right" onClick={() => void next()} disabled={!canContinue || isRunning || busy}>
             {busy ? t('flash.preparing') : step === 3 ? t('flash.prepare') : t('common.continue')}

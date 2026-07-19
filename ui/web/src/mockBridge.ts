@@ -703,13 +703,18 @@ export function installDevelopmentBridge() {
             break;
           case 'flash.plan.preview': {
             const mode = String((snapshot.plan as Record<string, unknown> | null)?.mode ?? '').toLowerCase();
-            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
-            const target = snapshot.devices.find((device) => device.serial === serial);
-            if (!target || (mode === 'ota' ? target.mode !== 'sideload' : target.mode !== 'fastboot')) {
+            const selectedSerials = snapshot.selectedSerials
+              ?? (snapshot.selectedSerial ? [snapshot.selectedSerial] : []);
+            const serials = typeof request.payload.serial === 'string'
+              ? [request.payload.serial]
+              : selectedSerials;
+            const targets = serials.map((serial) => snapshot.devices.find((device) => device.serial === serial));
+            const target = targets[0];
+            if (!target || targets.some((item) => !item || (mode === 'ota' ? item.mode !== 'sideload' : item.mode !== 'fastboot'))) {
               emit(errorMessage(mode === 'ota' ? 'OTA requires sideload mode.' : 'Image flashing requires Fastboot mode.', request));
               break;
             }
-            if (snapshot.firmware?.device && snapshot.firmware.device !== target.codename) {
+            if (snapshot.firmware?.device && targets.some((item) => item?.codename !== snapshot.firmware?.device)) {
               emit(errorMessage('The selected firmware does not match the target device.', request));
               break;
             }
@@ -717,33 +722,44 @@ export function installDevelopmentBridge() {
               emit(errorMessage(mode === 'ota' ? 'Select an OTA package.' : 'OTA packages require OTA sideload mode.', request));
               break;
             }
-            const destructive = true;
-            const requiredText = mode === 'wipe' || mode === 'wipedata' ? `WIPE ${serial} ${target?.codename ?? 'unknown'}` : '';
+            const dryRun = (snapshot.plan as Record<string, unknown> | null)?.options
+              && ((snapshot.plan as Record<string, unknown>).options as Record<string, unknown>).dryRun === true;
+            const destructive = !dryRun;
+            const requiredText = destructive && (mode === 'wipe' || mode === 'wipedata') ? `WIPE ${serials[0]} ${target?.codename ?? 'unknown'}` : '';
+            const plans = targets.map((item, index) => ({
+              label: `Flash ${item?.name ?? serials[index]}`,
+              target_serial: serials[index],
+              expected_device_state: item?.mode ?? '',
+              data_behavior: mode === 'wipe' ? 'wipe' : 'preserve',
+              partitions: mode === 'ota' ? ['ota-package'] : ['boot', 'system', 'vendor'],
+              slots: mode === 'ota' ? [] : ['a'],
+              requests: mode === 'ota'
+                ? [{ argv: ['adb.exe', '-s', serials[index], 'sideload', snapshot.firmware?.name ?? 'selected-firmware'] }]
+                : [
+                    { argv: ['adb.exe', '-s', serials[index], 'reboot', 'bootloader'] },
+                    { argv: ['fastboot.exe', '-s', serials[index], 'update', snapshot.firmware?.name ?? 'selected-firmware', ...(mode === 'wipe' ? ['-w'] : [])] },
+                  ],
+            }));
             respond(request, success('Flash plan previewed.', {
               compiled: {
                 ok: true,
                 destructive,
                 requires_confirmation: destructive,
                 confirmation: requiredText ? { required_text: requiredText, nonce: 'mock-confirmation' } : null,
-                plan: {
-                  label: `Flash ${target?.name ?? serial}`,
-                  target_serial: serial,
-                  expected_device_state: target?.mode ?? '',
-                  data_behavior: mode === 'wipe' ? 'wipe' : 'preserve',
-                  partitions: mode === 'ota' ? ['ota-package'] : ['boot', 'system', 'vendor'],
-                  slots: mode === 'ota' ? [] : ['a'],
-                  requests: mode === 'ota'
-                    ? [{ argv: ['adb.exe', '-s', serial, 'sideload', snapshot.firmware?.name ?? 'selected-firmware'] }]
-                    : [
-                        { argv: ['adb.exe', '-s', serial, 'reboot', 'bootloader'] },
-                        { argv: ['fastboot.exe', '-s', serial, 'update', snapshot.firmware?.name ?? 'selected-firmware', ...(mode === 'wipe' ? ['-w'] : [])] },
-                      ],
-                },
+                plan: plans.length === 1 ? plans[0] : null,
+                ...(plans.length > 1 ? { batch: { plans, targetSerials: serials } } : {}),
               },
             }));
             break;
           }
           case 'flash.execute': {
+            const dryRun = (snapshot.plan as Record<string, unknown> | null)?.options
+              && ((snapshot.plan as Record<string, unknown>).options as Record<string, unknown>).dryRun === true;
+            const selectedSerials = snapshot.selectedSerials ?? [];
+            if (dryRun && typeof request.payload.serial !== 'string' && selectedSerials.length > 1) {
+              respond(request, success(`Planned ${selectedSerials.length} devices without launching a subprocess.`));
+              break;
+            }
             const operation: ActiveOperation = {
               id: `flash-${Date.now()}`,
               label: 'Flash devices',

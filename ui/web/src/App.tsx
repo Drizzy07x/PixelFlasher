@@ -718,15 +718,20 @@ function PixelFlasherApp({
       setSnapshot((current) => ({ ...current, revision: updatedRevision }));
       const previewed = await bridge.command<Record<string, unknown>>(
         commands.flashPlanPreview,
-        { serial },
+        plan.serials.length > 1 ? {} : { serial },
         updatedRevision,
       );
       const result = objectValue(previewed.result);
       const value = objectValue(result.value);
       const compiled = objectValue(value.compiled);
       const confirmation = objectValue(compiled.confirmation);
+      const compiledBatch = objectValue(compiled.batch);
+      const batchPlans = Array.isArray(compiledBatch.plans)
+        ? compiledBatch.plans.map(objectValue)
+        : [];
       const compiledPlan = objectValue(compiled.plan);
-      const requests = Array.isArray(compiledPlan.requests) ? compiledPlan.requests : [];
+      const compiledPlans = batchPlans.length ? batchPlans : [compiledPlan];
+      const requests = compiledPlans.flatMap((item) => Array.isArray(item.requests) ? item.requests : []);
       const exactCommands = requests
         .map((request) => objectValue(request).argv)
         .filter((argv): argv is unknown[] => Array.isArray(argv))
@@ -736,12 +741,15 @@ function PixelFlasherApp({
         revision: previewed.revision ?? updatedRevision,
         destructive: compiled.destructive === true,
         requiredConfirmation: typeof confirmation.required_text === 'string' ? confirmation.required_text : '',
-        label: typeof compiledPlan.label === 'string' ? compiledPlan.label : '',
+        label: batchPlans.length ? `${batchPlans.length} ${t('flash.review.targets')}` : typeof compiledPlan.label === 'string' ? compiledPlan.label : '',
         targetSerial: typeof compiledPlan.target_serial === 'string' ? compiledPlan.target_serial : serial,
-        expectedDeviceState: typeof compiledPlan.expected_device_state === 'string' ? compiledPlan.expected_device_state : '',
-        dataBehavior: typeof compiledPlan.data_behavior === 'string' ? compiledPlan.data_behavior : '',
-        partitions: Array.isArray(compiledPlan.partitions) ? compiledPlan.partitions.filter((value): value is string => typeof value === 'string') : [],
-        slots: Array.isArray(compiledPlan.slots) ? compiledPlan.slots.filter((value): value is string => typeof value === 'string') : [],
+        targetSerials: batchPlans.length
+          ? batchPlans.map((item) => item.target_serial).filter((value): value is string => typeof value === 'string')
+          : [typeof compiledPlan.target_serial === 'string' ? compiledPlan.target_serial : serial],
+        expectedDeviceState: typeof compiledPlans[0]?.expected_device_state === 'string' ? compiledPlans[0].expected_device_state : '',
+        dataBehavior: typeof compiledPlans[0]?.data_behavior === 'string' ? compiledPlans[0].data_behavior : '',
+        partitions: [...new Set(compiledPlans.flatMap((item) => Array.isArray(item.partitions) ? item.partitions.filter((value): value is string => typeof value === 'string') : []))],
+        slots: [...new Set(compiledPlans.flatMap((item) => Array.isArray(item.slots) ? item.slots.filter((value): value is string => typeof value === 'string') : []))],
         commands: exactCommands,
       };
     } catch (error) {
@@ -755,7 +763,7 @@ function PixelFlasherApp({
     const serial = plan.serials[0];
     if (!serial) throw new Error(t('flash.needDevice'));
     try {
-      const payload: Record<string, unknown> = { serial };
+      const payload: Record<string, unknown> = plan.serials.length > 1 ? {} : { serial };
       if (preview.requiredConfirmation) payload.confirmationText = confirmation;
       const response = await bridge.command<Record<string, unknown>>(
         commands.flashExecute,
