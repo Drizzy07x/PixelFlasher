@@ -92,6 +92,19 @@ class CommandRegistryTests(unittest.TestCase):
         self.assertFalse(fields["grant"].required)
         self.assertTrue(fields["source"].required)
 
+    def test_device_tools_accept_only_the_adb_state_supported_by_the_service(self):
+        for command in (
+            "tools.scrcpy",
+            "tools.wifi",
+            "tools.logcat",
+            "tools.pushFiles",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    frozenset({"adb"}),
+                    COMMAND_REGISTRY[command].valid_device_states,
+                )
+
     def test_expected_revision_policy_is_registry_owned(self):
         optional = {
             command

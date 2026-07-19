@@ -170,7 +170,11 @@ describe('device operation guards and evidence', () => {
 
     await user.selectOptions(screen.getByLabelText('Reboot destination'), 'recovery');
     await user.click(screen.getByRole('button', { name: 'Reboot now' }));
-    expect(onCommand).toHaveBeenCalledWith('device.reboot', { serial: locked.serial, mode: 'recovery' });
+    expect(onCommand).toHaveBeenCalledWith(
+      'device.reboot',
+      { serial: locked.serial, mode: 'recovery' },
+      { returnCancelled: true },
+    );
   });
 
   it('allows relock only with current backend evidence and includes an explicit flash slot', async () => {

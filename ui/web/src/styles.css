@@ -1251,6 +1251,52 @@ code {
   color: var(--warning);
 }
 
+.device-transition-feedback {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.48rem;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 0.6rem;
+}
+
+.device-transition-feedback > span:not(.status-dot) {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.device-transition-feedback progress {
+  width: 4.8rem;
+  max-width: 28%;
+}
+
+.device-transition-feedback .button {
+  min-height: 1.8rem;
+  flex: 0 0 auto;
+}
+
+.device-transition-feedback code {
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
+.device-transition-feedback--success {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+}
+
+.device-transition-feedback--error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+
 .device-operation-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

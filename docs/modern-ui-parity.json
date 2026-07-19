@@ -1290,17 +1290,20 @@
     {
       "id": "device.reboot",
       "area": "device",
-      "capability": "Reboot to system, bootloader, fastbootd, recovery, safe mode, download or sideload",
+      "capability": "Reboot to verified system, bootloader, fastbootd, recovery, safe mode or sideload destinations; vendor download mode is policy-absent",
       "owner": "device",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:DashboardPage/DevicePage/ToolsPage",
-        "pixelflasher_core/planner.py:OperationPlanner._reboot"
+        "ui/web/src/pages/device/DevicePage.tsx:DeviceOperations",
+        "pixelflasher_core/planner.py:OperationPlanner._reboot",
+        "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe/PostconditionObserver"
       ],
-      "gap": "Safe mode, download and sideload destinations plus post-transition verification remain open.",
+      "gap": "",
       "exitCriteria": [
-        "Reboot to system, bootloader, fastbootd, recovery, safe mode, download or sideload is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
-        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+        "Reboot to system, bootloader, fastbootd, recovery, safe mode or sideload uses fixed argv without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
+        "Every reboot is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
+        "Vendor download mode remains explicitly policy-absent because no portable backend postcondition exists; requests fail closed with reboot_download_unverifiable and start no process."
       ],
       "dependsOn": [
         "device.discovery",
@@ -1313,7 +1316,14 @@
         "linux"
       ],
       "tests": [
-        "tests/test_operation_planner.py:test_reboot_chooses_adb_or_fastboot_and_binds_serial"
+        "tests/test_operation_planner.py:test_reboot_chooses_adb_or_fastboot_and_binds_serial",
+        "tests/test_operation_planner.py:test_fastbootd_can_reboot_but_cannot_run_bootloader_only_commands",
+        "tests/test_operation_planner.py:test_sideload_reboot_is_exact_adb_only_and_requires_observed_mode",
+        "tests/test_operation_planner.py:test_safe_mode_plan_is_rooted_adb_only_and_uses_fixed_argv",
+        "tests/test_operation_planner.py:test_download_reboot_is_explicitly_unverifiable_and_never_executes",
+        "tests/test_production_postcondition_observer.py:test_mode_detection_covers_recovery_sideload_and_fastboot",
+        "tests/test_production_postcondition_observer.py:test_safe_mode_property_is_required_and_not_inferred_from_adb",
+        "ui/web/src/test/device-transitions.test.tsx:Device transition controls"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -1734,9 +1744,11 @@
       "currentEvidence": [
         "pixelflasher_core/device_tools.py:DeviceToolsService._compile_push_files",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:ToolsPage.pushFiles"
+        "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._remote_hashes",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:ToolsPage.pushFiles"
       ],
-      "gap": "Per-file progress/retry and device-side hash verification remain open.",
+      "gap": "Per-file progress/retry controls remain open.",
       "exitCriteria": [
         "Push files to /data/local/tmp or Downloads is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1755,6 +1767,9 @@
       "tests": [
         "tests/test_device_tools_service.py",
         "tests/test_service_engine_integration.py:test_push_files_confirms_revalidates_and_returns_verified_mapping",
+        "tests/test_operation_runner_v2.py:test_remote_file_hashes_compile_into_observer_spec",
+        "tests/test_production_postcondition_observer.py:test_adb_evidence_verifies_mode_slot_lock_boot_build_and_remote_hash",
+        "tests/test_production_postcondition_observer.py:test_unsafe_remote_name_is_never_sent_to_adb_shell",
         "ui/web/src/test/App.test.tsx:Tools workspace"
       ],
       "blockReason": null,

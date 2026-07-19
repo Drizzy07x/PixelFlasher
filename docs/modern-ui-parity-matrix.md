@@ -73,8 +73,8 @@ parity belongs to `flash.execute`. Downloads has one owner,
 | Raw boot-chain backup/restore | partial | device write | Safe backend create/restore and React path/partition/slot inputs exist; persisted inventory, provenance display and Magisk import/delete remain open. |
 | Application packages and APK install | partial | device write/destructive | PackageService and React now cover canonical listing, enable/disable and APK installation through an opaque native grant, all six admitted install flags, explicit terminal states and a success-gated inventory refresh. Play Store ownership and the remaining package actions stay open. |
 | Partition manager | partial | destructive | React list/read/write/erase controls, native pickers and the allow-listed guarded backend exist; device-side verification after write/erase and richer progress/retry remain open. |
-| Logcat and file push | partial | device read/write | Logcat has a timeout/line-bounded viewer, while file push has a native multi-file picker, closed destinations and typed results; export/stream redaction, per-file progress/retry and device-side hash verification remain open. |
-| Reboot and slot switch | partial | device write | Slot switching is native and gates success on a serial-bound `fastboot getvar current-slot` observation after reconnection. This combined journey remains partial only for the outstanding reboot destinations and their transition coverage. |
+| Logcat and file push | partial | device read/write | Logcat has a timeout/line-bounded viewer. File push has a native multi-file picker, closed destinations and remote SHA-256 verification through `sha256sum` with a `toybox` fallback; export/stream redaction and per-file progress/retry remain open. |
+| Reboot and slot switch | native | device write | Reboot to system, bootloader, fastbootd, recovery, safe mode and sideload uses serial/revision-bound plans and observed mode, boot-completion or safe-mode postconditions. Vendor download mode is explicitly policy-absent and fails closed as `reboot_download_unverifiable` without starting a process. Slot switching verifies `fastboot getvar current-slot` after reconnection. |
 | Scrcpy and wireless ADB | partial | device write | React and typed backend contracts bind the selected serial, securely pass pairing codes and verify responses; runtime scrcpy packaging/discovery, wireless discovery and disconnected-device handoff remain open. |
 | Sanitized support package | partial | host write | Native destination grants, strict allow-listed collection, mandatory redaction, a sanitized SQLite copy, an inclusion/omission manifest and atomic AES-256-GCM output with RSA-OAEP key wrapping are tested. Production recipient-key injection and packaged interoperability validation remain open. |
 | Modern presentation preferences | partial | host write | Five visible fields are host-backed end to end and Expert Mode controls advanced disclosure; broader 9.x settings and host persistence for Expert Mode remain open. |
@@ -112,7 +112,9 @@ atomic-operation boundaries:
   fastboot partitions; erase uses reinforced confirmation.
 - `DeviceToolsService` supports managed scrcpy launch, secret-safe wireless ADB
   pairing/connectivity, bounded logcat snapshots and fixed-destination file
-  push. Its typed `device.inspect` command now returns redacted properties and
+  push. File-push success requires a device-observed SHA-256 match for every
+  source through fixed `sha256sum` or `toybox sha256sum` argv. Its typed
+  `device.inspect` command now returns redacted properties and
   device summary, a bounded PIF profile, validated/sanitized screen XML, or the
   current ADB-reported bootloader version from fixed argv. React presents those
   reports through serial-bound, typed views and copies only the sanitized value.
@@ -167,7 +169,7 @@ becomes implicit success.
 
 | Area | Missing or partial behaviors |
 |---|---|
-| Device connection | Wireless discovery/disconnected-device handoff, hotplug tuning, complete reboot destinations and post-transition verification. |
+| Device connection | Wireless discovery/disconnected-device handoff and hotplug tuning. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | React APK install, download, denylist, SU controls and the remaining package actions. |
 | Device tools | Safe URL opening, independently extracted per-slot bootloader versions, the explicit expert ADB shell decision, packaged scrcpy discovery/lifecycle, logcat streaming/export/redaction and OTA diagnostics. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, trusted stock-flash evidence production before bootloader lock, downgrade artifact production, custom `payload.bin`, runtime recovery/fastbootd transitions, real patch APK/runner resources and KMI/architecture-based kernel selection. |

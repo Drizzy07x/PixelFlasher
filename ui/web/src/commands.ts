@@ -415,10 +415,10 @@ export const bridgeCommandMetadata = {
   [commands.settingsUpdate]: {"owner":"settings","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"runtime.settings_update","confirmation":"none","postconditions":["preferences_persisted"]},
   [commands.snapshotGet]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"engine.snapshot","confirmation":"none","postconditions":["snapshot_returned"]},
   [commands.supportCreate]: {"owner":"support","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"support.package_v2","confirmation":"none","postconditions":["encrypted_container_verified"]},
-  [commands.toolsLogcat]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
-  [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"tools.push_files","confirmation":"none","postconditions":["remote_hash_verified"]},
-  [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
-  [commands.toolsWifi]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"tools.wifi","confirmation":"none","postconditions":["adb_endpoint_observed"]},
+  [commands.toolsLogcat]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
+  [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"none","postconditions":["remote_hash_verified"]},
+  [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
+  [commands.toolsWifi]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.wifi","confirmation":"none","postconditions":["adb_endpoint_observed"]},
 } as const satisfies Readonly<Record<BridgeCommand, {
   owner: string;
   mutability: string;

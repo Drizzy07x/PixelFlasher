@@ -4251,6 +4251,42 @@ msgctxt "web.device.rebootFastbootd"
 msgid "Fastbootd"
 msgstr "Fastbootd"
 
+msgctxt "web.device.rebootSideload"
+msgid "ADB sideload"
+msgstr "Chargement latéral ADB"
+
+msgctxt "web.device.rebootSafeMode"
+msgid "Safe mode"
+msgstr "Mode sans échec"
+
+msgctxt "web.device.rebootRunning"
+msgid "Changing device mode to {target}..."
+msgstr "Passage du périphérique en mode {target}..."
+
+msgctxt "web.device.rebootCancelling"
+msgid "Cancelling device transition..."
+msgstr "Annulation de la transition du périphérique..."
+
+msgctxt "web.device.rebootCancel"
+msgid "Cancel transition"
+msgstr "Annuler la transition"
+
+msgctxt "web.device.rebootCancelled"
+msgid "Device transition cancelled"
+msgstr "Transition du périphérique annulée"
+
+msgctxt "web.device.rebootFailed"
+msgid "The device transition failed."
+msgstr "La transition du périphérique a échoué."
+
+msgctxt "web.device.rebootSucceeded"
+msgid "Device reached {target}"
+msgstr "Le périphérique a atteint {target}"
+
+msgctxt "web.device.rebootProgress"
+msgid "Device transition progress"
+msgstr "Progression de la transition du périphérique"
+
 msgctxt "web.device.rebootNow"
 msgid "Reboot now"
 msgstr "Redémarrer maintenant"

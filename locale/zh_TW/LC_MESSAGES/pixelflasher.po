@@ -4249,6 +4249,42 @@ msgctxt "web.device.rebootFastbootd"
 msgid "Fastbootd"
 msgstr "Fastbootd"
 
+msgctxt "web.device.rebootSideload"
+msgid "ADB sideload"
+msgstr "ADB 側載"
+
+msgctxt "web.device.rebootSafeMode"
+msgid "Safe mode"
+msgstr "安全模式"
+
+msgctxt "web.device.rebootRunning"
+msgid "Changing device mode to {target}..."
+msgstr "正在將裝置模式切換為 {target}..."
+
+msgctxt "web.device.rebootCancelling"
+msgid "Cancelling device transition..."
+msgstr "正在取消裝置轉換..."
+
+msgctxt "web.device.rebootCancel"
+msgid "Cancel transition"
+msgstr "取消轉換"
+
+msgctxt "web.device.rebootCancelled"
+msgid "Device transition cancelled"
+msgstr "裝置轉換已取消"
+
+msgctxt "web.device.rebootFailed"
+msgid "The device transition failed."
+msgstr "裝置轉換失敗。"
+
+msgctxt "web.device.rebootSucceeded"
+msgid "Device reached {target}"
+msgstr "裝置已進入 {target}"
+
+msgctxt "web.device.rebootProgress"
+msgid "Device transition progress"
+msgstr "裝置轉換進度"
+
 msgctxt "web.device.rebootNow"
 msgid "Reboot now"
 msgstr "立即重新啟動"

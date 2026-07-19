@@ -4216,6 +4216,42 @@ msgctxt "web.device.rebootFastbootd"
 msgid "Fastbootd"
 msgstr ""
 
+msgctxt "web.device.rebootSideload"
+msgid "ADB sideload"
+msgstr ""
+
+msgctxt "web.device.rebootSafeMode"
+msgid "Safe mode"
+msgstr ""
+
+msgctxt "web.device.rebootRunning"
+msgid "Changing device mode to {target}..."
+msgstr ""
+
+msgctxt "web.device.rebootCancelling"
+msgid "Cancelling device transition..."
+msgstr ""
+
+msgctxt "web.device.rebootCancel"
+msgid "Cancel transition"
+msgstr ""
+
+msgctxt "web.device.rebootCancelled"
+msgid "Device transition cancelled"
+msgstr ""
+
+msgctxt "web.device.rebootFailed"
+msgid "The device transition failed."
+msgstr ""
+
+msgctxt "web.device.rebootSucceeded"
+msgid "Device reached {target}"
+msgstr ""
+
+msgctxt "web.device.rebootProgress"
+msgid "Device transition progress"
+msgstr ""
+
 msgctxt "web.device.rebootNow"
 msgid "Reboot now"
 msgstr ""

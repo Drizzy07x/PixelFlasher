@@ -289,6 +289,25 @@ class ModernParityInventoryTests(unittest.TestCase):
         self.assertFalse(wipe["releaseGate"])
         self.assertIn("immutable flash plan", wipe["blockReason"])
 
+    def test_device_transition_evidence_matches_the_fail_closed_contract(self):
+        rows = {row["id"]: row for row in self.capabilities}
+        reboot = rows["device.reboot"]
+        push = rows["device.push_files"]
+
+        self.assertEqual("native", reboot["modernStatus"])
+        self.assertEqual("", reboot["gap"])
+        self.assertIn("policy-absent", reboot["capability"])
+        self.assertIn(
+            "tests/test_operation_planner.py:test_download_reboot_is_explicitly_unverifiable_and_never_executes",
+            reboot["tests"],
+        )
+        self.assertIn("Per-file progress/retry", push["gap"])
+        self.assertNotIn("hash verification", push["gap"])
+        self.assertIn(
+            "tests/test_operation_runner_v2.py:test_remote_file_hashes_compile_into_observer_spec",
+            push["tests"],
+        )
+
     def test_every_registered_bridge_command_has_one_parity_owner(self):
         inventoried = [
             command_id
