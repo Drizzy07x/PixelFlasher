@@ -578,10 +578,12 @@
         "pixelflasher_core/engine.py:_process_firmware",
         "pixelflasher_core/planner.py:ProcessedArtifactCheckpoint",
         "pixelflasher_core/persistent_artifacts.py:PersistentProcessedArtifactRepository.rollback",
+        "pixelflasher_core/boot_inventory.py:BootInventoryService.import_processed",
+        "pixelflasher_core/repositories.py:BootRepository.import_selection",
         "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Confined extraction, closed product diagnostics and rollback of SQLite objects, planner registrations and extracted output are delivered. Promotion of stock boot-chain images into BootRepository, retry UX and packaged cross-platform validation remain open.",
+      "gap": "Confined extraction, closed product diagnostics, stock boot-chain promotion with firmware provenance and coordinated rollback of SQLite objects, planner registrations and extracted output are delivered. Retry UX and packaged cross-platform validation remain open.",
       "exitCriteria": [
         "Validate and process factory/full OTA packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -598,6 +600,7 @@
         "tests/test_firmware_artifact_service.py",
         "tests/test_firmware_engine_integration.py",
         "tests/test_firmware_engine_integration.py:test_revision_change_rolls_back_persistent_processed_artifacts",
+        "tests/test_boot_inventory_service.py:test_processed_stock_import_tracks_firmware_and_rolls_back_only_new_record",
         "ui/web/src/test/firmware-catalog.test.tsx"
       ],
       "blockReason": null,

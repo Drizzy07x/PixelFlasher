@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contracts import BootInfo, JSONValue
+from .contracts import BootInfo, FileArtifact, JSONValue
 from .repositories import (
     ArtifactKind,
     ArtifactProvenance,
@@ -241,6 +241,68 @@ class BootInventoryService:
             )
         return self._selection(record, verified=True, imported=True)
 
+    def import_processed(
+        self,
+        artifact: FileArtifact,
+        *,
+        firmware_hash: str,
+        device_codenames: tuple[str, ...] = (),
+        cancellation: CancellationProbe | None = None,
+    ) -> BootSelection:
+        """Persist one processor-verified stock image with source provenance."""
+
+        self._check_cancelled(cancellation)
+        if not isinstance(artifact, FileArtifact):
+            raise BootInventoryError(
+                "boot_artifact_invalid",
+                "a verified boot artifact is required",
+            )
+        partition = artifact.role.removeprefix("partition:")
+        if artifact.role != f"partition:{partition}" or partition not in BOOT_CHAIN_PARTITIONS:
+            raise BootInventoryError(
+                "boot_partition_invalid",
+                "the processed boot artifact partition is not supported",
+            )
+        existing_ids = {record.artifact_id for record in self.repository.list()}
+        try:
+            record = self.repository.import_selection(
+                artifact.path,
+                partition=partition,
+                patched=False,
+                expected_sha256=artifact.sha256,
+                source_hash=firmware_hash,
+                device_codenames=device_codenames,
+                cancellation=cancellation,
+            )
+        except RepositoryError as error:
+            if error.code == "artifact_import_cancelled":
+                raise BootInventoryError(
+                    "boot_cancelled",
+                    "processed boot import was cancelled",
+                ) from error
+            raise BootInventoryError(error.code, str(error)) from error
+        except OSError as error:
+            raise BootInventoryError(
+                "boot_import_failed",
+                "the processed boot image could not be imported",
+            ) from error
+        imported = record.artifact_id not in existing_ids
+        try:
+            self._check_cancelled(cancellation)
+            verified = self._record_verified(record, cancellation)
+        except BootInventoryError:
+            if imported:
+                self._rollback_processed_record(record.artifact_id)
+            raise
+        if not verified:
+            if imported:
+                self._rollback_processed_record(record.artifact_id)
+            raise BootInventoryError(
+                "boot_integrity_failed",
+                "the processed boot image failed format or SHA-256 verification",
+            )
+        return self._selection(record, verified=True, imported=imported)
+
     def _rollback_cancelled_import(self, boot_id: str) -> None:
         try:
             removed = self.repository.repository.delete(boot_id)
@@ -273,6 +335,38 @@ class BootInventoryService:
             raise BootInventoryError(
                 "boot_import_rollback_failed",
                 "the boot import metadata could not be rolled back",
+            )
+
+    def rollback_processed_import(self, boot_id: str) -> None:
+        """Remove only a newly imported processor-owned stock selection."""
+
+        normalized_id = self._validate_id(boot_id)
+        record = self.repository.repository.get(normalized_id)
+        if (
+            record is None
+            or record.kind is not ArtifactKind.BOOT
+            or record.provenance is not ArtifactProvenance.PROCESSED
+            or record.metadata.get("recordType") != "boot_selection"
+            or record.metadata.get("isPatched") is not False
+        ):
+            raise BootInventoryError(
+                "boot_import_rollback_refused",
+                "the processed boot import is no longer safe to roll back",
+            )
+        self._rollback_processed_record(normalized_id)
+
+    def _rollback_processed_record(self, boot_id: str) -> None:
+        try:
+            removed = self.repository.repository.delete(boot_id)
+        except (OSError, RepositoryError) as error:
+            raise BootInventoryError(
+                "boot_import_rollback_failed",
+                "the processed boot import could not be rolled back",
+            ) from error
+        if not removed:
+            raise BootInventoryError(
+                "boot_import_rollback_failed",
+                "the processed boot import could not be rolled back",
             )
 
     def _selection(

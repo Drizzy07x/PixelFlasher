@@ -1414,6 +1414,8 @@ class BootRepository:
         partition: str,
         patched: bool,
         expected_sha256: str,
+        source_hash: str = "",
+        device_codenames: Iterable[str] = (),
         cancellation: CancellationProbe | None = None,
     ) -> ArtifactRecord:
         """Canonicalize a backend-produced stock or patched boot selection."""
@@ -1437,20 +1439,42 @@ class BootRepository:
             if patched
             else ArtifactProvenance.PROCESSED
         )
-        identity = "\0".join(
+        normalized_source_hash = _validate_digest(source_hash) if source_hash else ""
+        normalized_devices = tuple(
+            sorted(
+                {
+                    str(value).strip()
+                    for value in device_codenames
+                    if str(value).strip()
+                }
+            )
+        )
+        identity_fields = (
             (
+                "boot-selection-v2",
+                digest,
+                normalized_partition,
+                provenance.value,
+                normalized_source_hash,
+                *normalized_devices,
+            )
+            if normalized_source_hash or normalized_devices
+            else (
                 "boot-selection-v1",
                 digest,
                 normalized_partition,
                 provenance.value,
             )
         )
+        identity = "\0".join(identity_fields)
         artifact_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
         return self.import_boot(
             path,
             partition=normalized_partition,
             provenance=provenance,
             expected_sha256=digest,
+            source_hash=normalized_source_hash,
+            device_codenames=normalized_devices,
             metadata={
                 "recordType": BOOT_SELECTION_RECORD_TYPE,
                 "isPatched": patched,

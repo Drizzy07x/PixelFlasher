@@ -1,3 +1,4 @@
+import hashlib
 import inspect
 import json
 import threading
@@ -12,7 +13,12 @@ from pixelflasher_core.boot_inventory import (
     BootInventoryService,
 )
 from pixelflasher_core.cancellation import CancellationToken
-from pixelflasher_core.contracts import AppCommand, AppSnapshot, OperationStatus
+from pixelflasher_core.contracts import (
+    AppCommand,
+    AppSnapshot,
+    FileArtifact,
+    OperationStatus,
+)
 from pixelflasher_core.repositories import (
     ArtifactRepository,
     BootRepository,
@@ -97,6 +103,66 @@ def import_boot_in_worker(
 
 
 class BootInventoryServiceTests(unittest.TestCase):
+    def test_processed_stock_import_tracks_firmware_and_rolls_back_only_new_record(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "init_boot.img"
+            source.write_bytes(android_boot(b"stock-init"))
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            repository = ArtifactRepository(root / "repository")
+            service = BootInventoryService(BootRepository(repository))
+            artifact = FileArtifact(
+                str(source),
+                digest,
+                "partition:init_boot",
+            )
+
+            imported = service.import_processed(
+                artifact,
+                firmware_hash="f" * 64,
+                device_codenames=("husky",),
+            )
+
+            self.assertTrue(imported.imported)
+            self.assertEqual("processed", imported.entry.provenance)
+            self.assertEqual("f" * 64, imported.entry.source_hash)
+            self.assertEqual(("husky",), imported.entry.device_codenames)
+            self.assertFalse(imported.entry.patched)
+            self.assertEqual(imported.info.id, service.list_public()[0].boot_id)
+
+            service.rollback_processed_import(imported.info.id)
+            self.assertEqual((), repository.list())
+
+            first = service.import_processed(artifact, firmware_hash="f" * 64)
+            reused = service.import_processed(artifact, firmware_hash="f" * 64)
+            self.assertTrue(first.imported)
+            self.assertFalse(reused.imported)
+            self.assertEqual(first.info, reused.info)
+            repository.close()
+
+    def test_processed_stock_import_rejects_invalid_image_without_residue(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "boot.img"
+            source.write_bytes(b"NOTBOOT!payload")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            repository = ArtifactRepository(root / "repository")
+            service = BootInventoryService(BootRepository(repository))
+
+            with self.assertRaises(BootInventoryError) as raised:
+                service.import_processed(
+                    FileArtifact(str(source), digest, "partition:boot"),
+                    firmware_hash="e" * 64,
+                )
+
+            self.assertEqual("boot_integrity_failed", raised.exception.code)
+            self.assertEqual((), repository.list())
+            self.assertEqual(
+                (),
+                tuple(path for path in repository.objects_root.rglob("*") if path.is_file()),
+            )
+            repository.close()
+
     def test_cancelled_import_reports_temporary_rollback_failure(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

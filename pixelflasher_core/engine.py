@@ -1687,6 +1687,8 @@ class CommandEngine:
                     for device in snapshot.devices
                     if device.serial in snapshot.selected_serials and device.codename
                 )
+                promoted_boot_selection: BootSelection | None = None
+                processing: FirmwareProcessingResult | None = None
                 try:
                     processing = self.firmware_artifact_service.process(
                         snapshot.firmware.path,
@@ -1704,11 +1706,12 @@ class CommandEngine:
                         promoted_firmware = None
                         promoted_boot = None
                     else:
-                        result, promoted_firmware, promoted_boot = self._firmware_processing_result(
-                            command,
-                            snapshot,
-                            processing,
-                        )
+                        (
+                            result,
+                            promoted_firmware,
+                            promoted_boot,
+                            promoted_boot_selection,
+                        ) = self._firmware_processing_result(command, snapshot, processing, token)
                         if (
                             result.status is OperationStatus.CANCELLED
                             and token.reason is CancellationReason.DEADLINE
@@ -1723,9 +1726,9 @@ class CommandEngine:
                             promoted_firmware = None
                             promoted_boot = None
                 except Exception as error:
-                    processing = None
                     promoted_firmware = None
                     promoted_boot = None
+                    promoted_boot_selection = None
                     if token.cancelled:
                         result = self._stopped_result(
                             command,
@@ -1772,6 +1775,7 @@ class CommandEngine:
                         command,
                         processing,
                         result,
+                        promoted_boot_selection,
                     )
                 try:
                     self.store.complete_operation(
@@ -1791,6 +1795,7 @@ class CommandEngine:
                             command,
                             processing,
                             fallback,
+                            promoted_boot_selection,
                         )
                     self._abort_operation_safely(fallback)
                     return fallback
@@ -1803,14 +1808,29 @@ class CommandEngine:
         command: AppCommand,
         processing: FirmwareProcessingResult,
         intended_result: OperationResult,
+        boot_selection: BootSelection | None = None,
     ) -> OperationResult:
+        rollback_failed = False
+        if (
+            boot_selection is not None
+            and boot_selection.imported
+            and self.boot_inventory_service is not None
+        ):
+            try:
+                self.boot_inventory_service.rollback_processed_import(
+                    boot_selection.info.id,
+                )
+            except Exception:
+                rollback_failed = True
         try:
             self.firmware_artifact_service.rollback(processing)
         except Exception:
+            rollback_failed = True
+        if rollback_failed:
             return OperationResult.failed(
                 command.operation_id,
                 code="firmware_processing_rollback_failed",
-                message="processed firmware artifacts could not be rolled back safely",
+                message="processed firmware and boot artifacts could not be rolled back safely",
             )
         return intended_result
 
@@ -1921,7 +1941,8 @@ class CommandEngine:
         command: AppCommand,
         selected_snapshot: AppSnapshot,
         processing: FirmwareProcessingResult,
-    ) -> tuple[OperationResult, FirmwareInfo | None, BootInfo | None]:
+        cancellation: CancellationToken,
+    ) -> tuple[OperationResult, FirmwareInfo | None, BootInfo | None, BootSelection | None]:
         if processing.status is FirmwareProcessingStatus.CANCELLED:
             return (
                 OperationResult.cancelled(
@@ -1929,6 +1950,7 @@ class CommandEngine:
                     code=processing.code.value,
                     message=processing.message,
                 ),
+                None,
                 None,
                 None,
             )
@@ -1941,6 +1963,7 @@ class CommandEngine:
                 ),
                 None,
                 None,
+                None,
             )
         if not processing.ok:
             return (
@@ -1949,6 +1972,7 @@ class CommandEngine:
                     code="firmware_processing_result_invalid",
                     message="firmware processor returned an inconsistent result",
                 ),
+                None,
                 None,
                 None,
             )
@@ -1962,9 +1986,29 @@ class CommandEngine:
                 ),
                 None,
                 None,
+                None,
             )
         try:
-            stock_boot = self._stock_boot_from_processing(processing)
+            stock_boot, boot_selection = self._stock_boot_from_processing(
+                processing,
+                selected_snapshot,
+                cancellation,
+            )
+        except BootInventoryError as error:
+            terminal = (
+                OperationResult.cancelled(
+                    command.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+                if error.code == "boot_cancelled"
+                else OperationResult.failed(
+                    command.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            )
+            return terminal, None, None, None
         except ValueError as error:
             return (
                 OperationResult.failed(
@@ -1974,7 +2018,42 @@ class CommandEngine:
                 ),
                 None,
                 None,
+                None,
             )
+        try:
+            value = self._firmware_processing_public_value(
+                selected_snapshot,
+                processing,
+                stock_boot,
+            )
+        except Exception:
+            if (
+                boot_selection is not None
+                and boot_selection.imported
+                and self.boot_inventory_service is not None
+            ):
+                self.boot_inventory_service.rollback_processed_import(
+                    boot_selection.info.id,
+                )
+            raise
+        return (
+            OperationResult.success(
+                command.operation_id,
+                code="firmware_processed",
+                message=f"{processing.inspection.kind.value} firmware processed successfully",
+                value=value,
+            ),
+            processing.firmware,
+            stock_boot,
+            boot_selection,
+        )
+
+    def _firmware_processing_public_value(
+        self,
+        selected_snapshot: AppSnapshot,
+        processing: FirmwareProcessingResult,
+        stock_boot: BootInfo | None,
+    ) -> dict[str, object]:
         provenance = ArtifactProvenance.USER_SUPPLIED.value
         if self.firmware_repository is not None:
             source_record = self.firmware_repository.resolve_selection(
@@ -1987,7 +2066,7 @@ class CommandEngine:
             for device in selected_snapshot.devices
             if device.serial in selected_snapshot.selected_serials and device.codename
         )
-        value = {
+        return {
             "processing": {
                 "status": processing.status.value,
                 "code": processing.code.value,
@@ -2009,36 +2088,52 @@ class CommandEngine:
             "firmware": processing.firmware.to_dict(),
             "boot": stock_boot.to_dict() if stock_boot is not None else None,
         }
-        return (
-            OperationResult.success(
-                command.operation_id,
-                code="firmware_processed",
-                message=f"{processing.inspection.kind.value} firmware processed successfully",
-                value=value,
-            ),
-            processing.firmware,
-            stock_boot,
-        )
 
-    @staticmethod
     def _stock_boot_from_processing(
+        self,
         processing: FirmwareProcessingResult,
-    ) -> BootInfo | None:
+        selected_snapshot: AppSnapshot,
+        cancellation: CancellationToken,
+    ) -> tuple[BootInfo | None, BootSelection | None]:
         by_role = {artifact.role: artifact for artifact in processing.artifacts}
         artifact = by_role.get("partition:init_boot") or by_role.get("partition:boot")
         if artifact is None:
             # OTA packages are safely sideloaded as one verified source archive;
             # their payload is not partially unpacked by this service.
             if processing.inspection.kind.value == "ota":
-                return None
+                return None, None
             raise ValueError("processed factory/custom firmware has no verified init_boot or boot image")
         partition = artifact.role.partition(":")[2]
-        return BootInfo(
-            id=f"stock:{partition}:{artifact.sha256}",
-            path=artifact.path,
-            hash=artifact.sha256,
-            flavor=partition,
-            patched=False,
+        if self.boot_inventory_service is not None:
+            device_codenames = tuple(
+                sorted(
+                    {
+                        *processing.detected_devices,
+                        *(
+                            device.codename
+                            for device in selected_snapshot.devices
+                            if device.serial in selected_snapshot.selected_serials
+                            and device.codename
+                        ),
+                    }
+                )
+            )
+            selection = self.boot_inventory_service.import_processed(
+                artifact,
+                firmware_hash=processing.firmware.hash,
+                device_codenames=device_codenames,
+                cancellation=cancellation,
+            )
+            return selection.info, selection
+        return (
+            BootInfo(
+                id=f"stock:{partition}:{artifact.sha256}",
+                path=artifact.path,
+                hash=artifact.sha256,
+                flavor=partition,
+                patched=False,
+            ),
+            None,
         )
 
     def _setup_platform_tools(self, command: AppCommand) -> OperationResult:

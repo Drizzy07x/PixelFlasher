@@ -18,6 +18,7 @@ from pixelflasher_core import (
     AppStateStore,
     ArtifactRepository,
     BootInfo,
+    BootRepository,
     DeviceInfo,
     FileArtifact,
     FirmwareArtifactService,
@@ -36,6 +37,7 @@ from pixelflasher_core import (
     ProcessRequest,
     SafetyPolicy,
 )
+from pixelflasher_core.boot_inventory import BootInventoryService
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
 
 
@@ -50,8 +52,8 @@ def archive_bytes(entries: list[tuple[str, bytes]]) -> bytes:
 def write_factory(path: Path) -> None:
     inner = archive_bytes(
         [
-            ("boot.img", b"stock boot"),
-            ("init_boot.img", b"preferred stock init boot"),
+            ("boot.img", b"ANDROID!stock boot"),
+            ("init_boot.img", b"ANDROID!preferred stock init boot"),
             ("vbmeta.img", b"stock vbmeta"),
         ]
     )
@@ -405,7 +407,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 archive_bytes(
                     [
                         ("android-info.txt", b"require product=husky\n"),
-                        ("images/boot.img", b"custom stock boot"),
+                        ("images/boot.img", b"ANDROID!custom stock boot"),
                         ("images/vendor_boot.img", b"custom vendor boot"),
                     ]
                 )
@@ -587,6 +589,9 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 operation_planner=planner,
                 firmware_artifact_service=service,
                 firmware_repository=firmware_repository,
+                boot_inventory_service=BootInventoryService(
+                    BootRepository(repository),
+                ),
             )
             results: list[OperationResult] = []
             worker = threading.Thread(
@@ -604,6 +609,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertEqual("firmware_selection_changed", results[0].code)
             self.assertEqual((), firmware_repository.list())
+            self.assertEqual((), repository.list())
             self.assertEqual(
                 (),
                 tuple(
@@ -731,12 +737,20 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 AppCommand("firmware.process", expected_revision=1)
             )
             before = runtime.snapshot()
+            boot_records = runtime.boot_repository.list()
             runtime.shutdown()
 
             self.assertTrue(selected.ok)
             self.assertTrue(processed.ok)
             self.assertEqual(expected_cache.resolve(), runtime.firmware_artifact_cache_root)
-            self.assertTrue(Path(before.boot.path).is_relative_to(expected_cache))
+            self.assertEqual(1, len(boot_records))
+            self.assertEqual(before.boot.id, boot_records[0].artifact_id)
+            self.assertEqual("processed", boot_records[0].provenance.value)
+            self.assertEqual(before.firmware.hash, boot_records[0].source_hash)
+            self.assertEqual(("husky",), boot_records[0].device_codenames)
+            self.assertTrue(
+                Path(before.boot.path).is_relative_to(runtime.artifact_repository.objects_root)
+            )
             saved = json.loads(config.read_text(encoding="utf-8"))
             core = saved["_pixelflasher_core_state"]
             self.assertEqual(before.firmware.hash, core["firmware"]["hash"])
