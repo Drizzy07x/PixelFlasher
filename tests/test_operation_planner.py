@@ -796,6 +796,96 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 transport.calls,
             )
 
+    def test_inactive_slot_is_resolved_from_backend_observed_state(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            boot = root / "boot.img"
+            factory.write_bytes(b"factory")
+            boot.write_bytes(b"boot")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "42", digest(factory), True, True
+            )
+            plan = FlashPlan(
+                "factory",
+                {"verify": True, "slot": "inactive", "noReboot": True},
+                fingerprint="inactive-slot-plan",
+                dry_run=False,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
+                firmware_hash=firmware.hash,
+            )
+            snapshot = snapshot_for("fastboot", plan=plan, firmware=firmware)
+            snapshot = replace(
+                snapshot,
+                devices=(replace(snapshot.devices[0], slot="a"),),
+            )
+
+            compilation = OperationPlanner(
+                artifact_repository=repository
+            ).compile(command("flash.execute"), snapshot, preview=True)
+
+            self.assertTrue(compilation.ok)
+            self.assertIsNotNone(compilation.plan)
+            assert compilation.plan is not None
+            self.assertEqual(("b",), compilation.plan.slots)
+            self.assertEqual(
+                ("FASTBOOT", "-s", "SERIAL-A", "--slot=b", "flash", "boot", str(boot.resolve())),
+                compilation.plan.requests[0].argv,
+            )
+
+    def test_inactive_slot_fails_closed_when_active_slot_is_unknown(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            boot = root / "boot.img"
+            factory.write_bytes(b"factory")
+            boot.write_bytes(b"boot")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "42", digest(factory), True, True
+            )
+            plan = FlashPlan(
+                "factory",
+                {"verify": True, "slot": "inactive", "noReboot": True},
+                fingerprint="inactive-slot-plan",
+                dry_run=False,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
+                firmware_hash=firmware.hash,
+            )
+
+            compilation = OperationPlanner(
+                artifact_repository=repository
+            ).compile(
+                command("flash.execute"),
+                snapshot_for("fastboot", plan=plan, firmware=firmware),
+                preview=True,
+            )
+
+            self.assertFalse(compilation.ok)
+            self.assertEqual("active_slot_unavailable", compilation.code)
+
+    def test_temporary_root_and_no_reboot_are_rejected_as_ambiguous(self):
+        plan = FlashPlan(
+            "images",
+            {"temporaryRoot": True, "noReboot": True},
+            fingerprint="conflicting-root-plan",
+            dry_run=True,
+        )
+
+        compilation = OperationPlanner().compile(
+            command("flash.execute"),
+            snapshot_for("fastboot", plan=plan),
+            preview=True,
+        )
+
+        self.assertFalse(compilation.ok)
+        self.assertEqual("flash_option_conflict", compilation.code)
+
     def test_factory_components_use_fixed_stages_before_os_partitions(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

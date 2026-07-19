@@ -344,7 +344,9 @@ describe('PixelFlasher web workspace', () => {
 
   it('runs the five-step wizard with one explicit target and destructive confirmation', async () => {
     const user = userEvent.setup();
+    const postMessage = vi.spyOn(developmentBridge!, 'postMessage');
     const { container } = render(<App />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Expert Mode' }));
     const navigation = within(await screen.findByRole('navigation', { name: 'Tasks' }));
     await user.click(navigation.getByRole('button', { name: 'Flash' }));
     expect(await screen.findByRole('heading', { name: 'Devices' })).toBeVisible();
@@ -359,10 +361,19 @@ describe('PixelFlasher web workspace', () => {
     expect(await screen.findByRole('heading', { name: 'Options' })).toBeVisible();
 
     await user.click(screen.getByLabelText(/Clean install/i));
+    await user.click(screen.getByLabelText(/Inactive slot/i));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Plan' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Prepare review' }));
     expect(await screen.findByRole('heading', { name: 'Review' })).toBeVisible();
+    const planUpdate = postMessage.mock.calls
+      .map(([raw]) => JSON.parse(raw) as BridgeRequest)
+      .filter((request) => request.command === 'flash.plan.update')
+      .at(-1);
+    expect(planUpdate?.payload).toMatchObject({
+      mode: 'wipe',
+      options: { slot: 'inactive', dataBehavior: 'wipe', wipe: true },
+    });
     expect(screen.getByText('Exact backend plan')).toBeVisible();
     const exactCommands = Array.from(container.querySelectorAll('.exact-plan__commands code')).map((node) => node.textContent ?? '');
     expect(exactCommands).toContainEqual(expect.stringMatching(/fastboot\.exe.*-s.*4B281FDH2003L7.*update/i));

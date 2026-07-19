@@ -1996,7 +1996,8 @@
       "currentEvidence": [
         "ui/web/src/components/FlashWizard.tsx:OptionsStep",
         "ui/web/src/App.tsx:prepareFlash",
-        "pixelflasher_core/planner.py:_normalized_flash_options/_validate_ota_options/_image_flash"
+        "pixelflasher_core/planner.py:_normalized_flash_options/_validate_ota_options/_image_flash",
+        "tests/test_operation_planner.py:test_inactive_slot_is_resolved_from_backend_observed_state"
       ],
       "gap": "Downgrade artifact generation and complete option/mode execution coverage remain open.",
       "exitCriteria": [
@@ -2016,7 +2017,10 @@
         "linux"
       ],
       "tests": [
-        "tests/test_operation_planner.py:test_each_unsupported_image_option_fails_explicitly"
+        "tests/test_operation_planner.py:test_each_unsupported_image_option_fails_explicitly",
+        "tests/test_operation_planner.py:test_inactive_slot_is_resolved_from_backend_observed_state",
+        "tests/test_operation_planner.py:test_inactive_slot_fails_closed_when_active_slot_is_unknown",
+        "tests/test_operation_planner.py:test_temporary_root_and_no_reboot_are_rejected_as_ambiguous"
       ],
       "blockReason": null,
       "releaseGate": true,

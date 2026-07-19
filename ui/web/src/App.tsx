@@ -689,9 +689,8 @@ function PixelFlasherApp({
     const serial = plan.serials[0];
     if (!serial) throw new Error(t('flash.needDevice'));
     const options: Record<string, unknown> = {};
-    const target = snapshot.devices.find((device) => device.serial === serial);
     if (plan.slotTarget === 'both') options.slot = 'both';
-    else if (plan.slotTarget === 'inactive' && target?.slot !== 'unknown') options.slot = target?.slot === 'a' ? 'b' : 'a';
+    else if (plan.slotTarget === 'inactive') options.slot = 'inactive';
     else delete options.slot;
     options.dataBehavior = plan.mode === 'wipe' ? 'wipe' : 'preserve';
     options.wipe = plan.mode === 'wipe';

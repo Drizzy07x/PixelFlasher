@@ -1858,8 +1858,13 @@ class FlashPlan:
                 raise TypeError(f"{key} must be a boolean")
         if "slot" in normalized:
             slot = normalized["slot"]
-            if not isinstance(slot, str) or slot.strip().casefold() not in {"a", "b", "both"}:
-                raise ValueError("slot must be a, b, or both")
+            if not isinstance(slot, str) or slot.strip().casefold() not in {
+                "a",
+                "b",
+                "both",
+                "inactive",
+            }:
+                raise ValueError("slot must be a, b, both, or inactive")
             normalized["slot"] = slot.strip().casefold()
         for key in ("dataBehavior", "data_behavior"):
             if key in normalized:

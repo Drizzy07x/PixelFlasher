@@ -888,6 +888,11 @@ class OperationPlanner:
                 "option_not_supported_for_mode",
                 "downgrade requires a backend-produced downgrade artifact and is not supported for image plans",
             )
+        if options.get("temporaryRoot") is True and options.get("noReboot") is True:
+            raise PlanningError(
+                "flash_option_conflict",
+                "temporaryRoot performs the final boot and cannot be combined with noReboot",
+            )
         repository_artifacts = self.artifact_repository.resolve(snapshot)
         if not repository_artifacts:
             raise PlanningError(
@@ -1000,7 +1005,15 @@ class OperationPlanner:
 
         fastboot = self._fastboot(snapshot)
         global_slot = options.get("slot")
-        if global_slot is not None and global_slot != "both":
+        if global_slot == "inactive":
+            observed_slot = device.slot.strip().casefold()
+            if observed_slot not in {"a", "b"}:
+                raise PlanningError(
+                    "active_slot_unavailable",
+                    "inactive slot targeting requires a backend-observed active slot",
+                )
+            global_slot = "b" if observed_slot == "a" else "a"
+        elif global_slot is not None and global_slot != "both":
             global_slot = self._slot(global_slot)
         requests: list[ProcessRequest] = []
         artifacts: list[FileArtifact] = list(
