@@ -123,4 +123,24 @@ describe('device selector behavior', () => {
     expect(onChange).toHaveBeenCalledWith(['FAST-2']);
     expect(screen.getAllByRole('radio')[0]).toHaveAttribute('name');
   });
+
+  it('keeps unique stable input IDs for serials that sanitize to the same text', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const colliding = [
+      { ...devices[0], serial: 'A:B', name: 'Colon target' },
+      { ...devices[0], serial: 'AB', name: 'Plain target' },
+    ];
+    const { rerender } = render(
+      <DeviceSelector devices={colliding} selected={[]} onChange={onChange} ariaLabel="Collision targets" />,
+    );
+    const inputs = screen.getAllByRole('checkbox');
+    expect(inputs[0]).not.toHaveAttribute('id', inputs[1].id);
+
+    const plainId = screen.getByRole('checkbox', { name: /Plain target/ }).id;
+    await user.click(screen.getByRole('checkbox', { name: /Plain target/ }));
+    expect(onChange).toHaveBeenCalledWith(['AB']);
+    rerender(<DeviceSelector devices={[colliding[1], colliding[0]]} selected={[]} onChange={onChange} ariaLabel="Collision targets" />);
+    expect(screen.getByRole('checkbox', { name: /Plain target/ })).toHaveAttribute('id', plainId);
+  });
 });

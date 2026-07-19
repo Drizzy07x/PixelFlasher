@@ -38,6 +38,27 @@ export interface Device {
   rooted: boolean;
 }
 
+export interface ManagedDevice {
+  serial: string;
+  label: string;
+  enabled: boolean;
+  model: string;
+  codename: string;
+  connected: boolean;
+  mode: DeviceMode;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export const MAX_MANAGED_DEVICE_TIMESTAMP = 253_402_300_799;
+
+export interface DeviceManagementState {
+  schemaVersion: 1;
+  scanEnabled: boolean;
+  scanScope: 'enabled' | 'all';
+  devices: ManagedDevice[];
+}
+
 export interface Firmware {
   id: string;
   name: string;
@@ -104,6 +125,8 @@ export interface BootloaderLockEvidence {
 export interface HostSnapshot {
   revision: number;
   preferences: ModernPreferences;
+  deviceManagement?: DeviceManagementState;
+  device_management?: DeviceManagementState;
   devices: Device[];
   selectedSerial?: string | null;
   selected_serial?: string | null;

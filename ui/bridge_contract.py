@@ -273,6 +273,37 @@ def _validate_payload_values(
             or not all(_nonempty_string(serial, limit=256) for serial in serials)
         ):
             _payload_error("device.select serials must be a bounded string array", request_id)
+    elif command == "device.manager.policy":
+        if not payload:
+            _payload_error("device manager policy requires one field", request_id)
+        if "scanScope" in payload and payload["scanScope"] not in {"enabled", "all"}:
+            _payload_error("device manager scanScope is invalid", request_id)
+    elif command == "device.manager.update":
+        serial = payload.get("serial")
+        if (
+            not _nonempty_string(serial, limit=256)
+            or not isinstance(serial, str)
+            or serial != serial.strip()
+        ):
+            _payload_error("device manager serial is invalid", request_id)
+        if set(payload) == {"serial"}:
+            _payload_error("device manager update requires label or enabled", request_id)
+        if "label" in payload:
+            label = payload["label"]
+            if (
+                not isinstance(label, str)
+                or len(label) > 120
+                or any(not character.isprintable() for character in label)
+            ):
+                _payload_error("device manager label is invalid", request_id)
+    elif command == "device.manager.remove":
+        serial = payload.get("serial")
+        if (
+            not _nonempty_string(serial, limit=256)
+            or not isinstance(serial, str)
+            or serial != serial.strip()
+        ):
+            _payload_error("device manager serial is invalid", request_id)
     elif command == "device.inspect":
         if payload.get("action") not in {
             "properties",

@@ -155,4 +155,5 @@ def make_test_command_engine(
         boot_inventory_service=boot_inventory_service,
         firmware_repository=firmware_repository,
         toolchain_state_updater=toolchain_state_updater,
+        device_scan_state_updater=None,
     )

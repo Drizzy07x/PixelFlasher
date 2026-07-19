@@ -6,6 +6,7 @@ import { DeviceSelector } from '../../components/DeviceSelector';
 import { Badge, Button, Card, CardTitle, Icon, Meter, PageHeader } from '../../components/ui';
 import { isToolchainReady, record, type SharedPageProps } from '../shared';
 import { DeviceInspectionPanel } from './DeviceInspectionPanel';
+import { DeviceManagerPanel } from './DeviceManagerPanel';
 import { DeviceOpenUrlPanel } from './DeviceOpenUrlPanel';
 import { OtaDiagnosticsPanel } from './OtaDiagnosticsPanel';
 
@@ -42,13 +43,29 @@ export function DevicePage({ snapshot, selectedSerials, onSelectionChange, onCom
     : undefined;
   const operationSerial = selectedSerials.length === 1 ? selectedSerials[0] : '';
   const activeOperation = snapshot.activeOperation ?? snapshot.active_operation;
+  const deviceManagement = snapshot.deviceManagement ?? snapshot.device_management ?? {
+    schemaVersion: 1 as const,
+    scanEnabled: true,
+    scanScope: 'enabled' as const,
+    devices: snapshot.devices.map((device) => ({
+      serial: device.serial,
+      label: '',
+      enabled: true,
+      model: device.model,
+      codename: device.codename,
+      connected: !['offline', 'unauthorized'].includes(device.mode),
+      mode: device.mode,
+      firstSeen: 0,
+      lastSeen: 0,
+    })),
+  };
 
   return (
     <>
       <PageHeader
         title={t('device.title')}
         subtitle={t('device.subtitle')}
-        actions={<Button icon="scan" onClick={() => void onCommand(commands.deviceScan)} disabled={!isToolchainReady(snapshot)}>{t('common.refresh')}</Button>}
+        actions={<Button icon="scan" onClick={() => void onCommand(commands.deviceScan)} disabled={!deviceManagement.scanEnabled || !isToolchainReady(snapshot)}>{t('common.refresh')}</Button>}
       />
       <div className="two-column-layout two-column-layout--wide-left">
         <Card>
@@ -61,6 +78,7 @@ export function DevicePage({ snapshot, selectedSerials, onSelectionChange, onCom
           <CardTitle icon="adb">{t('device.details')}</CardTitle>
           {primary ? <DeviceDetails device={primary} /> : null}
         </Card>
+        <DeviceManagerPanel management={deviceManagement} onCommand={onCommand} />
         <DeviceOperations
           device={operationTarget}
           boot={snapshot.boot ?? null}

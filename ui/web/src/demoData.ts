@@ -57,6 +57,16 @@ export const demoSnapshot: HostSnapshot = {
     reducedMotion: false,
     zoom: 100,
   },
+  deviceManagement: {
+    schemaVersion: 1,
+    scanEnabled: true,
+    scanScope: 'enabled',
+    devices: [
+      { serial: '47161FDJH00A8L', label: '', enabled: true, model: 'Google Pixel 8a', codename: 'akita', connected: true, mode: 'adb', firstSeen: 1739412000, lastSeen: 1739502000 },
+      { serial: '4B281FDH2003L7', label: '', enabled: true, model: 'Google Pixel 8 Pro', codename: 'husky', connected: true, mode: 'fastboot', firstSeen: 1739412000, lastSeen: 1739502000 },
+      { serial: '192.168.1.42:5555', label: '', enabled: true, model: 'Google Pixel 7', codename: 'panther', connected: true, mode: 'sideload', firstSeen: 1739412000, lastSeen: 1739502000 },
+    ],
+  },
   devices: [
     {
       serial: '47161FDJH00A8L',

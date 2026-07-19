@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 from pixelflasher_core import AppSnapshot, OperationResult, is_valid_target_serial
+from pixelflasher_core.contracts import MAX_MANAGED_DEVICE_TIMESTAMP
 from ui.command_registry import ALLOWED_COMMANDS
 
 JSONScalar = None | bool | int | float | str
@@ -159,6 +160,9 @@ def public_snapshot(value: object) -> dict[str, JSONValue]:
         "event_type": "snapshot",
         "revision": _integer(source.get("revision"), default=0),
         "preferences": _public_preferences(source.get("preferences")),
+        "device_management": _public_device_management(
+            source.get("device_management", source.get("deviceManagement"))
+        ),
         "devices": [_public_device(item) for item in _array(source.get("devices", []))],
         "selected_serials": _strings(source.get("selected_serials", source.get("selectedSerials", []))),
         "selected_serial": _optional_string(source.get("selected_serial", source.get("selectedSerial"))),
@@ -264,6 +268,11 @@ def _integer(value: object, *, default: int = 0) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
+def _managed_device_timestamp(value: object) -> int:
+    timestamp = _integer(value)
+    return timestamp if 0 <= timestamp <= MAX_MANAGED_DEVICE_TIMESTAMP else 0
+
+
 def _number(value: object, *, default: float = 0.0) -> int | float:
     if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
         return value
@@ -350,6 +359,41 @@ def _public_device(value: object) -> dict[str, JSONValue]:
         "connection": _string(source.get("connection")),
         "rooted": _boolean(source.get("rooted", source.get("root"))),
         "online": _boolean(source.get("online"), default=True),
+    }
+
+
+def _public_device_management(value: object) -> dict[str, JSONValue]:
+    if value is None:
+        return {
+            "schemaVersion": 1,
+            "scanEnabled": True,
+            "scanScope": "enabled",
+            "devices": [],
+        }
+    source = _record(value)
+    raw_scope = _string(source.get("scanScope"), default="enabled")
+    scope = raw_scope if raw_scope in {"enabled", "all"} else "enabled"
+    devices: list[JSONValue] = []
+    for raw_device in _array(source.get("devices", []))[:256]:
+        device = _record(raw_device)
+        devices.append(
+            {
+                "serial": _string(device.get("serial"))[:256],
+                "label": _string(device.get("label"))[:120],
+                "enabled": _boolean(device.get("enabled"), default=True),
+                "model": _string(device.get("model"))[:256],
+                "codename": _string(device.get("codename"))[:128],
+                "connected": _boolean(device.get("connected")),
+                "mode": _string(device.get("mode"), default="offline"),
+                "firstSeen": _managed_device_timestamp(device.get("firstSeen")),
+                "lastSeen": _managed_device_timestamp(device.get("lastSeen")),
+            }
+        )
+    return {
+        "schemaVersion": 1,
+        "scanEnabled": _boolean(source.get("scanEnabled"), default=True),
+        "scanScope": scope,
+        "devices": devices,
     }
 
 
@@ -1579,6 +1623,9 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.bootloader.lock": _project_confirmation,
     "device.bootloader.unlock": _project_confirmation,
     "device.inspect": _project_device_inspect,
+    "device.manager.policy": _project_snapshot,
+    "device.manager.remove": _project_snapshot,
+    "device.manager.update": _project_snapshot,
     "device.openUrl": _project_device_open_url,
     "device.ota.certificates": _project_ota_certificates,
     "device.ota.logs": _project_ota_logs,

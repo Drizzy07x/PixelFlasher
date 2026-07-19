@@ -29,6 +29,7 @@ SUPPORTED_THEMES = ("dark", "light")
 SUPPORTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
 MIN_ZOOM = 80
 MAX_ZOOM = 200
+MAX_MANAGED_DEVICE_TIMESTAMP = 253_402_300_799
 _SUPPORTED_THEME_SET = frozenset(SUPPORTED_THEMES)
 _SUPPORTED_LOCALE_SET = frozenset(SUPPORTED_LOCALES)
 _PREFERENCE_FIELDS = frozenset(
@@ -1507,6 +1508,123 @@ class DeviceInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class ManagedDeviceInfo:
+    """Persisted, non-operational identity used by the device manager.
+
+    Operational facts such as slot, root and bootloader state deliberately do
+    not live here: a remembered device can never become evidence for a device
+    mutation after it disconnects.
+    """
+
+    serial: str
+    label: str = ""
+    enabled: bool = True
+    model: str = ""
+    codename: str = ""
+    connected: bool = False
+    mode: str = "offline"
+    first_seen: int = 0
+    last_seen: int = 0
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.serial, str)
+            or not self.serial
+            or self.serial != self.serial.strip()
+            or len(self.serial) > 256
+            or any(not character.isprintable() for character in self.serial)
+        ):
+            raise ValueError("managed device serial is invalid")
+        for field_name, value, maximum in (
+            ("label", self.label, 120),
+            ("model", self.model, 256),
+            ("codename", self.codename, 128),
+        ):
+            if (
+                not isinstance(value, str)
+                or len(value) > maximum
+                or any(not character.isprintable() for character in value)
+            ):
+                raise ValueError(f"managed device {field_name} is invalid")
+        if not isinstance(self.enabled, bool) or not isinstance(self.connected, bool):
+            raise TypeError("managed device flags must be booleans")
+        if self.mode not in {
+            "adb",
+            "fastboot",
+            "fastbootd",
+            "recovery",
+            "sideload",
+            "offline",
+            "unauthorized",
+        }:
+            raise ValueError("managed device mode is invalid")
+        for field_name, value in (
+            ("first_seen", self.first_seen),
+            ("last_seen", self.last_seen),
+        ):
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+                or value > MAX_MANAGED_DEVICE_TIMESTAMP
+            ):
+                raise ValueError(f"managed device {field_name} is invalid")
+        if self.first_seen and self.last_seen and self.last_seen < self.first_seen:
+            raise ValueError("managed device last_seen cannot precede first_seen")
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "serial": self.serial,
+            "label": self.label,
+            "enabled": self.enabled,
+            "model": self.model,
+            "codename": self.codename,
+            "connected": self.connected,
+            "mode": self.mode,
+            "firstSeen": self.first_seen,
+            "lastSeen": self.last_seen,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceManagementState:
+    """Versioned scan policy and remembered device identities."""
+
+    schema_version: int = 1
+    scan_enabled: bool = True
+    scan_scope: str = "enabled"
+    devices: tuple[ManagedDeviceInfo, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("unsupported device-management schema")
+        if not isinstance(self.scan_enabled, bool):
+            raise TypeError("scan_enabled must be a boolean")
+        if self.scan_scope not in {"enabled", "all"}:
+            raise ValueError("scan_scope must be enabled or all")
+        object.__setattr__(self, "devices", tuple(self.devices))
+        if any(not isinstance(device, ManagedDeviceInfo) for device in self.devices):
+            raise TypeError("managed devices must contain ManagedDeviceInfo values")
+        if len(self.devices) > 256:
+            raise ValueError("managed devices exceeds its limit")
+        serials = tuple(device.serial for device in self.devices)
+        if len(serials) != len(set(serials)):
+            raise ValueError("managed devices must contain unique serials")
+        ordered = tuple(
+            sorted(self.devices, key=lambda device: (device.serial.casefold(), device.serial))
+        )
+        object.__setattr__(self, "devices", ordered)
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "schemaVersion": self.schema_version,
+            "scanEnabled": self.scan_enabled,
+            "scanScope": self.scan_scope,
+            "devices": [device.to_dict() for device in self.devices],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class FirmwareInfo:
     path: str = ""
     type: str = ""
@@ -1858,6 +1976,7 @@ class AppSnapshot:
 
     revision: int = 0
     preferences: ModernPreferences = field(default_factory=ModernPreferences)
+    device_management: DeviceManagementState = field(default_factory=DeviceManagementState)
     devices: tuple[DeviceInfo, ...] = ()
     selected_serials: tuple[str, ...] = ()
     selected_serial: str | None = None
@@ -1872,6 +1991,8 @@ class AppSnapshot:
     def __post_init__(self) -> None:
         if not isinstance(self.preferences, ModernPreferences):
             raise TypeError("preferences must be a ModernPreferences value")
+        if not isinstance(self.device_management, DeviceManagementState):
+            raise TypeError("device_management must be a DeviceManagementState value")
         object.__setattr__(self, "devices", tuple(self.devices))
         if not isinstance(self.revision, int) or isinstance(self.revision, bool) or self.revision < 0:
             raise ValueError("revision must be a non-negative integer")
@@ -1924,6 +2045,7 @@ class AppSnapshot:
             "event_type": self.event_type,
             "revision": self.revision,
             "preferences": self.preferences.to_dict(),
+            "device_management": self.device_management.to_dict(),
             "devices": [device.to_dict() for device in self.devices],
             "selected_serials": list(self.selected_serials),
             "selected_serial": self.selected_serial,
@@ -1952,6 +2074,7 @@ class AppSnapshot:
             "event_type": self.event_type,
             "revision": self.revision,
             "preferences": self.preferences.to_dict(),
+            "device_management": self.device_management.to_dict(),
             "devices": [device.to_dict() for device in self.devices],
             "selected_serials": list(self.selected_serials),
             "selected_serial": self.selected_serial,

@@ -26,6 +26,8 @@ from .contracts import (
     AppSnapshot,
     BootInfo,
     CommandAck,
+    DeviceInfo,
+    DeviceManagementState,
     FirmwareInfo,
     FlashPlan,
     InteractionDecision,
@@ -36,8 +38,26 @@ from .contracts import (
     SnapshotChanged,
     ToolchainInfo,
 )
+from .device_management import (
+    DEVICE_MANAGEMENT_KEY,
+    DEVICE_MANAGER_COMMANDS,
+    DeviceManagementError,
+    backup_legacy_devices,
+    device_management_from_document,
+    document_with_device_management,
+    import_legacy_devices,
+    paused_device_management,
+    reconcile_device_management,
+    remove_managed_device,
+    update_managed_device,
+)
 from .device_tools import DeviceToolsService
-from .devices import DevicePoller, DeviceScanResult, DeviceService
+from .devices import (
+    DevicePoller,
+    DeviceScanResult,
+    DeviceService,
+    reconcile_device_selection,
+)
 from .engine import CommandEngine, InteractionHandler, PixelFlasherEngine
 from .executor import CommandExecutor, ProcessTransport, ProgressListener
 from .firmware import FirmwareInspector
@@ -160,6 +180,7 @@ class ApplicationRuntime:
         self._shutdown_lock = threading.RLock()
         self._preferences_lock = threading.RLock()
         self._is_shutdown = False
+        self._device_monitor_requested = enable_device_monitor
         self._external_interaction = interaction_handler
         self._external_progress = progress_listener
         self.interaction_broker = InteractionBroker(
@@ -252,6 +273,7 @@ class ApplicationRuntime:
             boot_inventory_service=boot_inventory_service,
             firmware_repository=self.firmware_repository,
             toolchain_state_updater=self._activate_toolchain,
+            device_scan_state_updater=self._activate_device_scan,
         )
         self.engine = PixelFlasherEngine(
             command_engine=self.command_engine,
@@ -270,8 +292,11 @@ class ApplicationRuntime:
             lambda: self.store.snapshot().toolchain,
             self._handle_device_scan,
             interval_seconds=device_monitor_interval_seconds,
+            excluded_serials_provider=self._disabled_scan_serials,
         )
         if enable_device_monitor:
+            if not self.store.snapshot().device_management.scan_enabled:
+                self.device_poller.pause()
             self.device_poller.start()
 
     @classmethod
@@ -296,10 +321,23 @@ class ApplicationRuntime:
         platform_tools_platform: str | None = None,
         platform_tools_architecture: str | None = None,
         android_device_catalog_path: str | Path | None = None,
+        legacy_devices_path: str | Path | None = None,
     ) -> ApplicationRuntime:
         config_store = ConfigStore(config_path)
         document = config_store.load()
         snapshot = cls._snapshot_from_config(document)
+        if DEVICE_MANAGEMENT_KEY not in document.values:
+            legacy_path = (
+                Path(legacy_devices_path)
+                if legacy_devices_path is not None
+                else config_store.path.parent / "devices.json"
+            )
+            imported = import_legacy_devices(legacy_path)
+            if imported.devices:
+                backup_legacy_devices(legacy_path)
+                document = document_with_device_management(document, imported)
+                config_store.save(document)
+                snapshot = replace(snapshot, device_management=imported)
         return cls(
             config_store,
             document,
@@ -341,6 +379,10 @@ class ApplicationRuntime:
             return self._get_preferences(command)
         if command.kind == "settings.update":
             return self._update_preferences(command)
+        if command.kind == "device.select":
+            return self._select_devices(command)
+        if command.kind in DEVICE_MANAGER_COMMANDS:
+            return self._update_device_manager(command)
         return self.command_engine.execute(command)
 
     def _get_preferences(self, command: AppCommand) -> OperationResult:
@@ -414,6 +456,333 @@ class ApplicationRuntime:
             value={"preferences": preferences.to_dict()},
         )
 
+    def _select_devices(self, command: AppCommand) -> OperationResult:
+        """Persist the ordered multi-selection at the same revision boundary."""
+
+        if command.expected_revision is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="revision_required",
+                message="expected_revision is required",
+            )
+        unknown = set(command.payload) - {"serials"}
+        if unknown:
+            return OperationResult.failed(
+                command.operation_id,
+                code="invalid_payload",
+                message=f"unsupported device.select field: {sorted(unknown)[0]}",
+            )
+        raw_serials = command.payload.get("serials")
+        if not isinstance(raw_serials, (tuple, list)):
+            return OperationResult.failed(
+                command.operation_id,
+                code="invalid_payload",
+                message="serials must be an array of trimmed strings",
+            )
+        serial_values = cast(tuple[object, ...] | list[object], raw_serials)
+        if len(serial_values) > 32 or any(
+            not isinstance(serial, str)
+            or not serial.strip()
+            or serial != serial.strip()
+            or len(serial) > 256
+            or any(not character.isprintable() for character in serial)
+            for serial in serial_values
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="invalid_payload",
+                message="serials must be an array of trimmed strings",
+            )
+        serials = tuple(
+            dict.fromkeys(cast(tuple[str, ...] | list[str], serial_values))
+        )
+        snapshot = self.store.snapshot()
+        inventory = {device.serial for device in snapshot.devices}
+        missing = tuple(serial for serial in serials if serial not in inventory)
+        if missing:
+            return OperationResult.failed(
+                command.operation_id,
+                code="device_not_found",
+                message=f"device serial is not in the current scan: {missing[0]}",
+            )
+        primary = serials[0] if serials else None
+
+        def prepare(_snapshot: AppSnapshot) -> Mapping[str, object]:
+            return {
+                "selected_serials": serials,
+                "selected_serial": primary,
+            }
+
+        def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
+            with self._preferences_lock:
+                values = dict(self.config_document.values)
+                core = _string_object_mapping(
+                    values.get("_pixelflasher_core_state", {})
+                )
+                core["selected_serials"] = list(updated.selected_serials)
+                document = self.config_document.with_values(
+                    device=updated.selected_serial,
+                    _pixelflasher_core_state=core,
+                )
+                self.config_store.save(document)
+                self.config_document = document
+
+        try:
+            updated = self.store.transactional_update(
+                expected_revision=command.expected_revision,
+                prepare=prepare,
+                side_effect=persist,
+            )
+        except StaleRevisionError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code="stale_revision",
+                message=(
+                    f"state revision changed: expected {error.expected}, "
+                    f"current {error.actual}"
+                ),
+            )
+        except (ConfigError, OSError):
+            return OperationResult.failed(
+                command.operation_id,
+                code="device_selection_save_failed",
+                message="Device selection could not be saved.",
+            )
+        return OperationResult.success(
+            command.operation_id,
+            code="device_selection_updated",
+            message="Device selection saved.",
+            value=updated.to_dict(),
+        )
+
+    def _update_device_manager(self, command: AppCommand) -> OperationResult:
+        """Persist one absolute device policy/roster mutation atomically."""
+
+        if command.expected_revision is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="revision_required",
+                message="expected_revision is required",
+            )
+        current = self.store.snapshot()
+        if current.revision != command.expected_revision:
+            return OperationResult.failed(
+                command.operation_id,
+                code="stale_revision",
+                message=(
+                    f"state revision changed: expected {command.expected_revision}, "
+                    f"current {current.revision}"
+                ),
+            )
+        try:
+            state, devices = self._prepare_device_manager_update(command, current)
+        except DeviceManagementError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code,
+                message=str(error),
+            )
+
+        selected, primary = reconcile_device_selection(
+            devices,
+            current.selected_serials,
+            current.selected_serial,
+        )
+        if (
+            state == current.device_management
+            and devices == current.devices
+            and selected == current.selected_serials
+            and primary == current.selected_serial
+        ):
+            return OperationResult.success(
+                command.operation_id,
+                code="device_manager_unchanged",
+                message="Device manager was already up to date.",
+                value=current.to_dict(),
+            )
+
+        pausing = current.device_management.scan_enabled and not state.scan_enabled
+        resuming = not current.device_management.scan_enabled and state.scan_enabled
+        if pausing and self._device_monitor_requested:
+            self.device_poller.pause()
+
+        def prepare(_snapshot: AppSnapshot) -> Mapping[str, object]:
+            return {
+                "device_management": state,
+                "devices": devices,
+                "selected_serials": selected,
+                "selected_serial": primary,
+            }
+
+        def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
+            with self._preferences_lock:
+                values = dict(self.config_document.values)
+                core = _string_object_mapping(
+                    values.get("_pixelflasher_core_state", {})
+                )
+                core["selected_serials"] = list(updated.selected_serials)
+                document = self.config_document.with_values(
+                    device=updated.selected_serial,
+                    _pixelflasher_core_state=core,
+                )
+                document = document_with_device_management(
+                    document,
+                    updated.device_management,
+                )
+                self.config_store.save(document)
+                self.config_document = document
+
+        try:
+            updated = self.store.transactional_update(
+                expected_revision=command.expected_revision,
+                prepare=prepare,
+                side_effect=persist,
+            )
+        except StaleRevisionError as error:
+            if pausing and self._device_monitor_requested:
+                self.device_poller.resume()
+            return OperationResult.failed(
+                command.operation_id,
+                code="stale_revision",
+                message=(
+                    f"state revision changed: expected {error.expected}, "
+                    f"current {error.actual}"
+                ),
+            )
+        except (ConfigError, OSError):
+            if pausing and self._device_monitor_requested:
+                self.device_poller.resume()
+            return OperationResult.failed(
+                command.operation_id,
+                code="device_manager_save_failed",
+                message="Device manager changes could not be saved.",
+            )
+
+        if self._device_monitor_requested:
+            if resuming:
+                if not self.device_poller.running:
+                    self.device_poller.start()
+                self.device_poller.resume()
+            elif updated.device_management.scan_enabled:
+                self.device_poller.refresh()
+        return OperationResult.success(
+            command.operation_id,
+            code="device_manager_updated",
+            message="Device manager saved.",
+            value=updated.to_dict(),
+        )
+
+    @staticmethod
+    def _prepare_device_manager_update(
+        command: AppCommand,
+        snapshot: AppSnapshot,
+    ) -> tuple[DeviceManagementState, tuple[DeviceInfo, ...]]:
+        payload = command.payload
+        state = snapshot.device_management
+        devices = snapshot.devices
+        if command.kind == "device.manager.policy":
+            unknown = set(payload) - {"scanEnabled", "scanScope"}
+            if unknown:
+                raise DeviceManagementError(
+                    "device_manager_payload_invalid",
+                    f"unsupported policy field: {sorted(unknown)[0]}",
+                )
+            if not payload:
+                raise DeviceManagementError(
+                    "device_manager_payload_invalid",
+                    "device manager policy requires one field",
+                )
+            enabled = payload.get("scanEnabled", state.scan_enabled)
+            scope = payload.get("scanScope", state.scan_scope)
+            if not isinstance(enabled, bool):
+                raise DeviceManagementError(
+                    "device_manager_payload_invalid",
+                    "scanEnabled must be a boolean",
+                )
+            if scope not in {"enabled", "all"}:
+                raise DeviceManagementError(
+                    "device_manager_payload_invalid",
+                    "scanScope must be enabled or all",
+                )
+            state = replace(
+                state,
+                scan_enabled=enabled,
+                scan_scope=cast(str, scope),
+            )
+            if not enabled:
+                state = paused_device_management(state)
+                devices = ()
+            elif scope == "enabled":
+                admitted = {
+                    entry.serial for entry in state.devices if entry.enabled
+                }
+                devices = tuple(
+                    device for device in devices if device.serial in admitted
+                )
+            return state, devices
+
+        unknown = set(payload) - {"serial", "label", "enabled"}
+        if unknown:
+            raise DeviceManagementError(
+                "device_manager_payload_invalid",
+                f"unsupported device field: {sorted(unknown)[0]}",
+            )
+        serial = payload.get("serial")
+        if not isinstance(serial, str) or not serial.strip() or serial != serial.strip():
+            raise DeviceManagementError(
+                "device_manager_payload_invalid",
+                "serial must be a non-empty trimmed string",
+            )
+        if command.kind == "device.manager.remove":
+            if set(payload) != {"serial"}:
+                raise DeviceManagementError(
+                    "device_manager_payload_invalid",
+                    "remove accepts only serial",
+                )
+            return remove_managed_device(state, serial), devices
+
+        if command.kind != "device.manager.update":
+            raise DeviceManagementError(
+                "device_manager_command_unknown",
+                "device manager command is not implemented",
+            )
+        if set(payload) == {"serial"}:
+            raise DeviceManagementError(
+                "device_manager_payload_invalid",
+                "device update requires label or enabled",
+            )
+        label = payload.get("label")
+        enabled_value = payload.get("enabled")
+        if label is not None and not isinstance(label, str):
+            raise DeviceManagementError(
+                "device_manager_payload_invalid",
+                "label must be a string",
+            )
+        if enabled_value is not None and not isinstance(enabled_value, bool):
+            raise DeviceManagementError(
+                "device_manager_payload_invalid",
+                "enabled must be a boolean",
+            )
+        state = update_managed_device(
+            state,
+            serial,
+            label=label,
+            enabled=enabled_value,
+        )
+        entry = next(item for item in state.devices if item.serial == serial)
+        updated_devices = tuple(
+            replace(device, name=entry.label or device.model or device.codename or device.serial)
+            if device.serial == serial
+            else device
+            for device in devices
+            if not (
+                device.serial == serial
+                and state.scan_scope == "enabled"
+                and not entry.enabled
+            )
+        )
+        return state, updated_devices
+
     def _activate_toolchain(
         self,
         command: AppCommand,
@@ -483,6 +852,88 @@ class ApplicationRuntime:
             code="toolchain_activated",
             message="Platform Tools activated.",
             value={"revision": updated.revision},
+        )
+
+    def _activate_device_scan(
+        self,
+        command: AppCommand,
+        devices: tuple[DeviceInfo, ...],
+        management: DeviceManagementState,
+        toolchain: ToolchainInfo,
+    ) -> OperationResult:
+        """Persist scan policy/roster and promote the inventory in one revision."""
+
+        if command.expected_revision is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="revision_required",
+                message="expected_revision is required",
+            )
+        snapshot = self.store.snapshot()
+        selected, primary = reconcile_device_selection(
+            devices,
+            snapshot.selected_serials,
+            snapshot.selected_serial,
+        )
+
+        def prepare(_snapshot: AppSnapshot) -> Mapping[str, object]:
+            return {
+                "devices": devices,
+                "device_management": management,
+                "selected_serials": selected,
+                "selected_serial": primary,
+                "toolchain": toolchain,
+            }
+
+        def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
+            with self._preferences_lock:
+                values = dict(self.config_document.values)
+                core = _string_object_mapping(
+                    values.get("_pixelflasher_core_state", {})
+                )
+                core["selected_serials"] = list(updated.selected_serials)
+                core["toolchain"] = updated.toolchain.to_dict()
+                updates: dict[str, object] = {
+                    "device": updated.selected_serial,
+                    "_pixelflasher_core_state": core,
+                }
+                if updated.toolchain.adb and updated.toolchain.fastboot:
+                    adb_parent = Path(updated.toolchain.adb).parent
+                    if adb_parent == Path(updated.toolchain.fastboot).parent:
+                        updates["platform_tools_path"] = str(adb_parent)
+                document = self.config_document.with_values(**updates)
+                document = document_with_device_management(
+                    document,
+                    updated.device_management,
+                )
+                self.config_store.save(document)
+                self.config_document = document
+
+        try:
+            updated = self.store.transactional_update(
+                expected_revision=command.expected_revision,
+                prepare=prepare,
+                side_effect=persist,
+            )
+        except StaleRevisionError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code="stale_revision",
+                message=(
+                    f"state revision changed: expected {error.expected}, "
+                    f"current {error.actual}"
+                ),
+            )
+        except (ConfigError, OSError):
+            return OperationResult.failed(
+                command.operation_id,
+                code="device_scan_save_failed",
+                message="Device scan state could not be saved.",
+            )
+        return OperationResult.success(
+            command.operation_id,
+            code="device_scan_state_updated",
+            value=updated.to_dict(),
         )
 
     def respond_interaction(
@@ -604,9 +1055,13 @@ class ApplicationRuntime:
                     values=values,
                     modern_extras=self.config_document.modern_extras,
                 )
-                self.config_document = document_with_preferences(
+                document = document_with_preferences(
                     document,
                     snapshot.preferences,
+                )
+                self.config_document = document_with_device_management(
+                    document,
+                    paused_device_management(snapshot.device_management),
                 )
                 self.config_store.save(self.config_document)
         finally:
@@ -637,7 +1092,74 @@ class ApplicationRuntime:
         with self._shutdown_lock:
             if self._is_shutdown:
                 return
-        self.store.reconcile_devices(result.devices)
+        current = self.store.snapshot()
+        if not current.device_management.scan_enabled:
+            return
+        try:
+            management, devices = reconcile_device_management(
+                current.device_management,
+                result.observed_devices,
+            )
+        except DeviceManagementError:
+            # The bounded roster remains unchanged. A later policy/removal
+            # command forces a fresh observation after capacity is available.
+            return
+        selected, primary = reconcile_device_selection(
+            devices,
+            current.selected_serials,
+            current.selected_serial,
+        )
+        if (
+            management == current.device_management
+            and devices == current.devices
+            and selected == current.selected_serials
+            and primary == current.selected_serial
+        ):
+            return
+
+        def prepare(_snapshot: AppSnapshot) -> Mapping[str, object]:
+            return {
+                "device_management": management,
+                "devices": devices,
+                "selected_serials": selected,
+                "selected_serial": primary,
+            }
+
+        def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
+            with self._preferences_lock:
+                values = dict(self.config_document.values)
+                core = _string_object_mapping(
+                    values.get("_pixelflasher_core_state", {})
+                )
+                core["selected_serials"] = list(updated.selected_serials)
+                document = self.config_document.with_values(
+                    device=updated.selected_serial,
+                    _pixelflasher_core_state=core,
+                )
+                document = document_with_device_management(
+                    document,
+                    updated.device_management,
+                )
+                self.config_store.save(document)
+                self.config_document = document
+
+        try:
+            self.store.transactional_update(
+                expected_revision=current.revision,
+                prepare=prepare,
+                side_effect=persist,
+            )
+        except (ConfigError, OSError, StaleRevisionError):
+            # A concurrent command wins; the next poll will retry the
+            # observation. Failed persistence never promotes canonical state.
+            self.device_poller.invalidate_observation()
+            return
+
+    def _disabled_scan_serials(self) -> frozenset[str]:
+        state = self.store.snapshot().device_management
+        if not state.scan_enabled or state.scan_scope == "all":
+            return frozenset()
+        return frozenset(device.serial for device in state.devices if not device.enabled)
 
     def _on_interaction(self, request: InteractionRequest) -> InteractionDecision | bool:
         if self._external_interaction is not None:
@@ -718,6 +1240,9 @@ class ApplicationRuntime:
         )
         return AppSnapshot(
             preferences=preferences_from_document(document),
+            device_management=paused_device_management(
+                device_management_from_document(document)
+            ),
             selected_serials=serials,
             selected_serial=serial,
             plan=FlashPlan(

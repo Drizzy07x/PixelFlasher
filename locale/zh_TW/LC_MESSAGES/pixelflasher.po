@@ -5163,3 +5163,101 @@ msgstr "已取消開啟網址"
 msgctxt "web.device.openUrlFailed"
 msgid "The device did not verify the browser launch."
 msgstr "裝置未能驗證瀏覽器是否已開啟。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.managerTitle"
+msgid "Device manager"
+msgstr "裝置管理員"
+
+msgctxt "web.device.managerRunning"
+msgid "Scanning"
+msgstr "正在掃描"
+
+msgctxt "web.device.managerPaused"
+msgid "Paused"
+msgstr "已暫停"
+
+msgctxt "web.device.managerScanning"
+msgid "Automatic device scans"
+msgstr "自動掃描裝置"
+
+msgctxt "web.device.managerScanningDetail"
+msgid "PixelFlasher refreshes enabled remembered devices and new connections."
+msgstr "PixelFlasher 會重新整理已儲存且已啟用的裝置及新連線。"
+
+msgctxt "web.device.managerPausedDetail"
+msgid ""
+"Automatic scans are paused. Resume scanning before refreshing the live "
+"inventory."
+msgstr "自動掃描已暫停。請先恢復掃描，再重新整理即時裝置清單。"
+
+msgctxt "web.device.managerPause"
+msgid "Pause scanning"
+msgstr "暫停掃描"
+
+msgctxt "web.device.managerResume"
+msgid "Resume scanning"
+msgstr "恢復掃描"
+
+msgctxt "web.device.managerScope"
+msgid "Scan scope"
+msgstr "掃描範圍"
+
+msgctxt "web.device.managerEnabledOnly"
+msgid "Enabled devices only"
+msgstr "僅掃描已啟用的裝置"
+
+msgctxt "web.device.managerAll"
+msgid "All detected devices"
+msgstr "所有偵測到的裝置"
+
+msgctxt "web.device.managerRemembered"
+msgid "Remembered devices"
+msgstr "已儲存的裝置"
+
+msgctxt "web.device.managerEmpty"
+msgid "No devices are remembered yet. Run a scan after connecting a device."
+msgstr "尚未儲存任何裝置。連接裝置後請執行掃描。"
+
+msgctxt "web.device.managerRememberedState"
+msgid "Remembered"
+msgstr "已儲存"
+
+msgctxt "web.device.managerLastSeen"
+msgid "Last seen {date}"
+msgstr "上次偵測時間：{date}"
+
+msgctxt "web.device.managerNeverSeen"
+msgid "Not seen yet"
+msgstr "尚未偵測到"
+
+msgctxt "web.device.managerAlias"
+msgid "Device label"
+msgstr "裝置標籤"
+
+msgctxt "web.device.managerAliasFor"
+msgid "Device label for {serial}"
+msgstr "裝置 {serial} 的標籤"
+
+msgctxt "web.device.managerSaveAlias"
+msgid "Save label"
+msgstr "儲存標籤"
+
+msgctxt "web.device.managerRemove"
+msgid "Remove"
+msgstr "移除"
+
+msgctxt "web.device.managerRemoveConfirm"
+msgid "Remove remembered device {serial}"
+msgstr "移除已儲存的裝置 {serial}"
+
+msgctxt "web.device.managerRemovePrompt"
+msgid "Remove this remembered device?"
+msgstr "是否要移除此已儲存的裝置？"
+
+msgctxt "web.device.managerRemoveConfirmAction"
+msgid "Confirm removal"
+msgstr "確認移除"

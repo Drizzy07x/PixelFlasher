@@ -14,12 +14,14 @@ import type {
   BridgeResponse,
   BridgeFailureResponse,
   Device,
+  DeviceManagementState,
   Firmware,
   HostSnapshot,
   InteractionRequest,
   ModernPreferences,
   OperationStatus,
 } from './types';
+import { MAX_MANAGED_DEVICE_TIMESTAMP } from './types';
 
 type Listener = (message: BridgeEvent) => void;
 
@@ -182,6 +184,94 @@ export function normalizeOperationStatus(status: unknown): OperationStatus {
   return 'idle';
 }
 
+const deviceModes = new Set<Device['mode']>([
+  'adb',
+  'fastboot',
+  'fastbootd',
+  'recovery',
+  'sideload',
+  'offline',
+  'unauthorized',
+]);
+
+function fallbackDeviceManagement(devices: Device[]): DeviceManagementState {
+  return {
+    schemaVersion: 1,
+    scanEnabled: true,
+    scanScope: 'enabled',
+    devices: devices.map((device) => ({
+      serial: device.serial,
+      label: '',
+      enabled: true,
+      model: device.model,
+      codename: device.codename,
+      connected: !['offline', 'unauthorized'].includes(device.mode),
+      mode: device.mode,
+      firstSeen: 0,
+      lastSeen: 0,
+    })),
+  };
+}
+
+function normalizeDeviceManagement(input: unknown, devices: Device[]): DeviceManagementState {
+  if (!isRecord(input)
+    || input.schemaVersion !== 1
+    || typeof input.scanEnabled !== 'boolean'
+    || (input.scanScope !== 'enabled' && input.scanScope !== 'all')
+    || !Array.isArray(input.devices)
+    || input.devices.length > 256) {
+    return fallbackDeviceManagement(devices);
+  }
+  const serials = new Set<string>();
+  const managed = input.devices.flatMap((entry) => {
+    if (!isRecord(entry)
+      || typeof entry.serial !== 'string'
+      || !entry.serial
+      || entry.serial !== entry.serial.trim()
+      || entry.serial.length > 256
+      || typeof entry.label !== 'string'
+      || entry.label.length > 120
+      || typeof entry.enabled !== 'boolean'
+      || typeof entry.model !== 'string'
+      || entry.model.length > 256
+      || typeof entry.codename !== 'string'
+      || entry.codename.length > 128
+      || typeof entry.connected !== 'boolean'
+      || typeof entry.mode !== 'string'
+      || !deviceModes.has(entry.mode as Device['mode'])
+      || typeof entry.firstSeen !== 'number'
+      || !Number.isSafeInteger(entry.firstSeen)
+      || entry.firstSeen < 0
+      || entry.firstSeen > MAX_MANAGED_DEVICE_TIMESTAMP
+      || typeof entry.lastSeen !== 'number'
+      || !Number.isSafeInteger(entry.lastSeen)
+      || entry.lastSeen < 0
+      || entry.lastSeen > MAX_MANAGED_DEVICE_TIMESTAMP
+      || (entry.firstSeen > 0 && entry.lastSeen > 0 && entry.lastSeen < entry.firstSeen)
+      || serials.has(entry.serial)) {
+      return [];
+    }
+    serials.add(entry.serial);
+    return [{
+      serial: entry.serial,
+      label: entry.label,
+      enabled: entry.enabled,
+      model: entry.model,
+      codename: entry.codename,
+      connected: entry.connected,
+      mode: entry.mode as Device['mode'],
+      firstSeen: entry.firstSeen,
+      lastSeen: entry.lastSeen,
+    }];
+  });
+  return {
+    schemaVersion: 1,
+    scanEnabled: input.scanEnabled,
+    scanScope: input.scanScope,
+    devices: managed,
+  };
+}
+
 export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
   const sourceSerials = input.selectedSerials ?? input.selected_serials;
   const selected = input.selectedSerial ?? input.selected_serial ?? sourceSerials?.[0] ?? null;
@@ -301,9 +391,15 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
     message: typeof rawLastResult.message === 'string' ? rawLastResult.message : '',
     exit_code: typeof rawLastResult.exit_code === 'number' ? rawLastResult.exit_code : null,
   } : null;
+  const deviceManagement = normalizeDeviceManagement(
+    input.deviceManagement ?? input.device_management,
+    devices,
+  );
   return {
     revision: Number.isFinite(input.revision) ? input.revision : 0,
     preferences: normalizePreferences(input.preferences ?? defaultPreferences),
+    deviceManagement,
+    device_management: deviceManagement,
     devices,
     selectedSerial: selected,
     selected_serial: selected,

@@ -23,6 +23,10 @@ _FASTBOOT_MODES = frozenset({"fastboot", "fastbootd"})
 _FASTBOOT_GETVARS = ("current-slot", "unlocked", "is-userspace")
 
 
+def _no_excluded_serials() -> frozenset[str]:
+    return frozenset()
+
+
 def parse_adb_devices(output: str) -> tuple[DeviceInfo, ...]:
     devices: dict[str, DeviceInfo] = {}
     for raw_line in output.replace("\r", "").splitlines():
@@ -243,6 +247,17 @@ class DeviceScanResult:
     successful_sources: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     cancelled: bool = False
+    discovered_devices: tuple[DeviceInfo, ...] = ()
+
+    @property
+    def observed_devices(self) -> tuple[DeviceInfo, ...]:
+        """Return all basic discoveries with enriched eligible rows overlaid."""
+
+        if not self.discovered_devices:
+            return self.devices
+        by_serial = {device.serial: device for device in self.discovered_devices}
+        by_serial.update({device.serial: device for device in self.devices})
+        return canonicalize_device_inventory(tuple(by_serial.values()))
 
     @property
     def ok(self) -> bool:
@@ -280,9 +295,14 @@ class DeviceService:
         include_properties: bool = True,
         include_battery: bool = True,
         previous_devices: tuple[DeviceInfo, ...] = (),
+        excluded_serials: frozenset[str] = frozenset(),
         cancellation: CancellationToken | None = None,
     ) -> DeviceScanResult:
         token = cancellation or CancellationToken()
+        if not isinstance(excluded_serials, frozenset) or any(
+            not isinstance(serial, str) or not serial for serial in excluded_serials
+        ):
+            raise TypeError("excluded_serials must be a frozenset of serials")
         if not toolchain.ready or not toolchain.adb or not toolchain.fastboot:
             return DeviceScanResult((), warnings=("toolchain_not_ready",))
 
@@ -325,7 +345,12 @@ class DeviceService:
             fastboot_devices = parse_fastboot_devices(fastboot_outcome.stdout)
             successful.append("fastboot")
 
-        devices = merge_device_inventories(adb_devices, fastboot_devices)
+        discovered_devices = merge_device_inventories(adb_devices, fastboot_devices)
+        devices = tuple(
+            device
+            for device in discovered_devices
+            if device.serial not in excluded_serials
+        )
         if "fastboot" in successful:
             devices = self._enrich_fastboot(devices, toolchain, token, warnings)
         if include_properties and "adb" in successful:
@@ -337,7 +362,13 @@ class DeviceService:
                 include_battery=include_battery,
             )
         devices = merge_device_history(devices, previous_devices)
-        return DeviceScanResult(devices, tuple(successful), tuple(warnings), token.cancelled)
+        return DeviceScanResult(
+            devices,
+            tuple(successful),
+            tuple(warnings),
+            token.cancelled,
+            discovered_devices,
+        )
 
     def _enrich_fastboot(
         self,
@@ -525,6 +556,7 @@ class DevicePoller:
         interval_seconds: float = 2.0,
         include_properties: bool = False,
         history_limit: int = 256,
+        excluded_serials_provider: Callable[[], frozenset[str]] | None = None,
     ) -> None:
         if not isfinite(interval_seconds) or interval_seconds <= 0:
             raise ValueError("interval_seconds must be positive")
@@ -540,7 +572,12 @@ class DevicePoller:
         self.interval_seconds = interval_seconds
         self.include_properties = include_properties
         self.history_limit = history_limit
+        self.excluded_serials_provider = (
+            excluded_serials_provider or _no_excluded_serials
+        )
         self._cancellation = CancellationToken()
+        self._paused = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.RLock()
         self._identity_history: dict[str, DeviceInfo] = {}
@@ -564,6 +601,7 @@ class DevicePoller:
         if not isfinite(timeout_seconds) or timeout_seconds < 0:
             raise ValueError("timeout_seconds must be finite and non-negative")
         self._cancellation.cancel()
+        self._wake.set()
         with self._lock:
             thread = self._thread
         if thread is threading.current_thread():
@@ -582,50 +620,113 @@ class DevicePoller:
         with self._lock:
             return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
+
+    def pause(self) -> bool:
+        """Pause future polls without destroying the owned worker thread."""
+
+        if self._paused.is_set():
+            return False
+        self._paused.set()
+        self._wake.set()
+        return True
+
+    def resume(self) -> bool:
+        """Resume polling and wake the worker immediately."""
+
+        if not self._paused.is_set():
+            return False
+        # A paused runtime deliberately clears its visible inventory. Force the
+        # first resumed observation through even when the USB topology itself
+        # did not change while scanning was paused.
+        with self._lock:
+            self._last_devices = None
+        self._paused.clear()
+        self._wake.set()
+        return True
+
+    def refresh(self) -> None:
+        """Wake an active, unpaused poller for an immediate policy refresh."""
+
+        if not self._paused.is_set():
+            # Policy changes (for example enabled -> all) can change the visible
+            # inventory without changing adb/fastboot output.
+            with self._lock:
+                self._last_devices = None
+            self._wake.set()
+
+    def invalidate_observation(self) -> None:
+        """Retry an uncommitted observation after the normal poll interval."""
+
+        with self._lock:
+            self._last_devices = None
+
     def run(self) -> None:
         try:
             while not self._cancellation.cancelled:
+                if self._paused.is_set():
+                    self._wake.wait()
+                    self._wake.clear()
+                    continue
                 with self._lock:
                     history = tuple(self._identity_history.values())
                     previous_observation = self._last_devices
                 try:
+                    excluded_serials = self.excluded_serials_provider()
                     result = self.service.scan(
                         self.toolchain_provider(),
                         include_properties=self.include_properties,
                         previous_devices=history,
+                        excluded_serials=excluded_serials,
                         cancellation=self._cancellation,
                     )
                 except Exception:
-                    if self._cancellation.wait(self.interval_seconds):
+                    if self._wait_interval():
                         break
                     continue
                 if result.cancelled:
                     break
                 if not result.successful_sources:
-                    if self._cancellation.wait(self.interval_seconds):
+                    if self._wait_interval():
                         break
                     continue
 
-                devices = _preserve_failed_source_inventory(
-                    result.devices,
+                observed_devices = _preserve_failed_source_inventory(
+                    result.observed_devices,
                     previous_observation or (),
                     result.successful_sources,
                 )
-                result = replace(result, devices=devices)
-                self._remember_identity(devices)
-                if devices != previous_observation:
+                visible_devices = tuple(
+                    device
+                    for device in observed_devices
+                    if device.serial not in excluded_serials
+                )
+                result = replace(
+                    result,
+                    devices=visible_devices,
+                    discovered_devices=observed_devices,
+                )
+                self._remember_identity(observed_devices)
+                if observed_devices != previous_observation:
                     with self._lock:
-                        self._last_devices = devices
+                        self._last_devices = observed_devices
                     try:
                         self.listener(result)
                     except Exception:
                         pass
-                if self._cancellation.wait(self.interval_seconds):
+                if self._wait_interval():
                     break
         finally:
             with self._lock:
                 if self._thread is threading.current_thread():
                     self._thread = None
+
+    def _wait_interval(self) -> bool:
+        self._wake.wait(self.interval_seconds)
+        self._wake.clear()
+        return self._cancellation.cancelled
 
     def _remember_identity(self, devices: tuple[DeviceInfo, ...]) -> None:
         with self._lock:

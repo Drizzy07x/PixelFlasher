@@ -5172,3 +5172,101 @@ msgstr "已取消打开网址"
 msgctxt "web.device.openUrlFailed"
 msgid "The device did not verify the browser launch."
 msgstr "设备未能验证浏览器是否已打开。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.managerTitle"
+msgid "Device manager"
+msgstr "设备管理器"
+
+msgctxt "web.device.managerRunning"
+msgid "Scanning"
+msgstr "正在扫描"
+
+msgctxt "web.device.managerPaused"
+msgid "Paused"
+msgstr "已暂停"
+
+msgctxt "web.device.managerScanning"
+msgid "Automatic device scans"
+msgstr "自动扫描设备"
+
+msgctxt "web.device.managerScanningDetail"
+msgid "PixelFlasher refreshes enabled remembered devices and new connections."
+msgstr "PixelFlasher 会刷新已保存且已启用的设备以及新连接。"
+
+msgctxt "web.device.managerPausedDetail"
+msgid ""
+"Automatic scans are paused. Resume scanning before refreshing the live "
+"inventory."
+msgstr "自动扫描已暂停。请先恢复扫描，再刷新实时设备列表。"
+
+msgctxt "web.device.managerPause"
+msgid "Pause scanning"
+msgstr "暂停扫描"
+
+msgctxt "web.device.managerResume"
+msgid "Resume scanning"
+msgstr "恢复扫描"
+
+msgctxt "web.device.managerScope"
+msgid "Scan scope"
+msgstr "扫描范围"
+
+msgctxt "web.device.managerEnabledOnly"
+msgid "Enabled devices only"
+msgstr "仅扫描已启用的设备"
+
+msgctxt "web.device.managerAll"
+msgid "All detected devices"
+msgstr "所有检测到的设备"
+
+msgctxt "web.device.managerRemembered"
+msgid "Remembered devices"
+msgstr "已保存的设备"
+
+msgctxt "web.device.managerEmpty"
+msgid "No devices are remembered yet. Run a scan after connecting a device."
+msgstr "尚未保存任何设备。连接设备后运行扫描。"
+
+msgctxt "web.device.managerRememberedState"
+msgid "Remembered"
+msgstr "已保存"
+
+msgctxt "web.device.managerLastSeen"
+msgid "Last seen {date}"
+msgstr "上次检测时间：{date}"
+
+msgctxt "web.device.managerNeverSeen"
+msgid "Not seen yet"
+msgstr "尚未检测到"
+
+msgctxt "web.device.managerAlias"
+msgid "Device label"
+msgstr "设备标签"
+
+msgctxt "web.device.managerAliasFor"
+msgid "Device label for {serial}"
+msgstr "设备 {serial} 的标签"
+
+msgctxt "web.device.managerSaveAlias"
+msgid "Save label"
+msgstr "保存标签"
+
+msgctxt "web.device.managerRemove"
+msgid "Remove"
+msgstr "移除"
+
+msgctxt "web.device.managerRemoveConfirm"
+msgid "Remove remembered device {serial}"
+msgstr "移除已保存的设备 {serial}"
+
+msgctxt "web.device.managerRemovePrompt"
+msgid "Remove this remembered device?"
+msgstr "是否移除此已保存的设备？"
+
+msgctxt "web.device.managerRemoveConfirmAction"
+msgid "Confirm removal"
+msgstr "确认移除"

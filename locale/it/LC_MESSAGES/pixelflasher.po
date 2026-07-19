@@ -5167,3 +5167,103 @@ msgstr "Apertura URL annullata"
 msgctxt "web.device.openUrlFailed"
 msgid "The device did not verify the browser launch."
 msgstr "Il dispositivo non ha verificato l’apertura del browser."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.managerTitle"
+msgid "Device manager"
+msgstr "Gestione dispositivi"
+
+msgctxt "web.device.managerRunning"
+msgid "Scanning"
+msgstr "Scansione in corso"
+
+msgctxt "web.device.managerPaused"
+msgid "Paused"
+msgstr "In pausa"
+
+msgctxt "web.device.managerScanning"
+msgid "Automatic device scans"
+msgstr "Scansioni automatiche dei dispositivi"
+
+msgctxt "web.device.managerScanningDetail"
+msgid "PixelFlasher refreshes enabled remembered devices and new connections."
+msgstr "PixelFlasher aggiorna i dispositivi memorizzati e abilitati, oltre alle nuove connessioni."
+
+msgctxt "web.device.managerPausedDetail"
+msgid ""
+"Automatic scans are paused. Resume scanning before refreshing the live "
+"inventory."
+msgstr ""
+"Le scansioni automatiche sono in pausa. Riprendi la scansione prima di "
+"aggiornare l’inventario in tempo reale."
+
+msgctxt "web.device.managerPause"
+msgid "Pause scanning"
+msgstr "Metti in pausa la scansione"
+
+msgctxt "web.device.managerResume"
+msgid "Resume scanning"
+msgstr "Riprendi la scansione"
+
+msgctxt "web.device.managerScope"
+msgid "Scan scope"
+msgstr "Ambito della scansione"
+
+msgctxt "web.device.managerEnabledOnly"
+msgid "Enabled devices only"
+msgstr "Solo dispositivi abilitati"
+
+msgctxt "web.device.managerAll"
+msgid "All detected devices"
+msgstr "Tutti i dispositivi rilevati"
+
+msgctxt "web.device.managerRemembered"
+msgid "Remembered devices"
+msgstr "Dispositivi memorizzati"
+
+msgctxt "web.device.managerEmpty"
+msgid "No devices are remembered yet. Run a scan after connecting a device."
+msgstr "Non è ancora stato memorizzato alcun dispositivo. Avvia una scansione dopo aver collegato un dispositivo."
+
+msgctxt "web.device.managerRememberedState"
+msgid "Remembered"
+msgstr "Memorizzato"
+
+msgctxt "web.device.managerLastSeen"
+msgid "Last seen {date}"
+msgstr "Ultimo rilevamento: {date}"
+
+msgctxt "web.device.managerNeverSeen"
+msgid "Not seen yet"
+msgstr "Non ancora rilevato"
+
+msgctxt "web.device.managerAlias"
+msgid "Device label"
+msgstr "Etichetta dispositivo"
+
+msgctxt "web.device.managerAliasFor"
+msgid "Device label for {serial}"
+msgstr "Etichetta per il dispositivo {serial}"
+
+msgctxt "web.device.managerSaveAlias"
+msgid "Save label"
+msgstr "Salva etichetta"
+
+msgctxt "web.device.managerRemove"
+msgid "Remove"
+msgstr "Rimuovi"
+
+msgctxt "web.device.managerRemoveConfirm"
+msgid "Remove remembered device {serial}"
+msgstr "Rimuovi il dispositivo memorizzato {serial}"
+
+msgctxt "web.device.managerRemovePrompt"
+msgid "Remove this remembered device?"
+msgstr "Rimuovere questo dispositivo memorizzato?"
+
+msgctxt "web.device.managerRemoveConfirmAction"
+msgid "Confirm removal"
+msgstr "Conferma rimozione"

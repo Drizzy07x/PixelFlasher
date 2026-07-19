@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
 import { assets, type AssetName } from '../assets';
 
 export function Icon({
@@ -58,23 +58,25 @@ export function CardTitle({ icon, children, after }: { icon?: AssetName; childre
   );
 }
 
-export function Button({
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  icon?: AssetName;
+};
+
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({
   variant = 'secondary',
   icon,
   children,
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-  icon?: AssetName;
-}) {
+}, ref) {
   return (
-    <button className={`button button--${variant} ${className}`} {...props}>
+    <button ref={ref} className={`button button--${variant} ${className}`} {...props}>
       {icon ? <Icon name={icon} size={18} /> : null}
       <span>{children}</span>
     </button>
   );
-}
+});
 
 export function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'success' | 'warning' | 'accent' | 'danger'; children: ReactNode }) {
   return <span className={`badge badge--${tone}`}>{children}</span>;

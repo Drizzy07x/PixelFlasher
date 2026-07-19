@@ -1,9 +1,10 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pixelflasher_core import ApplicationRuntime, DeviceInfo, DeviceScanResult
+from pixelflasher_core import ApplicationRuntime, ConfigError, DeviceInfo, DeviceScanResult
 from pixelflasher_core.devices import DevicePoller
 
 
@@ -46,6 +47,43 @@ class RuntimeDeviceMonitorTests(unittest.TestCase):
             self.assertEqual(("B", "C"), tuple(item.serial for item in snapshot.devices))
             self.assertEqual((), snapshot.selected_serials)
             self.assertIsNone(snapshot.selected_serial)
+            persisted = json.loads(runtime.config_store.path.read_text(encoding="utf-8"))
+            self.assertIsNone(persisted["device"])
+            self.assertEqual(
+                [],
+                persisted["_pixelflasher_core_state"]["selected_serials"],
+            )
+            runtime.shutdown()
+
+    def test_failed_hotplug_persistence_invalidates_the_suppression_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = ApplicationRuntime.open(Path(directory) / "PixelFlasher.json")
+            result = DeviceScanResult(
+                (DeviceInfo("SERIAL", mode="adb"),),
+                successful_sources=("adb", "fastboot"),
+            )
+            before = runtime.snapshot()
+
+            with (
+                patch.object(
+                    runtime.config_store,
+                    "save",
+                    side_effect=ConfigError("temporary write failure"),
+                ),
+                patch.object(
+                    runtime.device_poller,
+                    "invalidate_observation",
+                ) as invalidate,
+            ):
+                runtime._handle_device_scan(result)
+
+            invalidate.assert_called_once_with()
+            self.assertIs(before, runtime.snapshot())
+            runtime._handle_device_scan(result)
+            self.assertEqual(
+                ("SERIAL",),
+                tuple(item.serial for item in runtime.snapshot().devices),
+            )
             runtime.shutdown()
 
 

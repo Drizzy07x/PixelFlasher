@@ -2213,9 +2213,14 @@
       "area": "application",
       "capability": "Enable/disable device scanning and manage connected devices",
       "owner": "application",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No modern scan-policy and device-toggle manager exists.",
+      "modernStatus": "native",
+      "currentEvidence": [
+        "pixelflasher_core/device_management.py:versioned device-management codec, migration and reconciliation",
+        "pixelflasher_core/runtime.py:transactional manager commands and hotplug persistence",
+        "ui/command_registry.py:device.manager.policy/update/remove",
+        "ui/web/src/pages/device/DeviceManagerPanel.tsx:accessible React manager"
+      ],
+      "gap": "",
       "exitCriteria": [
         "Enable/disable device scanning and manage connected devices is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2228,7 +2233,12 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_device_management.py",
+        "tests/test_runtime_device_management.py",
+        "tests/test_device_manager_public_contract.py",
+        "ui/web/src/test/device-manager.test.tsx"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
@@ -2272,7 +2282,11 @@
         "Main.py:1815-2007"
       ],
       "modernActionIds": [],
-      "modernCommandIds": []
+      "modernCommandIds": [
+        "device.manager.policy",
+        "device.manager.update",
+        "device.manager.remove"
+      ]
     },
     {
       "id": "native.file_dialogs",

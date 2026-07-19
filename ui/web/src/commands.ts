@@ -17,6 +17,9 @@ export const commands = {
   deviceBootloaderLock: "device.bootloader.lock",
   deviceBootloaderUnlock: "device.bootloader.unlock",
   deviceInspect: "device.inspect",
+  deviceManagerPolicy: "device.manager.policy",
+  deviceManagerRemove: "device.manager.remove",
+  deviceManagerUpdate: "device.manager.update",
   deviceOpenUrl: "device.openUrl",
   deviceOtaCertificates: "device.ota.certificates",
   deviceOtaLogs: "device.ota.logs",
@@ -122,6 +125,18 @@ export interface BridgePayloadByCommand {
   "device.inspect": {
     "action": string;
     "serial"?: string;
+  };
+  "device.manager.policy": {
+    "scanEnabled"?: boolean;
+    "scanScope"?: string;
+  };
+  "device.manager.remove": {
+    "serial": string;
+  };
+  "device.manager.update": {
+    "enabled"?: boolean;
+    "label"?: string;
+    "serial": string;
   };
   "device.openUrl": {
     "serial"?: string;
@@ -313,6 +328,9 @@ export const allowedCommands = [
   commands.deviceBootloaderLock,
   commands.deviceBootloaderUnlock,
   commands.deviceInspect,
+  commands.deviceManagerPolicy,
+  commands.deviceManagerRemove,
+  commands.deviceManagerUpdate,
   commands.deviceOpenUrl,
   commands.deviceOtaCertificates,
   commands.deviceOtaLogs,
@@ -374,6 +392,9 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.deviceBootloaderLock]: 600000,
   [commands.deviceBootloaderUnlock]: 600000,
   [commands.deviceInspect]: 240000,
+  [commands.deviceManagerPolicy]: 60000,
+  [commands.deviceManagerRemove]: 60000,
+  [commands.deviceManagerUpdate]: 60000,
   [commands.deviceOpenUrl]: 30000,
   [commands.deviceOtaCertificates]: 45000,
   [commands.deviceOtaLogs]: 180000,
@@ -429,6 +450,9 @@ export const bridgeCommandMetadata = {
   [commands.deviceBootloaderLock]: {"owner":"bootloader","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.bootloader_lock","confirmation":"lock_serial","postconditions":["bootloader_locked","relock_evidence_consumed"]},
   [commands.deviceBootloaderUnlock]: {"owner":"bootloader","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.bootloader_unlock","confirmation":"unlock_serial","postconditions":["bootloader_unlocked"]},
   [commands.deviceInspect]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.inspect","confirmation":"none","postconditions":["bounded_typed_report_returned"]},
+  [commands.deviceManagerPolicy]: {"owner":"device","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.manager.policy","confirmation":"none","postconditions":["scan_policy_persisted","monitor_lifecycle_matches"]},
+  [commands.deviceManagerRemove]: {"owner":"device","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.manager.remove","confirmation":"none","postconditions":["managed_device_removed"]},
+  [commands.deviceManagerUpdate]: {"owner":"device","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.manager.update","confirmation":"none","postconditions":["managed_device_persisted"]},
   [commands.deviceOpenUrl]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.open_url","confirmation":"standard","postconditions":["view_intent_accepted"]},
   [commands.deviceOtaCertificates]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.certificates","confirmation":"none","postconditions":["bounded_certificate_inventory_returned"]},
   [commands.deviceOtaLogs]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.ota.logs","confirmation":"none","postconditions":["bounded_redacted_logs_returned"]},
@@ -515,6 +539,9 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.deviceBootloaderLock]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceBootloaderUnlock]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceInspect]: {"action":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
+  [commands.deviceManagerPolicy]: {"scanEnabled":{"kind":"boolean","required":false},"scanScope":{"kind":"string","required":false}},
+  [commands.deviceManagerRemove]: {"serial":{"kind":"string","required":true}},
+  [commands.deviceManagerUpdate]: {"enabled":{"kind":"boolean","required":false},"label":{"kind":"string","required":false},"serial":{"kind":"string","required":true}},
   [commands.deviceOpenUrl]: {"serial":{"kind":"string","required":false},"url":{"kind":"string","required":true}},
   [commands.deviceOtaCertificates]: {"serial":{"kind":"string","required":false}},
   [commands.deviceOtaLogs]: {"maxLines":{"kind":"integer","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false}},

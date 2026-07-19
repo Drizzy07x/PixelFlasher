@@ -39,6 +39,8 @@ from .contracts import (
     BootInfo,
     CommandAck,
     CommandKind,
+    DeviceInfo,
+    DeviceManagementState,
     FileArtifact,
     FirmwareInfo,
     FlashPlan,
@@ -54,6 +56,7 @@ from .contracts import (
     SnapshotChanged,
     ToolchainInfo,
 )
+from .device_management import DeviceManagementError, reconcile_device_management
 from .device_tools import (
     DEVICE_TOOL_COMMANDS,
     DeviceToolCompilation,
@@ -132,6 +135,10 @@ ResultParser = Callable[[OperationResult], OperationResult]
 ResultFinalizer = Callable[[OperationResult, CancellationToken], OperationResult]
 CompletionBoot = Callable[[OperationResult], BootInfo | None]
 ToolchainStateUpdater = Callable[[AppCommand, ToolchainInfo], OperationResult]
+DeviceScanStateUpdater = Callable[
+    [AppCommand, tuple[DeviceInfo, ...], DeviceManagementState, ToolchainInfo],
+    OperationResult,
+]
 
 
 class SupportPackageBackend(Protocol):
@@ -209,6 +216,7 @@ class CommandEngine:
         boot_inventory_service: BootInventoryService | None,
         firmware_repository: FirmwareRepository | None,
         toolchain_state_updater: ToolchainStateUpdater | None,
+        device_scan_state_updater: DeviceScanStateUpdater | None,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
@@ -237,6 +245,7 @@ class CommandEngine:
         self.toolchain_service = toolchain_service
         self.platform_tools_setup_service = platform_tools_setup_service
         self.toolchain_state_updater = toolchain_state_updater
+        self.device_scan_state_updater = device_scan_state_updater
         self.device_service = device_service
         self.firmware_inspector = firmware_inspector
         self.operation_planner = operation_planner
@@ -1066,7 +1075,7 @@ class CommandEngine:
         primary = serial.strip() if isinstance(serial, str) and serial.strip() else (serials[0] if serials else None)
         inventory = {device.serial for device in self.store.snapshot().devices}
         desired = tuple(dict.fromkeys(((primary,) if primary else ()) + serials))
-        missing = tuple(item for item in desired if inventory and item not in inventory)
+        missing = tuple(item for item in desired if item not in inventory)
         if missing:
             return OperationResult.failed(
                 command.operation_id,
@@ -1927,6 +1936,12 @@ class CommandEngine:
 
     def _scan_devices(self, command: AppCommand) -> OperationResult:
         snapshot = self.store.snapshot()
+        if not snapshot.device_management.scan_enabled:
+            return OperationResult.failed(
+                command.operation_id,
+                code="device_scanning_paused",
+                message="device scanning is paused",
+            )
         include_properties = command.payload.get("includeProperties", True)
         include_battery = command.payload.get("includeBattery", True)
         if not isinstance(include_properties, bool):
@@ -1977,11 +1992,21 @@ class CommandEngine:
                     )
                 toolchain = check.info
             try:
+                excluded_serials: frozenset[str] = (
+                    frozenset(
+                        device.serial
+                        for device in snapshot.device_management.devices
+                        if not device.enabled
+                    )
+                    if snapshot.device_management.scan_scope == "enabled"
+                    else frozenset()
+                )
                 scan = self.device_service.scan(
                     toolchain,
                     include_properties=include_properties,
                     include_battery=include_battery,
                     previous_devices=snapshot.devices,
+                    excluded_serials=excluded_serials,
                     cancellation=token,
                 )
             except Exception as error:
@@ -2030,7 +2055,9 @@ class CommandEngine:
                 code="device_scan_failed",
                 message="; ".join(scan.warnings) or "adb and fastboot scans failed",
             )
-        scanned_devices = {device.serial: device for device in scan.devices}
+        scanned_devices = {
+            device.serial: device for device in scan.observed_devices
+        }
         if "adb" not in scan.successful_sources:
             for device in snapshot.devices:
                 if device.mode not in {"fastboot", "fastbootd"}:
@@ -2039,7 +2066,35 @@ class CommandEngine:
             for device in snapshot.devices:
                 if device.mode in {"fastboot", "fastbootd"}:
                     scanned_devices.setdefault(device.serial, device)
-        devices = tuple(scanned_devices[key] for key in sorted(scanned_devices, key=str.casefold))
+        for remembered in snapshot.device_management.devices:
+            if not remembered.connected or remembered.serial in scanned_devices:
+                continue
+            is_fastboot = remembered.mode in {"fastboot", "fastbootd"}
+            source = "fastboot" if is_fastboot else "adb"
+            if source in scan.successful_sources:
+                continue
+            scanned_devices[remembered.serial] = DeviceInfo(
+                serial=remembered.serial,
+                model=remembered.model,
+                codename=remembered.codename,
+                mode=remembered.mode,
+                online=True,
+                name=remembered.label or remembered.model or remembered.codename,
+            )
+        raw_devices = tuple(
+            scanned_devices[key] for key in sorted(scanned_devices, key=str.casefold)
+        )
+        try:
+            management, devices = reconcile_device_management(
+                snapshot.device_management,
+                raw_devices,
+            )
+        except DeviceManagementError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code,
+                message=str(error),
+            )
         available = {device.serial for device in devices}
         selected = tuple(serial for serial in snapshot.selected_serials if serial in available)
         primary = (
@@ -2053,20 +2108,32 @@ class CommandEngine:
                 cancelled_message="device scan was cancelled before state promotion",
                 timeout_message="device scan timed out before state promotion",
             )
-        result = self._update_state(
-            command,
-            devices=devices,
-            selected_serials=selected,
-            selected_serial=primary,
-            toolchain=toolchain,
-        )
+        if self.device_scan_state_updater is not None:
+            result = self.device_scan_state_updater(
+                command,
+                devices,
+                management,
+                toolchain,
+            )
+        else:
+            result = self._update_state(
+                command,
+                devices=devices,
+                device_management=management,
+                selected_serials=selected,
+                selected_serial=primary,
+                toolchain=toolchain,
+            )
         if not result.ok:
             return result
         return replace(
             result,
             code="device_scan_succeeded",
             message=f"found {len(devices)} device(s)",
-            value={"snapshot": self.store.snapshot().to_dict(), "scan": scan.to_dict()},
+            value={
+                "snapshot": self.store.snapshot().to_dict(),
+                "scan": replace(scan, devices=devices).to_dict(),
+            },
         )
 
     def _preview_flash_plan(self, command: AppCommand) -> OperationResult:

@@ -62,7 +62,7 @@ parity belongs to `flash.execute`. Downloads has one owner,
 | Device, Flash and Safety navigation shells | native | none | Navigation is native; operational Flash parity is tracked independently by `flash.execute`. |
 | About/help surface | missing | none | Add a live React surface for packaged version, license, updates, support and project information. |
 | Backup, settings and tools workspaces | partial | none | Tools now has native flows for scrcpy, wireless ADB, bounded logcat, file push, partitions and support export; advanced utilities and the documented postconditions remain open. |
-| Scan/select devices | native | device read | Typed adb/fastboot discovery now reads serial-bound `current-slot`, `unlocked` and `is-userspace`, distinguishes fastbootd, preserves stable identity without reusing stale operational state, and retains cancellation/partial-source behavior. |
+| Scan/select/manage devices | native | device read/host write | Typed adb/fastboot discovery reads serial-bound `current-slot`, `unlocked` and `is-userspace`, distinguishes fastbootd and preserves stable identity without reusing stale operational state. A versioned manager persists aliases and enabled state, pauses/resumes hotplug, switches between enabled/all scope, repairs selection and migrates the bounded 9.x roster with an automatic backup. |
 | Platform Tools setup | partial | host write | Signed official downloads and opaque-grant directories now use pinned manifests, versioned atomic installation, binary/version probes and transactional activation. Production key/catalog provisioning and packaged cross-platform smokes remain. |
 | Select/process factory, OTA and custom ROM packages | partial | host read/write | The React flow uses a native picker and typed `firmware.select`/`firmware.process` commands. Factory archives, OTA packages and direct-image custom ROMs are processed fail-closed into hash-bound planner artifacts; official downloads, custom `payload.bin` processing and complete diagnostics remain open. |
 | Firmware downloads | missing | host write | There is no separate live Downloads route or native catalog implementation; the retired wx delegate is no longer shipped. Add one firmware-owned React flow providing progress, cancellation, SHA-256 verification and final selection. |
@@ -103,9 +103,15 @@ boot state. This row remains `partial` because custom `payload.bin` processing,
 runtime recovery/fastbootd transitions and multi-device batch execution remain
 open.
 
-Nine bounded service groups now use reviewed planner/policy/executor or local
+Ten bounded service groups now use reviewed planner/policy/executor or local
 atomic-operation boundaries:
 
+- Device management uses a strict versioned codec and transactional runtime
+  boundary for scan policy, aliases, enable/disable and removal. Discovery
+  filters disabled serials before property enrichment, preserves one stable
+  identity across ADB/fastboot transitions, and persists hotplug updates without
+  promoting state if the atomic configuration write fails. The accessible React
+  panel exposes the same closed bridge contract and never receives host paths.
 - `PackageService` lists package scopes and compiles enable, disable,
   uninstall, clear-data, force-stop, launch, permissions and APK install.
 - `PartitionService` lists, fetches, flashes and erases only allow-listed
@@ -176,7 +182,7 @@ becomes implicit success.
 
 | Area | Missing or partial behaviors |
 |---|---|
-| Device connection | Bounded mDNS discovery is native without a selected device. Pair/connect without a selected ADB target, disconnected-device handoff and hotplug tuning remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
+| Device connection | Bounded mDNS discovery is native without a selected device, and versioned scan/hotplug management is complete. Pair/connect without a selected ADB target and disconnected-device handoff remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | React APK install, download, denylist, SU controls and the remaining package actions. |
 | Device tools | The explicit expert ADB shell decision, packaged scrcpy discovery/lifecycle and OTA cancel/reset. Safe HTTP(S) URL opening, independently verified per-slot bootloader inspection, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing and the filtered update_engine snapshot are now native. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, trusted stock-flash evidence production before bootloader lock, downgrade artifact production, custom `payload.bin`, runtime recovery/fastbootd transitions, real patch APK/runner resources and KMI/architecture-based kernel selection. |

@@ -1109,6 +1109,242 @@ code {
   overflow: hidden;
 }
 
+.device-manager-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.device-manager-policy {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) auto minmax(18rem, auto);
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.device-manager-policy__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.device-manager-policy__copy strong {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+}
+
+.device-manager-policy__copy span {
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
+.device-manager-scope {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.52rem;
+  background: var(--surface);
+}
+
+.device-manager-scope legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.device-manager-scope label {
+  position: relative;
+  flex: 1;
+}
+
+.device-manager-scope input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.device-manager-scope span {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.36rem;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.device-manager-scope input:checked + span {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.device-manager-scope input:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.managed-device-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.managed-device {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.1fr) minmax(17rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.managed-device:last-child {
+  border-bottom: 0;
+}
+
+.managed-device.is-disabled {
+  background: color-mix(in srgb, var(--surface-soft) 65%, transparent);
+}
+
+.managed-device__identity {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.managed-device__icon {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.55rem;
+  background: var(--surface-raised);
+  place-items: center;
+}
+
+.managed-device__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.managed-device__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.managed-device__heading strong,
+.managed-device__copy code,
+.managed-device__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-device__heading strong {
+  color: var(--text-soft);
+  font-size: 0.74rem;
+}
+
+.managed-device__copy code {
+  color: var(--muted);
+  font-size: 0.61rem;
+}
+
+.managed-device__copy small {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.managed-device__copy .managed-device__seen {
+  color: var(--text-soft);
+  font-size: 0.58rem;
+}
+
+.managed-device__label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.managed-device__label > label {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.managed-device__label > div,
+.managed-device__actions,
+.managed-device__remove-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.managed-device__label input {
+  min-width: 0;
+  min-height: 2.35rem;
+  flex: 1;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.48rem;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 0.68rem;
+}
+
+.managed-device__actions {
+  justify-content: flex-end;
+}
+
+.managed-device__remove-confirm {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.managed-device__remove-confirm > span {
+  width: 100%;
+  color: var(--danger);
+  font-size: 0.61rem;
+  text-align: right;
+}
+
+.device-manager-empty {
+  display: flex;
+  min-height: 6rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 .device-details {
   padding: 1rem;
 }
@@ -3611,6 +3847,22 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .device-manager-policy {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .device-manager-scope {
+    grid-column: 1 / -1;
+  }
+
+  .managed-device {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .managed-device__actions {
+    grid-column: 1 / -1;
+  }
+
   .tool-form-grid,
   .tool-form-grid--compact,
   .tool-form-grid--partition {
@@ -3664,6 +3916,32 @@ code {
 
   .device-operation-grid {
     grid-template-columns: 1fr;
+  }
+
+  .device-manager-policy,
+  .managed-device {
+    grid-template-columns: 1fr;
+  }
+
+  .device-manager-policy > .button {
+    width: 100%;
+  }
+
+  .device-manager-scope,
+  .managed-device__actions {
+    grid-column: auto;
+  }
+
+  .managed-device__actions {
+    justify-content: flex-start;
+  }
+
+  .managed-device__remove-confirm {
+    justify-content: flex-start;
+  }
+
+  .managed-device__remove-confirm > span {
+    text-align: left;
   }
 
   .device-inspection-actions,
@@ -3777,6 +4055,19 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .managed-device__label > div,
+  .managed-device__actions,
+  .managed-device__remove-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .managed-device__actions .button,
+  .managed-device__label .button,
+  .managed-device__label input {
+    width: 100%;
+  }
+
   .page-header {
     align-items: flex-start;
     flex-direction: column;
@@ -3844,6 +4135,8 @@ code {
   .root-manager__guard,
   .root-inventory__icon,
   .root-inventory__row,
+  .managed-device,
+  .device-manager-scope,
   .tool-card,
   .button,
   .badge,

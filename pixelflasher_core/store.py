@@ -16,7 +16,9 @@ from .contracts import (
     DeviceInfo,
     FirmwareInfo,
     OperationResult,
+    ToolchainInfo,
 )
+from .device_management import reconcile_device_management
 from .devices import canonicalize_device_inventory, reconcile_device_selection
 
 StateListener = Callable[[AppSnapshot], None]
@@ -67,6 +69,7 @@ class AppStateStore:
     _UPDATABLE_FIELDS = frozenset(
         {
             "devices",
+            "device_management",
             "preferences",
             "selected_serials",
             "selected_serial",
@@ -224,6 +227,52 @@ class AppStateStore:
                 devices=inventory,
                 selected_serials=selected,
                 selected_serial=primary,
+                bootloader_lock_evidence=(),
+            )
+            self._snapshot = updated
+            listeners = tuple(self._listeners.values())
+        self._publish(listeners, updated)
+        return updated
+
+    def reconcile_managed_devices(
+        self,
+        devices: Sequence[DeviceInfo],
+        *,
+        expected_revision: int | None = None,
+        toolchain: ToolchainInfo | None = None,
+    ) -> AppSnapshot:
+        """Atomically observe raw devices and apply the persisted scan policy."""
+
+        inventory = canonicalize_device_inventory(devices)
+        with self._lock:
+            current = self._snapshot
+            self._assert_revision(current, expected_revision)
+            management, visible = reconcile_device_management(
+                current.device_management,
+                inventory,
+            )
+            selected, primary = reconcile_device_selection(
+                visible,
+                current.selected_serials,
+                current.selected_serial,
+            )
+            next_toolchain = current.toolchain if toolchain is None else toolchain
+            if (
+                management == current.device_management
+                and visible == current.devices
+                and selected == current.selected_serials
+                and primary == current.selected_serial
+                and next_toolchain == current.toolchain
+            ):
+                return current
+            updated = replace(
+                current,
+                revision=current.revision + 1,
+                device_management=management,
+                devices=visible,
+                selected_serials=selected,
+                selected_serial=primary,
+                toolchain=next_toolchain,
                 bootloader_lock_evidence=(),
             )
             self._snapshot = updated

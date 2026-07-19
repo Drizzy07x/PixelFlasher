@@ -5165,3 +5165,103 @@ msgstr "Ouverture de l’URL annulée"
 msgctxt "web.device.openUrlFailed"
 msgid "The device did not verify the browser launch."
 msgstr "L’appareil n’a pas pu vérifier l’ouverture du navigateur."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.managerTitle"
+msgid "Device manager"
+msgstr "Gestionnaire d’appareils"
+
+msgctxt "web.device.managerRunning"
+msgid "Scanning"
+msgstr "Recherche en cours"
+
+msgctxt "web.device.managerPaused"
+msgid "Paused"
+msgstr "En pause"
+
+msgctxt "web.device.managerScanning"
+msgid "Automatic device scans"
+msgstr "Recherches automatiques d’appareils"
+
+msgctxt "web.device.managerScanningDetail"
+msgid "PixelFlasher refreshes enabled remembered devices and new connections."
+msgstr "PixelFlasher actualise les appareils mémorisés qui sont activés et les nouvelles connexions."
+
+msgctxt "web.device.managerPausedDetail"
+msgid ""
+"Automatic scans are paused. Resume scanning before refreshing the live "
+"inventory."
+msgstr ""
+"Les recherches automatiques sont en pause. Reprenez la recherche avant "
+"d’actualiser l’inventaire en temps réel."
+
+msgctxt "web.device.managerPause"
+msgid "Pause scanning"
+msgstr "Suspendre la recherche"
+
+msgctxt "web.device.managerResume"
+msgid "Resume scanning"
+msgstr "Reprendre la recherche"
+
+msgctxt "web.device.managerScope"
+msgid "Scan scope"
+msgstr "Étendue de la recherche"
+
+msgctxt "web.device.managerEnabledOnly"
+msgid "Enabled devices only"
+msgstr "Appareils activés uniquement"
+
+msgctxt "web.device.managerAll"
+msgid "All detected devices"
+msgstr "Tous les appareils détectés"
+
+msgctxt "web.device.managerRemembered"
+msgid "Remembered devices"
+msgstr "Appareils mémorisés"
+
+msgctxt "web.device.managerEmpty"
+msgid "No devices are remembered yet. Run a scan after connecting a device."
+msgstr "Aucun appareil n’est encore mémorisé. Lancez une recherche après avoir connecté un appareil."
+
+msgctxt "web.device.managerRememberedState"
+msgid "Remembered"
+msgstr "Mémorisé"
+
+msgctxt "web.device.managerLastSeen"
+msgid "Last seen {date}"
+msgstr "Dernière détection : {date}"
+
+msgctxt "web.device.managerNeverSeen"
+msgid "Not seen yet"
+msgstr "Pas encore détecté"
+
+msgctxt "web.device.managerAlias"
+msgid "Device label"
+msgstr "Libellé de l’appareil"
+
+msgctxt "web.device.managerAliasFor"
+msgid "Device label for {serial}"
+msgstr "Libellé de l’appareil {serial}"
+
+msgctxt "web.device.managerSaveAlias"
+msgid "Save label"
+msgstr "Enregistrer le libellé"
+
+msgctxt "web.device.managerRemove"
+msgid "Remove"
+msgstr "Supprimer"
+
+msgctxt "web.device.managerRemoveConfirm"
+msgid "Remove remembered device {serial}"
+msgstr "Supprimer l’appareil mémorisé {serial}"
+
+msgctxt "web.device.managerRemovePrompt"
+msgid "Remove this remembered device?"
+msgstr "Supprimer cet appareil mémorisé ?"
+
+msgctxt "web.device.managerRemoveConfirmAction"
+msgid "Confirm removal"
+msgstr "Confirmer la suppression"
