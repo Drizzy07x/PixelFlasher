@@ -305,6 +305,24 @@ from .rooting import (
 )
 from .runtime import ApplicationRuntime, RuntimeListener
 from .safety import SafetyPolicy
+from .scrcpy_artifacts import (
+    ScrcpyArtifactError,
+    ScrcpyInstallation,
+    ScrcpyInstaller,
+    ScrcpyInstallResult,
+    ScrcpyLimits,
+    ScrcpyProbeResult,
+    ScrcpyStatus,
+    probe_scrcpy,
+)
+from .scrcpy_setup import (
+    MappingScrcpyManifestCatalog,
+    ScrcpyCatalogError,
+    ScrcpyManifestCatalog,
+    ScrcpySetupResult,
+    ScrcpySetupService,
+    UnavailableScrcpyManifestCatalog,
+)
 from .store import AppStateStore, StaleRevisionError, StateListener, Subscription
 from .support import (
     SUPPORT_COMMAND,
@@ -537,6 +555,19 @@ __all__ = [
     "PlatformToolsSetupResult",
     "PlatformToolsSetupService",
     "UnavailablePlatformToolsManifestCatalog",
+    "ScrcpyArtifactError",
+    "ScrcpyInstallation",
+    "ScrcpyInstaller",
+    "ScrcpyInstallResult",
+    "ScrcpyLimits",
+    "ScrcpyProbeResult",
+    "ScrcpyStatus",
+    "MappingScrcpyManifestCatalog",
+    "ScrcpyCatalogError",
+    "ScrcpyManifestCatalog",
+    "ScrcpySetupResult",
+    "ScrcpySetupService",
+    "UnavailableScrcpyManifestCatalog",
     "PixelFlasherEngine",
     "PLANNED_COMMANDS",
     "PlanCompilation",
@@ -633,6 +664,7 @@ __all__ = [
     "platform_key",
     "platform_tools_binary_names",
     "probe_platform_tools",
+    "probe_scrcpy",
     "reconcile_device_selection",
     "reconcile_device_management",
     "remove_managed_device",

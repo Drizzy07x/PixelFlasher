@@ -3087,6 +3087,45 @@ code {
   padding: 0.85rem;
 }
 
+.scrcpy-options-grid {
+  align-items: end;
+}
+
+.scrcpy-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+}
+
+.scrcpy-toggle-grid legend {
+  padding: 0 0.5rem;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.scrcpy-toggle-grid label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text);
+}
+
+.scrcpy-toggle-grid input {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+}
+
+@media (max-width: 760px) {
+  .scrcpy-toggle-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .tool-panel-body > .tool-form-grid {
   padding: 0 0 0.85rem;
 }

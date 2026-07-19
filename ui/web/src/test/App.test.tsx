@@ -396,7 +396,15 @@ describe('PixelFlasher web workspace', () => {
     postMessage.mockClear();
 
     await user.click(screen.getByRole('button', { name: /Scrcpy/i }));
-    expect(await screen.findByText('scrcpy launched for the selected device')).toBeVisible();
+    const scrcpyPanel = document.querySelector('.tool-workspace') as HTMLElement;
+    await user.click(within(scrcpyPanel).getByRole('button', { name: 'Install verified Scrcpy' }));
+    expect((await screen.findAllByText('Official Scrcpy was verified and installed.')).length).toBeGreaterThan(0);
+    await user.clear(within(scrcpyPanel).getByLabelText('Maximum frame rate'));
+    await user.type(within(scrcpyPanel).getByLabelText('Maximum frame rate'), '90');
+    await user.click(within(scrcpyPanel).getByLabelText('Start in full screen'));
+    await user.click(within(scrcpyPanel).getByRole('button', { name: 'Launch Scrcpy' }));
+    expect((await screen.findAllByText('scrcpy launched for the selected device')).length).toBeGreaterThan(0);
+    await user.click(within(scrcpyPanel).getByRole('button', { name: 'Close' }));
 
     await user.click(screen.getByRole('button', { name: /Wireless ADB/i }));
     const wifiPanel = document.querySelector('.tool-workspace') as HTMLElement;
@@ -436,6 +444,18 @@ describe('PixelFlasher web workspace', () => {
     const requests = rawRequests.map((raw) => JSON.parse(raw) as BridgeRequest);
     expect(requests.find((request) => request.command === 'tools.scrcpy')?.payload).toEqual({
       serial: '47161FDJH00A8L',
+      maxSize: 1920,
+      maxFps: 90,
+      videoBitRateMbps: 12,
+      fullscreen: true,
+      alwaysOnTop: false,
+      stayAwake: true,
+      turnScreenOff: false,
+      showTouches: false,
+      noAudio: false,
+    });
+    expect(requests.find((request) => request.command === 'tools.scrcpy.setup')?.payload).toEqual({
+      source: 'official',
     });
     expect(requests.find((request) => request.command === 'tools.wifi')?.payload).toEqual({
       action: 'pair',

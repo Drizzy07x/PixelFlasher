@@ -112,6 +112,8 @@ from .rooting import (
     parse_root_module_list,
 )
 from .safety import SafetyPolicy
+from .scrcpy_artifacts import ScrcpyStatus
+from .scrcpy_setup import ScrcpySetupService
 from .store import AppStateStore, StaleRevisionError, Subscription
 from .support import (
     SUPPORT_COMMAND,
@@ -135,6 +137,7 @@ ResultParser = Callable[[OperationResult], OperationResult]
 ResultFinalizer = Callable[[OperationResult, CancellationToken], OperationResult]
 CompletionBoot = Callable[[OperationResult], BootInfo | None]
 ToolchainStateUpdater = Callable[[AppCommand, ToolchainInfo], OperationResult]
+ScrcpyStateUpdater = Callable[[AppCommand, Path], OperationResult]
 DeviceScanStateUpdater = Callable[
     [AppCommand, tuple[DeviceInfo, ...], DeviceManagementState, ToolchainInfo],
     OperationResult,
@@ -198,6 +201,7 @@ class CommandEngine:
         interaction_handler: InteractionHandler,
         toolchain_service: ToolchainService,
         platform_tools_setup_service: PlatformToolsSetupService,
+        scrcpy_setup_service: ScrcpySetupService,
         device_service: DeviceService,
         firmware_inspector: FirmwareInspector,
         operation_planner: OperationPlanner,
@@ -216,6 +220,7 @@ class CommandEngine:
         boot_inventory_service: BootInventoryService | None,
         firmware_repository: FirmwareRepository | None,
         toolchain_state_updater: ToolchainStateUpdater | None,
+        scrcpy_state_updater: ScrcpyStateUpdater | None,
         device_scan_state_updater: DeviceScanStateUpdater | None,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
@@ -244,7 +249,9 @@ class CommandEngine:
         self.interaction_handler = interaction_handler
         self.toolchain_service = toolchain_service
         self.platform_tools_setup_service = platform_tools_setup_service
+        self.scrcpy_setup_service = scrcpy_setup_service
         self.toolchain_state_updater = toolchain_state_updater
+        self.scrcpy_state_updater = scrcpy_state_updater
         self.device_scan_state_updater = device_scan_state_updater
         self.device_service = device_service
         self.firmware_inspector = firmware_inspector
@@ -302,6 +309,8 @@ class CommandEngine:
             return self._select_device(command)
         if command.kind == "platformTools.setup":
             return self._setup_platform_tools(command)
+        if command.kind == "tools.scrcpy.setup":
+            return self._setup_scrcpy(command)
         if command.kind == CommandKind.DEVICE_SCAN.value:
             # Compatibility for milestone-1 callers that inject an already
             # reviewed plan. Browser commands never provide operation plans.
@@ -1899,6 +1908,93 @@ class CommandEngine:
                 command.operation_id,
                 code="toolchain_setup_failed",
                 message="Platform Tools setup could not be completed.",
+            )
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _setup_scrcpy(self, command: AppCommand) -> OperationResult:
+        if set(command.payload) != {"source"} or command.payload.get("source") != "official":
+            return self._invalid(
+                command,
+                "tools.scrcpy.setup accepts only source=official",
+            )
+        decision = self.safety_policy.evaluate(command, self.store.snapshot())
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="scrcpy_setup_cancelled",
+                        cancelled_message="Scrcpy setup was cancelled before it started",
+                        timeout_message="Scrcpy setup timed out before it started",
+                    )
+                decision = self.safety_policy.evaluate(command, self.store.snapshot())
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                setup = self.scrcpy_setup_service.setup(
+                    cancellation=token,
+                    progress=lambda phase, message, percent: self._publish_progress(
+                        command,
+                        phase,
+                        message,
+                        percent,
+                    ),
+                )
+                if setup.status is ScrcpyStatus.CANCELLED:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code=setup.code,
+                        cancelled_message=setup.message,
+                        timeout_message="Scrcpy setup timed out",
+                    )
+                if not setup.ok or setup.installation is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=setup.code,
+                        message=setup.message,
+                    )
+                executable = setup.installation.executable
+                if self.scrcpy_state_updater is None:
+                    result = OperationResult.success(
+                        command.operation_id,
+                        code="scrcpy_activated",
+                        message="Scrcpy activated.",
+                        value={"revision": self.store.snapshot().revision},
+                    )
+                else:
+                    result = self.scrcpy_state_updater(command, executable)
+                if not result.ok:
+                    return result
+                self.device_tools_service.scrcpy_executable = executable
+                return replace(
+                    result,
+                    code=setup.code,
+                    message=setup.message,
+                    value={
+                        **setup.to_public_dict(),
+                        "revision": self.store.snapshot().revision,
+                    },
+                )
+        except Exception:
+            if token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="scrcpy_setup_cancelled",
+                    cancelled_message="Scrcpy setup was cancelled",
+                    timeout_message="Scrcpy setup timed out",
+                )
+            return OperationResult.failed(
+                command.operation_id,
+                code="scrcpy_setup_failed",
+                message="Scrcpy setup could not be completed.",
             )
         finally:
             self._unregister_cancellation(command.operation_id)

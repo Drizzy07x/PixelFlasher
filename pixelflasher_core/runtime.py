@@ -97,6 +97,8 @@ from .repositories import (
 )
 from .rooting import RootingService
 from .safety import SafetyPolicy
+from .scrcpy_artifacts import ScrcpyInstaller
+from .scrcpy_setup import ScrcpyManifestCatalog, ScrcpySetupService
 from .store import AppStateStore, StaleRevisionError, Subscription
 from .support_v2_service import (
     SupportPackageV2Service,
@@ -139,6 +141,11 @@ class ApplicationRuntime:
         platform_tools_installer: PlatformToolsInstaller | None = None,
         platform_tools_platform: str | None = None,
         platform_tools_architecture: str | None = None,
+        scrcpy_catalog: ScrcpyManifestCatalog | None = None,
+        scrcpy_downloader: ArtifactDownloader | None = None,
+        scrcpy_installer: ScrcpyInstaller | None = None,
+        scrcpy_platform: str | None = None,
+        scrcpy_architecture: str | None = None,
         android_device_catalog_path: str | Path | None = None,
     ) -> None:
         bootloader_prefixes = load_bootloader_prefix_catalog(
@@ -244,6 +251,20 @@ class ApplicationRuntime:
             platform=platform_tools_platform,
             architecture=platform_tools_architecture,
         )
+        device_tools_service = DeviceToolsService(
+            scrcpy_executable=self._configured_scrcpy_path(config_document),
+            bootloader_prefixes=bootloader_prefixes,
+            bootloader_process_transport=self.executor.transport,
+        )
+        self.scrcpy_setup_service = ScrcpySetupService(
+            cache_directory=self._scrcpy_cache_path(config_store.path),
+            install_directory=self._scrcpy_install_path(config_store.path),
+            catalog=scrcpy_catalog,
+            downloader=scrcpy_downloader,
+            installer=scrcpy_installer,
+            platform=scrcpy_platform,
+            architecture=scrcpy_architecture,
+        )
         self.command_engine = CommandEngine(
             store=self.store,
             executor=self.executor,
@@ -251,17 +272,14 @@ class ApplicationRuntime:
             interaction_handler=self._on_interaction,
             toolchain_service=toolchain_service,
             platform_tools_setup_service=self.platform_tools_setup_service,
+            scrcpy_setup_service=self.scrcpy_setup_service,
             device_service=self.device_service,
             firmware_inspector=FirmwareInspector(),
             operation_planner=operation_planner,
             package_service=PackageService(apk_inspector=apk_inspector),
             partition_service=PartitionService(),
             firmware_artifact_service=firmware_artifact_service,
-            device_tools_service=DeviceToolsService(
-                scrcpy_executable=self._configured_scrcpy_path(config_document),
-                bootloader_prefixes=bootloader_prefixes,
-                bootloader_process_transport=self.executor.transport,
-            ),
+            device_tools_service=device_tools_service,
             ota_diagnostics_service=OtaDiagnosticsService(),
             backup_service=BackupService(),
             rooting_service=rooting_service,
@@ -273,6 +291,7 @@ class ApplicationRuntime:
             boot_inventory_service=boot_inventory_service,
             firmware_repository=self.firmware_repository,
             toolchain_state_updater=self._activate_toolchain,
+            scrcpy_state_updater=self._activate_scrcpy,
             device_scan_state_updater=self._activate_device_scan,
         )
         self.engine = PixelFlasherEngine(
@@ -320,6 +339,11 @@ class ApplicationRuntime:
         platform_tools_installer: PlatformToolsInstaller | None = None,
         platform_tools_platform: str | None = None,
         platform_tools_architecture: str | None = None,
+        scrcpy_catalog: ScrcpyManifestCatalog | None = None,
+        scrcpy_downloader: ArtifactDownloader | None = None,
+        scrcpy_installer: ScrcpyInstaller | None = None,
+        scrcpy_platform: str | None = None,
+        scrcpy_architecture: str | None = None,
         android_device_catalog_path: str | Path | None = None,
         legacy_devices_path: str | Path | None = None,
     ) -> ApplicationRuntime:
@@ -358,6 +382,11 @@ class ApplicationRuntime:
             platform_tools_installer=platform_tools_installer,
             platform_tools_platform=platform_tools_platform,
             platform_tools_architecture=platform_tools_architecture,
+            scrcpy_catalog=scrcpy_catalog,
+            scrcpy_downloader=scrcpy_downloader,
+            scrcpy_installer=scrcpy_installer,
+            scrcpy_platform=scrcpy_platform,
+            scrcpy_architecture=scrcpy_architecture,
             android_device_catalog_path=android_device_catalog_path,
         )
 
@@ -852,6 +881,60 @@ class ApplicationRuntime:
             code="toolchain_activated",
             message="Platform Tools activated.",
             value={"revision": updated.revision},
+        )
+
+    def _activate_scrcpy(
+        self,
+        command: AppCommand,
+        executable: Path,
+    ) -> OperationResult:
+        """Persist only an executable produced by the managed Scrcpy installer."""
+
+        snapshot = self.store.snapshot()
+        if command.expected_revision is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="revision_required",
+                message="expected_revision is required",
+            )
+        if command.expected_revision != snapshot.revision:
+            return OperationResult.failed(
+                command.operation_id,
+                code="stale_revision",
+                message=(
+                    f"state revision changed: expected {command.expected_revision}, "
+                    f"current {snapshot.revision}"
+                ),
+            )
+        try:
+            resolved = executable.resolve(strict=True)
+            managed_root = self._scrcpy_install_path(self.config_store.path).resolve(
+                strict=False
+            )
+            resolved.relative_to(managed_root)
+            if not resolved.is_file() or resolved.name.casefold() not in {
+                "scrcpy",
+                "scrcpy.exe",
+            }:
+                raise ValueError("invalid Scrcpy executable")
+            with self._preferences_lock:
+                values = dict(self.config_document.values)
+                scrcpy = _string_object_mapping(values.get("scrcpy", {}))
+                scrcpy["path"] = str(resolved)
+                document = self.config_document.with_values(scrcpy=scrcpy)
+                self.config_store.save(document)
+                self.config_document = document
+        except (ConfigError, OSError, RuntimeError, ValueError):
+            return OperationResult.failed(
+                command.operation_id,
+                code="scrcpy_activation_save_failed",
+                message="Scrcpy activation could not be saved.",
+            )
+        return OperationResult.success(
+            command.operation_id,
+            code="scrcpy_activated",
+            message="Scrcpy activated.",
+            value={"revision": snapshot.revision},
         )
 
     def _activate_device_scan(
@@ -1370,6 +1453,16 @@ class ApplicationRuntime:
     def _platform_tools_install_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "platform-tools"
+
+    @staticmethod
+    def _scrcpy_cache_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "scrcpy-downloads"
+
+    @staticmethod
+    def _scrcpy_install_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "scrcpy"
 
     @staticmethod
     def _content_artifact_repository_path(config_path: str | Path) -> Path:

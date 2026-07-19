@@ -1190,6 +1190,85 @@ class DeviceToolsServiceTests(unittest.TestCase):
                 )
             self.assertEqual("invalid_device_tool_payload", raised.exception.code)
 
+    def test_scrcpy_typed_options_compile_to_exact_bounded_argv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            executable = Path(directory) / name
+            write_scrcpy_executable(executable)
+            service = DeviceToolsService(scrcpy_executable=executable)
+
+            compilation = service.compile(
+                AppCommand(
+                    "tools.scrcpy",
+                    expected_revision=7,
+                    target_serial="SERIAL",
+                    payload={
+                        "serial": "SERIAL",
+                        "maxSize": 1920,
+                        "maxFps": 60,
+                        "videoBitRateMbps": 12,
+                        "fullscreen": True,
+                        "alwaysOnTop": False,
+                        "stayAwake": True,
+                        "turnScreenOff": True,
+                        "showTouches": False,
+                        "noAudio": True,
+                    },
+                ),
+                self.snapshot,
+            )
+
+            self.assertEqual(
+                (
+                    str(executable.resolve()),
+                    "--serial",
+                    "SERIAL",
+                    "--max-size",
+                    "1920",
+                    "--max-fps",
+                    "60",
+                    "--video-bit-rate",
+                    "12M",
+                    "--fullscreen",
+                    "--stay-awake",
+                    "--turn-screen-off",
+                    "--no-audio",
+                ),
+                compilation.plan.request.argv,
+            )
+
+    def test_scrcpy_options_reject_wrong_types_and_out_of_range_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            executable = Path(directory) / name
+            write_scrcpy_executable(executable)
+            service = DeviceToolsService(scrcpy_executable=executable)
+
+            invalid_values = (
+                ("maxSize", -1),
+                ("maxSize", 8193),
+                ("maxFps", 0),
+                ("maxFps", 241),
+                ("videoBitRateMbps", 0),
+                ("videoBitRateMbps", 201),
+                ("maxFps", True),
+                ("fullscreen", 1),
+                ("noAudio", "true"),
+            )
+            for field, value in invalid_values:
+                with self.subTest(field=field, value=value):
+                    with self.assertRaises(DeviceToolPlanningError) as raised:
+                        service.compile(
+                            AppCommand(
+                                "tools.scrcpy",
+                                expected_revision=7,
+                                target_serial="SERIAL",
+                                payload={field: value},
+                            ),
+                            self.snapshot,
+                        )
+                    self.assertEqual("scrcpy_option_invalid", raised.exception.code)
+
     def test_scrcpy_missing_and_non_executable_config_fail_closed(self):
         with self.assertRaises(DeviceToolPlanningError) as missing:
             self.compile("tools.scrcpy", {})

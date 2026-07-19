@@ -307,6 +307,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.logcat",
                         "tools.logcat.clear",
                         "tools.pushFiles",
+                        "tools.scrcpy.setup",
                         "tools.wifi.discover",
                     }:
                         with self.assertRaises(PublicProjectionError):

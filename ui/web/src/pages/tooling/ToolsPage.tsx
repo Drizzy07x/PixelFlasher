@@ -17,7 +17,7 @@ import {
   type LogcatUiState,
 } from './LogcatPanel';
 
-type ToolPanel = 'wifi' | 'logcat' | 'partitions' | 'push' | null;
+type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type WifiService = {
   id: string;
@@ -241,6 +241,15 @@ export function ToolsPage({
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [partitions, setPartitions] = useState<PartitionRow[]>([]);
   const [partition, setPartition] = useState('');
+  const [scrcpyMaxSize, setScrcpyMaxSize] = useState(1920);
+  const [scrcpyMaxFps, setScrcpyMaxFps] = useState(60);
+  const [scrcpyVideoBitRate, setScrcpyVideoBitRate] = useState(12);
+  const [scrcpyFullscreen, setScrcpyFullscreen] = useState(false);
+  const [scrcpyAlwaysOnTop, setScrcpyAlwaysOnTop] = useState(false);
+  const [scrcpyStayAwake, setScrcpyStayAwake] = useState(true);
+  const [scrcpyTurnScreenOff, setScrcpyTurnScreenOff] = useState(false);
+  const [scrcpyShowTouches, setScrcpyShowTouches] = useState(false);
+  const [scrcpyNoAudio, setScrcpyNoAudio] = useState(false);
   const [wifiAction, setWifiAction] = useState<'pair' | 'connect' | 'disconnect' | 'status'>('status');
   const [wifiHost, setWifiHost] = useState('192.168.1.42');
   const [wifiPort, setWifiPort] = useState(5555);
@@ -599,6 +608,21 @@ export function ToolsPage({
     setPanel(next);
     setResult(null);
   };
+  const runScrcpy = async () => {
+    if (!primary || !adbReady || busy) return;
+    await runTool(commands.toolsScrcpy, {
+      serial: primary.serial,
+      maxSize: scrcpyMaxSize,
+      maxFps: scrcpyMaxFps,
+      videoBitRateMbps: scrcpyVideoBitRate,
+      fullscreen: scrcpyFullscreen,
+      alwaysOnTop: scrcpyAlwaysOnTop,
+      stayAwake: scrcpyStayAwake,
+      turnScreenOff: scrcpyTurnScreenOff,
+      showTouches: scrcpyShowTouches,
+      noAudio: scrcpyNoAudio,
+    });
+  };
   type ToolCard = { id: string; icon: AssetName; title: string; detail: string; disabled: boolean; run: () => void };
   const cards: ToolCard[] = [
     {
@@ -607,7 +631,7 @@ export function ToolsPage({
     },
     {
       id: 'scrcpy', icon: 'devices', title: t('tools.scrcpy'), detail: t('tools.scrcpyDetail'),
-      disabled: !adbReady, run: () => { if (primary) void runTool(commands.toolsScrcpy, { serial: primary.serial }); },
+      disabled: !adbReady, run: () => openPanel('scrcpy'),
     },
     {
       id: 'wifi', icon: 'adb', title: t('tools.wifi'), detail: t('tools.wifiDetail'),
@@ -667,9 +691,33 @@ export function ToolsPage({
 
       {panel ? (
         <Card className="tool-workspace" aria-busy={Boolean(busy)}>
-          <CardTitle icon={panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
-            {panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : t('tools.wifi')}
+          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
+            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : t('tools.wifi')}
           </CardTitle>
+          {panel === 'scrcpy' ? (
+            <div className="tool-panel-body scrcpy-panel">
+              <p className="tool-help">{t('tools.scrcpyOptionsDetail')}</p>
+              <div className="wifi-discovery-toolbar">
+                <div><strong>{t('tools.scrcpyInstall')}</strong><p>{t('tools.scrcpyInstallDetail')}</p></div>
+                <Button icon="download" onClick={() => void runTool(commands.toolsScrcpySetup, { source: 'official' })} disabled={Boolean(busy)}>{t('tools.scrcpyInstall')}</Button>
+              </div>
+              <div className="tool-form-grid scrcpy-options-grid">
+                <label><span>{t('tools.scrcpyMaxSize')}</span><input type="number" min="0" max="8192" value={scrcpyMaxSize} onChange={(event) => setScrcpyMaxSize(Number(event.currentTarget.value))} disabled={Boolean(busy)} /></label>
+                <label><span>{t('tools.scrcpyMaxFps')}</span><input type="number" min="1" max="240" value={scrcpyMaxFps} onChange={(event) => setScrcpyMaxFps(Number(event.currentTarget.value))} disabled={Boolean(busy)} /></label>
+                <label><span>{t('tools.scrcpyBitRate')}</span><input type="number" min="1" max="200" value={scrcpyVideoBitRate} onChange={(event) => setScrcpyVideoBitRate(Number(event.currentTarget.value))} disabled={Boolean(busy)} /></label>
+              </div>
+              <fieldset className="scrcpy-toggle-grid">
+                <legend>{t('tools.scrcpyWindowOptions')}</legend>
+                <label><input type="checkbox" checked={scrcpyFullscreen} onChange={(event) => setScrcpyFullscreen(event.currentTarget.checked)} disabled={Boolean(busy)} />{t('tools.scrcpyFullscreen')}</label>
+                <label><input type="checkbox" checked={scrcpyAlwaysOnTop} onChange={(event) => setScrcpyAlwaysOnTop(event.currentTarget.checked)} disabled={Boolean(busy)} />{t('tools.scrcpyAlwaysOnTop')}</label>
+                <label><input type="checkbox" checked={scrcpyStayAwake} onChange={(event) => setScrcpyStayAwake(event.currentTarget.checked)} disabled={Boolean(busy)} />{t('tools.scrcpyStayAwake')}</label>
+                <label><input type="checkbox" checked={scrcpyTurnScreenOff} onChange={(event) => setScrcpyTurnScreenOff(event.currentTarget.checked)} disabled={Boolean(busy)} />{t('tools.scrcpyTurnScreenOff')}</label>
+                <label><input type="checkbox" checked={scrcpyShowTouches} onChange={(event) => setScrcpyShowTouches(event.currentTarget.checked)} disabled={Boolean(busy)} />{t('tools.scrcpyShowTouches')}</label>
+                <label><input type="checkbox" checked={scrcpyNoAudio} onChange={(event) => setScrcpyNoAudio(event.currentTarget.checked)} disabled={Boolean(busy)} />{t('tools.scrcpyNoAudio')}</label>
+              </fieldset>
+              <Button variant="primary" icon="devices" onClick={() => void runScrcpy()} disabled={Boolean(busy) || !adbReady || scrcpyMaxSize < 0 || scrcpyMaxSize > 8192 || scrcpyMaxFps < 1 || scrcpyMaxFps > 240 || scrcpyVideoBitRate < 1 || scrcpyVideoBitRate > 200}>{t('tools.scrcpyLaunch')}</Button>
+            </div>
+          ) : null}
           {panel === 'wifi' ? (
             <div className="tool-panel-body">
               <div className="wifi-discovery-toolbar">

@@ -69,6 +69,7 @@ class SafetyPolicy:
             "tools.pushFiles",
             "tools.adbShell",
             "tools.scrcpy",
+            "tools.scrcpy.setup",
             "tools.wifi",
             "tools.wifi.status",
             "tools.wifi.discover",

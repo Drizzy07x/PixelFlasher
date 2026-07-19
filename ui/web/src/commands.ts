@@ -56,6 +56,7 @@ export const commands = {
   toolsLogcatClear: "tools.logcat.clear",
   toolsPushFiles: "tools.pushFiles",
   toolsScrcpy: "tools.scrcpy",
+  toolsScrcpySetup: "tools.scrcpy.setup",
   toolsWifi: "tools.wifi",
   toolsWifiDiscover: "tools.wifi.discover",
   toolsWifiStatus: "tools.wifi.status",
@@ -293,7 +294,19 @@ export interface BridgePayloadByCommand {
     "serial"?: string;
   };
   "tools.scrcpy": {
+    "alwaysOnTop": boolean;
+    "fullscreen": boolean;
+    "maxFps": number;
+    "maxSize": number;
+    "noAudio": boolean;
     "serial"?: string;
+    "showTouches": boolean;
+    "stayAwake": boolean;
+    "turnScreenOff": boolean;
+    "videoBitRateMbps": number;
+  };
+  "tools.scrcpy.setup": {
+    "source"?: string;
   };
   "tools.wifi": {
     "action": string;
@@ -367,6 +380,7 @@ export const allowedCommands = [
   commands.toolsLogcatClear,
   commands.toolsPushFiles,
   commands.toolsScrcpy,
+  commands.toolsScrcpySetup,
   commands.toolsWifi,
   commands.toolsWifiDiscover,
   commands.toolsWifiStatus,
@@ -431,6 +445,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.toolsLogcatClear]: 180000,
   [commands.toolsPushFiles]: 21600000,
   [commands.toolsScrcpy]: 300000,
+  [commands.toolsScrcpySetup]: 1800000,
   [commands.toolsWifi]: 300000,
   [commands.toolsWifiDiscover]: 20000,
   [commands.toolsWifiStatus]: 60000,
@@ -489,6 +504,7 @@ export const bridgeCommandMetadata = {
   [commands.toolsLogcatClear]: {"owner":"device_tools","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat.clear","confirmation":"standard","postconditions":["logcat_buffers_cleared"]},
   [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"standard","postconditions":["remote_files_written"]},
   [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
+  [commands.toolsScrcpySetup]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.scrcpy.setup","confirmation":"none","postconditions":["scrcpy_binary_probed"]},
   [commands.toolsWifi]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.wifi","confirmation":"none","postconditions":["adb_endpoint_observed"]},
   [commands.toolsWifiDiscover]: {"owner":"device_tools","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.wifi.discover","confirmation":"none","postconditions":[]},
   [commands.toolsWifiStatus]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.wifi.status","confirmation":"none","postconditions":["adb_device_state_returned"]},
@@ -577,7 +593,8 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"logcat_filter_array","required":false,"minItems":0,"maxItems":32},"formatEnabled":{"kind":"boolean","required":false},"formatModifiers":{"kind":"string_array","required":false,"minItems":0,"maxItems":7},"formatVerb":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"regex":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false},"uids":{"kind":"integer_array","required":false,"minItems":0,"maxItems":32}},
   [commands.toolsLogcatClear]: {"serial":{"kind":"string","required":false}},
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},
-  [commands.toolsScrcpy]: {"serial":{"kind":"string","required":false}},
+  [commands.toolsScrcpy]: {"alwaysOnTop":{"kind":"boolean","required":true},"fullscreen":{"kind":"boolean","required":true},"maxFps":{"kind":"integer","required":true},"maxSize":{"kind":"integer","required":true},"noAudio":{"kind":"boolean","required":true},"serial":{"kind":"string","required":false},"showTouches":{"kind":"boolean","required":true},"stayAwake":{"kind":"boolean","required":true},"turnScreenOff":{"kind":"boolean","required":true},"videoBitRateMbps":{"kind":"integer","required":true}},
+  [commands.toolsScrcpySetup]: {"source":{"kind":"string","required":false}},
   [commands.toolsWifi]: {"action":{"kind":"string","required":true},"host":{"kind":"string","required":true},"port":{"kind":"integer","required":true},"secretGrant":{"kind":"string","required":false}},
   [commands.toolsWifiDiscover]: {},
   [commands.toolsWifiStatus]: {"serial":{"kind":"string","required":false}},

@@ -152,6 +152,9 @@ def _render_entries(messages: Sequence[ReactMessage], newline: bytes) -> bytes:
         for message in messages
     )
     rendered = header + "\n\n" + "\n\n".join(entries) + "\n"
+    # polib follows the host newline convention. Normalize before applying the
+    # catalog convention or Windows would turn CRLF into CRCRLF.
+    rendered = rendered.replace("\r\n", "\n").replace("\r", "\n")
     return rendered.replace("\n", newline.decode("ascii")).encode("utf-8")
 
 
@@ -160,7 +163,10 @@ def append_missing_messages(path: Path, messages: Sequence[ReactMessage]) -> int
     if not missing:
         return 0
     original = Path(path).read_bytes()
-    newline = b"\r\n" if b"\r\n" in original else b"\n"
+    # Older catalogs legitimately contain CRLF in their gettext body and LF in
+    # the newer React sections.  Follow the append point instead of normalizing
+    # the whole file or choosing its historical majority convention.
+    newline = b"\r\n" if original.endswith(b"\r\n") else b"\n"
     separator = b"" if original.endswith(newline * 2) else newline
     addition = _render_entries(missing, newline)
     Path(path).write_bytes(original + separator + addition)

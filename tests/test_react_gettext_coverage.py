@@ -20,7 +20,7 @@ EXPECTED_TRANSLATED_COUNTS = {
     "zh_TW": 425,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 477
+EXPECTED_WEB_CONTEXT_COUNT = 491
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.apps.apkFiles",
     "web.apps.chooseApk",
@@ -99,6 +99,23 @@ EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.boot.stock",
     "web.boot.integrityFailed",
     "web.boot.provenance",
+    # Typed Scrcpy options landed after the reviewed 2026-07-19 translation
+    # pass. They use source fallback until all five translated catalogs are
+    # reviewed together.
+    "web.tools.scrcpyOptionsDetail",
+    "web.tools.scrcpyMaxSize",
+    "web.tools.scrcpyMaxFps",
+    "web.tools.scrcpyBitRate",
+    "web.tools.scrcpyWindowOptions",
+    "web.tools.scrcpyFullscreen",
+    "web.tools.scrcpyAlwaysOnTop",
+    "web.tools.scrcpyStayAwake",
+    "web.tools.scrcpyTurnScreenOff",
+    "web.tools.scrcpyShowTouches",
+    "web.tools.scrcpyNoAudio",
+    "web.tools.scrcpyLaunch",
+    "web.tools.scrcpyInstall",
+    "web.tools.scrcpyInstallDetail",
 }
 PLACEHOLDER_PATTERN = re.compile(r"\{[A-Za-z][A-Za-z0-9_]*\}")
 

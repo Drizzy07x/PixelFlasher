@@ -40,6 +40,7 @@ from pixelflasher_core.platform_tools_setup import PlatformToolsSetupService
 from pixelflasher_core.repositories import FirmwareRepository
 from pixelflasher_core.rooting import RootApkInspector, RootingService
 from pixelflasher_core.safety import SafetyPolicy
+from pixelflasher_core.scrcpy_setup import ScrcpySetupService
 from pixelflasher_core.store import AppStateStore
 from pixelflasher_core.support_v2_service import UnavailableSupportPackageV2Service
 from pixelflasher_core.toolchain import ToolchainService
@@ -55,6 +56,7 @@ def make_test_command_engine(
     interaction_handler: InteractionHandler | None = None,
     toolchain_service: ToolchainService | None = None,
     platform_tools_setup_service: PlatformToolsSetupService | None = None,
+    scrcpy_setup_service: ScrcpySetupService | None = None,
     toolchain_state_updater: ToolchainStateUpdater | None = None,
     device_service: DeviceService | None = None,
     firmware_inspector: FirmwareInspector | None = None,
@@ -96,6 +98,14 @@ def make_test_command_engine(
         )
     )
     device_service = device_service or DeviceService(executor.transport)
+    scrcpy_setup_service = scrcpy_setup_service or ScrcpySetupService(
+        cache_directory=Path(tempfile.gettempdir())
+        / "pixelflasher-tests"
+        / "scrcpy-downloads",
+        install_directory=Path(tempfile.gettempdir())
+        / "pixelflasher-tests"
+        / "scrcpy",
+    )
     firmware_inspector = firmware_inspector or FirmwareInspector()
     operation_planner = operation_planner or OperationPlanner()
     if firmware_artifact_service is None:
@@ -137,6 +147,7 @@ def make_test_command_engine(
         interaction_handler=interaction_handler,
         toolchain_service=toolchain_service,
         platform_tools_setup_service=platform_tools_setup_service,
+        scrcpy_setup_service=scrcpy_setup_service,
         device_service=device_service,
         firmware_inspector=firmware_inspector,
         operation_planner=operation_planner,
@@ -155,5 +166,6 @@ def make_test_command_engine(
         boot_inventory_service=boot_inventory_service,
         firmware_repository=firmware_repository,
         toolchain_state_updater=toolchain_state_updater,
+        scrcpy_state_updater=None,
         device_scan_state_updater=None,
     )

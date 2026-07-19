@@ -276,6 +276,20 @@ _PIF_PROPERTY_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 _SCRCPY_EXECUTABLE_NAMES = frozenset({"scrcpy", "scrcpy.exe"})
+_SCRCPY_OPTION_FIELDS = frozenset(
+    {
+        "alwaysOnTop",
+        "fullscreen",
+        "maxFps",
+        "maxSize",
+        "noAudio",
+        "serial",
+        "showTouches",
+        "stayAwake",
+        "turnScreenOff",
+        "videoBitRateMbps",
+    }
+)
 _MACH_EXECUTABLE_MAGICS = frozenset(
     {
         b"\xfe\xed\xfa\xce",
@@ -1833,10 +1847,11 @@ class DeviceToolsService:
         snapshot: AppSnapshot,
         device: DeviceInfo,
     ) -> DeviceToolCompilation:
-        self._validate_payload(command, {"serial"})
+        self._validate_payload(command, set(_SCRCPY_OPTION_FIELDS))
         executable, artifact = self._scrcpy_artifact()
+        options = self._scrcpy_options(command.payload)
         request = ProcessRequest(
-            (str(executable), "--serial", device.serial),
+            (str(executable), "--serial", device.serial, *options),
             cwd=str(executable.parent),
         )
         plan = self._base_plan(
@@ -1855,6 +1870,62 @@ class DeviceToolsService:
             "scrcpy",
             execution=_EXECUTION_LAUNCH,
         )
+
+    @staticmethod
+    def _scrcpy_options(payload: Mapping[str, object]) -> tuple[str, ...]:
+        """Compile the supported Scrcpy subset to fixed, non-shell argv.
+
+        PixelFlasher deliberately does not accept a raw flags string.  Each
+        option has one public type and a conservative range so browser input
+        cannot widen the process surface or smuggle additional arguments.
+        """
+
+        options: list[str] = []
+        integer_options = (
+            ("maxSize", "--max-size", 0, 8192),
+            ("maxFps", "--max-fps", 1, 240),
+            ("videoBitRateMbps", "--video-bit-rate", 1, 200),
+        )
+        for option_field, argument, minimum, maximum in integer_options:
+            value = payload.get(option_field)
+            if value is None:
+                continue
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not minimum <= value <= maximum
+            ):
+                raise DeviceToolPlanningError(
+                    "scrcpy_option_invalid",
+                    f"{option_field} must be an integer between {minimum} and {maximum}",
+                )
+            options.extend(
+                (
+                    argument,
+                    f"{value}M" if option_field == "videoBitRateMbps" else str(value),
+                )
+            )
+
+        boolean_options = (
+            ("fullscreen", "--fullscreen"),
+            ("alwaysOnTop", "--always-on-top"),
+            ("stayAwake", "--stay-awake"),
+            ("turnScreenOff", "--turn-screen-off"),
+            ("showTouches", "--show-touches"),
+            ("noAudio", "--no-audio"),
+        )
+        for option_field, argument in boolean_options:
+            value = payload.get(option_field)
+            if value is None:
+                continue
+            if not isinstance(value, bool):
+                raise DeviceToolPlanningError(
+                    "scrcpy_option_invalid",
+                    f"{option_field} must be a boolean",
+                )
+            if value:
+                options.append(argument)
+        return tuple(options)
 
     def _compile_wifi_discovery(
         self,

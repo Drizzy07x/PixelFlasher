@@ -5228,3 +5228,65 @@ msgstr ""
 msgctxt "web.device.managerRemoveConfirmAction"
 msgid "Confirm removal"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.scrcpyOptionsDetail"
+msgid ""
+"Only verified, typed options are passed to Scrcpy. Free-form flags are not "
+"accepted."
+msgstr ""
+
+msgctxt "web.tools.scrcpyMaxSize"
+msgid "Maximum size (pixels)"
+msgstr ""
+
+msgctxt "web.tools.scrcpyMaxFps"
+msgid "Maximum frame rate"
+msgstr ""
+
+msgctxt "web.tools.scrcpyBitRate"
+msgid "Video bit rate (Mbps)"
+msgstr ""
+
+msgctxt "web.tools.scrcpyWindowOptions"
+msgid "Window and device options"
+msgstr ""
+
+msgctxt "web.tools.scrcpyFullscreen"
+msgid "Start in full screen"
+msgstr ""
+
+msgctxt "web.tools.scrcpyAlwaysOnTop"
+msgid "Always on top"
+msgstr ""
+
+msgctxt "web.tools.scrcpyStayAwake"
+msgid "Keep the device awake"
+msgstr ""
+
+msgctxt "web.tools.scrcpyTurnScreenOff"
+msgid "Turn the device screen off"
+msgstr ""
+
+msgctxt "web.tools.scrcpyShowTouches"
+msgid "Show touches"
+msgstr ""
+
+msgctxt "web.tools.scrcpyNoAudio"
+msgid "Disable audio forwarding"
+msgstr ""
+
+msgctxt "web.tools.scrcpyLaunch"
+msgid "Launch Scrcpy"
+msgstr ""
+
+msgctxt "web.tools.scrcpyInstall"
+msgid "Install verified Scrcpy"
+msgstr ""
+
+msgctxt "web.tools.scrcpyInstallDetail"
+msgid "Download the signed build for this operating system and architecture."
+msgstr ""

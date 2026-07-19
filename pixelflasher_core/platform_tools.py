@@ -172,7 +172,7 @@ def _cpu_architecture(cpu_type: int) -> str | None:
     }.get(cpu_type)
 
 
-def _binary_architectures(path: Path, *, platform: str) -> frozenset[str]:
+def binary_architectures(path: Path, *, platform: str) -> frozenset[str]:
     """Read executable headers without executing untrusted archive content."""
 
     target_platform = platform_key(platform)
@@ -274,7 +274,7 @@ def validate_platform_tools_directory(
             raise PlatformToolsError("toolchain_binary_missing", "Platform Tools must contain regular adb and fastboot binaries")
         if expected_arch is not None:
             requested_arch = architecture_key(expected_arch)
-            observed_arches = _binary_architectures(binary, platform=platform)
+            observed_arches = binary_architectures(binary, platform=platform)
             if not observed_arches:
                 raise PlatformToolsError(
                     "toolchain_binary_format_invalid",

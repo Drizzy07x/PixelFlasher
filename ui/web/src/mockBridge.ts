@@ -1062,6 +1062,21 @@ export function installDevelopmentBridge() {
             }));
             break;
           }
+          case 'tools.scrcpy.setup':
+            respond(request, success('Official Scrcpy was verified and installed.', {
+              ready: true,
+              installation: {
+                installed: true,
+                version: '3.3.3',
+                platform: 'windows',
+                architecture: 'x86_64',
+                license: 'Apache-2.0',
+                provenance: 'Genymobile scrcpy GitHub release',
+                archiveSha256: '7'.repeat(64),
+                archiveSize: 42_000_000,
+              },
+            }));
+            break;
           case 'tools.scrcpy':
             respond(request, success('scrcpy launched for the selected device', { pid: 4242 }));
             break;

@@ -30,6 +30,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
+        "tools.scrcpy.setup",
         "tools.wifi.discover",
     }
 )
@@ -720,6 +721,63 @@ def _project_platform_tools_setup(value: object) -> JSONValue:
             "installation": installation,
             "revision": revision,
         }
+    )
+
+
+def _project_scrcpy_setup(value: object) -> JSONValue:
+    """Expose provenance and integrity, never the installed host path."""
+
+    source = _record(value)
+    if set(source) != {"ready", "installation", "revision"}:
+        raise PublicProjectionError("Scrcpy setup result fields are invalid")
+    ready = source["ready"]
+    revision = source["revision"]
+    if not isinstance(ready, bool):
+        raise PublicProjectionError("Scrcpy readiness is invalid")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise PublicProjectionError("Scrcpy revision is invalid")
+    raw_installation = source["installation"]
+    installation: dict[str, object] | None = None
+    if raw_installation is not None:
+        installed = _record(raw_installation)
+        expected_fields = {
+            "installed",
+            "version",
+            "platform",
+            "architecture",
+            "license",
+            "provenance",
+            "archiveSha256",
+            "archiveSize",
+        }
+        if set(installed) != expected_fields or installed["installed"] is not True:
+            raise PublicProjectionError("Scrcpy installation fields are invalid")
+        digest = installed["archiveSha256"]
+        archive_size = installed["archiveSize"]
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise PublicProjectionError("Scrcpy archive digest is invalid")
+        if isinstance(archive_size, bool) or not isinstance(archive_size, int) or archive_size <= 0:
+            raise PublicProjectionError("Scrcpy archive size is invalid")
+        bounded: dict[str, str] = {}
+        for field, maximum in (
+            ("version", 128),
+            ("platform", 64),
+            ("architecture", 64),
+            ("license", 256),
+            ("provenance", 512),
+        ):
+            item = installed[field]
+            if not isinstance(item, str) or not item or len(item) > maximum:
+                raise PublicProjectionError(f"Scrcpy {field} is invalid")
+            bounded[field] = item
+        installation = {
+            "installed": True,
+            **bounded,
+            "archiveSha256": digest,
+            "archiveSize": archive_size,
+        }
+    return ensure_public_json(
+        {"ready": ready, "installation": installation, "revision": revision}
     )
 
 
@@ -1662,6 +1720,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.logcat.clear": _project_logcat_clear,
     "tools.pushFiles": _project_push_files,
     "tools.scrcpy": _project_none,
+    "tools.scrcpy.setup": _project_scrcpy_setup,
     "tools.wifi": _project_none,
     "tools.wifi.status": _project_none,
     "tools.wifi.discover": _project_wifi_discovery,

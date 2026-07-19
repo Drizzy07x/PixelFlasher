@@ -1605,10 +1605,14 @@
       "owner": "device_tools",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage",
-        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_scrcpy/execute_special"
+        "ui/web/src/pages/tooling/ToolsPage.tsx",
+        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_scrcpy/execute_special",
+        "pixelflasher_core/scrcpy_artifacts.py:ScrcpyInstaller",
+        "pixelflasher_core/scrcpy_setup.py:ScrcpySetupService",
+        "pixelflasher_core/engine.py:CommandEngine._setup_scrcpy",
+        "pixelflasher_core/runtime.py:ApplicationRuntime._activate_scrcpy"
       ],
-      "gap": "Runtime executable discovery/packaging, configurable options and cross-platform lifecycle smokes remain open.",
+      "gap": "The signed installer, typed options and managed lifecycle are implemented; production Ed25519 manifests/catalog assets and packaged window/process smokes on every target remain open.",
       "exitCriteria": [
         "Launch scrcpy for the selected device is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1624,6 +1628,8 @@
       ],
       "tests": [
         "tests/test_device_tools_service.py",
+        "tests/test_scrcpy_artifacts.py",
+        "tests/test_scrcpy_setup_runtime.py",
         "tests/test_service_engine_integration.py",
         "ui/web/src/test/App.test.tsx:Tools workspace"
       ],
@@ -1634,7 +1640,8 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
-        "tools.scrcpy"
+        "tools.scrcpy",
+        "tools.scrcpy.setup"
       ]
     },
     {
