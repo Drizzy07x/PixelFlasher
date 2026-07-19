@@ -882,18 +882,26 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             transport = FakeProcessTransport([TransportOutcome(0), TransportOutcome(0)])
             engine = CommandEngine(
                 store=AppStateStore(
-                    snapshot_for(
-                        "sideload",
-                        plan=FlashPlan(
-                            "OTA",
-                            {"verify": True, "noReboot": False},
-                            dry_run=False,
+                    replace(
+                        snapshot_for(
+                            "sideload",
+                            plan=FlashPlan(
+                                "OTA",
+                                {"verify": True, "noReboot": False},
+                                dry_run=False,
+                            ),
+                            firmware=firmware,
                         ),
-                        firmware=firmware,
+                        devices=(
+                            replace(
+                                snapshot_for("sideload").devices[0],
+                                slot="a",
+                            ),
+                        ),
                     )
                 ),
                 executor=CommandExecutor(transport),
-                postcondition_observer=StatefulPostconditionObserver(transport),
+                postcondition_observer=lambda *_args: True,
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
             )
 
@@ -942,15 +950,109 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     self.assertEqual("option_not_supported_for_mode", result.code)
                     self.assertEqual([], transport.calls)
 
-    def test_ota_wrong_state_or_hash_fails_without_false_success(self):
+    def test_ota_transitions_from_adb_or_recovery_and_rejects_unsafe_state_or_hash(self):
         with TemporaryDirectory() as directory:
             ota = Path(directory) / "ota.zip"
             ota.write_bytes(b"ota")
-            firmware = FirmwareInfo(str(ota), "ota", "", digest(ota), True, True)
+            firmware = FirmwareInfo(str(ota), "ota", "42", digest(ota), True, True)
             transport = FakeProcessTransport([])
+            planner = OperationPlanner()
+            for device_mode, expected in (
+                (
+                    "adb",
+                    [
+                        ("ADB", "-s", "SERIAL-A", "reboot", "sideload"),
+                        ("ADB", "-s", "SERIAL-A", "wait-for-sideload"),
+                        ("ADB", "-s", "SERIAL-A", "sideload", str(ota.resolve())),
+                    ],
+                ),
+                (
+                    "recovery",
+                    [
+                        ("ADB", "-s", "SERIAL-A", "reboot", "sideload"),
+                        ("ADB", "-s", "SERIAL-A", "wait-for-sideload"),
+                        ("ADB", "-s", "SERIAL-A", "sideload", str(ota.resolve())),
+                    ],
+                ),
+                (
+                    "sideload",
+                    [("ADB", "-s", "SERIAL-A", "sideload", str(ota.resolve()))],
+                ),
+            ):
+                with self.subTest(device_mode=device_mode):
+                    compilation = planner.compile(
+                        command("flash.execute"),
+                        snapshot_for(
+                            device_mode,
+                            plan=FlashPlan(
+                                "OTA",
+                                {"noReboot": True},
+                                dry_run=False,
+                            ),
+                            firmware=firmware,
+                        ),
+                        preview=True,
+                    )
+                    self.assertTrue(compilation.ok, compilation.to_dict())
+                    self.assertEqual(
+                        expected,
+                        [request.argv for request in compilation.plan.requests],
+                    )
+
+            rebooting_snapshot = snapshot_for(
+                "adb",
+                plan=FlashPlan(
+                    "OTA",
+                    {"noReboot": False},
+                    dry_run=False,
+                ),
+                firmware=firmware,
+            )
+            rebooting_snapshot = replace(
+                rebooting_snapshot,
+                devices=(replace(rebooting_snapshot.devices[0], slot="a"),),
+            )
+            rebooting = planner.compile(
+                command("flash.execute"),
+                rebooting_snapshot,
+                preview=True,
+            )
+            self.assertTrue(rebooting.ok, rebooting.to_dict())
+            self.assertEqual(
+                ("ADB", "-s", "SERIAL-A", "reboot"),
+                rebooting.plan.requests[-1].argv,
+            )
+            self.assertEqual(("b",), rebooting.plan.slots)
+            self.assertEqual(
+                {"mode": "adb", "bootCompleted": True},
+                dict(rebooting.plan.postconditions[-2].expected),
+            )
+            self.assertEqual(
+                {"slot": "b"},
+                dict(rebooting.plan.postconditions[-1].expected),
+            )
+            unknown_slot = planner.compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "adb",
+                    plan=FlashPlan(
+                        "OTA",
+                        {"noReboot": False},
+                        dry_run=False,
+                    ),
+                    firmware=firmware,
+                ),
+                preview=True,
+            )
+            self.assertEqual("ota_active_slot_unknown", unknown_slot.code)
+
             wrong_state = CommandEngine(
                 store=AppStateStore(
-                    snapshot_for("adb", plan=FlashPlan("OTA", dry_run=False), firmware=firmware)
+                    snapshot_for(
+                        "fastboot",
+                        plan=FlashPlan("OTA", dry_run=False),
+                        firmware=firmware,
+                    )
                 ),
                 executor=CommandExecutor(transport),
             ).execute(command("flash.execute"))
@@ -966,7 +1068,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 executor=CommandExecutor(transport),
             ).execute(command("flash.execute"))
 
-            self.assertEqual("ota_sideload_required", wrong_state.code)
+            self.assertEqual("ota_transition_unsupported", wrong_state.code)
             self.assertEqual("artifact_hash_mismatch", wrong_hash.code)
             self.assertEqual([], transport.calls)
 

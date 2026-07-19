@@ -896,10 +896,10 @@ class OperationPlanner:
             mode = "images"
         if mode in _OTA_MODES:
             self._validate_ota_options(options)
-            if device.mode != "sideload":
+            if device.mode not in {"adb", "recovery", "sideload"}:
                 raise PlanningError(
-                    "ota_sideload_required",
-                    "OTA execution requires the selected device to already be in sideload mode",
+                    "ota_transition_unsupported",
+                    "OTA execution requires ADB, recovery or sideload mode",
                 )
             if snapshot.firmware.type.casefold() != "ota":
                 raise PlanningError("ota_firmware_required", "selected firmware is not an OTA package")
@@ -915,13 +915,34 @@ class OperationPlanner:
                     "no canonical OTA firmware is selected",
                 )
             adb = self._adb(snapshot)
-            requests = [
+            requests: list[ProcessRequest] = []
+            if device.mode != "sideload":
+                requests.extend(
+                    (
+                        ProcessRequest(
+                            (adb, "-s", device.serial, "reboot", "sideload"),
+                            timeout_seconds=120.0,
+                        ),
+                        ProcessRequest(
+                            (adb, "-s", device.serial, "wait-for-sideload"),
+                            timeout_seconds=180.0,
+                        ),
+                    )
+                )
+            requests.append(
                 ProcessRequest(
                     (adb, "-s", device.serial, "sideload", artifact.path),
                     timeout_seconds=1800.0,
                 )
-            ]
+            )
+            inactive_slot: str | None = None
             if options.get("noReboot") is False:
+                if device.slot not in {"a", "b"}:
+                    raise PlanningError(
+                        "ota_active_slot_unknown",
+                        "OTA reboot verification requires the current active slot",
+                    )
+                inactive_slot = "b" if device.slot == "a" else "a"
                 requests.append(
                     ProcessRequest(
                         (adb, "-s", device.serial, "reboot"),
@@ -933,6 +954,7 @@ class OperationPlanner:
                 device,
                 tuple(requests),
                 label=f"Sideload OTA on {device.serial}",
+                slots=(inactive_slot,) if inactive_slot is not None else (),
                 artifacts=(artifact,),
                 risk=OperationRisk.DESTRUCTIVE,
                 postconditions=(
@@ -942,6 +964,20 @@ class OperationPlanner:
                             "firmwareSha256": artifact.sha256,
                             "build": snapshot.firmware.build,
                         },
+                    ),
+                    *(
+                        (
+                            OperationPostcondition(
+                                "device_reachable",
+                                {"mode": "adb", "bootCompleted": True},
+                            ),
+                            OperationPostcondition(
+                                "active_slot",
+                                {"slot": inactive_slot},
+                            ),
+                        )
+                        if inactive_slot is not None
+                        else ()
                     ),
                 ),
             )

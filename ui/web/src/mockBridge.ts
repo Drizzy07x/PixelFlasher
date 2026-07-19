@@ -710,8 +710,9 @@ export function installDevelopmentBridge() {
               : selectedSerials;
             const targets = serials.map((serial) => snapshot.devices.find((device) => device.serial === serial));
             const target = targets[0];
-            if (!target || targets.some((item) => !item || (mode === 'ota' ? item.mode !== 'sideload' : item.mode !== 'fastboot'))) {
-              emit(errorMessage(mode === 'ota' ? 'OTA requires sideload mode.' : 'Image flashing requires Fastboot mode.', request));
+            const otaModes = new Set(['adb', 'recovery', 'sideload']);
+            if (!target || targets.some((item) => !item || (mode === 'ota' ? !otaModes.has(item.mode) : item.mode !== 'fastboot'))) {
+              emit(errorMessage(mode === 'ota' ? 'OTA requires ADB, recovery or sideload mode.' : 'Image flashing requires Fastboot mode.', request));
               break;
             }
             if (snapshot.firmware?.device && targets.some((item) => item?.codename !== snapshot.firmware?.device)) {
@@ -734,7 +735,13 @@ export function installDevelopmentBridge() {
               partitions: mode === 'ota' ? ['ota-package'] : ['boot', 'system', 'vendor'],
               slots: mode === 'ota' ? [] : ['a'],
               requests: mode === 'ota'
-                ? [{ argv: ['adb.exe', '-s', serials[index], 'sideload', snapshot.firmware?.name ?? 'selected-firmware'] }]
+                ? [
+                    ...(item?.mode === 'sideload' ? [] : [
+                      { argv: ['adb.exe', '-s', serials[index], 'reboot', 'sideload'] },
+                      { argv: ['adb.exe', '-s', serials[index], 'wait-for-sideload'] },
+                    ]),
+                    { argv: ['adb.exe', '-s', serials[index], 'sideload', snapshot.firmware?.name ?? 'selected-firmware'] },
+                  ]
                 : [
                     { argv: ['adb.exe', '-s', serials[index], 'reboot', 'bootloader'] },
                     { argv: ['fastboot.exe', '-s', serials[index], 'update', snapshot.firmware?.name ?? 'selected-firmware', ...(mode === 'wipe' ? ['-w'] : [])] },
