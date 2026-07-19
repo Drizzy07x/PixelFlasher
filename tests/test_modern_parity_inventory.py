@@ -259,8 +259,12 @@ class ModernParityInventoryTests(unittest.TestCase):
             {"open_downloads", "firmware_downloads"},
             set(downloads["modernActionIds"]),
         )
-        self.assertEqual("missing", downloads["modernStatus"])
-        self.assertIn("retired wx preview delegate is no longer shipped", downloads["gap"])
+        self.assertEqual("partial", downloads["modernStatus"])
+        self.assertEqual(
+            {"firmware.catalog.refresh", "firmware.download"},
+            set(downloads["modernCommandIds"]),
+        )
+        self.assertIn("Production Ed25519 catalog manifests", downloads["gap"])
 
     def test_flash_navigation_does_not_claim_execution_parity(self):
         rows = {row["id"]: row for row in self.capabilities}

@@ -26,6 +26,7 @@ from pixelflasher_core.engine import (
 from pixelflasher_core.executor import CommandExecutor
 from pixelflasher_core.firmware import FirmwareInspector
 from pixelflasher_core.firmware_artifacts import FirmwareArtifactService
+from pixelflasher_core.firmware_catalog import FirmwareCatalogService
 from pixelflasher_core.observer import PostconditionObserver, ProcessDeviceObservationProbe
 from pixelflasher_core.operation_runner import (
     OperationRunner,
@@ -77,6 +78,7 @@ def make_test_command_engine(
     operation_runner: OperationRunner | None = None,
     snapshot_provider: SnapshotProvider | None = None,
     postcondition_observer: PostconditionObserverLike | None = None,
+    firmware_catalog_service: FirmwareCatalogService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
 
@@ -140,6 +142,11 @@ def make_test_command_engine(
         snapshot_provider=snapshot_provider,
         postcondition_observer=postcondition_observer,
     )
+    firmware_catalog_service = firmware_catalog_service or FirmwareCatalogService(
+        cache_directory=Path(tempfile.gettempdir())
+        / "pixelflasher-tests"
+        / "firmware-downloads"
+    )
     return CommandEngine(
         store=store,
         executor=executor,
@@ -168,4 +175,5 @@ def make_test_command_engine(
         toolchain_state_updater=toolchain_state_updater,
         scrcpy_state_updater=None,
         device_scan_state_updater=None,
+        firmware_catalog_service=firmware_catalog_service,
     )

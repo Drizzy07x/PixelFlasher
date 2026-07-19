@@ -62,6 +62,10 @@ from .engine import CommandEngine, InteractionHandler, PixelFlasherEngine
 from .executor import CommandExecutor, ProcessTransport, ProgressListener
 from .firmware import FirmwareInspector
 from .firmware_artifacts import FirmwareArtifactService
+from .firmware_catalog import (
+    FirmwareCatalogService,
+    FirmwareManifestCatalog,
+)
 from .interaction import InteractionBroker
 from .observer import PostconditionObserver, ProcessDeviceObservationProbe
 from .operation_runner import (
@@ -146,6 +150,8 @@ class ApplicationRuntime:
         scrcpy_installer: ScrcpyInstaller | None = None,
         scrcpy_platform: str | None = None,
         scrcpy_architecture: str | None = None,
+        firmware_catalog: FirmwareManifestCatalog | None = None,
+        firmware_downloader: ArtifactDownloader | None = None,
         android_device_catalog_path: str | Path | None = None,
     ) -> None:
         bootloader_prefixes = load_bootloader_prefix_catalog(
@@ -265,6 +271,11 @@ class ApplicationRuntime:
             platform=scrcpy_platform,
             architecture=scrcpy_architecture,
         )
+        self.firmware_catalog_service = FirmwareCatalogService(
+            cache_directory=self._firmware_download_cache_path(config_store.path),
+            catalog=firmware_catalog,
+            downloader=firmware_downloader,
+        )
         self.command_engine = CommandEngine(
             store=self.store,
             executor=self.executor,
@@ -293,6 +304,7 @@ class ApplicationRuntime:
             toolchain_state_updater=self._activate_toolchain,
             scrcpy_state_updater=self._activate_scrcpy,
             device_scan_state_updater=self._activate_device_scan,
+            firmware_catalog_service=self.firmware_catalog_service,
         )
         self.engine = PixelFlasherEngine(
             command_engine=self.command_engine,
@@ -344,6 +356,8 @@ class ApplicationRuntime:
         scrcpy_installer: ScrcpyInstaller | None = None,
         scrcpy_platform: str | None = None,
         scrcpy_architecture: str | None = None,
+        firmware_catalog: FirmwareManifestCatalog | None = None,
+        firmware_downloader: ArtifactDownloader | None = None,
         android_device_catalog_path: str | Path | None = None,
         legacy_devices_path: str | Path | None = None,
     ) -> ApplicationRuntime:
@@ -387,6 +401,8 @@ class ApplicationRuntime:
             scrcpy_installer=scrcpy_installer,
             scrcpy_platform=scrcpy_platform,
             scrcpy_architecture=scrcpy_architecture,
+            firmware_catalog=firmware_catalog,
+            firmware_downloader=firmware_downloader,
             android_device_catalog_path=android_device_catalog_path,
         )
 
@@ -1443,6 +1459,11 @@ class ApplicationRuntime:
     def _firmware_artifact_cache_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "firmware-artifacts"
+
+    @staticmethod
+    def _firmware_download_cache_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "firmware-downloads"
 
     @staticmethod
     def _platform_tools_cache_path(config_path: str | Path) -> Path:

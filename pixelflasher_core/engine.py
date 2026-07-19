@@ -71,6 +71,10 @@ from .firmware_artifacts import (
     FirmwareProcessingResult,
     FirmwareProcessingStatus,
 )
+from .firmware_catalog import (
+    FirmwareCatalogService,
+    FirmwareCatalogStatus,
+)
 from .interaction import InteractionTimeoutError
 from .operation_runner import (
     CancellationCleanup,
@@ -103,7 +107,7 @@ from .partitions import (
 from .planner import PLANNED_COMMANDS, OperationPlanner
 from .platform_tools import PlatformToolsStatus
 from .platform_tools_setup import PlatformToolsSetupService
-from .repositories import FirmwareRepository, RepositoryError
+from .repositories import ArtifactProvenance, FirmwareRepository, RepositoryError
 from .rooting import (
     ROOTING_COMMANDS,
     RootingCompilation,
@@ -222,6 +226,7 @@ class CommandEngine:
         toolchain_state_updater: ToolchainStateUpdater | None,
         scrcpy_state_updater: ScrcpyStateUpdater | None,
         device_scan_state_updater: DeviceScanStateUpdater | None,
+        firmware_catalog_service: FirmwareCatalogService,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
@@ -266,6 +271,7 @@ class CommandEngine:
         self.boot_patch_service = boot_patch_service
         self.boot_inventory_service = boot_inventory_service
         self.firmware_repository = firmware_repository
+        self.firmware_catalog_service = firmware_catalog_service
         self.support_package_service = support_package_service
         self.snapshot_provider = snapshot_provider
         self.postcondition_observer = postcondition_observer
@@ -311,6 +317,8 @@ class CommandEngine:
             return self._setup_platform_tools(command)
         if command.kind == "tools.scrcpy.setup":
             return self._setup_scrcpy(command)
+        if command.kind in {"firmware.catalog.refresh", "firmware.download"}:
+            return self._firmware_catalog_command(command)
         if command.kind == CommandKind.DEVICE_SCAN.value:
             # Compatibility for milestone-1 callers that inject an already
             # reviewed plan. Browser commands never provide operation plans.
@@ -1097,6 +1105,124 @@ class CommandEngine:
             selected_serial=primary,
         )
 
+    def _firmware_catalog_command(self, command: AppCommand) -> OperationResult:
+        service = self.firmware_catalog_service
+        snapshot = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_catalog_cancelled",
+                        cancelled_message="Firmware catalog operation was cancelled.",
+                        timeout_message="Firmware catalog operation timed out.",
+                    )
+                current = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, current)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                if current.revision != snapshot.revision:
+                    return self._denied(
+                        command,
+                        "stale_revision",
+                        "Canonical state changed before the firmware catalog operation.",
+                    )
+                if command.kind == "firmware.catalog.refresh":
+                    unknown = set(command.payload) - {"device", "channel"}
+                    device = command.payload.get("device")
+                    channel = command.payload.get("channel", "stable")
+                    if unknown or not isinstance(device, str) or not isinstance(channel, str):
+                        return self._invalid(command, "Firmware catalog payload is invalid.")
+                    refreshed = service.refresh(
+                        device=device,
+                        channel=channel,
+                        cancellation=token,
+                    )
+                    if refreshed.status is FirmwareCatalogStatus.CANCELLED:
+                        return self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=refreshed.code,
+                            cancelled_message=refreshed.message,
+                            timeout_message="Firmware catalog refresh timed out.",
+                        )
+                    if not refreshed.ok:
+                        return OperationResult.failed(
+                            command.operation_id,
+                            code=refreshed.code,
+                            message=refreshed.message,
+                        )
+                    return OperationResult.success(
+                        command.operation_id,
+                        code=refreshed.code,
+                        message=refreshed.message,
+                        value={
+                            **refreshed.to_public_dict(),
+                            "device": device.strip().casefold(),
+                            "channel": channel.strip().casefold(),
+                            "revision": current.revision,
+                        },
+                    )
+
+                unknown = set(command.payload) - {"artifactId"}
+                artifact_id = command.payload.get("artifactId")
+                if unknown or not isinstance(artifact_id, str):
+                    return self._invalid(command, "Firmware download payload is invalid.")
+                downloaded = service.download(
+                    artifact_id,
+                    cancellation=token,
+                    progress=lambda phase, message, percent: self._publish_progress(
+                        command,
+                        phase,
+                        message,
+                        percent,
+                    ),
+                )
+                if downloaded.status is FirmwareCatalogStatus.CANCELLED:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code=downloaded.code,
+                        cancelled_message=downloaded.message,
+                        timeout_message="Firmware download timed out.",
+                    )
+                if not downloaded.ok or downloaded.path is None or downloaded.entry is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=downloaded.code,
+                        message=downloaded.message,
+                    )
+                inspected = self._inspect_and_promote_firmware(
+                    command,
+                    current,
+                    str(downloaded.path),
+                    (downloaded.entry.device,),
+                    token,
+                    provenance=ArtifactProvenance.OFFICIAL,
+                )
+                if not inspected.ok:
+                    return inspected
+                return replace(
+                    inspected,
+                    code="firmware_download_selected",
+                    message="Official firmware was downloaded, verified, and selected.",
+                    value={
+                        "artifact": downloaded.entry.to_public_dict(),
+                        "cacheHit": downloaded.cache_hit,
+                        "resumed": downloaded.resumed,
+                        "revision": self.store.snapshot().revision,
+                    },
+                )
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
     def _inspect_firmware(
         self,
         command: AppCommand,
@@ -1150,6 +1276,8 @@ class CommandEngine:
         path: str,
         expected_devices: tuple[str, ...],
         token: CancellationToken,
+        *,
+        provenance: ArtifactProvenance = ArtifactProvenance.USER_SUPPLIED,
     ) -> OperationResult:
         try:
             inspection = self.firmware_inspector.inspect(
@@ -1193,6 +1321,7 @@ class CommandEngine:
                     build=inspection.build,
                     expected_sha256=inspection.sha256,
                     device_codenames=(inspection.device,) if inspection.device else (),
+                    provenance=provenance,
                     cancellation=token,
                 )
             except (OSError, RepositoryError, TypeError, ValueError):

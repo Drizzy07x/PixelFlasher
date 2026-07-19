@@ -5369,3 +5369,43 @@ msgstr ""
 msgctxt "web.device.otaLastError"
 msgid "Last attempt error"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.firmware.officialCatalog"
+msgid "Official firmware catalog"
+msgstr ""
+
+msgctxt "web.firmware.channel"
+msgid "Release channel"
+msgstr ""
+
+msgctxt "web.firmware.canary"
+msgid "Canary"
+msgstr ""
+
+msgctxt "web.firmware.refreshCatalog"
+msgid "Refresh official catalog"
+msgstr ""
+
+msgctxt "web.firmware.catalogDeviceRequired"
+msgid "Select a device with a known codename to load compatible firmware."
+msgstr ""
+
+msgctxt "web.firmware.catalogFailed"
+msgid "The signed firmware catalog could not be verified."
+msgstr ""
+
+msgctxt "web.firmware.catalogEmpty"
+msgid "No verified firmware loaded"
+msgstr ""
+
+msgctxt "web.firmware.provenance"
+msgid "Provenance"
+msgstr ""
+
+msgctxt "web.firmware.downloadSelect"
+msgid "Download and select"
+msgstr ""

@@ -428,6 +428,53 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                     self.assertNotIn("value", public)
                     self.assert_route_free(public)
 
+    def test_firmware_catalog_and_download_results_are_closed_and_route_free(self):
+        entry = {
+            "artifactId": "a" * 32,
+            "device": "akita",
+            "channel": "stable",
+            "kind": "factory",
+            "version": "AP4A.260719.001",
+            "sha256": "b" * 64,
+            "size": 2_000_000_000,
+            "license": "Google Terms",
+            "provenance": "Google Pixel official images",
+        }
+        catalog = {
+            "count": 1,
+            "entries": [entry],
+            "device": "akita",
+            "channel": "stable",
+            "revision": 7,
+        }
+        download = {
+            "artifact": entry,
+            "cacheHit": False,
+            "resumed": True,
+            "revision": 8,
+        }
+        for command, value in (
+            ("firmware.catalog.refresh", catalog),
+            ("firmware.download", download),
+        ):
+            public = project_operation_result(
+                command,
+                OperationResult.success("firmware", value=value),
+            )
+            self.assertEqual(value, public["value"])
+            self.assert_route_free(public)
+
+        hostile = {**entry, "url": "https://downloads.example/private.zip"}
+        rejected = project_operation_result(
+            "firmware.catalog.refresh",
+            OperationResult.success(
+                "firmware",
+                value={**catalog, "entries": [hostile]},
+            ),
+        )
+        self.assertNotIn("value", rejected)
+        self.assert_route_free(rejected)
+
     def test_platform_tools_result_exposes_closed_installation_receipt_without_routes(self):
         digest = "d" * 64
         receipt = {

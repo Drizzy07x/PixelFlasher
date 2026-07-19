@@ -1442,6 +1442,90 @@ def _project_ota_status(value: object) -> JSONValue:
     })
 
 
+def _project_firmware_catalog_entry(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"artifactId", "device", "channel", "kind", "version", "sha256", "size", "license", "provenance"}
+        ),
+    )
+    artifact_id = source["artifactId"]
+    device = source["device"]
+    channel = source["channel"]
+    kind = source["kind"]
+    version = source["version"]
+    digest = source["sha256"]
+    size = source["size"]
+    license_value = source["license"]
+    provenance = source["provenance"]
+    if not isinstance(artifact_id, str) or re.fullmatch(r"[0-9a-f]{32}", artifact_id) is None:
+        raise PublicProjectionError("firmware catalog artifact ID is invalid")
+    if not isinstance(device, str) or re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,63}", device) is None:
+        raise PublicProjectionError("firmware catalog device is invalid")
+    if channel not in {"stable", "beta", "canary"} or kind not in {"factory", "ota"}:
+        raise PublicProjectionError("firmware catalog classification is invalid")
+    if not isinstance(version, str) or not version or len(version.encode("utf-8")) > 128:
+        raise PublicProjectionError("firmware catalog version is invalid")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise PublicProjectionError("firmware catalog digest is invalid")
+    if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= 16 * 1024**3:
+        raise PublicProjectionError("firmware catalog size is invalid")
+    for label, text, maximum in (
+        ("license", license_value, 256),
+        ("provenance", provenance, 512),
+    ):
+        if not isinstance(text, str) or not text or len(text.encode("utf-8")) > maximum or not text.isprintable():
+            raise PublicProjectionError(f"firmware catalog {label} is invalid")
+    return {
+        "artifactId": artifact_id,
+        "device": device,
+        "channel": channel,
+        "kind": kind,
+        "version": version,
+        "sha256": digest,
+        "size": size,
+        "license": license_value,
+        "provenance": provenance,
+    }
+
+
+def _project_firmware_catalog(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"count", "entries", "device", "channel", "revision"}),
+    )
+    entries = source["entries"]
+    if not isinstance(entries, list) or len(entries) > 512:
+        raise PublicProjectionError("firmware catalog entries are invalid")
+    projected = [_project_firmware_catalog_entry(entry) for entry in entries]
+    if source["count"] != len(projected):
+        raise PublicProjectionError("firmware catalog count does not match")
+    if any(entry["device"] != source["device"] or entry["channel"] != source["channel"] for entry in projected):
+        raise PublicProjectionError("firmware catalog scope does not match")
+    revision = source["revision"]
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PublicProjectionError("firmware catalog revision is invalid")
+    return ensure_public_json({**source, "entries": projected})
+
+
+def _project_firmware_download(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"artifact", "cacheHit", "resumed", "revision"}),
+    )
+    if not isinstance(source["cacheHit"], bool) or not isinstance(source["resumed"], bool):
+        raise PublicProjectionError("firmware download cache evidence is invalid")
+    revision = source["revision"]
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PublicProjectionError("firmware download revision is invalid")
+    return ensure_public_json({
+        "artifact": _project_firmware_catalog_entry(source["artifact"]),
+        "cacheHit": source["cacheHit"],
+        "resumed": source["resumed"],
+        "revision": revision,
+    })
+
+
 def _project_ota_certificates(value: object) -> JSONValue:
     source = _closed_record(
         value,
@@ -1737,6 +1821,8 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.ota.certificates": _project_ota_certificates,
     "device.ota.logs": _project_ota_logs,
     "device.ota.status": _project_ota_status,
+    "firmware.catalog.refresh": _project_firmware_catalog,
+    "firmware.download": _project_firmware_download,
     "device.reboot": _project_none,
     "device.scan": _project_device_scan,
     "device.select": _project_snapshot,

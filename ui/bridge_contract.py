@@ -325,6 +325,19 @@ def _validate_payload_values(
             _payload_error("firmware.select requires one native grant or firmwareId", request_id)
     elif command == "tools.pushFiles" and "grants" not in payload:
         _payload_error("tools.pushFiles requires native grants", request_id)
+    elif command == "firmware.catalog.refresh":
+        device = payload.get("device")
+        channel = payload.get("channel", "stable")
+        if (
+            not isinstance(device, str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,63}", device.casefold()) is None
+            or channel not in {"stable", "beta", "canary"}
+        ):
+            _payload_error("firmware catalog device or channel is invalid", request_id)
+    elif command == "firmware.download":
+        artifact_id = payload.get("artifactId")
+        if not isinstance(artifact_id, str) or re.fullmatch(r"[0-9a-f]{32}", artifact_id) is None:
+            _payload_error("firmware artifactId is invalid", request_id)
     elif command == "tools.logcat":
         _validate_logcat_payload(payload, request_id)
     elif command == "boot.patch":

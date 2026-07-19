@@ -559,6 +559,63 @@ export function installDevelopmentBridge() {
             });
             break;
           }
+          case 'firmware.catalog.refresh': {
+            const device = String(request.payload.device);
+            const channel = String(request.payload.channel ?? 'stable');
+            const entry = {
+              artifactId: 'a'.repeat(32),
+              device,
+              channel,
+              kind: 'factory',
+              version: 'AP4A.260719.001',
+              sha256: 'b'.repeat(64),
+              size: 2_000_000_000,
+              license: 'Google Terms',
+              provenance: 'Google Pixel official images',
+            };
+            respond(request, success('Official catalog refreshed.', {
+              count: 1, entries: [entry], device, channel, revision: snapshot.revision,
+            }));
+            break;
+          }
+          case 'firmware.download': {
+            const artifactId = String(request.payload.artifactId);
+            const entry = {
+              artifactId,
+              device: snapshot.devices[0]?.codename ?? 'akita',
+              channel: 'stable',
+              kind: 'factory',
+              version: 'AP4A.260719.001',
+              sha256: 'b'.repeat(64),
+              size: 2_000_000_000,
+              license: 'Google Terms',
+              provenance: 'Google Pixel official images',
+            };
+            snapshot = {
+              ...snapshot,
+              revision: snapshot.revision + 1,
+              firmware: {
+                id: entry.sha256,
+                name: entry.version,
+                device: entry.device,
+                build: entry.version,
+                version: entry.version,
+                securityPatch: '2026-07-05',
+                kind: 'factory',
+                channel: 'stable',
+                size: '1.86 GiB',
+                hash: entry.sha256,
+                verified: true,
+                processed: false,
+              },
+              boot: null,
+            };
+            respond(request, success('Firmware downloaded and selected.', {
+              artifact: entry, cacheHit: false, resumed: false, revision: snapshot.revision,
+            }));
+            publishSnapshot();
+            break;
+          }
           case 'firmware.select': {
             const firmwareId = typeof request.payload.firmwareId === 'string' ? request.payload.firmwareId : '';
             const selected = demoFirmwares.find((firmware) => firmware.id === firmwareId) ?? demoFirmwares[0];

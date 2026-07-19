@@ -648,11 +648,14 @@
       "area": "firmware",
       "capability": "Browse and download phone/watch factory, OTA, beta and canary images",
       "owner": "firmware",
-      "modernStatus": "missing",
+      "modernStatus": "partial",
       "currentEvidence": [
-        "ui/command_registry.py:firmware.catalog.refresh is reserved and unimplemented"
+        "pixelflasher_core/firmware_catalog.py:FirmwareCatalogService",
+        "pixelflasher_core/engine.py:CommandEngine._firmware_catalog_command",
+        "ui/public_bridge.py:_project_firmware_catalog",
+        "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "The live React shell has no native catalog/download flow and firmware.catalog.refresh has no native implementation; the retired wx preview delegate is no longer shipped.",
+      "gap": "The signed backend catalog, verified download, official repository import and React selection flow are implemented. Production Ed25519 catalog manifests and packaged official-source smokes remain open.",
       "exitCriteria": [
         "One firmware-owned React flow browses, downloads, verifies and selects official artifacts with progress and cancellation and no legacy delegate."
       ],
@@ -664,8 +667,10 @@
         "linux"
       ],
       "tests": [
+        "tests/test_firmware_catalog.py",
         "tests/test_command_registry.py",
-        "tests/test_modern_artifact_boundary.py"
+        "tests/test_modern_artifact_boundary.py",
+        "ui/web/src/test/firmware-catalog.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -678,7 +683,8 @@
         "firmware_downloads"
       ],
       "modernCommandIds": [
-        "firmware.catalog.refresh"
+        "firmware.catalog.refresh",
+        "firmware.download"
       ]
     },
     {

@@ -28,6 +28,8 @@ export const commands = {
   deviceScan: "device.scan",
   deviceSelect: "device.select",
   deviceSwitchSlot: "device.switchSlot",
+  firmwareCatalogRefresh: "firmware.catalog.refresh",
+  firmwareDownload: "firmware.download",
   firmwareProcess: "firmware.process",
   firmwareSelect: "firmware.select",
   flashExecute: "flash.execute",
@@ -170,6 +172,13 @@ export interface BridgePayloadByCommand {
     "confirmationText"?: string;
     "serial"?: string;
     "slot": string;
+  };
+  "firmware.catalog.refresh": {
+    "channel"?: string;
+    "device"?: string;
+  };
+  "firmware.download": {
+    "artifactId": string;
   };
   "firmware.process": Record<string, never>;
   "firmware.select": {
@@ -356,6 +365,8 @@ export const allowedCommands = [
   commands.deviceScan,
   commands.deviceSelect,
   commands.deviceSwitchSlot,
+  commands.firmwareCatalogRefresh,
+  commands.firmwareDownload,
   commands.firmwareProcess,
   commands.firmwareSelect,
   commands.flashExecute,
@@ -422,6 +433,8 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.deviceScan]: 600000,
   [commands.deviceSelect]: 60000,
   [commands.deviceSwitchSlot]: 600000,
+  [commands.firmwareCatalogRefresh]: 300000,
+  [commands.firmwareDownload]: 21600000,
   [commands.firmwareProcess]: 7200000,
   [commands.firmwareSelect]: 3600000,
   [commands.flashExecute]: 14400000,
@@ -482,6 +495,8 @@ export const bridgeCommandMetadata = {
   [commands.deviceScan]: {"owner":"device","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.scan","confirmation":"none","postconditions":["device_inventory_refreshed"]},
   [commands.deviceSelect]: {"owner":"device","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.selection","confirmation":"none","postconditions":["selected_serials_match"]},
   [commands.deviceSwitchSlot]: {"owner":"device","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.slot_switch","confirmation":"slot_serial","postconditions":["active_slot_matches"]},
+  [commands.firmwareCatalogRefresh]: {"owner":"firmware","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"firmware.catalog.refresh","confirmation":"none","postconditions":["verified_firmware_catalog_returned"]},
+  [commands.firmwareDownload]: {"owner":"firmware","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"firmware.download","confirmation":"none","postconditions":["firmware_download_verified","firmware_snapshot_matches"]},
   [commands.firmwareProcess]: {"owner":"firmware","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"firmware.process","confirmation":"none","postconditions":["artifacts_hashed","firmware_repository_updated"]},
   [commands.firmwareSelect]: {"owner":"firmware","mutability":"mutating","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"firmware.inspect","confirmation":"none","postconditions":["firmware_snapshot_matches"]},
   [commands.flashExecute]: {"owner":"flash","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"operation.flash","confirmation":"plan_fingerprint","postconditions":["device_reconnected","build_matches","slot_matches"]},
@@ -573,6 +588,8 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.deviceScan]: {"includeBattery":{"kind":"boolean","required":false},"includeProperties":{"kind":"boolean","required":false}},
   [commands.deviceSelect]: {"serials":{"kind":"string_array","required":true}},
   [commands.deviceSwitchSlot]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":true}},
+  [commands.firmwareCatalogRefresh]: {"channel":{"kind":"string","required":false},"device":{"kind":"string","required":false}},
+  [commands.firmwareDownload]: {"artifactId":{"kind":"string","required":true}},
   [commands.firmwareProcess]: {},
   [commands.firmwareSelect]: {"firmwareId":{"kind":"string","required":false},"grant":{"kind":"string","required":false}},
   [commands.flashExecute]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},

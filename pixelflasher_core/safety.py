@@ -47,6 +47,8 @@ class SafetyPolicy:
             CommandKind.FLASH_EXECUTE.value,
             "platformTools.setup",
             "firmware.process",
+            "firmware.catalog.refresh",
+            "firmware.download",
             "support.create",
             "flash.plan.preview",
             "device.reboot",

@@ -2638,6 +2638,29 @@ code {
   padding: 0.5rem;
 }
 
+.firmware-catalog-toolbar {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.firmware-catalog-toolbar label {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 12rem;
+}
+
+.firmware-catalog-toolbar select {
+  min-height: 2.5rem;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+}
+
 .firmware-row {
   display: grid;
   grid-template-columns: 2.7rem minmax(12rem, 1.6fr) repeat(3, minmax(6rem, 0.72fr)) auto auto;
