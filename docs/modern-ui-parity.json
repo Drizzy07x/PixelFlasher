@@ -717,7 +717,7 @@
         "pixelflasher_core/operation_runner.py:OperationRunner.execute_batch",
         "pixelflasher_core/engine.py:CommandEngine._plan_and_execute"
       ],
-      "gap": "Sequential fail-fast multi-device execution is connected end to end; runtime fastbootd/recovery transitions, remaining option interactions and packaged-platform validation remain incomplete.",
+      "gap": "Sequential fail-fast multi-device execution and bootloader/fastbootd transitions are connected end to end; remaining option interactions and packaged-platform validation remain incomplete.",
       "exitCriteria": [
         "Factory flash while keeping user data is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -735,6 +735,7 @@
       ],
       "tests": [
         "tests/test_operation_planner.py:test_processed_factory_images_compile_deterministic_exact_sequence",
+        "tests/test_operation_planner.py:test_dynamic_partitions_transition_through_fastbootd_in_exact_order",
         "tests/test_operation_planner.py:test_multi_device_keep_data_executes_sequentially_through_engine",
         "tests/test_operation_runner_v2.py"
       ],
@@ -902,7 +903,7 @@
         "pixelflasher_core/operation_runner.py:OperationRunner.execute/execute_batch",
         "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService"
       ],
-      "gap": "Custom payload processing, recovery/fastbootd transitions and packaged-platform validation remain open; multi-device batches are now sequential, revalidated per target and fail-fast.",
+      "gap": "Factory-stock relock evidence plus packaged-platform, WebView E2E and hardware validation remain open; payload processing, OTA/fastbootd transitions and sequential fail-fast batches are implemented.",
       "exitCriteria": [
         "React submits semantic intent only; the backend previews and executes an immutable hash-bound plan after revision, serial, mode and artifact revalidation.",
         "Factory, OTA and supported custom-ROM flows cover success, cancellation, timeout, disconnect and recovery transitions without legacy code."

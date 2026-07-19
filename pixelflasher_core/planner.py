@@ -69,6 +69,18 @@ _FASTBOOT_PARTITION_ORDER = (
     "vendor_dlkm",
 )
 _FASTBOOT_PARTITIONS = frozenset(_FASTBOOT_PARTITION_ORDER)
+_FASTBOOTD_PARTITIONS = frozenset(
+    {
+        "system",
+        "system_ext",
+        "product",
+        "vendor",
+        "odm",
+        "odm_dlkm",
+        "system_dlkm",
+        "vendor_dlkm",
+    }
+)
 _FACTORY_COMPONENT_ORDER = ("bootloader", "radio")
 _ADB_STATES = frozenset({"adb", "recovery", "sideload"})
 _DRY_RUN_MODES = frozenset({"dryrun", "dry-run", "dry_run"})
@@ -1007,8 +1019,11 @@ class OperationPlanner:
         mode: str,
         options: Mapping[str, object],
     ) -> tuple[OperationPlan, bool, bool]:
-        if device.mode != "fastboot":
-            raise PlanningError("fastboot_required", "image flashing requires fastboot mode")
+        if device.mode not in {"fastboot", "fastbootd"}:
+            raise PlanningError(
+                "fastboot_required",
+                "image flashing requires bootloader fastboot or userspace fastbootd mode",
+            )
         if options.get("downgrade") is True:
             raise PlanningError(
                 "option_not_supported_for_mode",
@@ -1151,6 +1166,29 @@ class OperationPlanner:
         )
         partitions: list[str] = []
         slots: list[str] = []
+        current_fastboot_mode = device.mode
+
+        def transition_fastboot(target: str) -> None:
+            nonlocal current_fastboot_mode
+            if current_fastboot_mode == target:
+                return
+            reboot_target = "fastboot" if target == "fastbootd" else "bootloader"
+            requests.extend(
+                (
+                    ProcessRequest(
+                        (fastboot, "-s", device.serial, "reboot", reboot_target),
+                        timeout_seconds=120.0,
+                    ),
+                    ProcessRequest(
+                        (fastboot, "-s", device.serial, "wait-for-device"),
+                        timeout_seconds=180.0,
+                    ),
+                )
+            )
+            current_fastboot_mode = target
+
+        if factory_components:
+            transition_fastboot("fastboot")
         for partition in _FACTORY_COMPONENT_ORDER:
             artifact = factory_components.get(partition)
             if artifact is None:
@@ -1170,28 +1208,50 @@ class OperationPlanner:
             )
             partitions.append(partition)
 
-        for partition in _FASTBOOT_PARTITION_ORDER:
-            artifact = image_partitions.get(partition)
-            if artifact is None:
+        for target_mode, partition_order in (
+            (
+                "fastboot",
+                tuple(
+                    partition
+                    for partition in _FASTBOOT_PARTITION_ORDER
+                    if partition not in _FASTBOOTD_PARTITIONS
+                ),
+            ),
+            (
+                "fastbootd",
+                tuple(
+                    partition
+                    for partition in _FASTBOOT_PARTITION_ORDER
+                    if partition in _FASTBOOTD_PARTITIONS
+                ),
+            ),
+        ):
+            selected = tuple(
+                partition for partition in partition_order if partition in image_partitions
+            )
+            if not selected:
                 continue
-            artifacts.append(artifact)
-            raw_slot = global_slot
-            target_slots: tuple[str, ...]
-            if raw_slot == "both":
-                target_slots = ("a", "b")
-            elif raw_slot is None or raw_slot == "":
-                target_slots = ("",)
-            else:
-                target_slots = (self._slot(raw_slot),)
-            for slot in target_slots:
-                argv = [fastboot, "-s", device.serial]
-                if slot:
-                    argv.append(f"--slot={slot}")
-                    slots.append(slot)
-                argv.extend(fastboot_flags)
-                argv.extend(("flash", partition, artifact.path))
-                requests.append(ProcessRequest(tuple(argv), timeout_seconds=600.0))
-            partitions.append(partition)
+            transition_fastboot(target_mode)
+            for partition in selected:
+                artifact = image_partitions[partition]
+                artifacts.append(artifact)
+                raw_slot = global_slot
+                target_slots: tuple[str, ...]
+                if raw_slot == "both":
+                    target_slots = ("a", "b")
+                elif raw_slot is None or raw_slot == "":
+                    target_slots = ("",)
+                else:
+                    target_slots = (self._slot(raw_slot),)
+                for slot in target_slots:
+                    argv = [fastboot, "-s", device.serial]
+                    if slot:
+                        argv.append(f"--slot={slot}")
+                        slots.append(slot)
+                    argv.extend(fastboot_flags)
+                    argv.extend(("flash", partition, artifact.path))
+                    requests.append(ProcessRequest(tuple(argv), timeout_seconds=600.0))
+                partitions.append(partition)
 
         behavior = options.get("dataBehavior", options.get("data_behavior", "preserve"))
         wipe = mode in {"wipedata", "wipe"} or options.get("wipe") is True
@@ -1211,6 +1271,7 @@ class OperationPlanner:
                 )
             boot_artifact = self._boot_artifact(snapshot)
             artifacts.append(boot_artifact)
+            transition_fastboot("fastboot")
             requests.append(
                 ProcessRequest(
                     (fastboot, "-s", device.serial, "boot", boot_artifact.path),

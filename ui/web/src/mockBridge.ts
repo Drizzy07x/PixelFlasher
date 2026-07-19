@@ -711,7 +711,8 @@ export function installDevelopmentBridge() {
             const targets = serials.map((serial) => snapshot.devices.find((device) => device.serial === serial));
             const target = targets[0];
             const otaModes = new Set(['adb', 'recovery', 'sideload']);
-            if (!target || targets.some((item) => !item || (mode === 'ota' ? !otaModes.has(item.mode) : item.mode !== 'fastboot'))) {
+            const imageModes = new Set(['fastboot', 'fastbootd']);
+            if (!target || targets.some((item) => !item || (mode === 'ota' ? !otaModes.has(item.mode) : !imageModes.has(item.mode)))) {
               emit(errorMessage(mode === 'ota' ? 'OTA requires ADB, recovery or sideload mode.' : 'Image flashing requires Fastboot mode.', request));
               break;
             }

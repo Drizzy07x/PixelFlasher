@@ -1901,6 +1901,68 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             self.assertEqual("plan_revision_changed", result.code)
             self.assertEqual([], transport.calls)
 
+    def test_dynamic_partitions_transition_through_fastbootd_in_exact_order(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            boot = root / "boot.img"
+            system = root / "system.img"
+            factory.write_bytes(b"factory")
+            boot.write_bytes(b"boot")
+            system.write_bytes(b"system")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "42", digest(factory), True, True
+            )
+            plan = FlashPlan(
+                "factory",
+                {"verify": True, "noReboot": True},
+                fingerprint="fastbootd-plan",
+                dry_run=False,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (
+                    FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),
+                    FileArtifact(str(system.resolve()), digest(system), "partition:system"),
+                ),
+                firmware_hash=firmware.hash,
+            )
+            planner = OperationPlanner(artifact_repository=repository)
+
+            bootloader_start = planner.compile(
+                command("flash.execute"),
+                snapshot_for("fastboot", plan=plan, firmware=firmware),
+                preview=True,
+            )
+            fastbootd_start = planner.compile(
+                command("flash.execute"),
+                snapshot_for("fastbootd", plan=plan, firmware=firmware),
+                preview=True,
+            )
+
+            self.assertTrue(bootloader_start.ok, bootloader_start.to_dict())
+            self.assertEqual(
+                [
+                    ("FASTBOOT", "-s", "SERIAL-A", "flash", "boot", str(boot.resolve())),
+                    ("FASTBOOT", "-s", "SERIAL-A", "reboot", "fastboot"),
+                    ("FASTBOOT", "-s", "SERIAL-A", "wait-for-device"),
+                    ("FASTBOOT", "-s", "SERIAL-A", "flash", "system", str(system.resolve())),
+                ],
+                [request.argv for request in bootloader_start.plan.requests],
+            )
+            self.assertTrue(fastbootd_start.ok, fastbootd_start.to_dict())
+            self.assertEqual(
+                [
+                    ("FASTBOOT", "-s", "SERIAL-A", "reboot", "bootloader"),
+                    ("FASTBOOT", "-s", "SERIAL-A", "wait-for-device"),
+                    ("FASTBOOT", "-s", "SERIAL-A", "flash", "boot", str(boot.resolve())),
+                    ("FASTBOOT", "-s", "SERIAL-A", "reboot", "fastboot"),
+                    ("FASTBOOT", "-s", "SERIAL-A", "wait-for-device"),
+                    ("FASTBOOT", "-s", "SERIAL-A", "flash", "system", str(system.resolve())),
+                ],
+                [request.argv for request in fastbootd_start.plan.requests],
+            )
+
     def test_reinforced_challenge_is_ttl_bounded_and_one_use(self):
         snapshot = snapshot_for("fastboot")
         challenge_time = [100.0]
