@@ -782,6 +782,36 @@ class CommandEngine:
                 stdout="",
                 stderr="",
             )
+        if kind == "tools.logcat.clear":
+            if (
+                not isinstance(compilation, DeviceToolCompilation)
+                or compilation.action != "logcat.clear"
+                or tuple(item.kind for item in plan.postconditions)
+                != ("logcat_buffers_cleared",)
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="logcat_clear_compilation_invalid",
+                    message="Logcat clear returned an invalid verified plan",
+                )
+            return replace(
+                result,
+                code="logcat_buffers_cleared",
+                message=(
+                    "the all-buffer clear control completed and main-buffer "
+                    "sentinel removal was verified"
+                ),
+                value={
+                    "targetSerial": plan.target_serial,
+                    "buffers": ["all"],
+                    "clearCommandCompleted": True,
+                    "controlCommandVerified": True,
+                    "mainBufferSentinelVerified": True,
+                    "verificationEntryRetained": True,
+                },
+                stdout="",
+                stderr="",
+            )
         if kind == "tools.wifi":
             if not isinstance(compilation, DeviceToolCompilation):
                 return OperationResult.failed(
@@ -2444,6 +2474,7 @@ class CommandEngine:
                             replace(result, value=None, stdout="", stderr="")
                             if command.kind in {
                                 "tools.logcat",
+                                "tools.logcat.clear",
                                 "tools.wifi.discover",
                             }
                             else result

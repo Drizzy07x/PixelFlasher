@@ -20,6 +20,7 @@ from ui.command_registry import (
     CommandMutability,
     CommandOwner,
     CommandRisk,
+    ConfirmationPolicy,
     ExpectedRevision,
     PayloadKind,
     TargetScope,
@@ -141,6 +142,7 @@ class CommandRegistryTests(unittest.TestCase):
             "tools.scrcpy",
             "tools.wifi.status",
             "tools.logcat",
+            "tools.logcat.clear",
             "device.ota.certificates",
             "device.ota.logs",
             "tools.pushFiles",
@@ -166,8 +168,12 @@ class CommandRegistryTests(unittest.TestCase):
                 "serial",
                 "mode",
                 "buffers",
-                "format",
+                "formatEnabled",
+                "formatVerb",
+                "formatModifiers",
                 "filters",
+                "regex",
+                "uids",
                 "maxLines",
                 "timeoutSeconds",
                 "redaction",
@@ -175,6 +181,13 @@ class CommandRegistryTests(unittest.TestCase):
             },
             set(logcat.payload.fields),
         )
+        self.assertIs(PayloadKind.LOGCAT_FILTER_ARRAY, logcat.payload.fields["filters"].kind)
+        self.assertIs(PayloadKind.INTEGER_ARRAY, logcat.payload.fields["uids"].kind)
+        clear = COMMAND_REGISTRY["tools.logcat.clear"]
+        self.assertIs(CommandMutability.DESTRUCTIVE, clear.mutability)
+        self.assertIs(CommandRisk.DESTRUCTIVE, clear.risk)
+        self.assertEqual(ConfirmationPolicy.STANDARD, clear.confirmation)
+        self.assertEqual(("logcat_buffers_cleared",), clear.postconditions)
         self.assertEqual((1, 6), (
             logcat.payload.fields["buffers"].min_items,
             logcat.payload.fields["buffers"].max_items,

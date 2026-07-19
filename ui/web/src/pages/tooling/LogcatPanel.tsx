@@ -18,6 +18,9 @@ import { record, selectedGrant, type SharedPageProps } from '../shared';
 export type LogcatMode = 'snapshot' | 'stream';
 export type LogcatRedaction = 'strict' | 'standard' | 'none';
 export type LogcatBuffer = 'main' | 'system' | 'radio' | 'events' | 'crash';
+export type LogcatFormatVerb = 'brief' | 'long' | 'process' | 'raw' | 'tag' | 'thread' | 'threadtime' | 'time';
+export type LogcatFormatModifier = 'color' | 'descriptive' | 'epoch' | 'monotonic' | 'printable' | 'uid' | 'usec';
+export type LogcatPriority = 'V' | 'D' | 'I' | 'W' | 'E' | 'F' | 'S';
 
 export type LogcatExportReceipt = {
   fileName: string;
@@ -40,12 +43,27 @@ export type LogcatReport = {
 
 export type LogcatReportSummary = Omit<LogcatReport, 'lines' | 'text'>;
 
-type LogcatPhase = 'idle' | 'picking' | 'running' | 'cancelling' | 'success' | 'cancelled' | 'failed';
+export type LogcatClearReceipt = {
+  targetSerial: string;
+  buffers: ['all'];
+  clearCommandCompleted: true;
+  controlCommandVerified: true;
+  mainBufferSentinelVerified: true;
+  verificationEntryRetained: true;
+};
+
+type LogcatPhase = 'idle' | 'picking' | 'running' | 'clearing' | 'cancelling' | 'success' | 'cancelled' | 'failed';
 
 export type LogcatUiState = {
   mode: LogcatMode;
   buffers: LogcatBuffer[];
-  format: 'brief' | 'epoch' | 'threadtime';
+  formatEnabled: boolean;
+  formatVerb: LogcatFormatVerb;
+  formatModifiers: LogcatFormatModifier[];
+  tag: string;
+  priority: LogcatPriority;
+  regex: string;
+  uids: string;
   maxLines: number;
   timeoutSeconds: number;
   redaction: LogcatRedaction;
@@ -62,7 +80,13 @@ export type LogcatUiState = {
 export const initialLogcatUiState: LogcatUiState = {
   mode: 'snapshot',
   buffers: ['main'],
-  format: 'threadtime',
+  formatEnabled: true,
+  formatVerb: 'long',
+  formatModifiers: ['color', 'descriptive'],
+  tag: '*',
+  priority: 'D',
+  regex: '',
+  uids: '',
   maxLines: 500,
   timeoutSeconds: 30,
   redaction: 'strict',
@@ -95,6 +119,9 @@ export const MAX_LOGCAT_PREVIEW_LINES = 500;
 export const MAX_LOGCAT_PREVIEW_BYTES = 256 * 1_024;
 const UNSAFE_LOG_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\r\n]/;
 const buffers: LogcatBuffer[] = ['main', 'system', 'radio', 'events', 'crash'];
+const formatVerbs: LogcatFormatVerb[] = ['brief', 'long', 'process', 'raw', 'tag', 'thread', 'threadtime', 'time'];
+const formatModifiers: LogcatFormatModifier[] = ['color', 'descriptive', 'epoch', 'monotonic', 'printable', 'uid', 'usec'];
+const priorities: LogcatPriority[] = ['V', 'D', 'I', 'W', 'E', 'F', 'S'];
 
 type PreviewEntry = { line: string; bytes: number };
 
@@ -239,6 +266,22 @@ export function useLogcatExpertGuard({
     state.report?.redaction,
     state.requestedRedaction,
   ]);
+
+  useLayoutEffect(() => {
+    if (expertMode) return;
+    setState((previous) => {
+      const safeModifiers = previous.formatModifiers.filter((modifier) => modifier !== 'uid');
+      if (!previous.regex && !previous.uids && safeModifiers.length === previous.formatModifiers.length) {
+        return previous;
+      }
+      return {
+        ...previous,
+        regex: '',
+        uids: '',
+        formatModifiers: safeModifiers,
+      };
+    });
+  }, [expertMode, setState]);
 }
 
 export function logcatDefaultFileName(serial: string) {
@@ -328,6 +371,69 @@ export function parseLogcatReport(
     truncated: source.truncated,
     ...(exportReceipt ? { export: exportReceipt } : {}),
   };
+}
+
+export function parseLogcatClearReceipt(
+  value: unknown,
+  expectedSerial: string,
+): LogcatClearReceipt | null {
+  const source = record(value);
+  if (
+    !exactKeys(source, [
+      'buffers',
+      'clearCommandCompleted',
+      'controlCommandVerified',
+      'mainBufferSentinelVerified',
+      'targetSerial',
+      'verificationEntryRetained',
+    ])
+    || source.targetSerial !== expectedSerial
+    || !validTargetSerial(source.targetSerial)
+    || !Array.isArray(source.buffers)
+    || source.buffers.length !== 1
+    || source.buffers[0] !== 'all'
+    || source.clearCommandCompleted !== true
+    || source.controlCommandVerified !== true
+    || source.mainBufferSentinelVerified !== true
+    || source.verificationEntryRetained !== true
+  ) return null;
+  return {
+    targetSerial: source.targetSerial,
+    buffers: ['all'],
+    clearCommandCompleted: true,
+    controlCommandVerified: true,
+    mainBufferSentinelVerified: true,
+    verificationEntryRetained: true,
+  };
+}
+
+function parsedUids(raw: string): number[] | null {
+  if (!raw.trim()) return [];
+  const values = raw.split(',').map((item) => item.trim());
+  if (
+    values.length > 32
+    || values.some((item) => !/^(?:0|[1-9][0-9]{0,9})$/.test(item))
+  ) return null;
+  const numbers = values.map(Number);
+  if (
+    numbers.some((uid) => !Number.isSafeInteger(uid) || uid < 0 || uid > 4_294_967_295)
+    || new Set(numbers).size !== numbers.length
+  ) return null;
+  return numbers.sort((left, right) => left - right);
+}
+
+function validLogcatTag(tag: string) {
+  const normalized = tag.trim();
+  return !normalized || normalized === '*' || /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(normalized);
+}
+
+function validLogcatRegex(regex: string) {
+  const normalized = regex.trim();
+  return !normalized || (
+    normalized === regex
+    && utf8Size(regex) <= 256
+    && !/[\u0000-\u001f\u007f]/.test(regex)
+  );
 }
 
 function summarizeLogcatReport(report: LogcatReport): LogcatReportSummary {
@@ -436,6 +542,7 @@ export function LogcatPanel({
   const previewRingRef = useRef(createPreviewRing());
   const previewOperationRef = useRef<string | null>(null);
   const previewFrameRef = useRef<number | null>(null);
+  const clearSubmissionRef = useRef(false);
   const queuedProgressRef = useRef<RenderedProgress>({ current: null, total: null, percent: null });
   const [renderedProgress, setRenderedProgress] = useState<RenderedProgress>({
     current: null,
@@ -449,7 +556,10 @@ export function LogcatPanel({
   const activeOperation = candidateOperation?.id === state.operationId ? candidateOperation : null;
   const redaction = !expertMode && state.redaction === 'none' ? 'strict' : state.redaction;
   const terminal = state.phase === 'success' || state.phase === 'cancelled' || state.phase === 'failed';
-  const pending = state.phase === 'running' || state.phase === 'cancelling' || (!terminal && Boolean(activeOperation));
+  const pending = state.phase === 'running'
+    || state.phase === 'clearing'
+    || state.phase === 'cancelling'
+    || (!terminal && Boolean(activeOperation));
   const operationProgress = state.mode === 'stream' ? renderedProgress.percent : activeOperation?.progress;
   const operationCurrent = state.mode === 'stream' ? renderedProgress.current : activeOperation?.current;
   const operationTotal = state.mode === 'stream' ? renderedProgress.total : activeOperation?.total;
@@ -465,6 +575,17 @@ export function LogcatPanel({
   const visibleReport = visibleForDevice && !unsafeOutsideExpert ? state.report : null;
   const previewTotal = visibleReport?.lineCount
     ?? (state.mode === 'stream' && typeof operationCurrent === 'number' ? operationCurrent : null);
+  const uidValues = useMemo(() => parsedUids(state.uids), [state.uids]);
+  const tagValid = validLogcatTag(state.tag);
+  const regexValid = !expertMode || validLogcatRegex(state.regex);
+  const modifiersValid = !(
+    state.formatModifiers.includes('epoch')
+    && state.formatModifiers.includes('monotonic')
+  );
+  const filtersValid = tagValid
+    && regexValid
+    && (!expertMode || uidValues !== null)
+    && (!state.formatEnabled || modifiersValid);
 
   const clearBufferedPreview = useCallback((maxLines = MAX_LOGCAT_PREVIEW_LINES) => {
     if (previewFrameRef.current !== null) {
@@ -615,12 +736,22 @@ export function LogcatPanel({
     });
   };
 
+  const toggleFormatModifier = (modifier: LogcatFormatModifier) => {
+    setState((previous) => ({
+      ...previous,
+      formatModifiers: previous.formatModifiers.includes(modifier)
+        ? previous.formatModifiers.filter((candidate) => candidate !== modifier)
+        : [...previous.formatModifiers, modifier],
+    }));
+  };
+
   const runCapture = async (grant?: string, expectedRevision?: number) => {
     if (
       !device
       || !adbReady
       || pending
       || hostBusy
+      || !filtersValid
       || contextRef.current.serial !== device.serial
       || contextRef.current.mode !== 'adb'
     ) return;
@@ -638,13 +769,31 @@ export function LogcatPanel({
       report: null,
       code: '',
     });
+    const normalizedTag = state.tag.trim();
+    const regexFilter = expertModeRef.current ? state.regex.trim() : '';
+    const captureUids = expertModeRef.current ? parsedUids(state.uids) : [];
+    const captureModifiers = expertModeRef.current
+      ? state.formatModifiers
+      : state.formatModifiers.filter((modifier) => modifier !== 'uid');
+    if (captureUids === null) return;
     const payload = {
       serial: requestedSerial,
       mode: requestedMode,
       buffers: state.buffers,
-      format: state.format,
+      formatEnabled: state.formatEnabled,
+      ...(state.formatEnabled ? {
+        formatVerb: state.formatVerb,
+        formatModifiers: captureModifiers,
+      } : {}),
+      ...(normalizedTag ? {
+        filters: [{ tag: normalizedTag, priority: state.priority }],
+      } : {}),
+      ...(regexFilter ? { regex: regexFilter } : {}),
+      ...(captureUids.length ? { uids: captureUids } : {}),
       maxLines: state.maxLines,
-      timeoutSeconds: requestedMode === 'stream' ? state.timeoutSeconds : 30,
+      timeoutSeconds: regexFilter
+        ? Math.min(30, requestedMode === 'stream' ? state.timeoutSeconds : 30)
+        : requestedMode === 'stream' ? state.timeoutSeconds : 30,
       redaction: requestedRedaction,
       ...(grant ? { grant } : {}),
     };
@@ -735,7 +884,7 @@ export function LogcatPanel({
   };
 
   const exportCapture = async () => {
-    if (!device || !adbReady || pending || hostBusy) return;
+    if (!device || !adbReady || pending || hostBusy || !filtersValid) return;
     patchState({ phase: 'picking', code: '' });
     let picked;
     try {
@@ -762,9 +911,80 @@ export function LogcatPanel({
     await runCapture(grant, picked?.revision);
   };
 
+  const clearDeviceBuffers = async () => {
+    if (
+      !device
+      || !adbReady
+      || pending
+      || hostBusy
+      || contextRef.current.serial !== device.serial
+      || contextRef.current.mode !== 'adb'
+      || clearSubmissionRef.current
+    ) return;
+    clearSubmissionRef.current = true;
+    try {
+      const requestedSerial = device.serial;
+      patchState({
+        phase: 'clearing',
+        operationId: null,
+        requestedRedaction: null,
+        targetSerial: requestedSerial,
+        code: '',
+      });
+      let response;
+      try {
+        response = await onCommand(commands.toolsLogcatClear, { serial: requestedSerial }, {
+          returnCancelled: true,
+          returnFailed: true,
+          suppressNotice: true,
+          onOperationAccepted: (operationId) => patchState({ operationId }),
+        });
+      } catch {
+        if (contextRef.current.serial === requestedSerial && contextRef.current.mode === 'adb') {
+          patchState({ phase: 'failed', operationId: null, code: 'logcat_clear_failed' });
+        }
+        return;
+      }
+      if (contextRef.current.serial !== requestedSerial || contextRef.current.mode !== 'adb') return;
+      if (!response) {
+        patchState({ phase: 'failed', operationId: null, code: 'logcat_clear_failed' });
+        return;
+      }
+      const result = record(response.result);
+      const status = normalizeOperationStatus(result.status);
+      const code = typeof result.code === 'string' ? result.code : '';
+      if (status === 'cancelled') {
+        patchState({ phase: 'cancelled', operationId: null, code });
+        return;
+      }
+      if (
+        status !== 'success'
+        || code !== 'logcat_buffers_cleared'
+        || !parseLogcatClearReceipt(result.value, requestedSerial)
+      ) {
+        patchState({ phase: 'failed', operationId: null, code: code || 'logcat_clear_failed' });
+        return;
+      }
+      clearBufferedPreview(state.maxLines);
+      patchState({
+        phase: 'success',
+        operationId: null,
+        requestedRedaction: null,
+        targetSerial: requestedSerial,
+        lastProgressCurrent: 0,
+        lines: [],
+        report: null,
+        code,
+      });
+    } finally {
+      clearSubmissionRef.current = false;
+    }
+  };
+
   const cancel = async () => {
     const operationId = activeOperation?.id ?? state.operationId;
     if (!operationId || state.phase === 'cancelling') return;
+    const previousPhase = state.phase;
     patchState({ phase: 'cancelling' });
     try {
       const response = await onCommand(commands.operationCancel, { operationId });
@@ -773,13 +993,13 @@ export function LogcatPanel({
         !response
         || normalizeOperationStatus(acknowledgement.status) !== 'success'
         || acknowledgement.code !== 'cancellation_requested'
-      ) patchState({ phase: 'running' });
+      ) patchState({ phase: previousPhase === 'clearing' ? 'clearing' : 'running' });
     } catch {
-      patchState({ phase: 'running' });
+      patchState({ phase: previousPhase === 'clearing' ? 'clearing' : 'running' });
     }
   };
 
-  const clear = () => {
+  const clearViewer = () => {
     clearBufferedPreview(state.maxLines);
     patchState({
       phase: 'idle',
@@ -815,12 +1035,19 @@ export function LogcatPanel({
             </label>
           ))}
         </fieldset>
+        <label className="logcat-format-toggle">
+          <span>{t('tools.logcatFormatting')}</span>
+          <input
+            type="checkbox"
+            checked={state.formatEnabled}
+            onChange={(event) => patchState({ formatEnabled: event.currentTarget.checked })}
+            disabled={pending || state.phase === 'picking'}
+          />
+        </label>
         <label>
           <span>{t('tools.logcatFormat')}</span>
-          <select value={state.format} onChange={(event) => patchState({ format: event.currentTarget.value as LogcatUiState['format'] })} disabled={pending || state.phase === 'picking'}>
-            <option value="threadtime">threadtime</option>
-            <option value="brief">brief</option>
-            <option value="epoch">epoch</option>
+          <select value={state.formatVerb} onChange={(event) => patchState({ formatVerb: event.currentTarget.value as LogcatFormatVerb })} disabled={!state.formatEnabled || pending || state.phase === 'picking'}>
+            {formatVerbs.map((verb) => <option key={verb} value={verb}>{verb}</option>)}
           </select>
         </label>
         <label>
@@ -843,6 +1070,78 @@ export function LogcatPanel({
         </label>
       </div>
 
+      <fieldset className="logcat-option-group logcat-modifiers" disabled={!state.formatEnabled || pending || state.phase === 'picking'}>
+        <legend>{t('tools.logcatFormatModifiers')}</legend>
+        {formatModifiers.filter((modifier) => expertMode || modifier !== 'uid').map((modifier) => (
+          <label key={modifier}>
+            <input
+              type="checkbox"
+              checked={state.formatModifiers.includes(modifier)}
+              onChange={() => toggleFormatModifier(modifier)}
+            />
+            <span>{modifier}</span>
+          </label>
+        ))}
+      </fieldset>
+
+      <div className="logcat-filter-controls">
+        <label>
+          <span>{t('tools.logcatTag')}</span>
+          <input
+            type="text"
+            value={state.tag}
+            maxLength={64}
+            spellCheck={false}
+            onChange={(event) => patchState({ tag: event.currentTarget.value })}
+            disabled={pending || state.phase === 'picking'}
+          />
+        </label>
+        <label>
+          <span>{t('tools.logcatPriority')}</span>
+          <select
+            value={state.priority}
+            onChange={(event) => patchState({ priority: event.currentTarget.value as LogcatPriority })}
+            disabled={pending || state.phase === 'picking' || !state.tag.trim()}
+          >
+            {priorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+          </select>
+        </label>
+        {expertMode ? (
+          <>
+            <label>
+              <span>{t('tools.logcatRegex')}</span>
+              <input
+                type="text"
+                value={state.regex}
+                maxLength={256}
+                spellCheck={false}
+                onChange={(event) => patchState({ regex: event.currentTarget.value })}
+                disabled={pending || state.phase === 'picking'}
+              />
+            </label>
+            <label>
+              <span>{t('tools.logcatUids')}</span>
+              <input
+                type="text"
+                value={state.uids}
+                inputMode="numeric"
+                placeholder="1000, 1001"
+                spellCheck={false}
+                onChange={(event) => patchState({ uids: event.currentTarget.value })}
+                disabled={pending || state.phase === 'picking'}
+              />
+            </label>
+          </>
+        ) : null}
+      </div>
+
+      {!filtersValid ? (
+        <div className="inline-alert inline-alert--danger" role="alert">
+          <Icon name="warningPng" size={18} />
+          <span>{t('tools.logcatFilterInvalid')}</span>
+        </div>
+      ) : null}
+
       <p className={`logcat-redaction-note ${redaction === 'none' ? 'is-warning' : ''}`}>
         <Icon name={redaction === 'none' ? 'warningPng' : 'shield'} size={18} />
         <span>{t(redaction === 'strict' ? 'tools.logcatRedactionStrictDetail' : redaction === 'standard' ? 'tools.logcatRedactionStandardDetail' : 'tools.logcatRedactionNoneDetail')}</span>
@@ -854,31 +1153,33 @@ export function LogcatPanel({
             {t(state.phase === 'cancelling' ? 'tools.logcatCancelling' : 'tools.logcatCancel')}
           </Button>
         ) : (
-          <Button variant="primary" icon="logs" onClick={() => void runCapture()} disabled={!adbReady || hostBusy || state.phase === 'picking'}>
+          <Button variant="primary" icon="logs" onClick={() => void runCapture()} disabled={!adbReady || hostBusy || !filtersValid || state.phase === 'picking'}>
             {t(state.mode === 'snapshot' ? 'tools.logcatCollectSnapshot' : 'tools.logcatStartStream')}
           </Button>
         )}
-        <Button icon="download" onClick={() => void exportCapture()} disabled={!adbReady || hostBusy || pending || state.phase === 'picking'}>{t('tools.logcatExport')}</Button>
-        {visibleLines?.length ? <Button variant="ghost" onClick={clear} disabled={pending}>{t('tools.logcatClear')}</Button> : null}
+        <Button icon="download" onClick={() => void exportCapture()} disabled={!adbReady || hostBusy || !filtersValid || pending || state.phase === 'picking'}>{t('tools.logcatExport')}</Button>
+        <Button variant="danger" onClick={() => void clearDeviceBuffers()} disabled={!adbReady || hostBusy || pending || state.phase === 'picking'}>{t('tools.logcatClearDevice')}</Button>
+        {visibleLines?.length ? <Button variant="ghost" onClick={clearViewer} disabled={pending}>{t('tools.logcatClear')}</Button> : null}
       </div>
-      <p className="logcat-export-help">{t('tools.logcatExportDetail')}</p>
+      <p className="logcat-export-help">{t('tools.logcatExportDetail')} {t('tools.logcatClearDeviceDetail')}</p>
 
       {pending || state.phase === 'picking' ? (
         <div className="logcat-progress">
           <span className="sr-only" role="status">
-            {t(state.phase === 'picking' ? 'tools.logcatChoosingExport' : state.phase === 'cancelling' ? 'tools.logcatCancelling' : state.mode === 'stream' ? 'tools.logcatStreaming' : 'tools.logcatCollecting')}
+            {t(state.phase === 'picking' ? 'tools.logcatChoosingExport' : state.phase === 'cancelling' ? 'tools.logcatCancelling' : state.phase === 'clearing' ? 'tools.logcatClearingDevice' : state.mode === 'stream' ? 'tools.logcatStreaming' : 'tools.logcatCollecting')}
           </span>
           <span className="status-dot status-dot--active" />
           <div>
-            <strong>{t(state.phase === 'picking' ? 'tools.logcatChoosingExport' : state.phase === 'cancelling' ? 'tools.logcatCancelling' : state.mode === 'stream' ? 'tools.logcatStreaming' : 'tools.logcatCollecting')}</strong>
-            <small aria-hidden="true">{operationCurrent ? t('tools.logcatProgressLines', { count: operationCurrent }) : t('tools.logcatBoundedStatus', { count: state.maxLines })}</small>
+            <strong>{t(state.phase === 'picking' ? 'tools.logcatChoosingExport' : state.phase === 'cancelling' ? 'tools.logcatCancelling' : state.phase === 'clearing' ? 'tools.logcatClearingDevice' : state.mode === 'stream' ? 'tools.logcatStreaming' : 'tools.logcatCollecting')}</strong>
+            {state.phase === 'clearing' ? null : <small aria-hidden="true">{operationCurrent ? t('tools.logcatProgressLines', { count: operationCurrent }) : t('tools.logcatBoundedStatus', { count: state.maxLines })}</small>}
           </div>
           {progress !== null ? <progress aria-label={t('tools.logcatProgress')} max={100} value={progress} /> : null}
         </div>
       ) : null}
 
       {state.phase === 'cancelled' ? <div className="inline-alert inline-alert--warning" role="status"><Icon name="warningPng" size={18} /><span>{t('tools.logcatCancelled')}</span></div> : null}
-      {state.phase === 'failed' ? <div className="inline-alert inline-alert--danger" role="alert"><Icon name="warningPng" size={18} /><span>{t(state.code === 'logcat_result_invalid' ? 'tools.logcatInvalidResult' : 'tools.logcatFailed')}</span></div> : null}
+      {state.phase === 'failed' ? <div className="inline-alert inline-alert--danger" role="alert"><Icon name="warningPng" size={18} /><span>{t(state.code === 'logcat_result_invalid' ? 'tools.logcatInvalidResult' : state.code.startsWith('logcat_clear') || state.code.startsWith('postcondition_') || state.code === 'outcome_unknown' ? 'tools.logcatClearFailed' : 'tools.logcatFailed')}</span></div> : null}
+      {state.phase === 'success' && state.code === 'logcat_buffers_cleared' ? <div className="inline-alert inline-alert--success" role="status"><Icon name="check" size={18} /><span>{t('tools.logcatClearVerified')}</span></div> : null}
 
       {visibleReport ? (
         <div className="logcat-summary" role="status" aria-live="polite" aria-label={t('tools.logcatSummary')}>

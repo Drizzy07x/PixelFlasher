@@ -1731,17 +1731,21 @@
       "area": "device_tools",
       "capability": "Logcat viewer and filtered update_engine logs",
       "owner": "device_tools",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat",
+        "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat_clear",
         "pixelflasher_core/device_tools.py:SubprocessLogcatStreamRunner",
         "pixelflasher_core/device_tools.py:DeviceToolsService.finalize_logcat",
+        "pixelflasher_core/operation_runner.py:OperationRunner._verify_logcat_buffers_cleared",
+        "pixelflasher_core/engine.py:PixelFlasherEngine._parse_service_result",
         "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService._compile_logs",
         "ui/public_bridge.py:_project_logcat",
+        "ui/public_bridge.py:_project_logcat_clear",
         "ui/web/src/pages/tooling/LogcatPanel.tsx:LogcatPanel",
         "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Bounded snapshot and streaming capture, in-flight cancellation, configurable redaction, grant-based export and the filtered update_engine snapshot are native. Remote buffer clearing, the remaining format verbs and adverb modifiers, regex and UID filters, and React tag/priority controls remain open.",
+      "gap": "",
       "exitCriteria": [
         "Logcat viewer and filtered update_engine logs is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -1749,7 +1753,7 @@
         "device.discovery",
         "platform_tools.setup"
       ],
-      "risk": "host_write",
+      "risk": "destructive",
       "platforms": [
         "windows",
         "macos",
@@ -1757,6 +1761,8 @@
       ],
       "tests": [
         "tests/test_device_tools_service.py",
+        "tests/test_operation_runner_v2.py",
+        "tests/test_bridge_contract.py",
         "tests/test_service_engine_integration.py",
         "tests/test_logcat_public_contract.py",
         "tests/test_ota_diagnostics_service.py",
@@ -1771,7 +1777,8 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
-        "tools.logcat"
+        "tools.logcat",
+        "tools.logcat.clear"
       ]
     },
     {

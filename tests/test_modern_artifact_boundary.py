@@ -303,6 +303,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                     )
                     if command in {
                         "tools.logcat",
+                        "tools.logcat.clear",
                         "tools.pushFiles",
                         "tools.wifi.discover",
                     }:

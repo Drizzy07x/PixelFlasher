@@ -5047,3 +5047,60 @@ msgstr "Visualizzazione delle ultime {shown} righe su {total}."
 msgctxt "web.tools.logcatEmpty"
 msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
 msgstr "Scegli un’istantanea o uno streaming limitato. L’output resta in memoria finché non pulisci il visualizzatore."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.logcatFormatting"
+msgid "Enable Logcat formatting"
+msgstr "Abilita formattazione Logcat"
+
+msgctxt "web.tools.logcatFormatModifiers"
+msgid "Format modifiers"
+msgstr "Modificatori di formato"
+
+msgctxt "web.tools.logcatTag"
+msgid "Tag filter"
+msgstr "Filtro tag"
+
+msgctxt "web.tools.logcatPriority"
+msgid "Minimum priority"
+msgstr "Priorità minima"
+
+msgctxt "web.tools.logcatRegex"
+msgid "Regex filter (Expert)"
+msgstr "Filtro regex (Esperto)"
+
+msgctxt "web.tools.logcatUids"
+msgid "UID filters (Expert)"
+msgstr "Filtri UID (Esperto)"
+
+msgctxt "web.tools.logcatFilterInvalid"
+msgid ""
+"Correct the tag, modifier, regex, or UID filter before collecting logs."
+msgstr "Correggi il tag, il modificatore, la regex o il filtro UID prima di raccogliere i log."
+
+msgctxt "web.tools.logcatClearingDevice"
+msgid "Clearing and verifying device log buffers…"
+msgstr "Pulizia e verifica dei buffer di log del dispositivo…"
+
+msgctxt "web.tools.logcatClearFailed"
+msgid "Device log buffers could not be cleared with a verified outcome."
+msgstr "Impossibile pulire i buffer di log con un risultato verificato."
+
+msgctxt "web.tools.logcatClearDevice"
+msgid "Clear device buffers"
+msgstr "Pulisci buffer del dispositivo"
+
+msgctxt "web.tools.logcatClearDeviceDetail"
+msgid ""
+"Device clearing requires confirmation; success verifies the all-buffer "
+"control and a main-buffer sentinel."
+msgstr "La pulizia del dispositivo richiede conferma; il successo verifica il comando per tutti i buffer e un marcatore del buffer principale."
+
+msgctxt "web.tools.logcatClearVerified"
+msgid ""
+"The all-buffer clear control completed and main-buffer sentinel removal was "
+"verified. One verification entry remains."
+msgstr "Il comando di pulizia di tutti i buffer è terminato e la rimozione del marcatore principale è stata verificata. Rimane una voce di verifica."

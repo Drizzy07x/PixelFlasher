@@ -36,6 +36,7 @@ _GRANT_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 _PURPOSE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9.-]{2,127}$")
 _SIMPLE_TEXT_PATTERN = re.compile(r"^[^\x00-\x1f\x7f]{1,160}$")
 _EXTENSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,15}$")
+_LOGCAT_TAG_PATTERN = re.compile(r"^(?:\*|[A-Za-z0-9][A-Za-z0-9_.-]{0,63})$")
 
 _REQUIRED_FIELDS = frozenset({"version", "requestId", "command", "payload", "expectedRevision"})
 
@@ -293,6 +294,8 @@ def _validate_payload_values(
             _payload_error("firmware.select requires one native grant or firmwareId", request_id)
     elif command == "tools.pushFiles" and "grants" not in payload:
         _payload_error("tools.pushFiles requires native grants", request_id)
+    elif command == "tools.logcat":
+        _validate_logcat_payload(payload, request_id)
     elif command == "boot.patch":
         if "grant" not in payload:
             _payload_error("boot.patch requires a native destination grant", request_id)
@@ -326,6 +329,121 @@ def _validate_payload_values(
         _payload_error("serial must be a non-empty string", request_id)
     if "confirmationText" in payload and not _nonempty_string(payload["confirmationText"], limit=512):
         _payload_error("confirmationText must be a non-empty string", request_id)
+
+
+def _validate_logcat_payload(payload: Mapping[str, Any], request_id: str) -> None:
+    if "mode" in payload and payload["mode"] not in {"snapshot", "stream"}:
+        _payload_error("tools.logcat mode is invalid", request_id)
+    if "buffers" in payload:
+        buffers = payload["buffers"]
+        allowed_buffers = {"main", "system", "radio", "events", "crash", "all"}
+        if (
+            not isinstance(buffers, list)
+            or not 1 <= len(buffers) <= 6
+            or any(not isinstance(item, str) or item not in allowed_buffers for item in buffers)
+            or len(set(buffers)) != len(buffers)
+            or "all" in buffers
+            and len(buffers) != 1
+        ):
+            _payload_error("tools.logcat buffers are invalid or ambiguous", request_id)
+    format_enabled = payload.get("formatEnabled", True)
+    if not isinstance(format_enabled, bool):
+        _payload_error("tools.logcat formatEnabled must be a boolean", request_id)
+    if not format_enabled and ({"formatVerb", "formatModifiers"} & set(payload)):
+        _payload_error("disabled Logcat formatting cannot include format options", request_id)
+    if "formatVerb" in payload and payload["formatVerb"] not in {
+        "brief",
+        "long",
+        "process",
+        "raw",
+        "tag",
+        "thread",
+        "threadtime",
+        "time",
+    }:
+        _payload_error("tools.logcat formatVerb is invalid", request_id)
+    if "formatModifiers" in payload:
+        modifiers = payload["formatModifiers"]
+        allowed_modifiers = {
+            "color",
+            "descriptive",
+            "epoch",
+            "monotonic",
+            "printable",
+            "uid",
+            "usec",
+        }
+        if (
+            not isinstance(modifiers, list)
+            or len(modifiers) > len(allowed_modifiers)
+            or any(not isinstance(item, str) or item not in allowed_modifiers for item in modifiers)
+            or len(set(modifiers)) != len(modifiers)
+            or {"epoch", "monotonic"} <= set(modifiers)
+        ):
+            _payload_error("tools.logcat formatModifiers are invalid or ambiguous", request_id)
+    if "filters" in payload:
+        filters = payload["filters"]
+        if not isinstance(filters, list) or len(filters) > 32:
+            _payload_error("tools.logcat filters are invalid", request_id)
+        seen_tags: set[str] = set()
+        for item in filters:
+            if not isinstance(item, Mapping) or set(item) != {"tag", "priority"}:
+                _payload_error("tools.logcat filter fields are invalid", request_id)
+            tag = item.get("tag")
+            priority = item.get("priority")
+            if (
+                not isinstance(tag, str)
+                or _LOGCAT_TAG_PATTERN.fullmatch(tag) is None
+                or not isinstance(priority, str)
+                or priority not in {"V", "D", "I", "W", "E", "F", "S"}
+                or tag.casefold() in seen_tags
+            ):
+                _payload_error("tools.logcat filter is invalid or duplicated", request_id)
+            seen_tags.add(tag.casefold())
+    regex_filter = payload.get("regex")
+    if regex_filter is not None and (
+        not isinstance(regex_filter, str)
+        or not regex_filter
+        or regex_filter != regex_filter.strip()
+        or len(regex_filter.encode("utf-8")) > 256
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in regex_filter)
+    ):
+        _payload_error("tools.logcat regex is invalid", request_id)
+    if "uids" in payload:
+        uids = payload["uids"]
+        if (
+            not isinstance(uids, list)
+            or len(uids) > 32
+            or any(
+                not isinstance(uid, int)
+                or isinstance(uid, bool)
+                or not 0 <= uid <= 4_294_967_295
+                for uid in uids
+            )
+            or len(set(uids)) != len(uids)
+        ):
+            _payload_error("tools.logcat uids are invalid or duplicated", request_id)
+    for field_name, minimum, maximum in (
+        ("maxLines", 1, 10_000),
+        ("timeoutSeconds", 1, 120),
+    ):
+        value = payload.get(field_name)
+        if value is not None and (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not minimum <= value <= maximum
+        ):
+            _payload_error(
+                f"tools.logcat {field_name} is outside its bound", request_id
+            )
+    if regex_filter is not None and payload.get("timeoutSeconds", 30) > 30:
+        _payload_error("regex-filtered Logcat capture is limited to 30 seconds", request_id)
+    if "redaction" in payload and payload["redaction"] not in {
+        "strict",
+        "standard",
+        "none",
+    }:
+        _payload_error("tools.logcat redaction policy is invalid", request_id)
 
 
 def _validate_filters(value: Any, request_id: str) -> None:

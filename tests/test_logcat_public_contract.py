@@ -5,6 +5,7 @@ from pixelflasher_core import OperationResult
 from ui.public_bridge import PublicProjectionError, project_operation_result
 
 COMMAND = "tools.logcat"
+CLEAR_COMMAND = "tools.logcat.clear"
 
 
 def logcat_value(*, exported: bool = False) -> dict[str, object]:
@@ -96,6 +97,38 @@ class LogcatPublicContractTests(unittest.TestCase):
             with self.subTest(malformed=malformed):
                 with self.assertRaises(PublicProjectionError):
                     self.project({**value, "export": malformed})
+
+    def test_projects_only_the_closed_verified_clear_receipt(self) -> None:
+        value = {
+            "targetSerial": "ABC123",
+            "buffers": ["all"],
+            "clearCommandCompleted": True,
+            "controlCommandVerified": True,
+            "mainBufferSentinelVerified": True,
+            "verificationEntryRetained": True,
+        }
+        public = project_operation_result(
+            CLEAR_COMMAND,
+            OperationResult.success("logcat-clear-contract", value=value),
+        )
+
+        self.assertEqual(value, public["value"])
+        for field in tuple(value):
+            with self.subTest(field=field):
+                malformed = {key: item for key, item in value.items() if key != field}
+                with self.assertRaises(PublicProjectionError):
+                    project_operation_result(
+                        CLEAR_COMMAND,
+                        OperationResult.success("logcat-clear-contract", value=malformed),
+                    )
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                CLEAR_COMMAND,
+                OperationResult.success(
+                    "logcat-clear-contract",
+                    value={**value, "transcript": "private"},
+                ),
+            )
 
 
 if __name__ == "__main__":

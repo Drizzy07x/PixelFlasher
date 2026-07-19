@@ -14,6 +14,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -50,6 +51,7 @@ from .grants import (
 DEVICE_TOOL_COMMANDS = frozenset(
     {
         "tools.logcat",
+        "tools.logcat.clear",
         "tools.pushFiles",
         "tools.adbShell",
         "tools.scrcpy",
@@ -64,9 +66,7 @@ _LOGCAT_BUFFERS = frozenset({"main", "system", "radio", "events", "crash", "all"
 _LOGCAT_FORMATS = frozenset(
     {
         "brief",
-        "epoch",
         "long",
-        "monotonic",
         "process",
         "raw",
         "tag",
@@ -75,24 +75,31 @@ _LOGCAT_FORMATS = frozenset(
         "time",
     }
 )
+_LOGCAT_FORMAT_MODIFIERS = (
+    "color",
+    "descriptive",
+    "epoch",
+    "monotonic",
+    "printable",
+    "uid",
+    "usec",
+)
+_LOGCAT_FORMAT_MODIFIER_SET = frozenset(_LOGCAT_FORMAT_MODIFIERS)
 _LOGCAT_PRIORITIES = {
     "v": "V",
-    "verbose": "V",
     "d": "D",
-    "debug": "D",
     "i": "I",
-    "info": "I",
     "w": "W",
-    "warn": "W",
-    "warning": "W",
     "e": "E",
-    "error": "E",
     "f": "F",
-    "fatal": "F",
     "s": "S",
-    "silent": "S",
 }
 _LOGCAT_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_LOGCAT_UID_PATTERN = re.compile(r"^(?:0|[1-9][0-9]{0,9})$")
+_LOGCAT_CLEAR_MARKER_PATTERN = re.compile(
+    r"^PF10_(?:PRE|POST|PRE_START|PRE_END|POST_START|POST_END)_[0-9a-f]{32}$"
+)
+_LOGCAT_CLEAR_TAG = "PixelFlasherClear"
 _LOGCAT_MODES = frozenset({"snapshot", "stream"})
 _LOGCAT_REDACTION_PROFILES = frozenset({"strict", "standard", "none"})
 _LOGCAT_OUTPUT_LIMIT = 16 * 1024 * 1024
@@ -309,6 +316,7 @@ class LogcatStreamOutcome:
     line_limit_reached: bool = False
     output_limited: bool = False
     truncated_lines: int = 0
+    stderr_bytes: int = 0
 
 
 class LogcatStreamRunner(Protocol):
@@ -583,7 +591,10 @@ class SubprocessLogcatStreamRunner:
         def drain_stderr() -> None:
             nonlocal stderr_bytes
             try:
-                while not stop_requested.is_set():
+                # Drain through EOF even after stdout reaches its bound. The
+                # child is stopped before the readers are joined, so this
+                # cannot outlive the process and cannot miss late diagnostics.
+                while True:
                     chunk = os.read(stderr_stream.fileno(), self.read_chunk_bytes)
                     if not chunk:
                         return
@@ -665,6 +676,7 @@ class SubprocessLogcatStreamRunner:
             line_limit_reached=line_limit_reached.is_set(),
             output_limited=output_limited.is_set(),
             truncated_lines=truncated_lines,
+            stderr_bytes=stderr_bytes,
         )
 
     def shutdown(self) -> None:
@@ -1462,6 +1474,11 @@ class DeviceToolsService:
             return self._compile_inspection(command, snapshot, device, adb)
         if command.kind == "tools.wifi.status":
             return self._compile_wifi_status(command, snapshot, device, adb)
+        if command.kind == "tools.logcat.clear":
+            self._check_planning_cancelled(cancellation)
+            compilation = self._compile_logcat_clear(command, snapshot, device, adb)
+            self._check_planning_cancelled(cancellation)
+            return compilation
         if command.kind == "tools.logcat":
             self._check_planning_cancelled(cancellation)
             compilation = self._compile_logcat(command, snapshot, device, adb)
@@ -1781,6 +1798,9 @@ class DeviceToolsService:
                     and isinstance(outcome.truncated_lines, int)
                     and not isinstance(outcome.truncated_lines, bool)
                     and 0 <= outcome.truncated_lines <= len(outcome.lines)
+                    and isinstance(outcome.stderr_bytes, int)
+                    and not isinstance(outcome.stderr_bytes, bool)
+                    and 0 <= outcome.stderr_bytes <= _LOGCAT_STDERR_LIMIT
                     and sum(
                         (outcome.cancelled, outcome.timed_out, outcome.output_limited)
                     )
@@ -1818,6 +1838,13 @@ class DeviceToolsService:
                     operation_id,
                     code="output_limit_exceeded",
                     message="logcat streaming exceeded its output limit",
+                    exit_code=outcome.returncode,
+                )
+            if outcome.stderr_bytes:
+                return OperationResult.failed(
+                    operation_id,
+                    code="logcat_stream_stderr_unexpected",
+                    message="ADB logcat returned unexpected stream diagnostics",
                     exit_code=outcome.returncode,
                 )
             if not outcome.duration_completed:
@@ -2254,6 +2281,13 @@ class DeviceToolsService:
                 message=result.message,
                 exit_code=result.exit_code,
             )
+        if result.stderr.strip():
+            return OperationResult.failed(
+                result.operation_id,
+                code="logcat_stderr_unexpected",
+                message="ADB logcat returned unexpected diagnostics",
+                exit_code=result.exit_code,
+            )
 
         lines: list[str] = []
         redacted_count = 0
@@ -2431,7 +2465,6 @@ class DeviceToolsService:
         serial: str,
         profile: str,
     ) -> tuple[str, bool, bool]:
-        original = raw_line
         line_truncated = False
         safe = _LOGCAT_ANSI_ESCAPE.sub("", raw_line)
         safe = _LOGCAT_UNSAFE_CONTROL.sub("", safe)
@@ -2441,6 +2474,7 @@ class DeviceToolsService:
             safe = encoded[:_LOGCAT_LINE_LIMIT_BYTES].decode(
                 "utf-8", errors="ignore"
             )
+        pre_redaction = safe
         # Host-like paths are never allowed across the public bridge, even
         # when an Expert explicitly disables PII redaction.
         safe = _LOGCAT_WINDOWS_HOST_PATH.sub("<host-path>", safe)
@@ -2488,7 +2522,7 @@ class DeviceToolsService:
             safe = final_bytes[:_LOGCAT_LINE_LIMIT_BYTES].decode(
                 "utf-8", errors="ignore"
             )
-        return safe, safe != original, line_truncated
+        return safe, safe != pre_redaction, line_truncated
 
     @staticmethod
     def _export_logcat(
@@ -2564,8 +2598,12 @@ class DeviceToolsService:
                 "serial",
                 "mode",
                 "buffers",
-                "format",
+                "formatEnabled",
+                "formatVerb",
+                "formatModifiers",
                 "filters",
+                "regex",
+                "uids",
                 "maxLines",
                 "timeoutSeconds",
                 "redaction",
@@ -2574,8 +2612,20 @@ class DeviceToolsService:
         )
         mode = self._logcat_mode(command.payload.get("mode"))
         buffers = self._logcat_buffers(command.payload.get("buffers"))
-        output_format = self._logcat_format(command.payload.get("format"))
+        format_enabled = self._logcat_format_enabled(
+            command.payload.get("formatEnabled")
+        )
+        output_format = self._logcat_format(
+            command.payload.get("formatVerb"),
+            enabled=format_enabled,
+        )
+        format_modifiers = self._logcat_format_modifiers(
+            command.payload.get("formatModifiers"),
+            enabled=format_enabled,
+        )
         filters = self._logcat_filters(command.payload.get("filters"))
+        regex_filter = self._logcat_regex(command.payload.get("regex"))
+        uids = self._logcat_uids(command.payload.get("uids"))
         redaction = self._logcat_redaction(command.payload.get("redaction"))
         max_lines = self._bounded_integer(
             command.payload.get("maxLines", 1000),
@@ -2589,6 +2639,11 @@ class DeviceToolsService:
             minimum=1,
             maximum=120,
         )
+        if regex_filter is not None and timeout_seconds > 30:
+            raise DeviceToolPlanningError(
+                "logcat_regex_timeout_invalid",
+                "regex-filtered Logcat capture is limited to 30 seconds",
+            )
         raw_destination = command.payload.get("exportDestination")
         if raw_destination is not None and not isinstance(raw_destination, BoundWriteFile):
             raise DeviceToolPlanningError(
@@ -2601,24 +2656,33 @@ class DeviceToolsService:
 
         buffer_argv = tuple(argument for buffer in buffers for argument in ("-b", buffer))
         filter_argv = tuple(f"{tag}:{priority}" for tag, priority in filters)
+        format_argv = (
+            ("-v", ",".join((output_format, *format_modifiers)))
+            if format_enabled
+            else ()
+        )
+        regex_argv = ("-e", regex_filter) if regex_filter is not None else ()
+        uid_argv = ("--uid", ",".join(uids)) if uids else ()
         logcat_argv = (
             (
                 "logcat",
                 "-d",
                 *buffer_argv,
-                "-v",
-                output_format,
+                *format_argv,
                 "-t",
                 str(max_lines),
                 *filter_argv,
+                *regex_argv,
+                *uid_argv,
             )
             if mode == "snapshot"
             else (
                 "logcat",
                 *buffer_argv,
-                "-v",
-                output_format,
+                *format_argv,
                 *filter_argv,
+                *regex_argv,
+                *uid_argv,
             )
         )
         request = ProcessRequest(
@@ -2678,6 +2742,160 @@ class DeviceToolsService:
             logcat_redaction=redaction,
             logcat_max_lines=max_lines,
             export_destination=export_destination,
+        )
+
+    def _compile_logcat_clear(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> DeviceToolCompilation:
+        self._validate_payload(command, {"serial"})
+        marker_tokens = tuple(secrets.token_hex(16) for _index in range(6))
+        if (
+            any(re.fullmatch(r"[0-9a-f]{32}", token) is None for token in marker_tokens)
+            or len(set(marker_tokens)) != len(marker_tokens)
+        ):
+            raise DeviceToolPlanningError(
+                "logcat_clear_marker_unavailable",
+                "independent Logcat clear verification markers could not be created",
+            )
+        (
+            pre_token,
+            post_token,
+            pre_start_token,
+            pre_end_token,
+            post_start_token,
+            post_end_token,
+        ) = marker_tokens
+        pre_marker = f"PF10_PRE_{pre_token}"
+        post_marker = f"PF10_POST_{post_token}"
+        pre_start_marker = f"PF10_PRE_START_{pre_start_token}"
+        pre_end_marker = f"PF10_PRE_END_{pre_end_token}"
+        post_start_marker = f"PF10_POST_START_{post_start_token}"
+        post_end_marker = f"PF10_POST_END_{post_end_token}"
+        markers = (
+            pre_marker,
+            post_marker,
+            pre_start_marker,
+            pre_end_marker,
+            post_start_marker,
+            post_end_marker,
+        )
+        if any(
+            _LOGCAT_CLEAR_MARKER_PATTERN.fullmatch(marker) is None
+            for marker in markers
+        ) or len(set(markers)) != len(markers):
+            raise DeviceToolPlanningError(
+                "logcat_clear_marker_unavailable",
+                "a safe Logcat clear verification transcript could not be created",
+            )
+        query = (
+            adb,
+            "-s",
+            device.serial,
+            "logcat",
+            "-d",
+            "-b",
+            "main",
+            "-v",
+            "raw",
+            f"{_LOGCAT_CLEAR_TAG}:I",
+            "*:S",
+        )
+        requests = (
+            ProcessRequest(
+                (
+                    adb,
+                    "-s",
+                    device.serial,
+                    "shell",
+                    "log",
+                    "-p",
+                    "i",
+                    "-t",
+                    _LOGCAT_CLEAR_TAG,
+                    pre_marker,
+                ),
+                timeout_seconds=8,
+                output_limit_bytes=64 * 1024,
+            ),
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "echo", pre_start_marker),
+                timeout_seconds=5,
+                output_limit_bytes=4 * 1024,
+            ),
+            ProcessRequest(query, timeout_seconds=8, output_limit_bytes=256 * 1024),
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "echo", pre_end_marker),
+                timeout_seconds=5,
+                output_limit_bytes=4 * 1024,
+            ),
+            ProcessRequest(
+                (adb, "-s", device.serial, "logcat", "-b", "all", "-c"),
+                timeout_seconds=8,
+                output_limit_bytes=64 * 1024,
+            ),
+            ProcessRequest(
+                (
+                    adb,
+                    "-s",
+                    device.serial,
+                    "shell",
+                    "log",
+                    "-p",
+                    "i",
+                    "-t",
+                    _LOGCAT_CLEAR_TAG,
+                    post_marker,
+                ),
+                timeout_seconds=8,
+                output_limit_bytes=64 * 1024,
+            ),
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "echo", post_start_marker),
+                timeout_seconds=5,
+                output_limit_bytes=4 * 1024,
+            ),
+            ProcessRequest(query, timeout_seconds=8, output_limit_bytes=256 * 1024),
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "echo", post_end_marker),
+                timeout_seconds=5,
+                output_limit_bytes=4 * 1024,
+            ),
+        )
+        postcondition = OperationPostcondition(
+            "logcat_buffers_cleared",
+            {
+                "buffers": ["all"],
+                "preMarker": pre_marker,
+                "postMarker": post_marker,
+                "preStartMarker": pre_start_marker,
+                "preEndMarker": pre_end_marker,
+                "postStartMarker": post_start_marker,
+                "postEndMarker": post_end_marker,
+            },
+            (
+                "the all-buffer clear control succeeded, the main-buffer sentinel "
+                "was removed, and one post-clear verification entry remains"
+            ),
+        )
+        plan = self._base_plan(
+            snapshot,
+            device,
+            requests,
+            label=f"Clear and verify Android log buffers on {device.serial}",
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(postcondition,),
+            data_behavior="device_log_buffers_clear",
+        )
+        return DeviceToolCompilation(
+            plan,
+            "logcat.clear",
+            device_write=True,
+            destructive=True,
+            requires_confirmation=True,
         )
 
     def _compile_push_files(
@@ -2862,50 +3080,122 @@ class DeviceToolsService:
         return tuple(normalized)
 
     @staticmethod
-    def _logcat_format(raw_format: object) -> str:
+    def _logcat_format_enabled(raw_enabled: object) -> bool:
+        if raw_enabled is None:
+            return True
+        if not isinstance(raw_enabled, bool):
+            raise DeviceToolPlanningError(
+                "logcat_format_invalid",
+                "formatEnabled must be a boolean",
+            )
+        return raw_enabled
+
+    @staticmethod
+    def _logcat_format(raw_format: object, *, enabled: bool) -> str:
+        if not enabled:
+            if raw_format is not None:
+                raise DeviceToolPlanningError(
+                    "logcat_format_ambiguous",
+                    "formatVerb must be omitted when formatting is disabled",
+                )
+            return ""
         if raw_format is None:
             return "threadtime"
         if not isinstance(raw_format, str):
             raise DeviceToolPlanningError(
                 "logcat_format_invalid",
-                "logcat format must be a string",
+                "logcat format verb must be a string",
             )
         output_format = raw_format.strip().casefold()
         if output_format not in _LOGCAT_FORMATS:
             raise DeviceToolPlanningError(
                 "logcat_format_invalid",
-                f"unsupported logcat format: {raw_format}",
+                f"unsupported logcat format verb: {raw_format}",
             )
         return output_format
+
+    @staticmethod
+    def _logcat_format_modifiers(
+        raw_modifiers: object,
+        *,
+        enabled: bool,
+    ) -> tuple[str, ...]:
+        if raw_modifiers is None:
+            return ()
+        if not enabled:
+            raise DeviceToolPlanningError(
+                "logcat_format_ambiguous",
+                "formatModifiers must be omitted when formatting is disabled",
+            )
+        if not isinstance(raw_modifiers, Sequence) or isinstance(
+            raw_modifiers, (str, bytes)
+        ):
+            raise DeviceToolPlanningError(
+                "logcat_format_modifier_invalid",
+                "formatModifiers must be an array",
+            )
+        modifier_values = cast(Sequence[object], raw_modifiers)
+        if len(modifier_values) > len(_LOGCAT_FORMAT_MODIFIERS):
+            raise DeviceToolPlanningError(
+                "logcat_format_modifier_invalid",
+                "too many Logcat format modifiers were provided",
+            )
+        normalized: set[str] = set()
+        for raw_modifier in modifier_values:
+            if not isinstance(raw_modifier, str):
+                raise DeviceToolPlanningError(
+                    "logcat_format_modifier_invalid",
+                    "Logcat format modifiers must be strings",
+                )
+            modifier = raw_modifier.strip().casefold()
+            if modifier not in _LOGCAT_FORMAT_MODIFIER_SET:
+                raise DeviceToolPlanningError(
+                    "logcat_format_modifier_invalid",
+                    f"unsupported Logcat format modifier: {raw_modifier}",
+                )
+            if modifier in normalized:
+                raise DeviceToolPlanningError(
+                    "logcat_format_modifier_ambiguous",
+                    f"duplicate Logcat format modifier: {modifier}",
+                )
+            normalized.add(modifier)
+        if {"epoch", "monotonic"} <= normalized:
+            raise DeviceToolPlanningError(
+                "logcat_format_modifier_ambiguous",
+                "epoch and monotonic timestamp modifiers cannot be combined",
+            )
+        return tuple(
+            modifier
+            for modifier in _LOGCAT_FORMAT_MODIFIERS
+            if modifier in normalized
+        )
 
     @staticmethod
     def _logcat_filters(raw_filters: object) -> tuple[tuple[str, str], ...]:
         if raw_filters is None:
             return ()
-        if isinstance(raw_filters, Mapping):
-            filter_values = tuple(cast(Mapping[object, object], raw_filters).items())
-        elif isinstance(raw_filters, Sequence) and not isinstance(
+        if isinstance(raw_filters, Sequence) and not isinstance(
             raw_filters, (str, bytes)
         ):
             parsed: list[tuple[object, object]] = []
             for raw_filter in cast(Sequence[object], raw_filters):
-                if not isinstance(raw_filter, str):
+                if not isinstance(raw_filter, Mapping):
                     raise DeviceToolPlanningError(
                         "logcat_filter_invalid",
-                        "logcat filter entries must be strings",
+                        "logcat filter entries must be closed objects",
                     )
-                tag, separator, priority = raw_filter.rpartition(":")
-                if not separator or not tag or not priority:
+                filter_mapping = cast(Mapping[object, object], raw_filter)
+                if set(filter_mapping) != {"tag", "priority"}:
                     raise DeviceToolPlanningError(
                         "logcat_filter_invalid",
-                        "logcat filters must use the Tag:priority form",
+                        "logcat filter objects require exactly tag and priority",
                     )
-                parsed.append((tag, priority))
+                parsed.append((filter_mapping["tag"], filter_mapping["priority"]))
             filter_values = tuple(parsed)
         else:
             raise DeviceToolPlanningError(
                 "logcat_filter_invalid",
-                "filters must be an array of Tag:priority strings",
+                "filters must be an array of closed tag/priority objects",
             )
         if len(filter_values) > 32:
             raise DeviceToolPlanningError(
@@ -2947,6 +3237,64 @@ class DeviceToolsService:
         elif "*" in normalized:
             named.append(normalized["*"])
         return tuple(named)
+
+    @staticmethod
+    def _logcat_regex(raw_regex: object) -> str | None:
+        if raw_regex is None:
+            return None
+        if not isinstance(raw_regex, str):
+            raise DeviceToolPlanningError(
+                "logcat_regex_invalid",
+                "the Logcat regex filter must be a string",
+            )
+        if (
+            not raw_regex
+            or raw_regex != raw_regex.strip()
+            or len(raw_regex.encode("utf-8")) > 256
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_regex)
+        ):
+            raise DeviceToolPlanningError(
+                "logcat_regex_invalid",
+                "the Logcat regex must be one non-empty line of at most 256 UTF-8 bytes",
+            )
+        return raw_regex
+
+    @staticmethod
+    def _logcat_uids(raw_uids: object) -> tuple[str, ...]:
+        if raw_uids is None:
+            return ()
+        if not isinstance(raw_uids, Sequence) or isinstance(raw_uids, (str, bytes)):
+            raise DeviceToolPlanningError(
+                "logcat_uid_invalid",
+                "uids must be an array of integers",
+            )
+        uid_values = cast(Sequence[object], raw_uids)
+        if len(uid_values) > 32:
+            raise DeviceToolPlanningError(
+                "logcat_uid_invalid",
+                "at most 32 Logcat UIDs are allowed",
+            )
+        normalized: list[str] = []
+        seen: set[int] = set()
+        for raw_uid in uid_values:
+            if (
+                not isinstance(raw_uid, int)
+                or isinstance(raw_uid, bool)
+                or not 0 <= raw_uid <= 4_294_967_295
+                or not _LOGCAT_UID_PATTERN.fullmatch(str(raw_uid))
+            ):
+                raise DeviceToolPlanningError(
+                    "logcat_uid_invalid",
+                    "Logcat UIDs must be unique unsigned 32-bit integers",
+                )
+            if raw_uid in seen:
+                raise DeviceToolPlanningError(
+                    "logcat_uid_ambiguous",
+                    f"duplicate Logcat UID: {raw_uid}",
+                )
+            seen.add(raw_uid)
+            normalized.append(str(raw_uid))
+        return tuple(sorted(normalized, key=int))
 
     def _push_paths(self, raw_paths: object) -> tuple[_PushSource, ...]:
         if not isinstance(raw_paths, Sequence) or isinstance(raw_paths, (str, bytes)):

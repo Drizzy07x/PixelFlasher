@@ -5043,3 +5043,60 @@ msgstr "正在顯示最後 {shown} 行，共 {total} 行。"
 msgctxt "web.tools.logcatEmpty"
 msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
 msgstr "選擇快照或有界串流。輸出會保存在記憶體中，直到您清除檢視器。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.logcatFormatting"
+msgid "Enable Logcat formatting"
+msgstr "啟用 Logcat 記錄格式"
+
+msgctxt "web.tools.logcatFormatModifiers"
+msgid "Format modifiers"
+msgstr "格式修飾詞"
+
+msgctxt "web.tools.logcatTag"
+msgid "Tag filter"
+msgstr "標籤篩選器"
+
+msgctxt "web.tools.logcatPriority"
+msgid "Minimum priority"
+msgstr "最低優先順序"
+
+msgctxt "web.tools.logcatRegex"
+msgid "Regex filter (Expert)"
+msgstr "規則運算式篩選器（專家）"
+
+msgctxt "web.tools.logcatUids"
+msgid "UID filters (Expert)"
+msgstr "UID 篩選器（專家）"
+
+msgctxt "web.tools.logcatFilterInvalid"
+msgid ""
+"Correct the tag, modifier, regex, or UID filter before collecting logs."
+msgstr "請先修正標籤、修飾詞、規則運算式或 UID 篩選器，再收集日誌。"
+
+msgctxt "web.tools.logcatClearingDevice"
+msgid "Clearing and verifying device log buffers…"
+msgstr "正在清除並驗證裝置日誌緩衝區…"
+
+msgctxt "web.tools.logcatClearFailed"
+msgid "Device log buffers could not be cleared with a verified outcome."
+msgstr "無法以可驗證的結果清除裝置日誌緩衝區。"
+
+msgctxt "web.tools.logcatClearDevice"
+msgid "Clear device buffers"
+msgstr "清除裝置緩衝區"
+
+msgctxt "web.tools.logcatClearDeviceDetail"
+msgid ""
+"Device clearing requires confirmation; success verifies the all-buffer "
+"control and a main-buffer sentinel."
+msgstr "清除裝置日誌需要確認；成功時會驗證全緩衝區控制命令和主緩衝區標記。"
+
+msgctxt "web.tools.logcatClearVerified"
+msgid ""
+"The all-buffer clear control completed and main-buffer sentinel removal was "
+"verified. One verification entry remains."
+msgstr "全緩衝區清除命令已完成，並已驗證主緩衝區標記被移除。仍保留一筆驗證記錄。"

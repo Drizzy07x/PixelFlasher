@@ -576,6 +576,64 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertNotIn("value", emitted[0]["payload"])
         self.assertNotIn("private device log", repr(emitted[0]))
 
+    def test_logcat_clear_uses_a_closed_response_and_never_exposes_its_transcript(self):
+        receipt = {
+            "targetSerial": "SERIAL",
+            "buffers": ["all"],
+            "clearCommandCompleted": True,
+            "controlCommandVerified": True,
+            "mainBufferSentinelVerified": True,
+            "verificationEntryRetained": True,
+        }
+        completed = []
+        snapshots = []
+        host = SimpleNamespace(
+            _closing=False,
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=7)),
+            _operation_commands={"clear-op": "tools.logcat.clear"},
+            _operation_commands_lock=threading.RLock(),
+            _complete_request=lambda _request, message: completed.append(message),
+            _emit_snapshot=lambda: snapshots.append(True),
+        )
+        bridge_request = request(
+            "clear-op",
+            command="tools.logcat.clear",
+            payload={"serial": "SERIAL"},
+        )
+
+        ModernWebViewFrame._command_finished(
+            host,
+            bridge_request,
+            OperationResult.success(
+                "clear-op",
+                code="logcat_buffers_cleared",
+                stdout="PF10_PRE_private-verification-transcript",
+                value=receipt,
+            ),
+        )
+
+        self.assertTrue(completed[0]["ok"])
+        self.assertEqual(receipt, completed[0]["result"]["value"])
+        self.assertEqual(7, completed[0]["result"]["revision"])
+        self.assertNotIn("stdout", completed[0]["result"])
+        self.assertNotIn("PF10_PRE", repr(completed[0]))
+        self.assertEqual([True], snapshots)
+
+        expanded = dict(receipt, transcript="PF10_POST_private")
+        ModernWebViewFrame._command_finished(
+            host,
+            bridge_request,
+            OperationResult.success(
+                "clear-op",
+                code="logcat_buffers_cleared",
+                value=expanded,
+            ),
+        )
+
+        self.assertFalse(completed[1]["ok"])
+        self.assertEqual("public_result_invalid", completed[1]["error"]["code"])
+        self.assertNotIn("PF10_POST", repr(completed[1]))
+
     def test_invalid_successful_public_result_is_a_typed_bridge_failure(self):
         completed = []
         host = SimpleNamespace(
@@ -688,6 +746,50 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         replay = ledger.begin(first)
         self.assertIs(ReplayAction.REPLAY, replay.action)
         self.assertEqual(responses[0], replay.message)
+
+    def test_logcat_clear_request_id_is_at_most_once_for_the_whole_session(self):
+        ledger = _RequestReplayLedger(maximum_completed=4)
+        clear = request(
+            "clear-once",
+            command="tools.logcat.clear",
+            payload={"serial": "SERIAL"},
+        )
+        response = {
+            "version": 2,
+            "requestId": "clear-once",
+            "ok": True,
+            "result": {
+                "status": "SUCCESS",
+                "code": "logcat_buffers_cleared",
+                "value": {
+                    "targetSerial": "SERIAL",
+                    "buffers": ["all"],
+                    "clearCommandCompleted": True,
+                    "controlCommandVerified": True,
+                    "mainBufferSentinelVerified": True,
+                    "verificationEntryRetained": True,
+                },
+            },
+        }
+
+        self.assertIs(ReplayAction.EXECUTE, ledger.begin(clear).action)
+        for _duplicate in range(3):
+            self.assertIs(ReplayAction.WAIT, ledger.begin(clear).action)
+        waiting = ledger.complete(clear, response)
+
+        self.assertEqual(4, len(waiting))
+        self.assertTrue(all(message == response for message in waiting))
+        for _duplicate in range(3):
+            replay = ledger.begin(clear)
+            self.assertIs(ReplayAction.REPLAY, replay.action)
+            self.assertEqual(response, replay.message)
+
+        changed_target = request(
+            "clear-once",
+            command="tools.logcat.clear",
+            payload={"serial": "OTHER"},
+        )
+        self.assertIs(ReplayAction.CONFLICT, ledger.begin(changed_target).action)
 
     def test_replay_byte_budget_reserves_logcat_before_dispatch_and_releases_slack(self):
         ledger = _RequestReplayLedger(

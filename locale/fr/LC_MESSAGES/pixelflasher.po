@@ -5045,3 +5045,60 @@ msgstr "Affichage des {shown} dernières lignes sur {total}."
 msgctxt "web.tools.logcatEmpty"
 msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
 msgstr "Choisissez un instantané ou un flux limité. La sortie reste en mémoire jusqu’à ce que vous effaciez l’affichage."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.logcatFormatting"
+msgid "Enable Logcat formatting"
+msgstr "Activer le formatage Logcat"
+
+msgctxt "web.tools.logcatFormatModifiers"
+msgid "Format modifiers"
+msgstr "Modificateurs de format"
+
+msgctxt "web.tools.logcatTag"
+msgid "Tag filter"
+msgstr "Filtre par balise"
+
+msgctxt "web.tools.logcatPriority"
+msgid "Minimum priority"
+msgstr "Priorité minimale"
+
+msgctxt "web.tools.logcatRegex"
+msgid "Regex filter (Expert)"
+msgstr "Filtre regex (Expert)"
+
+msgctxt "web.tools.logcatUids"
+msgid "UID filters (Expert)"
+msgstr "Filtres UID (Expert)"
+
+msgctxt "web.tools.logcatFilterInvalid"
+msgid ""
+"Correct the tag, modifier, regex, or UID filter before collecting logs."
+msgstr "Corrigez la balise, le modificateur, l’expression régulière ou le filtre UID avant de collecter les journaux."
+
+msgctxt "web.tools.logcatClearingDevice"
+msgid "Clearing and verifying device log buffers…"
+msgstr "Effacement et vérification des tampons de journaux de l’appareil…"
+
+msgctxt "web.tools.logcatClearFailed"
+msgid "Device log buffers could not be cleared with a verified outcome."
+msgstr "Les tampons de journaux n’ont pas pu être effacés avec un résultat vérifié."
+
+msgctxt "web.tools.logcatClearDevice"
+msgid "Clear device buffers"
+msgstr "Effacer les tampons de l’appareil"
+
+msgctxt "web.tools.logcatClearDeviceDetail"
+msgid ""
+"Device clearing requires confirmation; success verifies the all-buffer "
+"control and a main-buffer sentinel."
+msgstr "L’effacement de l’appareil requiert une confirmation ; la réussite vérifie la commande de tous les tampons et un marqueur du tampon principal."
+
+msgctxt "web.tools.logcatClearVerified"
+msgid ""
+"The all-buffer clear control completed and main-buffer sentinel removal was "
+"verified. One verification entry remains."
+msgstr "La commande d’effacement de tous les tampons est terminée et la suppression du marqueur principal a été vérifiée. Une entrée de vérification subsiste."

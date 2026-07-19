@@ -692,6 +692,119 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(OperationStatus.FAILED, ambiguous.status)
         self.assertEqual("postcondition_mismatch", ambiguous.code)
 
+    def test_logcat_clear_requires_segmented_pre_and_post_query_evidence(self):
+        markers = {
+            "preMarker": "PF10_PRE_" + "1" * 32,
+            "postMarker": "PF10_POST_" + "2" * 32,
+            "preStartMarker": "PF10_PRE_START_" + "3" * 32,
+            "preEndMarker": "PF10_PRE_END_" + "4" * 32,
+            "postStartMarker": "PF10_POST_START_" + "5" * 32,
+            "postEndMarker": "PF10_POST_END_" + "6" * 32,
+        }
+        plan = OperationPlan(
+            request=ProcessRequest(("ADB", "-s", "ABCDEF123456", "logcat", "-b", "all", "-c")),
+            created=NOW,
+            expires=NOW + 300,
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition(
+                    "logcat_buffers_cleared",
+                    {"buffers": ["all"], **markers},
+                ),
+            ),
+            snapshot_revision=7,
+            target_serial="ABCDEF123456",
+            expected_device_state="adb",
+            firmware_hash="F1",
+            boot_hash="B1",
+            data_behavior="device_log_buffers_clear",
+            plan_revision=3,
+            fingerprint="P1",
+        )
+        snapshot = snapshot_for(mode="adb")
+
+        def command(operation_id):
+            return AppCommand(
+                "tools.logcat.clear",
+                expected_revision=7,
+                target_serial=plan.target_serial,
+                operation_plan=plan,
+                operation_id=operation_id,
+                destructive=True,
+                requires_confirmation=True,
+            )
+
+        def transcript(pre_query, post_query):
+            return "\n".join(
+                (
+                    "seed output is ignored",
+                    markers["preStartMarker"],
+                    *pre_query,
+                    markers["preEndMarker"],
+                    "clear output is ignored",
+                    markers["postStartMarker"],
+                    *post_query,
+                    markers["postEndMarker"],
+                    "",
+                )
+            )
+
+        def run(operation_id, stdout, *, code="process_succeeded", exit_code=0, stderr=""):
+            return self.runner(
+                FakeProcessTransport(),
+                provider=lambda _serial: snapshot,
+                observer=lambda *_args: True,
+            ).execute(
+                command(operation_id),
+                plan,
+                operation_executor=lambda app_command, _plan, _cancellation: OperationResult.success(
+                    app_command.operation_id,
+                    code=code,
+                    exit_code=exit_code,
+                    stdout=stdout,
+                    stderr=stderr,
+                ),
+            )
+
+        verified = run(
+            "logcat-clear-verified",
+            transcript((markers["preMarker"],), (markers["postMarker"],)),
+        )
+        no_op = run(
+            "logcat-clear-no-op",
+            transcript(
+                (markers["preMarker"],),
+                (markers["preMarker"], markers["postMarker"]),
+            ),
+        )
+        seed_only = run(
+            "logcat-clear-seed-only",
+            transcript((), ()),
+        )
+        wrong_exit = run(
+            "logcat-clear-wrong-exit",
+            transcript((markers["preMarker"],), (markers["postMarker"],)),
+            exit_code=1,
+        )
+        diagnostics = run(
+            "logcat-clear-stderr",
+            transcript((markers["preMarker"],), (markers["postMarker"],)),
+            stderr="warning",
+        )
+        partial_failure = self.runner(
+            FakeProcessTransport([TransportOutcome(1, stderr="clear failed")]),
+            provider=lambda _serial: snapshot,
+            observer=lambda *_args: True,
+        ).execute(command("logcat-clear-partial"), plan)
+
+        self.assertTrue(verified.ok)
+        self.assertEqual("postconditions_satisfied", verified.code)
+        self.assertEqual("postcondition_mismatch", no_op.code)
+        self.assertEqual("postcondition_unverified", seed_only.code)
+        self.assertEqual("postcondition_unverified", wrong_exit.code)
+        self.assertEqual("postcondition_mismatch", diagnostics.code)
+        self.assertEqual("outcome_unknown", partial_failure.code)
+
     def test_cancellation_before_mutation_is_cancelled_after_boundary_is_unknown(self):
         plan = destructive_plan()
         snapshot = snapshot_for()

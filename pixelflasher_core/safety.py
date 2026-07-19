@@ -51,6 +51,7 @@ class SafetyPolicy:
             "partitions.write",
             "partitions.erase",
             "tools.logcat",
+            "tools.logcat.clear",
             "tools.pushFiles",
             "tools.adbShell",
             "tools.scrcpy",

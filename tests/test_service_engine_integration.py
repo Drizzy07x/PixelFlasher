@@ -7,6 +7,7 @@ import unittest
 import zipfile
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from pixelflasher_core import (
     AppCommand,
@@ -126,6 +127,32 @@ def command(kind: str, payload=None, *, revision: int = 4) -> AppCommand:
         target_serial="SERIAL",
         payload=payload or {},
     )
+
+
+_LOGCAT_CLEAR_TOKENS = tuple(f"{index:032x}" for index in range(1, 7))
+_LOGCAT_CLEAR_MARKERS = (
+    f"PF10_PRE_{_LOGCAT_CLEAR_TOKENS[0]}",
+    f"PF10_POST_{_LOGCAT_CLEAR_TOKENS[1]}",
+    f"PF10_PRE_START_{_LOGCAT_CLEAR_TOKENS[2]}",
+    f"PF10_PRE_END_{_LOGCAT_CLEAR_TOKENS[3]}",
+    f"PF10_POST_START_{_LOGCAT_CLEAR_TOKENS[4]}",
+    f"PF10_POST_END_{_LOGCAT_CLEAR_TOKENS[5]}",
+)
+
+
+def successful_logcat_clear_outcomes() -> list[TransportOutcome]:
+    pre, post, pre_start, pre_end, post_start, post_end = _LOGCAT_CLEAR_MARKERS
+    return [
+        TransportOutcome(0),
+        TransportOutcome(0, f"{pre_start}\n"),
+        TransportOutcome(0, f"{pre}\n"),
+        TransportOutcome(0, f"{pre_end}\n"),
+        TransportOutcome(0),
+        TransportOutcome(0),
+        TransportOutcome(0, f"{post_start}\n"),
+        TransportOutcome(0, f"{post}\n"),
+        TransportOutcome(0, f"{post_end}\n"),
+    ]
 
 
 class BackupCreatingTransport(FakeProcessTransport):
@@ -379,8 +406,10 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                 "tools.logcat",
                 {
                     "buffers": ["main"],
-                    "format": "threadtime",
-                    "filters": {"Activity": "info"},
+                    "formatEnabled": True,
+                    "formatVerb": "threadtime",
+                    "formatModifiers": [],
+                    "filters": [{"tag": "Activity", "priority": "I"}],
                     "maxLines": 25,
                     "timeoutSeconds": 5,
                 },
@@ -418,6 +447,165 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertIsNone(retained.value)
         self.assertEqual("", retained.stdout)
         self.assertEqual("", retained.stderr)
+
+    def test_logcat_clear_confirms_exact_serial_and_returns_only_the_closed_receipt(self):
+        interactions = []
+        engine, transport = self.engine_for(
+            "adb",
+            successful_logcat_clear_outcomes(),
+            interaction_handler=(
+                lambda request: interactions.append(request)
+                or InteractionDecision.ACCEPTED
+            ),
+        )
+
+        with patch(
+            "pixelflasher_core.device_tools.secrets.token_hex",
+            side_effect=_LOGCAT_CLEAR_TOKENS,
+        ):
+            result = engine.execute(
+                command("tools.logcat.clear", {"serial": "SERIAL"})
+            )
+
+        self.assertEqual(OperationStatus.SUCCESS, result.status)
+        self.assertEqual("logcat_buffers_cleared", result.code)
+        self.assertEqual(
+            {
+                "targetSerial": "SERIAL",
+                "buffers": ["all"],
+                "clearCommandCompleted": True,
+                "controlCommandVerified": True,
+                "mainBufferSentinelVerified": True,
+                "verificationEntryRetained": True,
+            },
+            result.value,
+        )
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+
+        self.assertEqual(1, len(interactions))
+        self.assertEqual("SERIAL", interactions[0].target_serial)
+        self.assertEqual(4, interactions[0].expected_revision)
+        self.assertTrue(interactions[0].destructive)
+        self.assertFalse(interactions[0].reinforced)
+
+        pre, post, pre_start, pre_end, post_start, post_end = _LOGCAT_CLEAR_MARKERS
+        query = (
+            "ADB",
+            "-s",
+            "SERIAL",
+            "logcat",
+            "-d",
+            "-b",
+            "main",
+            "-v",
+            "raw",
+            "PixelFlasherClear:I",
+            "*:S",
+        )
+        self.assertEqual(
+            [
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL",
+                    "shell",
+                    "log",
+                    "-p",
+                    "i",
+                    "-t",
+                    "PixelFlasherClear",
+                    pre,
+                ),
+                ("ADB", "-s", "SERIAL", "shell", "echo", pre_start),
+                query,
+                ("ADB", "-s", "SERIAL", "shell", "echo", pre_end),
+                ("ADB", "-s", "SERIAL", "logcat", "-b", "all", "-c"),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL",
+                    "shell",
+                    "log",
+                    "-p",
+                    "i",
+                    "-t",
+                    "PixelFlasherClear",
+                    post,
+                ),
+                ("ADB", "-s", "SERIAL", "shell", "echo", post_start),
+                query,
+                ("ADB", "-s", "SERIAL", "shell", "echo", post_end),
+            ],
+            [request.argv for request in transport.calls],
+        )
+
+        retained = engine.store.snapshot().last_result
+        self.assertIsNotNone(retained)
+        self.assertEqual(OperationStatus.SUCCESS, retained.status)
+        self.assertEqual("logcat_buffers_cleared", retained.code)
+        self.assertIsNone(retained.value)
+        self.assertEqual("", retained.stdout)
+        self.assertEqual("", retained.stderr)
+        self.assertNotIn("PF10_", repr(engine.store.snapshot()))
+
+    def test_logcat_clear_guards_revision_serial_and_confirmation_before_process(self):
+        cases = (
+            (
+                command(
+                    "tools.logcat.clear",
+                    {"serial": "SERIAL"},
+                    revision=3,
+                ),
+                lambda _request: InteractionDecision.ACCEPTED,
+                "stale_revision",
+                OperationStatus.FAILED,
+                0,
+            ),
+            (
+                AppCommand(
+                    "tools.logcat.clear",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    payload={"serial": "OTHER"},
+                ),
+                lambda _request: InteractionDecision.ACCEPTED,
+                "ambiguous_target_serial",
+                OperationStatus.FAILED,
+                0,
+            ),
+            (
+                command("tools.logcat.clear", {"serial": "SERIAL"}),
+                lambda _request: InteractionDecision.CANCELLED,
+                "user_cancelled",
+                OperationStatus.CANCELLED,
+                1,
+            ),
+        )
+        for intent, decision, code, status, interaction_count in cases:
+            with self.subTest(code=code):
+                interactions = []
+                engine, transport = self.engine_for(
+                    "adb",
+                    [],
+                    interaction_handler=(
+                        lambda request, choose=decision, observed=interactions: observed.append(
+                            request
+                        )
+                        or choose(request)
+                    ),
+                )
+                with patch(
+                    "pixelflasher_core.device_tools.secrets.token_hex",
+                    side_effect=_LOGCAT_CLEAR_TOKENS,
+                ):
+                    result = engine.execute(intent)
+
+                self.assertEqual(status, result.status)
+                self.assertEqual(code, result.code)
+                self.assertEqual(interaction_count, len(interactions))
+                self.assertEqual([], transport.calls)
+                self.assertIsNone(engine.store.snapshot().last_result)
 
     def test_logcat_stream_publishes_redacted_incremental_progress_and_safe_result(self):
         runner = EngineLogcatRunner(

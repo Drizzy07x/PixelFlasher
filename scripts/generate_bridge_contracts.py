@@ -31,7 +31,11 @@ _TYPESCRIPT_TYPES = {
     PayloadKind.OBJECT: "Record<string, unknown>",
     PayloadKind.ARRAY: "unknown[]",
     PayloadKind.STRING_ARRAY: "string[]",
+    PayloadKind.INTEGER_ARRAY: "number[]",
     PayloadKind.FILTER_ARRAY: "Array<{ label: string; extensions: string[] }>",
+    PayloadKind.LOGCAT_FILTER_ARRAY: (
+        'Array<{ tag: string; priority: "V" | "D" | "I" | "W" | "E" | "F" | "S" }>'
+    ),
 }
 
 
@@ -152,6 +156,8 @@ def render_typescript() -> str:
             "  | 'object'",
             "  | 'array'",
             "  | 'string_array'",
+            "  | 'integer_array'",
+            "  | 'logcat_filter_array'",
             "  | 'filter_array';",
             "",
             "interface GeneratedPayloadField {",
@@ -197,6 +203,14 @@ def render_typescript() -> str:
             "    case 'number': return typeof value === 'number' && Number.isFinite(value);",
             "    case 'object': return value !== null && typeof value === 'object' && !Array.isArray(value);",
             "    case 'array': return Array.isArray(value);",
+            "    case 'integer_array': return Array.isArray(value) && value.every((item) => Number.isSafeInteger(item));",
+            "    case 'logcat_filter_array': return Array.isArray(value) && value.every((item) => {",
+            "      if (item === null || typeof item !== 'object' || Array.isArray(item)) return false;",
+            "      const filter = item as Record<string, unknown>;",
+            "      const keys = Object.keys(filter).sort();",
+            "      return keys.length === 2 && keys[0] === 'priority' && keys[1] === 'tag'",
+            "        && typeof filter.tag === 'string' && typeof filter.priority === 'string';",
+            "    });",
             "    case 'filter_array': return Array.isArray(value) && value.every((item) => {",
             "      if (item === null || typeof item !== 'object' || Array.isArray(item)) return false;",
             "      const filter = item as Record<string, unknown>;",

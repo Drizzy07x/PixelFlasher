@@ -84,6 +84,42 @@ class BridgeContractTests(unittest.TestCase):
         )
         self.assertIsNone(loaded.expected_revision)
 
+    def test_logcat_clear_contract_binds_one_serial_to_an_exact_revision(self):
+        loaded = BridgeRequest.from_json(
+            message(
+                command="tools.logcat.clear",
+                payload={"serial": "SERIAL"},
+                expectedRevision=7,
+            )
+        )
+
+        self.assertEqual("tools.logcat.clear", loaded.command)
+        self.assertEqual({"serial": "SERIAL"}, loaded.payload)
+        self.assertEqual(7, loaded.expected_revision)
+
+        invalid_cases = (
+            ({"serial": "SERIAL"}, None, "revision_required"),
+            ({"serial": ""}, 7, "invalid_payload"),
+            ({"serial": "SERIAL", "buffers": ["all"]}, 7, "invalid_payload"),
+            (
+                {"serial": "SERIAL", "confirmationText": "CLEAR SERIAL"},
+                7,
+                "invalid_payload",
+            ),
+        )
+        for payload, revision, code in invalid_cases:
+            with self.subTest(payload=payload, revision=revision), self.assertRaises(
+                BridgeProtocolError
+            ) as rejected:
+                BridgeRequest.from_json(
+                    message(
+                        command="tools.logcat.clear",
+                        payload=payload,
+                        expectedRevision=revision,
+                    )
+                )
+            self.assertEqual(code, rejected.exception.code)
+
     def test_all_commands_reject_unknown_fields_and_browser_paths(self):
         cases = (
             ("firmware.process", {"path": "C:/firmware.zip"}),

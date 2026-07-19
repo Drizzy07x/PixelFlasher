@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,7 @@ import {
   MAX_LOGCAT_PREVIEW_LINES,
   initialLogcatUiState,
   logcatDefaultFileName,
+  parseLogcatClearReceipt,
   parseLogcatReport,
   useLogcatExpertGuard,
   type LogcatUiState,
@@ -50,6 +51,37 @@ function report(serial: string, overrides: Record<string, unknown> = {}) {
 
 function success(value: Record<string, unknown>, code = 'logcat_collected') {
   return { result: { status: 'SUCCESS', code, value } };
+}
+
+function clearReceipt(serial: string, overrides: Record<string, unknown> = {}) {
+  return {
+    targetSerial: serial,
+    buffers: ['all'],
+    clearCommandCompleted: true,
+    controlCommandVerified: true,
+    mainBufferSentinelVerified: true,
+    verificationEntryRetained: true,
+    ...overrides,
+  };
+}
+
+function completedLogcatState(serial: string): LogcatUiState {
+  const output = report(serial);
+  return {
+    ...initialLogcatUiState,
+    phase: 'success',
+    targetSerial: serial,
+    lines: output.lines as string[],
+    report: {
+      targetSerial: serial,
+      mode: 'snapshot',
+      lineCount: output.lineCount,
+      redaction: 'strict',
+      redactedCount: output.redactedCount,
+      bounded: true,
+      truncated: false,
+    },
+  };
 }
 
 function renderPanel({
@@ -207,7 +239,10 @@ describe('bounded Logcat viewer', () => {
         serial: device.serial,
         mode: 'snapshot',
         buffers: ['main'],
-        format: 'threadtime',
+        formatEnabled: true,
+        formatVerb: 'long',
+        formatModifiers: ['color', 'descriptive'],
+        filters: [{ tag: '*', priority: 'D' }],
         maxLines: 500,
         timeoutSeconds: 30,
         redaction: 'strict',
@@ -225,6 +260,178 @@ describe('bounded Logcat viewer', () => {
     expect(screen.getByRole('button', { name: 'Clear viewer' })).toBeEnabled();
     const results = await axe.run(view.container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+
+  it('sends the complete advanced payload with typed filters, UID ordering, and a regex timeout cap', async () => {
+    const user = userEvent.setup();
+    const device = adbDevice();
+    const onCommand = vi.fn<SharedPageProps['onCommand']>(async () => success(report(device.serial, {
+      mode: 'stream',
+      redaction: 'none',
+    })));
+    renderPanel({ onCommand, expertMode: true });
+
+    await user.click(screen.getByRole('button', { name: 'Bounded stream' }));
+    await user.click(screen.getByRole('checkbox', { name: 'system' }));
+    await user.click(screen.getByRole('checkbox', { name: 'radio' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Line format' }), 'threadtime');
+    await user.click(screen.getByRole('checkbox', { name: 'descriptive' }));
+    await user.click(screen.getByRole('checkbox', { name: 'uid' }));
+    await user.click(screen.getByRole('checkbox', { name: 'usec' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Tag filter' }));
+    await user.type(screen.getByRole('textbox', { name: 'Tag filter' }), 'ActivityManager');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Minimum priority' }), 'E');
+    await user.type(screen.getByRole('textbox', { name: 'Regex filter (Expert)' }), 'FATAL.*');
+    await user.type(screen.getByRole('textbox', { name: 'UID filters (Expert)' }), '2000, 1000');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Maximum lines' }), {
+      target: { value: '2048' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Duration in seconds' }), {
+      target: { value: '90' },
+    });
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Redaction policy' }), 'none');
+
+    await user.click(screen.getByRole('button', { name: 'Start bounded stream' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith(
+      commands.toolsLogcat,
+      {
+        serial: device.serial,
+        mode: 'stream',
+        buffers: ['main', 'system', 'radio'],
+        formatEnabled: true,
+        formatVerb: 'threadtime',
+        formatModifiers: ['color', 'uid', 'usec'],
+        filters: [{ tag: 'ActivityManager', priority: 'E' }],
+        regex: 'FATAL.*',
+        uids: [1000, 2000],
+        maxLines: 2048,
+        timeoutSeconds: 30,
+        redaction: 'none',
+      },
+      {
+        returnCancelled: true,
+        returnFailed: true,
+        suppressNotice: true,
+        onOperationAccepted: expect.any(Function),
+      },
+    ));
+  });
+
+  it('ignores incompatible format modifiers when device formatting is disabled', async () => {
+    const user = userEvent.setup();
+    const device = adbDevice();
+    const onCommand = vi.fn<SharedPageProps['onCommand']>(async () => success(report(device.serial)));
+    renderPanel({ onCommand, expertMode: true });
+
+    await user.click(screen.getByRole('checkbox', { name: 'epoch' }));
+    await user.click(screen.getByRole('checkbox', { name: 'monotonic' }));
+    expect(screen.getByRole('button', { name: 'Collect snapshot' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Correct the tag, modifier, regex, or UID filter/);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Enable Logcat formatting' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Collect snapshot' })).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Collect snapshot' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith(
+      commands.toolsLogcat,
+      {
+        serial: device.serial,
+        mode: 'snapshot',
+        buffers: ['main'],
+        formatEnabled: false,
+        filters: [{ tag: '*', priority: 'D' }],
+        maxLines: 500,
+        timeoutSeconds: 30,
+        redaction: 'strict',
+      },
+      expect.objectContaining({ onOperationAccepted: expect.any(Function) }),
+    ));
+  });
+
+  it('clears the remote buffers only after a verified SUCCESS receipt and then empties the viewer', async () => {
+    const user = userEvent.setup();
+    const device = adbDevice();
+    const onCommand = vi.fn<SharedPageProps['onCommand']>(async () => success(
+      clearReceipt(device.serial),
+      'logcat_buffers_cleared',
+    ));
+    render(
+      <GuardedLogcatHarness
+        expertMode={false}
+        initialState={completedLogcatState(device.serial)}
+        onCommand={onCommand}
+      />,
+    );
+
+    expect(screen.getByText(/ActivityManager: ready/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Clear device buffers' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith(
+      commands.toolsLogcatClear,
+      { serial: device.serial },
+      {
+        returnCancelled: true,
+        returnFailed: true,
+        suppressNotice: true,
+        onOperationAccepted: expect.any(Function),
+      },
+    ));
+    expect(await screen.findByText(/all-buffer clear control completed/i)).toBeVisible();
+    expect(screen.queryByText(/ActivityManager: ready/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear viewer' })).not.toBeInTheDocument();
+  });
+
+  it.each(['logcat_clear_failed', 'outcome_unknown'])(
+    'preserves the existing viewer when remote clearing returns FAILED/%s',
+    async (code) => {
+      const user = userEvent.setup();
+      const device = adbDevice();
+      const onCommand = vi.fn<SharedPageProps['onCommand']>(async () => ({
+        result: { status: 'FAILED', code, value: {} },
+      }));
+      render(
+        <GuardedLogcatHarness
+          expertMode={false}
+          initialState={completedLogcatState(device.serial)}
+          onCommand={onCommand}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Clear device buffers' }));
+
+      expect(await screen.findByText(/could not be cleared with a verified outcome/i)).toBeVisible();
+      expect(screen.getByText(/ActivityManager: ready/)).toBeVisible();
+      expect(screen.getByText('2 lines')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Clear viewer' })).toBeEnabled();
+    },
+  );
+
+  it('submits a rapid double click on remote clear at most once', async () => {
+    const device = adbDevice();
+    let finish: ((response: ReturnType<typeof success>) => void) | undefined;
+    const onCommand = vi.fn<SharedPageProps['onCommand']>((command) => {
+      if (command !== commands.toolsLogcatClear) return Promise.resolve(null);
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    render(
+      <GuardedLogcatHarness
+        expertMode={false}
+        initialState={completedLogcatState(device.serial)}
+        onCommand={onCommand}
+      />,
+    );
+
+    const clearButton = screen.getByRole('button', { name: 'Clear device buffers' });
+    fireEvent.click(clearButton);
+    fireEvent.click(clearButton);
+
+    expect(onCommand.mock.calls.filter(([command]) => command === commands.toolsLogcatClear)).toHaveLength(1);
+    await act(async () => {
+      finish?.(success(clearReceipt(device.serial), 'logcat_buffers_cleared'));
+    });
+    expect(await screen.findByText(/all-buffer clear control completed/i)).toBeVisible();
   });
 
   it('uses a one-use save grant for a new capture and renders only a verified export receipt', async () => {
@@ -782,5 +989,18 @@ describe('bounded Logcat viewer', () => {
       ...valid,
       export: { fileName: 'logcat.txt', sha256: DIGEST, size: 1 },
     }, serial, 'snapshot', 'strict')).toBeNull();
+  });
+
+  it('parses only the exact verified remote-clear receipt', () => {
+    const serial = adbDevice().serial;
+    const valid = clearReceipt(serial);
+
+    expect(parseLogcatClearReceipt(valid, serial)).toEqual(valid);
+    expect(parseLogcatClearReceipt({ ...valid, transcript: ['logcat -c'] }, serial)).toBeNull();
+    expect(parseLogcatClearReceipt({ ...valid, buffers: ['main'] }, serial)).toBeNull();
+    expect(parseLogcatClearReceipt({ ...valid, controlCommandVerified: false }, serial)).toBeNull();
+    expect(parseLogcatClearReceipt({ ...valid, targetSerial: 'OTHER' }, serial)).toBeNull();
+    const { verificationEntryRetained: _omitted, ...missingProof } = valid;
+    expect(parseLogcatClearReceipt(missingProof, serial)).toBeNull();
   });
 });

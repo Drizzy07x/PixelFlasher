@@ -23,7 +23,12 @@ JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
-    {"tools.logcat", "tools.pushFiles", "tools.wifi.discover"}
+    {
+        "tools.logcat",
+        "tools.logcat.clear",
+        "tools.pushFiles",
+        "tools.wifi.discover",
+    }
 )
 
 _WINDOWS_PATH = re.compile(r"(?i)(?:^|[^a-z0-9])(?:[a-z]:[\\/])")
@@ -1319,6 +1324,44 @@ def _project_logcat(value: object) -> JSONValue:
     return ensure_public_json(projected)
 
 
+def _project_logcat_clear(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "targetSerial",
+                "buffers",
+                "clearCommandCompleted",
+                "controlCommandVerified",
+                "mainBufferSentinelVerified",
+                "verificationEntryRetained",
+            }
+        ),
+    )
+    target_serial = source["targetSerial"]
+    if not isinstance(target_serial, str) or not is_valid_target_serial(target_serial):
+        raise PublicProjectionError("Logcat clear target serial is invalid")
+    if source["buffers"] != ["all"]:
+        raise PublicProjectionError("Logcat clear buffer receipt is invalid")
+    if (
+        source["clearCommandCompleted"] is not True
+        or source["controlCommandVerified"] is not True
+        or source["mainBufferSentinelVerified"] is not True
+        or source["verificationEntryRetained"] is not True
+    ):
+        raise PublicProjectionError("Logcat clear receipt is not verified")
+    return ensure_public_json(
+        {
+            "targetSerial": target_serial,
+            "buffers": ["all"],
+            "clearCommandCompleted": True,
+            "controlCommandVerified": True,
+            "mainBufferSentinelVerified": True,
+            "verificationEntryRetained": True,
+        }
+    )
+
+
 def _project_support(value: object) -> JSONValue:
     source = _record(value)
     return ensure_public_json({
@@ -1410,6 +1453,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "snapshot.get": _project_snapshot,
     "support.create": _project_support,
     "tools.logcat": _project_logcat,
+    "tools.logcat.clear": _project_logcat_clear,
     "tools.pushFiles": _project_push_files,
     "tools.scrcpy": _project_none,
     "tools.wifi": _project_none,

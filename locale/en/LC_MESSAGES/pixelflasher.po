@@ -5010,3 +5010,60 @@ msgstr ""
 msgctxt "web.tools.logcatEmpty"
 msgid "Choose snapshot or bounded stream. Output is kept in memory until you clear the viewer."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.logcatFormatting"
+msgid "Enable Logcat formatting"
+msgstr ""
+
+msgctxt "web.tools.logcatFormatModifiers"
+msgid "Format modifiers"
+msgstr ""
+
+msgctxt "web.tools.logcatTag"
+msgid "Tag filter"
+msgstr ""
+
+msgctxt "web.tools.logcatPriority"
+msgid "Minimum priority"
+msgstr ""
+
+msgctxt "web.tools.logcatRegex"
+msgid "Regex filter (Expert)"
+msgstr ""
+
+msgctxt "web.tools.logcatUids"
+msgid "UID filters (Expert)"
+msgstr ""
+
+msgctxt "web.tools.logcatFilterInvalid"
+msgid ""
+"Correct the tag, modifier, regex, or UID filter before collecting logs."
+msgstr ""
+
+msgctxt "web.tools.logcatClearingDevice"
+msgid "Clearing and verifying device log buffers…"
+msgstr ""
+
+msgctxt "web.tools.logcatClearFailed"
+msgid "Device log buffers could not be cleared with a verified outcome."
+msgstr ""
+
+msgctxt "web.tools.logcatClearDevice"
+msgid "Clear device buffers"
+msgstr ""
+
+msgctxt "web.tools.logcatClearDeviceDetail"
+msgid ""
+"Device clearing requires confirmation; success verifies the all-buffer "
+"control and a main-buffer sentinel."
+msgstr ""
+
+msgctxt "web.tools.logcatClearVerified"
+msgid ""
+"The all-buffer clear control completed and main-buffer sentinel removal was "
+"verified. One verification entry remains."
+msgstr ""

@@ -2903,7 +2903,9 @@ code {
 }
 
 .logcat-controls select,
-.logcat-controls input[type="number"] {
+.logcat-controls input[type="number"],
+.logcat-filter-controls select,
+.logcat-filter-controls input[type="text"] {
   width: 100%;
   min-height: 2.3rem;
   padding: 0 0.62rem;
@@ -2912,6 +2914,68 @@ code {
   background: var(--surface-soft);
   color: var(--text-soft);
   font-size: 0.66rem;
+}
+
+.logcat-format-toggle input {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0.56rem 0;
+  accent-color: var(--accent);
+}
+
+.logcat-option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: var(--surface-soft);
+}
+
+.logcat-option-group legend {
+  padding: 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.59rem;
+  font-weight: 750;
+}
+
+.logcat-option-group label {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.42rem;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.58rem;
+}
+
+.logcat-option-group input {
+  accent-color: var(--accent);
+}
+
+.logcat-filter-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(8rem, 1fr));
+  gap: 0.65rem;
+}
+
+.logcat-filter-controls > label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.34rem;
+}
+
+.logcat-filter-controls > label > span {
+  color: var(--muted);
+  font-size: 0.59rem;
+  font-weight: 750;
 }
 
 .logcat-buffers {
@@ -3256,6 +3320,7 @@ code {
 
   .logcat-mode,
   .logcat-controls,
+  .logcat-filter-controls,
   .logcat-progress,
   .logcat-export-receipt {
     grid-template-columns: minmax(0, 1fr);

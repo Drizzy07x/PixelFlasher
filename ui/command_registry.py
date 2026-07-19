@@ -27,7 +27,9 @@ class PayloadKind(StrEnum):
     OBJECT = "object"
     ARRAY = "array"
     STRING_ARRAY = "string_array"
+    INTEGER_ARRAY = "integer_array"
     FILTER_ARRAY = "filter_array"
+    LOGCAT_FILTER_ARRAY = "logcat_filter_array"
 
 
 class CommandOwner(StrEnum):
@@ -111,6 +113,8 @@ class PayloadField:
         if self.kind not in {
             PayloadKind.ARRAY,
             PayloadKind.FILTER_ARRAY,
+            PayloadKind.INTEGER_ARRAY,
+            PayloadKind.LOGCAT_FILTER_ARRAY,
             PayloadKind.STRING_ARRAY,
         }:
             raise ValueError("payload item bounds apply only to array fields")
@@ -212,6 +216,19 @@ def _matches_payload_kind(value: Any, kind: PayloadKind) -> bool:
         return isinstance(value, list)
     if kind is PayloadKind.STRING_ARRAY:
         return isinstance(value, list) and all(isinstance(item, str) for item in cast("list[object]", value))
+    if kind is PayloadKind.INTEGER_ARRAY:
+        return isinstance(value, list) and all(
+            isinstance(item, int) and not isinstance(item, bool)
+            for item in cast("list[object]", value)
+        )
+    if kind is PayloadKind.LOGCAT_FILTER_ARRAY:
+        return isinstance(value, list) and all(
+            isinstance(item, Mapping)
+            and set(cast("Mapping[object, object]", item)) == {"tag", "priority"}
+            and isinstance(cast("Mapping[object, object]", item).get("tag"), str)
+            and isinstance(cast("Mapping[object, object]", item).get("priority"), str)
+            for item in cast("list[object]", value)
+        )
     return False  # pragma: no cover - exhaustive enum guard
 
 
@@ -1004,8 +1021,12 @@ _COMMAND_SPECS = (
             ("serial", PayloadKind.STRING),
             ("mode", PayloadKind.STRING),
             ("buffers", PayloadKind.STRING_ARRAY, False, 1, 6),
-            ("format", PayloadKind.STRING),
-            ("filters", PayloadKind.STRING_ARRAY, False, 0, 32),
+            ("formatEnabled", PayloadKind.BOOLEAN),
+            ("formatVerb", PayloadKind.STRING),
+            ("formatModifiers", PayloadKind.STRING_ARRAY, False, 0, 7),
+            ("filters", PayloadKind.LOGCAT_FILTER_ARRAY, False, 0, 32),
+            ("regex", PayloadKind.STRING),
+            ("uids", PayloadKind.INTEGER_ARRAY, False, 0, 32),
             ("maxLines", PayloadKind.INTEGER),
             ("timeoutSeconds", PayloadKind.INTEGER),
             ("redaction", PayloadKind.STRING),
@@ -1021,6 +1042,22 @@ _COMMAND_SPECS = (
         planner="tools.logcat",
         timeout_ms=3 * 60_000,
         postconditions=("bounded_log_returned",),
+    ),
+    _command(
+        "tools.logcat.clear",
+        "toolsLogcatClear",
+        _payload(("serial", PayloadKind.STRING)),
+        owner=CommandOwner.DEVICE_TOOLS,
+        **_LIVE,
+        mutability=CommandMutability.DESTRUCTIVE,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.DESTRUCTIVE,
+        valid_device_states=frozenset({"adb"}),
+        target_scope=TargetScope.SELECTED_DEVICE,
+        planner="tools.logcat.clear",
+        timeout_ms=3 * 60_000,
+        confirmation=ConfirmationPolicy.STANDARD,
+        postconditions=("logcat_buffers_cleared",),
     ),
     _command(
         "device.inspect",

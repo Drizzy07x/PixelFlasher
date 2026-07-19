@@ -1118,7 +1118,11 @@ class ModernWebViewFrame(wx.Frame):
             event_type = "runtime"
             with self._operation_commands_lock:
                 command = self._operation_commands.get(event.result.operation_id)
-            if command in {"tools.logcat", "tools.wifi.discover"}:
+            if command in {
+                "tools.logcat",
+                "tools.logcat.clear",
+                "tools.wifi.discover",
+            }:
                 # Discovery endpoints and high-volume device logs belong only
                 # to their correlated request. The terminal runtime event
                 # carries status and never rebroadcasts either payload.

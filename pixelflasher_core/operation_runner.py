@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import stat
 import tempfile
 import threading
@@ -809,18 +810,22 @@ class OperationRunner:
             )
         if not result.ok:
             if mutating:
-                if command.kind == "tools.pushFiles":
-                    # adb push may create or truncate the remote file before it
-                    # reports a non-zero status. Reachability alone cannot prove
-                    # whether one or more writes completed, so no process error
-                    # after this boundary has a known-safe outcome.
+                if command.kind in {"tools.pushFiles", "tools.logcat.clear"}:
+                    # adb push may create or truncate a remote file before it
+                    # reports non-zero. Likewise, logcat can clear some buffers
+                    # before a later buffer fails. Reachability cannot prove a
+                    # known-safe outcome for either multi-step mutation.
                     return self._unknown_after_mutation(
                         plan,
                         snapshot,
                         provider,
                         observer,
                         command.operation_id,
-                        "file transfer failed after a remote write may have begun",
+                        (
+                            "Logcat buffer clearing failed after a partial clear may have begun"
+                            if command.kind == "tools.logcat.clear"
+                            else "file transfer failed after a remote write may have begun"
+                        ),
                         result,
                     )
                 if result.code in {"timed_out", "output_limit_exceeded"}:
@@ -1314,6 +1319,7 @@ class OperationRunner:
             "host_artifact_written",
             "adb_wifi_pairing_recorded",
             "package_data_cleared",
+            "logcat_buffers_cleared",
         }
 
     def _validate_execution_postcondition(
@@ -1355,6 +1361,39 @@ class OperationRunner:
                 or success_count != len(package_values)
             ):
                 raise ValueError("package clear success count does not match its targets")
+            return
+        if postcondition.kind == "logcat_buffers_cleared":
+            if set(expected) != {
+                "buffers",
+                "preMarker",
+                "postMarker",
+                "preStartMarker",
+                "preEndMarker",
+                "postStartMarker",
+                "postEndMarker",
+            }:
+                raise ValueError("Logcat clear postcondition fields are invalid")
+            buffers = expected.get("buffers")
+            if buffers != ("all",):
+                raise ValueError("Logcat clear must verify the complete buffer set")
+            marker_fields = (
+                ("preMarker", "PRE"),
+                ("postMarker", "POST"),
+                ("preStartMarker", "PRE_START"),
+                ("preEndMarker", "PRE_END"),
+                ("postStartMarker", "POST_START"),
+                ("postEndMarker", "POST_END"),
+            )
+            markers = tuple(expected.get(name) for name, _prefix in marker_fields)
+            if (
+                any(
+                    not isinstance(marker, str)
+                    or re.fullmatch(rf"PF10_{prefix}_[0-9a-f]{{32}}", marker) is None
+                    for marker, (_name, prefix) in zip(markers, marker_fields, strict=True)
+                )
+                or len(set(markers)) != 6
+            ):
+                raise ValueError("Logcat clear verification markers are invalid")
             return
         if postcondition.kind != "host_artifact_written":
             raise ValueError(f"no execution-evidence mapping exists for {postcondition.kind}")
@@ -1425,6 +1464,8 @@ class OperationRunner:
                 evidence = self._verify_wifi_pairing_evidence(postcondition, result)
             elif postcondition.kind == "package_data_cleared":
                 evidence = self._verify_package_clear_evidence(postcondition, result)
+            elif postcondition.kind == "logcat_buffers_cleared":
+                evidence = self._verify_logcat_clear_evidence(postcondition, result)
             else:
                 evidence = self._verify_host_artifact(postcondition, token)
             if evidence.status is OperationStatus.CANCELLED or not evidence.ok:
@@ -1501,6 +1542,78 @@ class OperationRunner:
         return OperationResult.success(
             result.operation_id,
             code="package_clear_protocol_verified",
+        )
+
+    @staticmethod
+    def _verify_logcat_clear_evidence(
+        postcondition: OperationPostcondition,
+        result: OperationResult,
+    ) -> OperationResult:
+        pre_marker = cast(str, postcondition.expected["preMarker"])
+        post_marker = cast(str, postcondition.expected["postMarker"])
+        pre_start_marker = cast(str, postcondition.expected["preStartMarker"])
+        pre_end_marker = cast(str, postcondition.expected["preEndMarker"])
+        post_start_marker = cast(str, postcondition.expected["postStartMarker"])
+        post_end_marker = cast(str, postcondition.expected["postEndMarker"])
+        if result.code != "process_succeeded" or result.exit_code != 0:
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_unverified",
+                message="Logcat clear lacks an exact successful process transcript",
+            )
+        if result.stderr.strip():
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_mismatch",
+                message="Logcat clear produced unexpected diagnostic output",
+            )
+        normalized_stdout = result.stdout.replace("\r\n", "\n").replace("\r", "\n")
+        lines = tuple(
+            line
+            for line in normalized_stdout.split("\n")
+            if line
+        )
+        boundaries = (
+            pre_start_marker,
+            pre_end_marker,
+            post_start_marker,
+            post_end_marker,
+        )
+        if any(lines.count(marker) != 1 for marker in boundaries):
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_unverified",
+                message="the Logcat clear query boundaries were not observed exactly once",
+            )
+        positions = tuple(lines.index(marker) for marker in boundaries)
+        if positions != tuple(sorted(positions)):
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_unverified",
+                message="the Logcat clear query boundaries were observed out of order",
+            )
+        pre_query = lines[positions[0] + 1 : positions[1]]
+        post_query = lines[positions[2] + 1 : positions[3]]
+        if pre_query.count(pre_marker) != 1 or post_query.count(post_marker) != 1:
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_unverified",
+                message="the Logcat clear probes could not be observed exactly once",
+            )
+        if (
+            pre_marker in post_query
+            or post_marker in pre_query
+            or pre_query.count(post_marker)
+            or post_query.count(pre_marker)
+        ):
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_mismatch",
+                message="a pre-clear Logcat entry remained after the buffer clear",
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code="logcat_clear_protocol_verified",
         )
 
     @classmethod

@@ -125,11 +125,11 @@ class DeviceToolsServiceTests(unittest.TestCase):
             "tools.logcat",
             {
                 "buffers": ["main", "system"],
-                "format": "threadtime",
-                "filters": {
-                    "System.err": "error",
-                    "ActivityManager": "info",
-                },
+                "formatVerb": "threadtime",
+                "filters": [
+                    {"tag": "System.err", "priority": "E"},
+                    {"tag": "ActivityManager", "priority": "I"},
+                ],
                 "maxLines": 250,
                 "timeoutSeconds": 12,
             },
@@ -190,12 +190,122 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertEqual("snapshot", compilation.logcat_mode)
         self.assertEqual("strict", compilation.logcat_redaction)
 
+    def test_logcat_compiles_canonical_legacy_formats_regex_and_uid_filters(self):
+        compilation = self.compile(
+            "tools.logcat",
+            {
+                "formatVerb": "long",
+                "formatModifiers": ["usec", "color", "descriptive", "uid"],
+                "filters": [{"tag": "ActivityManager", "priority": "V"}],
+                "regex": r"ActionProcessor.*ErrorCode::kSuccess",
+                "uids": [10_001, 1_000],
+                "maxLines": 400,
+                "timeoutSeconds": 30,
+            },
+        )
+
+        self.assertEqual(
+            (
+                "ADB",
+                "-s",
+                "SERIAL",
+                "logcat",
+                "-d",
+                "-b",
+                "main",
+                "-v",
+                "long,color,descriptive,uid,usec",
+                "-t",
+                "400",
+                "ActivityManager:V",
+                "*:S",
+                "-e",
+                r"ActionProcessor.*ErrorCode::kSuccess",
+                "--uid",
+                "1000,10001",
+            ),
+            compilation.plan.request.argv,
+        )
+
+    def test_logcat_can_omit_device_formatting_without_an_alias(self):
+        compilation = self.compile(
+            "tools.logcat",
+            {"formatEnabled": False, "maxLines": 10},
+        )
+
+        self.assertNotIn("-v", compilation.plan.request.argv)
+        with self.assertRaises(DeviceToolPlanningError) as raised:
+            self.compile(
+                "tools.logcat",
+                {"formatEnabled": False, "formatVerb": "long"},
+            )
+        self.assertEqual("logcat_format_ambiguous", raised.exception.code)
+
+    def test_logcat_clear_compiles_a_destructive_confirmed_segmented_probe(self):
+        tokens = tuple(f"{index:032x}" for index in range(1, 7))
+        with patch(
+            "pixelflasher_core.device_tools.secrets.token_hex",
+            side_effect=tokens,
+        ):
+            compilation = self.compile("tools.logcat.clear", {})
+
+        argv = tuple(request.argv for request in compilation.plan.requests)
+        self.assertEqual(9, len(argv))
+        self.assertEqual(
+            ("ADB", "-s", "SERIAL", "logcat", "-b", "all", "-c"),
+            argv[4],
+        )
+        for query in (argv[2], argv[7]):
+            self.assertEqual(
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL",
+                    "logcat",
+                    "-d",
+                    "-b",
+                    "main",
+                    "-v",
+                    "raw",
+                    "PixelFlasherClear:I",
+                    "*:S",
+                ),
+                query,
+            )
+            self.assertNotIn("-t", query)
+            self.assertNotIn("-T", query)
+        self.assertIs(OperationRisk.DESTRUCTIVE, compilation.plan.risk)
+        self.assertTrue(compilation.device_write)
+        self.assertTrue(compilation.destructive)
+        self.assertTrue(compilation.requires_confirmation)
+        self.assertEqual(
+            ("logcat_buffers_cleared",),
+            tuple(item.kind for item in compilation.plan.postconditions),
+        )
+
+    def test_logcat_clear_rejects_colliding_or_malformed_marker_entropy(self):
+        for values in (
+            ("a" * 32,) * 6,
+            ("not-hex", "b" * 32, "c" * 32, "d" * 32, "e" * 32, "f" * 32),
+        ):
+            with self.subTest(values=values):
+                with patch(
+                    "pixelflasher_core.device_tools.secrets.token_hex",
+                    side_effect=values,
+                ):
+                    with self.assertRaises(DeviceToolPlanningError) as raised:
+                        self.compile("tools.logcat.clear", {})
+                self.assertEqual("logcat_clear_marker_unavailable", raised.exception.code)
+
     def test_logcat_stream_is_incremental_shell_free_and_uses_canonical_filter_array(self):
         compilation = self.compile(
             "tools.logcat",
             {
                 "mode": "stream",
-                "filters": ["ActivityManager:info", "*:warning"],
+                "filters": [
+                    {"tag": "ActivityManager", "priority": "I"},
+                    {"tag": "*", "priority": "W"},
+                ],
                 "maxLines": 40,
                 "timeoutSeconds": 7,
                 "redaction": "standard",
@@ -248,7 +358,7 @@ class DeviceToolsServiceTests(unittest.TestCase):
 
         result = self.service.finalize_logcat(
             compilation,
-            OperationResult.success("logcat-snapshot", stdout=raw, stderr="raw"),
+            OperationResult.success("logcat-snapshot", stdout=raw),
             CancellationToken(),
         )
 
@@ -263,6 +373,40 @@ class DeviceToolsServiceTests(unittest.TestCase):
             self.assertNotIn(secret, rendered)
         self.assertEqual("", result.stdout)
         self.assertEqual("", result.stderr)
+
+    def test_logcat_snapshot_never_turns_stderr_into_success(self):
+        compilation = self.compile("tools.logcat", {"maxLines": 2})
+
+        result = self.service.finalize_logcat(
+            compilation,
+            OperationResult.success(
+                "logcat-stderr",
+                stdout="I/Ready: ok\n",
+                stderr="transport warning",
+            ),
+            CancellationToken(),
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("logcat_stderr_unexpected", result.code)
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+
+    def test_logcat_formatting_controls_are_sanitized_without_false_redaction(self):
+        compilation = self.compile("tools.logcat", {"maxLines": 2})
+
+        result = self.service.finalize_logcat(
+            compilation,
+            OperationResult.success(
+                "logcat-color",
+                stdout="\x1b[32mI/Ready: ok\x1b[0m\n",
+            ),
+            CancellationToken(),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(["I/Ready: ok"], result.value["lines"])
+        self.assertEqual(0, result.value["redactedCount"])
 
     def test_logcat_none_still_removes_host_paths_required_by_public_boundary(self):
         compilation = self.compile(
@@ -508,6 +652,36 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertNotIn("SERIAL", progress[0][1])
         self.assertLessEqual(len(progress[0][1].encode("utf-8")), 4096)
 
+    def test_logcat_stream_never_turns_stderr_into_success(self):
+        runner = RecordingLogcatRunner(
+            ("I/Ready: ok",),
+            outcome=LogcatStreamOutcome(
+                0,
+                ("I/Ready: ok",),
+                duration_completed=True,
+                stderr_bytes=1,
+            ),
+        )
+        service = DeviceToolsService(logcat_stream_runner=runner)
+        compilation = service.compile(
+            AppCommand(
+                "tools.logcat",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={"mode": "stream", "maxLines": 2},
+            ),
+            self.snapshot,
+        )
+
+        result = service.execute_special(
+            compilation,
+            "stream-stderr",
+            CancellationToken(),
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("logcat_stream_stderr_unexpected", result.code)
+
     def test_logcat_stream_rejects_an_injected_runner_that_bypasses_sanitizer(self):
         class UnsafeRunner:
             def run(self, request, cancellation, *, max_lines, line_handler):
@@ -644,9 +818,9 @@ class DeviceToolsServiceTests(unittest.TestCase):
 
     def test_logcat_rejects_filter_format_buffer_and_limit_injection(self):
         cases = (
-            ({"filters": {"Good;rm": "info"}}, "logcat_filter_invalid"),
-            ({"filters": {"Good": "I;rm"}}, "logcat_filter_invalid"),
-            ({"format": "threadtime;rm"}, "logcat_format_invalid"),
+            ({"filters": [{"tag": "Good;rm", "priority": "I"}]}, "logcat_filter_invalid"),
+            ({"filters": [{"tag": "Good", "priority": "I;rm"}]}, "logcat_filter_invalid"),
+            ({"formatVerb": "threadtime;rm"}, "logcat_format_invalid"),
             ({"buffers": ["main", "all"]}, "logcat_buffer_ambiguous"),
             ({"maxLines": 10_001}, "logcat_limit_invalid"),
             ({"timeoutSeconds": 0}, "logcat_timeout_invalid"),

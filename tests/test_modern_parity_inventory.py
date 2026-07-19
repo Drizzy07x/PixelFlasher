@@ -335,10 +335,17 @@ class ModernParityInventoryTests(unittest.TestCase):
             "ui/web/src/test/ota-diagnostics.test.tsx",
             diagnostics["tests"],
         )
-        self.assertEqual(["tools.logcat"], logs["modernCommandIds"])
-        self.assertEqual("partial", logs["modernStatus"])
-        self.assertIn("Bounded snapshot and streaming capture", logs["gap"])
-        self.assertIn("Remote buffer clearing", logs["gap"])
+        self.assertEqual(
+            {"tools.logcat", "tools.logcat.clear"},
+            set(logs["modernCommandIds"]),
+        )
+        self.assertEqual("native", logs["modernStatus"])
+        self.assertEqual("", logs["gap"])
+        self.assertEqual("destructive", logs["risk"])
+        self.assertIn(
+            "pixelflasher_core/operation_runner.py:OperationRunner._verify_logcat_buffers_cleared",
+            logs["currentEvidence"],
+        )
         self.assertIn(
             "ui/web/src/test/logcat.test.tsx",
             logs["tests"],
