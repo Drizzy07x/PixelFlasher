@@ -720,6 +720,76 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             self.assertEqual("dry_run_batch_succeeded", execute_result.code)
             self.assertEqual([], transport.calls)
 
+    def test_multi_device_keep_data_executes_sequentially_through_engine(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "factory.zip"
+            boot = root / "boot.img"
+            package.write_bytes(b"factory")
+            boot.write_bytes(b"boot")
+            firmware = FirmwareInfo(
+                str(package), "factory", "42", digest(package), True, True
+            )
+            plan = FlashPlan(
+                "factory",
+                {"verify": True, "noReboot": True},
+                revision=3,
+                fingerprint="multi-keep-data-plan",
+                dry_run=False,
+            )
+            first = DeviceInfo(
+                "SERIAL-A", codename="akita", mode="fastboot", online=True, bootloader="unlocked"
+            )
+            second = replace(first, serial="SERIAL-B")
+            snapshot = replace(
+                snapshot_for("fastboot", plan=plan, firmware=firmware),
+                devices=(first, second),
+                selected_serials=("SERIAL-A", "SERIAL-B"),
+                selected_serial="SERIAL-A",
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (FileArtifact(str(boot.resolve()), digest(boot), "partition:boot"),),
+                firmware_hash=firmware.hash,
+            )
+            transport = FakeProcessTransport([TransportOutcome(0), TransportOutcome(0)])
+            store = AppStateStore(snapshot)
+            engine = CommandEngine(
+                store=store,
+                executor=CommandExecutor(transport),
+                operation_planner=OperationPlanner(artifact_repository=repository),
+                postcondition_observer=StatefulPostconditionObserver(transport),
+            )
+            preview = engine.execute(
+                AppCommand("flash.plan.preview", expected_revision=0, target_serial=None)
+            )
+            self.assertEqual(OperationStatus.SUCCESS, preview.status, preview.to_dict())
+            self.assertIsNotNone(
+                preview.value["compiled"]["confirmation"], preview.to_dict()
+            )
+            required_text = preview.value["compiled"]["confirmation"]["required_text"]
+
+            result = engine.execute(
+                AppCommand(
+                    "flash.execute",
+                    expected_revision=0,
+                    target_serial=None,
+                    payload={"confirmationText": required_text},
+                    operation_id="batch-keep-data",
+                )
+            )
+
+            self.assertEqual(OperationStatus.SUCCESS, result.status, result.to_dict())
+            self.assertEqual("batch_succeeded", result.code)
+            self.assertEqual("batch-keep-data", result.operation_id)
+            self.assertEqual(["SERIAL-A", "SERIAL-B"], [
+                item["serial"] for item in result.value["completed"]
+            ])
+            self.assertEqual("SERIAL-A", transport.calls[0].argv[2])
+            self.assertEqual("SERIAL-B", transport.calls[1].argv[2])
+            self.assertIsNone(store.snapshot().active_operation)
+            self.assertEqual("batch-keep-data", store.snapshot().last_result.operation_id)
+
     def test_custom_firmware_artifacts_require_canonical_processed_state(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

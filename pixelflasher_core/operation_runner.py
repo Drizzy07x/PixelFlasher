@@ -80,6 +80,10 @@ ExecutionBoundary = Callable[
     [AppCommand, OperationPlan, AppSnapshot],
     ExecutionBoundaryAck,
 ]
+BatchExecutionBoundary = Callable[
+    [OperationBatch, AppSnapshot],
+    ExecutionBoundaryAck,
+]
 
 
 class CallbackPostconditionObserver(Protocol):
@@ -317,6 +321,7 @@ class OperationRunner:
         cancellation: CancellationToken | None = None,
         snapshot_provider: SnapshotProvider | None = None,
         postcondition_observer: PostconditionObserverLike | None = None,
+        before_execution: BatchExecutionBoundary | None = None,
     ) -> OperationResult:
         """Execute batch plans sequentially, revalidating each target fail-fast."""
 
@@ -357,6 +362,7 @@ class OperationRunner:
             )
         mutated = False
         completed: list[dict[str, object]] = []
+        execution_started = False
         last_mutated_plan: OperationPlan | None = None
         last_mutated_snapshot: AppSnapshot | None = None
         active_artifact_stage: tempfile.TemporaryDirectory[str] | None = None
@@ -516,6 +522,22 @@ class OperationRunner:
                     )
                 authorized = staged_plan
                 command = replace(command, operation_plan=authorized)
+
+                if not execution_started and before_execution is not None:
+                    boundary = before_execution(batch, current)
+                    if not isinstance(boundary, ExecutionBoundaryAck):
+                        return OperationResult.failed(
+                            batch.batch_id,
+                            code="execution_boundary_invalid",
+                            message="batch execution boundary returned no typed acknowledgement",
+                        )
+                    if not boundary.allowed:
+                        return OperationResult.failed(
+                            batch.batch_id,
+                            code=boundary.code,
+                            message=boundary.message,
+                        )
+                execution_started = True
 
                 mutated = True
                 last_mutated_plan = authorized

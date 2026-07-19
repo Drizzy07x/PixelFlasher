@@ -2976,12 +2976,96 @@ class CommandEngine:
             finally:
                 self._unregister_cancellation(command.operation_id)
         if batch_requested:
-            self._unregister_cancellation(command.operation_id)
-            return OperationResult.failed(
-                command.operation_id,
-                code="batch_execution_not_ready",
-                message="destructive batch execution requires the sequential G16 runner",
-            )
+            operation_started = False
+            canonical_revision = snapshot.revision
+
+            def current_batch_snapshot(serial: str) -> AppSnapshot:
+                current = self.snapshot_provider(serial)
+                active = current.active_operation
+                if (
+                    operation_started
+                    and current.revision == canonical_revision + 1
+                    and active is not None
+                    and active.operation_id == command.operation_id
+                ):
+                    return replace(
+                        current,
+                        revision=canonical_revision,
+                        active_operation=None,
+                    )
+                return current
+
+            def begin_batch(_batch: object, current: AppSnapshot) -> ExecutionBoundaryAck:
+                nonlocal operation_started
+                if current.revision != canonical_revision:
+                    return ExecutionBoundaryAck.rejected(
+                        "stale_revision",
+                        "state revision changed before batch execution",
+                    )
+                try:
+                    self.store.begin_operation(
+                        command.operation_id,
+                        expected_revision=canonical_revision,
+                        kind=str(command.kind),
+                        label=f"Flash {len(snapshot.selected_serials)} devices",
+                        target_serial=None,
+                    )
+                except StaleRevisionError as error:
+                    return ExecutionBoundaryAck.rejected("stale_revision", str(error))
+                except ValueError as error:
+                    return ExecutionBoundaryAck.rejected("operation_busy", str(error))
+                operation_started = True
+                return ExecutionBoundaryAck.accepted()
+
+            try:
+                compilation = self.operation_planner.compile_batch(command, snapshot)
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="planning_cancelled",
+                        cancelled_message="batch planning was cancelled",
+                        timeout_message="batch planning timed out",
+                    )
+                if not compilation.ok or compilation.batch is None:
+                    return replace(
+                        OperationResult.failed(
+                            command.operation_id,
+                            code=compilation.code,
+                            message=compilation.message,
+                        ),
+                        value=compilation.to_dict(),
+                    )
+                result = self.operation_runner.execute_batch(
+                    compilation.batch,
+                    cancellation=token,
+                    snapshot_provider=current_batch_snapshot,
+                    postcondition_observer=self.postcondition_observer,
+                    before_execution=begin_batch,
+                )
+                result = replace(result, operation_id=command.operation_id)
+                if operation_started:
+                    try:
+                        self.store.complete_operation(result)
+                    except (StaleRevisionError, TypeError, ValueError) as error:
+                        result = OperationResult.failed(
+                            command.operation_id,
+                            code="operation_state_completion_failed",
+                            message=str(error),
+                        )
+                        self._abort_operation_safely(result)
+                return result
+            except Exception as error:
+                result = OperationResult.failed(
+                    command.operation_id,
+                    code="operation_runner_error" if operation_started else "planner_error",
+                    message=str(error),
+                )
+                if operation_started:
+                    self._abort_operation_safely(result)
+                return result
+            finally:
+                self._unregister_cancellation(command.operation_id)
         try:
             compilation = self.operation_planner.compile(command, snapshot)
         except Exception as error:

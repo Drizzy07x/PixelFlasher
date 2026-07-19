@@ -711,11 +711,13 @@
       "owner": "flash",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "ui/web/src/App.tsx:prepareFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._image_flash"
+        "pixelflasher_core/planner.py:OperationPlanner.compile_batch",
+        "pixelflasher_core/operation_runner.py:OperationRunner.execute_batch",
+        "pixelflasher_core/engine.py:CommandEngine._plan_and_execute"
       ],
-      "gap": "Runtime state transitions, remaining option interactions and multi-device coverage remain incomplete.",
+      "gap": "Sequential fail-fast multi-device execution is connected end to end; runtime fastbootd/recovery transitions, remaining option interactions and packaged-platform validation remain incomplete.",
       "exitCriteria": [
         "Factory flash while keeping user data is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -732,7 +734,9 @@
         "linux"
       ],
       "tests": [
-        "tests/test_operation_planner.py:test_processed_factory_images_compile_deterministic_exact_sequence"
+        "tests/test_operation_planner.py:test_processed_factory_images_compile_deterministic_exact_sequence",
+        "tests/test_operation_planner.py:test_multi_device_keep_data_executes_sequentially_through_engine",
+        "tests/test_operation_runner_v2.py"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -882,12 +886,13 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "ui/web/src/components/FlashWizard.tsx:ReviewStep",
+        "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "pixelflasher_core/engine.py:_preview_flash_plan/_plan_and_execute/_execute_process",
         "pixelflasher_core/planner.py:OperationPlanner.compile/revalidate",
+        "pixelflasher_core/operation_runner.py:OperationRunner.execute/execute_batch",
         "pixelflasher_core/firmware_artifacts.py:FirmwareArtifactService"
       ],
-      "gap": "Custom payload processing, recovery/fastbootd transitions, multi-device batch execution and packaged-platform validation remain open.",
+      "gap": "Custom payload processing, recovery/fastbootd transitions and packaged-platform validation remain open; multi-device batches are now sequential, revalidated per target and fail-fast.",
       "exitCriteria": [
         "React submits semantic intent only; the backend previews and executes an immutable hash-bound plan after revision, serial, mode and artifact revalidation.",
         "Factory, OTA and supported custom-ROM flows cover success, cancellation, timeout, disconnect and recovery transitions without legacy code."
