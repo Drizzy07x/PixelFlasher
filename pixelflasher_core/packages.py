@@ -17,8 +17,10 @@ from typing import Protocol, cast
 
 from .apk_inspection import (
     ApkIdentity,
+    ApkInspectionCode,
     ApkInspectionError,
     ApkInspector,
+    CancellationProbe,
 )
 from .contracts import (
     AppCommand,
@@ -71,8 +73,12 @@ class PackagePlanningError(ValueError):
 
 
 class ApkIdentityInspector(Protocol):
-    def inspect(self, path: str | os.PathLike[str]) -> ApkIdentity: ...
-
+    def inspect(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> ApkIdentity: ...
 
 @dataclass(frozen=True, slots=True)
 class PackageInfo:
@@ -128,7 +134,13 @@ class PackageService:
         self.hash_chunk_size = hash_chunk_size
         self.apk_inspector = apk_inspector or ApkInspector()
 
-    def compile(self, command: AppCommand, snapshot: AppSnapshot) -> PackageCompilation:
+    def compile(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        cancellation: CancellationProbe | None = None,
+    ) -> PackageCompilation:
+        self._check_cancelled(cancellation)
         if command.kind not in PACKAGE_COMMANDS:
             raise PackagePlanningError(
                 "package_command_unsupported",
@@ -138,7 +150,13 @@ class PackageService:
         adb = self._adb(snapshot)
         if command.kind == "apps.list":
             return self._compile_list(command, snapshot, device, adb)
-        return self._compile_action(command, snapshot, device, adb)
+        return self._compile_action(
+            command,
+            snapshot,
+            device,
+            adb,
+            cancellation,
+        )
 
     def _compile_list(
         self,
@@ -183,6 +201,7 @@ class PackageService:
         snapshot: AppSnapshot,
         device: DeviceInfo,
         adb: str,
+        cancellation: CancellationProbe | None,
     ) -> PackageCompilation:
         self._validate_payload(
             command,
@@ -196,7 +215,13 @@ class PackageService:
             )
         action = raw_action
         if action == "install":
-            return self._compile_install(command, snapshot, device, adb)
+            return self._compile_install(
+                command,
+                snapshot,
+                device,
+                adb,
+                cancellation,
+            )
 
         options = self._options(command.payload.get("options"))
         allowed_options: set[str] = {"keepData"} if action == "uninstall" else set()
@@ -274,6 +299,7 @@ class PackageService:
         snapshot: AppSnapshot,
         device: DeviceInfo,
         adb: str,
+        cancellation: CancellationProbe | None,
     ) -> PackageCompilation:
         if "package" in command.payload or "packages" in command.payload:
             raise PackagePlanningError(
@@ -306,15 +332,27 @@ class PackageService:
                     f"install option {key} must be a boolean",
                 )
 
+        self._check_cancelled(cancellation)
         try:
-            identity = self.apk_inspector.inspect(path)
+            identity = self.apk_inspector.inspect(
+                path,
+                cancellation=cancellation,
+            )
         except ApkInspectionError as error:
+            self._check_cancelled(cancellation)
+            if error.code is ApkInspectionCode.CANCELLED:
+                raise PackagePlanningError(
+                    "package_cancelled",
+                    "package planning was cancelled",
+                ) from error
             raise PackagePlanningError(error.code.value, str(error)) from error
         except (OSError, TypeError, ValueError) as error:
+            self._check_cancelled(cancellation)
             raise PackagePlanningError(
                 "apk_inspection_failed",
                 "APK identity verification failed",
             ) from error
+        self._check_cancelled(cancellation)
         if not isinstance(identity, ApkIdentity) or not identity.verified:
             raise PackagePlanningError(
                 "apk_identity_unverified",
@@ -347,6 +385,14 @@ class PackageService:
             requires_confirmation=True,
             apk_identity=identity,
         )
+
+    @staticmethod
+    def _check_cancelled(cancellation: CancellationProbe | None) -> None:
+        if cancellation is not None and cancellation.cancelled:
+            raise PackagePlanningError(
+                "package_cancelled",
+                "package planning was cancelled",
+            )
 
     @staticmethod
     def _package_argv(

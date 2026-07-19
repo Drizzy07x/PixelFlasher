@@ -297,10 +297,11 @@ class OperationRunner:
                 message=str(error),
             )
         finally:
-            if artifact_stage is not None:
-                artifact_stage.cleanup()
-            if acquired:
-                self._destructive_lock.release()
+            try:
+                self._cleanup_artifact_stage(artifact_stage)
+            finally:
+                if acquired:
+                    self._destructive_lock.release()
 
     def execute_batch(
         self,
@@ -334,18 +335,18 @@ class OperationRunner:
                 message="batch execution requires a backend postcondition observer",
             )
         if token.cancelled:
-            return OperationResult.cancelled(
+            return self._stopped_before_mutation(
+                token,
                 batch.batch_id,
-                code="cancelled",
-                message="batch was cancelled before mutation",
+                "before batch mutation",
             )
 
         acquired = self._acquire_destructive(token)
         if not acquired:
-            return OperationResult.cancelled(
+            return self._stopped_before_mutation(
+                token,
                 batch.batch_id,
-                code="cancelled",
-                message="batch was cancelled before mutation",
+                "while waiting for the destructive batch lock",
             )
         mutated = False
         completed: list[dict[str, object]] = []
@@ -394,10 +395,10 @@ class OperationRunner:
                     return (
                         unknown_after_batch_mutation("batch cancellation arrived after a device may have been mutated")
                         if mutated
-                        else OperationResult.cancelled(
+                        else self._stopped_before_mutation(
+                            token,
                             batch.batch_id,
-                            code="cancelled",
-                            message="batch was cancelled before mutation",
+                            "before the next device mutation",
                         )
                     )
                 current = self._provided_snapshot(provider, serial, batch.batch_id)
@@ -433,8 +434,20 @@ class OperationRunner:
                         code=plan_decision.code,
                         message=f"{serial}: {plan_decision.message}",
                     )
-                artifact_issue = self._revalidate_artifacts(authorized)
+                artifact_issue = self._revalidate_artifacts(authorized, token)
                 if artifact_issue is not None:
+                    if artifact_issue[0] in {"cancelled", "timed_out"}:
+                        return (
+                            unknown_after_batch_mutation(
+                                "batch interruption arrived while revalidating the next device artifacts"
+                            )
+                            if mutated
+                            else self._stopped_before_mutation(
+                                token,
+                                batch.batch_id,
+                                "while revalidating the next device artifacts",
+                            )
+                        )
                     return OperationResult.failed(
                         batch.batch_id,
                         code=artifact_issue[0],
@@ -464,10 +477,10 @@ class OperationRunner:
                     return (
                         unknown_after_batch_mutation("batch cancellation arrived before the next device mutation")
                         if mutated
-                        else OperationResult.cancelled(
+                        else self._stopped_before_mutation(
+                            token,
                             batch.batch_id,
-                            code="cancelled",
-                            message="batch was cancelled before mutation",
+                            "before the next device mutation",
                         )
                     )
 
@@ -482,10 +495,10 @@ class OperationRunner:
                             "batch cancellation arrived while preparing the next device artifacts"
                         )
                         if mutated
-                        else OperationResult.cancelled(
+                        else self._stopped_before_mutation(
+                            token,
                             batch.batch_id,
-                            code="cancelled",
-                            message="batch was cancelled before mutation",
+                            "while preparing the next device artifacts",
                         )
                     )
                 except _ArtifactStageError as error:
@@ -561,7 +574,7 @@ class OperationRunner:
                     )
                 completed.append({"serial": serial, "result": result.to_dict()})
                 if active_artifact_stage is not None:
-                    active_artifact_stage.cleanup()
+                    self._cleanup_artifact_stage(active_artifact_stage)
                     active_artifact_stage = None
 
             return OperationResult.success(
@@ -579,9 +592,10 @@ class OperationRunner:
                 message="batch execution failed before mutation",
             )
         finally:
-            if active_artifact_stage is not None:
-                active_artifact_stage.cleanup()
-            self._destructive_lock.release()
+            try:
+                self._cleanup_artifact_stage(active_artifact_stage)
+            finally:
+                self._destructive_lock.release()
 
     def _execute_validated(
         self,
@@ -730,6 +744,30 @@ class OperationRunner:
                         message="result verification returned no typed result",
                     )
                 )
+        if not mutating and token.cancelled:
+            if (
+                result.status is OperationStatus.FAILED
+                and result.code == "managed_process_termination_failed"
+            ):
+                return result
+            if token.reason is CancellationReason.DEADLINE:
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="timed_out",
+                    message="read-only operation deadline expired during execution",
+                    exit_code=result.exit_code,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+            if result.status is OperationStatus.CANCELLED:
+                return result
+            return OperationResult.cancelled(
+                command.operation_id,
+                code="cancelled",
+                message="read-only operation was cancelled during execution",
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
         if result.status is OperationStatus.CANCELLED or token.cancelled:
             if mutating:
                 return self._unknown_after_mutation(
@@ -2128,8 +2166,24 @@ class OperationRunner:
                 stage,
             )
         except Exception:
-            stage.cleanup()
+            cls._cleanup_artifact_stage(stage)
             raise
+
+    @staticmethod
+    def _cleanup_artifact_stage(
+        stage: tempfile.TemporaryDirectory[str] | None,
+    ) -> None:
+        """Best-effort cleanup must never retain a global execution lock."""
+
+        if stage is None:
+            return
+        try:
+            stage.cleanup()
+        except Exception:
+            # Temporary staging is private and content-addressed.  A platform
+            # cleanup failure may leave recoverable residue, but it must not
+            # replace the typed operation result or deadlock every later flash.
+            pass
 
     @staticmethod
     def _rewrite_staged_request(

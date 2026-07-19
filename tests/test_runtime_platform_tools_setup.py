@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -55,6 +56,30 @@ def probe_transport() -> FakeProcessTransport:
 
 
 class RuntimePlatformToolsSetupTests(TestCase):
+    def test_expired_setup_deadline_is_failed_not_user_cancelled(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "PixelFlasher.json"
+            versioned_config(config)
+            selected = root / "platform-tools-selected"
+            selected.mkdir()
+            runtime = ApplicationRuntime.open(config)
+
+            result = runtime.execute(
+                AppCommand(
+                    "platformTools.setup",
+                    expected_revision=0,
+                    payload={"source": "directory", "path": str(selected)},
+                    execution_timeout_seconds=0.01,
+                    _accepted_monotonic=time.monotonic() - 1,
+                )
+            )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("timed_out", result.code)
+            self.assertEqual(0, runtime.snapshot().revision)
+            runtime.shutdown()
+
     def test_directory_activation_is_durable_and_public_result_is_pathless(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

@@ -63,6 +63,38 @@ class CommandRegistryTests(unittest.TestCase):
                 self.assertFalse(spec.exposed)
                 self.assertIsNone(spec.planner)
 
+    def test_long_running_command_deadlines_cover_their_bounded_workflows(self):
+        minimum_timeout_ms = {
+            "apps.action": 15 * 60_000,
+            "backups.create": 20 * 60_000,
+            "backups.restore": 20 * 60_000,
+            "boot.flash": 10 * 60_000,
+            "boot.inventory": 60 * 60_000,
+            "boot.live": 5 * 60_000,
+            "boot.patch": 2 * 60 * 60_000,
+            "boot.select": 60 * 60_000,
+            "device.bootloader.lock": 5 * 60_000,
+            "device.bootloader.unlock": 5 * 60_000,
+            "device.reboot": 5 * 60_000,
+            "device.scan": 5 * 60_000,
+            "device.switchSlot": 5 * 60_000,
+            "firmware.process": 60 * 60_000,
+            "firmware.select": 30 * 60_000,
+            "flash.execute": 2 * 60 * 60_000,
+            "platformTools.setup": 20 * 60_000,
+            "root.apps.install": 15 * 60_000,
+            "root.apps.list": 30 * 60_000,
+            "root.modules.action": 25 * 60_000,
+            "support.create": 20 * 60_000,
+            # A single request may contain 32 sequential pushes, each with a
+            # ten-minute process boundary, followed by postcondition checks.
+            "tools.pushFiles": 330 * 60_000,
+        }
+
+        for command, minimum in minimum_timeout_ms.items():
+            with self.subTest(command=command):
+                self.assertGreaterEqual(COMMAND_REGISTRY[command].timeout_ms, minimum)
+
     def test_future_commands_are_documented_but_rejected_by_production_bridge(self):
         for command in FUTURE_COMMANDS:
             with self.subTest(command=command), self.assertRaises(BridgeProtocolError) as rejected:

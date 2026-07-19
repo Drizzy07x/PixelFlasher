@@ -32,18 +32,19 @@ function hostFor(responseResult: (request: BridgeRequest) => Record<string, unkn
 
 describe('PixelFlasher bridge protocol', () => {
   it('allows long-running firmware processing and flash execution to finish', () => {
-    expect(commandTimeoutMs(commands.firmwareProcess)).toBe(30 * 60_000);
-    expect(commandTimeoutMs(commands.flashExecute)).toBe(30 * 60_000);
-    expect(commandTimeoutMs(commands.firmwareSelect)).toBe(3 * 60_000);
-    expect(commandTimeoutMs(commands.bootFlash)).toBe(10 * 60_000);
-    expect(commandTimeoutMs(commands.bootLive)).toBe(5 * 60_000);
+    expect(commandTimeoutMs(commands.firmwareProcess)).toBe(2 * 60 * 60_000);
+    expect(commandTimeoutMs(commands.flashExecute)).toBe(4 * 60 * 60_000);
+    expect(commandTimeoutMs(commands.firmwareSelect)).toBe(60 * 60_000);
+    expect(commandTimeoutMs(commands.bootPatch)).toBe(3 * 60 * 60_000);
+    expect(commandTimeoutMs(commands.bootFlash)).toBe(20 * 60_000);
+    expect(commandTimeoutMs(commands.bootLive)).toBe(10 * 60_000);
     expect(commandTimeoutMs(commands.partitionsRead)).toBe(20 * 60_000);
     expect(commandTimeoutMs(commands.partitionsWrite)).toBe(20 * 60_000);
     expect(commandTimeoutMs(commands.partitionsErase)).toBe(10 * 60_000);
-    expect(commandTimeoutMs(commands.toolsPushFiles)).toBe(10 * 60_000);
-    expect(commandTimeoutMs(commands.supportCreate)).toBe(10 * 60_000);
+    expect(commandTimeoutMs(commands.toolsPushFiles)).toBe(6 * 60 * 60_000);
+    expect(commandTimeoutMs(commands.supportCreate)).toBe(30 * 60_000);
     expect(commandTimeoutMs(commands.toolsLogcat)).toBe(3 * 60_000);
-    expect(commandTimeoutMs(commands.deviceScan)).toBe(60_000);
+    expect(commandTimeoutMs(commands.deviceScan)).toBe(10 * 60_000);
   });
 
   it('always sends v2 and requires expectedRevision for mutations', async () => {

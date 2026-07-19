@@ -312,6 +312,35 @@ class AppStateStore:
         self._publish(listeners, updated)
         return updated
 
+    def abort_operation(self, result: OperationResult) -> AppSnapshot:
+        """Fail closed when normal completion cannot clear its own lifecycle.
+
+        This recovery path deliberately promotes no firmware or boot state and
+        clears only the matching operation.  It is independent of revision so
+        a completion conflict cannot strand the global operation slot.
+        """
+
+        if not isinstance(result, OperationResult):
+            raise TypeError("result must be an OperationResult")
+        if result.ok:
+            raise ValueError("an aborted operation requires a non-success result")
+        with self._lock:
+            current = self._snapshot
+            active = current.active_operation
+            if active is None or active.operation_id != result.operation_id:
+                return current
+            updated = replace(
+                current,
+                revision=current.revision + 1,
+                active_operation=None,
+                last_result=result,
+                bootloader_lock_evidence=(),
+            )
+            self._snapshot = updated
+            listeners = tuple(self._listeners.values())
+        self._publish(listeners, updated)
+        return updated
+
     @staticmethod
     def _assert_revision(snapshot: AppSnapshot, expected_revision: int | None) -> None:
         if expected_revision is not None and snapshot.revision != expected_revision:

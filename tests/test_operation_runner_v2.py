@@ -5,6 +5,7 @@ import unittest
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from pixelflasher_core.contracts import (
     AppCommand,
@@ -88,6 +89,23 @@ def destructive_plan(serial="ABCDEF123456", *, now=NOW, postcondition=None):
         confirmation_nonce="nonce",
     )
     return replace(plan, confirmation_token=plan.confirmation_challenge())
+
+
+def read_only_plan(serial="ABCDEF123456", *, now=NOW):
+    return OperationPlan(
+        request=ProcessRequest(("ADB", "-s", serial, "get-state")),
+        created=now,
+        expires=now + 300,
+        risk=OperationRisk.READ_ONLY,
+        snapshot_revision=7,
+        target_serial=serial,
+        expected_device_state="fastboot",
+        firmware_hash="F1",
+        boot_hash="B1",
+        data_behavior="preserve",
+        plan_revision=3,
+        fingerprint="P1",
+    )
 
 
 def confirmed_batch(*plans):
@@ -768,6 +786,174 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(OperationStatus.FAILED, results[0].status)
         self.assertEqual("outcome_unknown", results[0].code)
 
+    def test_read_only_success_after_deadline_is_timed_out(self):
+        plan = read_only_plan()
+        command = AppCommand(
+            "tools.logcat",
+            expected_revision=7,
+            target_serial=plan.target_serial,
+            operation_plan=plan,
+            operation_id="read-only-success-deadline",
+        )
+        token = CancellationToken()
+        token.set_deadline(1)
+
+        def succeed_after_deadline(command, _plan, cancellation):
+            self.assertFalse(cancellation.cancelled)
+            cancellation.set_deadline(0.001)
+            self.assertTrue(cancellation.wait(0.2))
+            return OperationResult.success(
+                command.operation_id,
+                code="process_succeeded",
+                stdout="completed output",
+            )
+
+        result = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot_for(),
+        ).execute(
+            command,
+            plan,
+            cancellation=token,
+            operation_executor=succeed_after_deadline,
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+        self.assertEqual("completed output", result.stdout)
+
+    def test_read_only_cancelled_result_after_deadline_is_timed_out(self):
+        plan = read_only_plan()
+        command = AppCommand(
+            "tools.logcat",
+            expected_revision=7,
+            target_serial=plan.target_serial,
+            operation_plan=plan,
+            operation_id="read-only-cancelled-deadline",
+        )
+        token = CancellationToken()
+        token.set_deadline(1)
+
+        def cancel_after_deadline(command, _plan, cancellation):
+            self.assertFalse(cancellation.cancelled)
+            cancellation.set_deadline(0.001)
+            self.assertTrue(cancellation.wait(0.2))
+            return OperationResult.cancelled(
+                command.operation_id,
+                code="cancelled",
+                message="transport observed cancellation",
+            )
+
+        result = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot_for(),
+        ).execute(
+            command,
+            plan,
+            cancellation=token,
+            operation_executor=cancel_after_deadline,
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+
+    def test_read_only_user_cancellation_remains_cancelled(self):
+        plan = read_only_plan()
+        command = AppCommand(
+            "tools.logcat",
+            expected_revision=7,
+            target_serial=plan.target_serial,
+            operation_plan=plan,
+            operation_id="read-only-user-cancelled",
+        )
+        token = CancellationToken()
+
+        def cancel_by_user(command, _plan, cancellation):
+            cancellation.cancel()
+            return OperationResult.cancelled(
+                command.operation_id,
+                code="user_cancelled",
+                message="operation cancelled by the user",
+            )
+
+        result = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot_for(),
+        ).execute(
+            command,
+            plan,
+            cancellation=token,
+            operation_executor=cancel_by_user,
+        )
+
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("user_cancelled", result.code)
+
+    def test_read_only_success_after_user_cancellation_is_cancelled(self):
+        plan = read_only_plan()
+        command = AppCommand(
+            "tools.scrcpy",
+            expected_revision=7,
+            target_serial=plan.target_serial,
+            operation_plan=plan,
+            operation_id="read-only-success-user-cancelled",
+        )
+        token = CancellationToken()
+
+        def succeed_after_user_cancel(command, _plan, cancellation):
+            cancellation.cancel()
+            return OperationResult.success(
+                command.operation_id,
+                code="process_succeeded",
+                stdout="late process output",
+            )
+
+        result = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot_for(),
+        ).execute(
+            command,
+            plan,
+            cancellation=token,
+            operation_executor=succeed_after_user_cancel,
+        )
+
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("cancelled", result.code)
+        self.assertEqual("late process output", result.stdout)
+
+    def test_read_only_cancellation_cleanup_failure_is_not_hidden(self):
+        plan = read_only_plan()
+        command = AppCommand(
+            "tools.scrcpy",
+            expected_revision=7,
+            target_serial=plan.target_serial,
+            operation_plan=plan,
+            operation_id="read-only-cancel-cleanup-failed",
+        )
+        token = CancellationToken()
+
+        def fail_cleanup(command, _plan, cancellation):
+            cancellation.cancel()
+            return OperationResult.failed(
+                command.operation_id,
+                code="managed_process_termination_failed",
+                message="managed process remains active",
+            )
+
+        result = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot_for(),
+        ).execute(
+            command,
+            plan,
+            cancellation=token,
+            operation_executor=fail_cleanup,
+        )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("managed_process_termination_failed", result.code)
+
     def test_process_failure_is_unknown_only_when_target_cannot_be_observed(self):
         plan = destructive_plan()
         snapshot = snapshot_for()
@@ -810,6 +996,42 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                     "verified",
                     result.value["safetyObservation"]["status"],
                 )
+
+    def test_cleanup_failure_never_retains_single_or_batch_destructive_lock(self):
+        class FailingCleanupStage:
+            def __init__(self):
+                self.calls = 0
+
+            def cleanup(self):
+                self.calls += 1
+                raise OSError("injected Windows cleanup failure")
+
+        plan = destructive_plan()
+        snapshot = snapshot_for(slot="b")
+        for mode in ("single", "batch"):
+            with self.subTest(mode=mode):
+                transport = FakeProcessTransport([TransportOutcome(0)])
+                runner = self.runner(
+                    transport,
+                    provider=lambda _serial: snapshot,
+                    observer=lambda *_args: True,
+                )
+                stage = FailingCleanupStage()
+                with patch.object(
+                    runner,
+                    "_stage_artifacts",
+                    return_value=(plan, stage),
+                ):
+                    result = (
+                        runner.execute(self.command_for(plan, "cleanup-single"), plan)
+                        if mode == "single"
+                        else runner.execute_batch(confirmed_batch(plan))
+                    )
+
+                self.assertTrue(result.ok)
+                self.assertGreaterEqual(stage.calls, 1)
+                self.assertTrue(runner._destructive_lock.acquire(timeout=0.1))
+                runner._destructive_lock.release()
 
     def test_plan_is_revalidated_again_at_the_immediate_process_boundary(self):
         plan = destructive_plan()
@@ -1105,6 +1327,188 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(2, len(transport.calls))
         self.assertGreaterEqual(calls[first.target_serial], 3)
         self.assertGreaterEqual(calls[second.target_serial], 2)
+
+    def test_batch_pre_mutation_stop_preserves_user_or_deadline_reason(self):
+        plan = destructive_plan()
+        batch = confirmed_batch(plan)
+        snapshot = snapshot_for(slot="b")
+
+        for reason, expected_status, expected_code in (
+            ("user", OperationStatus.CANCELLED, "cancelled"),
+            ("deadline", OperationStatus.FAILED, "timed_out"),
+        ):
+            with self.subTest(reason=reason):
+                token = CancellationToken()
+                if reason == "deadline":
+                    token.set_deadline_at(0.0)
+                else:
+                    token.cancel()
+                transport = FakeProcessTransport([])
+
+                result = self.runner(
+                    transport,
+                    provider=lambda _serial: snapshot,
+                    observer=lambda *_args: True,
+                ).execute_batch(batch, cancellation=token)
+
+                self.assertEqual(expected_status, result.status)
+                self.assertEqual(expected_code, result.code)
+                self.assertEqual([], transport.calls)
+
+    def test_batch_deadline_while_waiting_for_lock_is_timed_out(self):
+        plan = destructive_plan()
+        batch = confirmed_batch(plan)
+        snapshot = snapshot_for(slot="b")
+        token = CancellationToken()
+        transport = FakeProcessTransport([])
+        runner = self.runner(
+            transport,
+            provider=lambda _serial: snapshot,
+            observer=lambda *_args: True,
+        )
+
+        def expire(received_token):
+            self.assertIs(token, received_token)
+            received_token.set_deadline_at(0.0)
+            return False
+
+        with patch.object(runner, "_acquire_destructive", side_effect=expire):
+            result = runner.execute_batch(batch, cancellation=token)
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+        self.assertEqual([], transport.calls)
+
+    def test_batch_interrupts_artifact_revalidation_with_the_batch_token(self):
+        class InterruptingReader:
+            def __init__(self, stop):
+                self.stop = stop
+                self.reads = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size=-1):
+                self.reads += 1
+                if self.reads == 1:
+                    self.stop()
+                    # A mismatching chunk ensures this test would fail with
+                    # artifact_hash_mismatch if execute_batch forgot to pass
+                    # the cancellation token into revalidation.
+                    return b"changed after planning"
+                return b""
+
+        for reason, expected_status, expected_code in (
+            ("user", OperationStatus.CANCELLED, "cancelled"),
+            ("deadline", OperationStatus.FAILED, "timed_out"),
+        ):
+            with self.subTest(reason=reason), TemporaryDirectory() as directory:
+                source = (Path(directory) / "boot.img").resolve()
+                contents = b"verified boot image"
+                source.write_bytes(contents)
+                plan = replace(
+                    destructive_plan(),
+                    artifacts=(
+                        FileArtifact(
+                            str(source),
+                            hashlib.sha256(contents).hexdigest(),
+                            "partition:boot",
+                        ),
+                    ),
+                    confirmation_token=None,
+                )
+                plan = replace(plan, confirmation_token=plan.confirmation_challenge())
+                batch = confirmed_batch(plan)
+                snapshot = snapshot_for(slot="b")
+                token = CancellationToken()
+
+                def stop(*, stop_reason=reason, stop_token=token):
+                    if stop_reason == "deadline":
+                        stop_token.set_deadline_at(0.0)
+                    else:
+                        stop_token.cancel()
+
+                reader = InterruptingReader(stop)
+                transport = FakeProcessTransport([])
+                with patch.object(Path, "open", return_value=reader):
+                    result = self.runner(
+                        transport,
+                        provider=lambda _serial, current=snapshot: current,
+                        observer=lambda *_args: True,
+                    ).execute_batch(batch, cancellation=token)
+
+                self.assertEqual(expected_status, result.status)
+                self.assertEqual(expected_code, result.code)
+                self.assertEqual(1, reader.reads)
+                self.assertEqual([], transport.calls)
+
+    def test_batch_interrupts_artifact_staging_with_the_batch_token(self):
+        for reason, expected_status, expected_code in (
+            ("user", OperationStatus.CANCELLED, "cancelled"),
+            ("deadline", OperationStatus.FAILED, "timed_out"),
+        ):
+            with self.subTest(reason=reason), TemporaryDirectory() as directory:
+                source = (Path(directory) / "boot.img").resolve()
+                contents = b"verified boot image"
+                source.write_bytes(contents)
+                plan = replace(
+                    destructive_plan(),
+                    artifacts=(
+                        FileArtifact(
+                            str(source),
+                            hashlib.sha256(contents).hexdigest(),
+                            "partition:boot",
+                        ),
+                    ),
+                    confirmation_token=None,
+                )
+                plan = replace(plan, confirmation_token=plan.confirmation_challenge())
+                batch = confirmed_batch(plan)
+                snapshot = snapshot_for(slot="b")
+                token = CancellationToken()
+                received_tokens = []
+                staged_destinations = []
+
+                def interrupt_copy(
+                    _source,
+                    destination,
+                    _digest,
+                    received_token,
+                    *,
+                    observed_tokens=received_tokens,
+                    observed_destinations=staged_destinations,
+                    stop_reason=reason,
+                    stop_token=token,
+                ):
+                    observed_tokens.append(received_token)
+                    observed_destinations.append(destination)
+                    if stop_reason == "deadline":
+                        stop_token.set_deadline_at(0.0)
+                    else:
+                        stop_token.cancel()
+                    raise InterruptedError("injected staging interruption")
+
+                transport = FakeProcessTransport([])
+                with patch.object(
+                    OperationRunner,
+                    "_copy_verified_artifact",
+                    side_effect=interrupt_copy,
+                ):
+                    result = self.runner(
+                        transport,
+                        provider=lambda _serial, current=snapshot: current,
+                        observer=lambda *_args: True,
+                    ).execute_batch(batch, cancellation=token)
+
+                self.assertEqual(expected_status, result.status)
+                self.assertEqual(expected_code, result.code)
+                self.assertEqual([token], received_tokens)
+                self.assertEqual(1, len(staged_destinations))
+                self.assertFalse(staged_destinations[0].parent.exists())
+                self.assertEqual([], transport.calls)
 
     def test_batch_rejects_second_device_state_change_before_its_process_boundary(self):
         first = destructive_plan("ABCDEF123456")

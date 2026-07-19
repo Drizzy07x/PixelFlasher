@@ -5,15 +5,18 @@ import io
 import json
 import tempfile
 import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from pixelflasher_core import (
     AppCommand,
     ApplicationRuntime,
     AppSnapshot,
     AppStateStore,
+    ArtifactRepository,
     BootInfo,
     DeviceInfo,
     FileArtifact,
@@ -24,6 +27,7 @@ from pixelflasher_core import (
     FirmwareProcessingCode,
     FirmwareProcessingResult,
     FirmwareProcessingStatus,
+    FirmwareRepository,
     OperationPlan,
     OperationPlanner,
     OperationResult,
@@ -153,6 +157,122 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             firmware_artifact_service=service,
         )
         return engine, planner, service
+
+    def test_expired_select_and_process_deadlines_are_failed_timeouts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            write_factory(factory)
+            expired_at = time.monotonic() - 1
+
+            select_engine, _planner, _service = self.make_engine(root / "select-cache")
+            selected = select_engine.execute(
+                AppCommand(
+                    "firmware.select",
+                    expected_revision=0,
+                    payload={"path": str(factory)},
+                    execution_timeout_seconds=0.01,
+                    _accepted_monotonic=expired_at,
+                )
+            )
+            self.assertEqual(OperationStatus.FAILED, selected.status)
+            self.assertEqual("timed_out", selected.code)
+            self.assertEqual(0, select_engine.store.snapshot().revision)
+
+            firmware = FirmwareInfo(
+                str(factory),
+                "factory",
+                "AP4A.260705.001",
+                sha256(factory),
+                True,
+                False,
+            )
+            process_engine, _planner, _service = self.make_engine(
+                root / "process-cache",
+                selected_snapshot(firmware),
+            )
+            processed = process_engine.execute(
+                AppCommand(
+                    "firmware.process",
+                    expected_revision=0,
+                    execution_timeout_seconds=0.01,
+                    _accepted_monotonic=expired_at,
+                )
+            )
+            self.assertEqual(OperationStatus.FAILED, processed.status)
+            self.assertEqual("timed_out", processed.code)
+            self.assertEqual(firmware, process_engine.store.snapshot().firmware)
+
+    def test_selection_cancellation_reaches_content_addressed_firmware_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            write_factory(factory)
+            planner = OperationPlanner()
+            repository = ArtifactRepository(root / "repository")
+            firmware_repository = FirmwareRepository(repository)
+            engine = CommandEngine(
+                store=AppStateStore(selected_snapshot()),
+                operation_planner=planner,
+                firmware_artifact_service=FirmwareArtifactService(
+                    planner.artifact_repository,
+                    root / "cache",
+                ),
+                firmware_repository=firmware_repository,
+            )
+            started = threading.Event()
+            results: list[OperationResult] = []
+
+            from pixelflasher_core import repositories as repository_module
+
+            original_copy = repository_module._copy_to_stream
+
+            def blocking_copy(source, output_stream, *, cancellation=None):
+                started.set()
+                self.assertIsNotNone(cancellation)
+                assert cancellation is not None
+                while not cancellation.cancelled:
+                    time.sleep(0.005)
+                return original_copy(
+                    source,
+                    output_stream,
+                    cancellation=cancellation,
+                )
+
+            command = AppCommand(
+                "firmware.select",
+                expected_revision=0,
+                payload={"path": str(factory)},
+                operation_id="cancel-firmware-import",
+            )
+            with patch(
+                "pixelflasher_core.repositories._copy_to_stream",
+                side_effect=blocking_copy,
+            ):
+                worker = threading.Thread(
+                    target=lambda: results.append(engine.execute(command)),
+                    daemon=True,
+                )
+                worker.start()
+                self.assertTrue(started.wait(2))
+                self.assertTrue(engine.cancel(command.operation_id))
+                worker.join(2)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(OperationStatus.CANCELLED, results[0].status)
+            self.assertEqual("firmware_cancelled", results[0].code)
+            self.assertEqual(0, engine.store.snapshot().revision)
+            self.assertEqual(FirmwareInfo(), engine.store.snapshot().firmware)
+            self.assertEqual((), firmware_repository.list())
+            self.assertEqual(
+                (),
+                tuple(
+                    path
+                    for path in (root / "repository" / "objects").rglob("*")
+                    if path.is_file()
+                ),
+            )
+            repository.close()
 
     def test_factory_processing_promotes_verified_firmware_and_preferred_stock_boot(self):
         with tempfile.TemporaryDirectory() as directory:

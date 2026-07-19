@@ -594,6 +594,53 @@ class EngineServiceIntegrationTests(unittest.TestCase):
         self.assertEqual("A", snapshot.selected_serial)
         self.assertEqual(1, snapshot.revision)
 
+    def test_device_scan_cancellation_remains_active_until_state_promotion(self):
+        transport = FakeProcessTransport(
+            [
+                TransportOutcome(0, "List of devices attached\nA device model:Pixel device:akita\n"),
+                TransportOutcome(0, ""),
+            ]
+        )
+        engine = CommandEngine(
+            store=AppStateStore(
+                AppSnapshot(toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True))
+            ),
+            executor=CommandExecutor(transport),
+        )
+        intent = AppCommand(
+            "device.scan",
+            expected_revision=0,
+            operation_id="scan-cancel-before-promotion",
+            payload={"includeProperties": False, "includeBattery": False},
+        )
+        entered_promotion = threading.Event()
+        release_promotion = threading.Event()
+        original = engine._promote_device_scan
+
+        def blocked_promotion(*args):
+            entered_promotion.set()
+            self.assertTrue(release_promotion.wait(2))
+            return original(*args)
+
+        results = []
+        with patch.object(engine, "_promote_device_scan", side_effect=blocked_promotion):
+            worker = threading.Thread(
+                target=lambda: results.append(engine.execute(intent)),
+                daemon=True,
+            )
+            worker.start()
+            self.assertTrue(entered_promotion.wait(2))
+            self.assertTrue(engine.cancel(intent.operation_id))
+            release_promotion.set()
+            worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(1, len(results))
+        self.assertEqual(OperationStatus.CANCELLED, results[0].status)
+        self.assertEqual(0, engine.store.snapshot().revision)
+        self.assertEqual((), engine.store.snapshot().devices)
+        self.assertFalse(engine.cancel(intent.operation_id))
+
     def test_partial_scan_timeout_preserves_inventory_from_failed_source(self):
         transport = FakeProcessTransport(
             [TransportOutcome(0, "List of devices attached\n"), TransportOutcome(None, timed_out=True)]

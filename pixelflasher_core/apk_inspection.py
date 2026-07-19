@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import TYPE_CHECKING, BinaryIO, Final
+from typing import TYPE_CHECKING, BinaryIO, Final, Protocol
 
 if TYPE_CHECKING:
     from cryptography import x509
@@ -40,6 +40,7 @@ __all__ = (
     "ApkInspectionError",
     "ApkInspectionLimits",
     "ApkInspector",
+    "CancellationProbe",
     "inspect_apk",
 )
 
@@ -70,6 +71,7 @@ _V1_IGNORED_FILE = re.compile(
 
 
 class ApkInspectionCode(StrEnum):
+    CANCELLED = "apk_inspection_cancelled"
     INVALID_PATH = "apk_invalid_path"
     FILE_NOT_FOUND = "apk_file_not_found"
     FILE_TOO_LARGE = "apk_file_too_large"
@@ -102,6 +104,13 @@ class ApkInspectionError(RuntimeError):
     def __init__(self, code: ApkInspectionCode, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class CancellationProbe(Protocol):
+    """Narrow cooperative-cancellation boundary used during bounded I/O."""
+
+    @property
+    def cancelled(self) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,10 +269,17 @@ class ApkInspector:
     def __init__(self, *, limits: ApkInspectionLimits | None = None) -> None:
         self.limits = limits or ApkInspectionLimits()
 
-    def inspect(self, path: str | os.PathLike[str]) -> ApkIdentity:
+    def inspect(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> ApkIdentity:
         try:
+            _raise_if_cancelled(cancellation)
             source = _validated_source_path(path)
             with source.open("rb") as stream:
+                _raise_if_cancelled(cancellation)
                 before = os.fstat(stream.fileno())
                 if not stat.S_ISREG(before.st_mode):
                     raise _ParseFailure(
@@ -275,17 +291,32 @@ class ApkInspector:
                         ApkInspectionCode.FILE_TOO_LARGE,
                         "APK exceeds the configured file-size limit",
                     )
-                apk_digest = _sha256_stream(stream, self.limits.io_chunk_size)
+                apk_digest = _sha256_stream(
+                    stream,
+                    self.limits.io_chunk_size,
+                    cancellation,
+                )
                 stream.seek(0)
-                archive = self._open_archive(stream, before.st_size)
+                archive = self._open_archive(stream, before.st_size, cancellation)
                 manifest = self._read_member_from_stream(
                     stream,
                     archive.by_name[_MANIFEST_PATH],
                     self.limits.maximum_manifest_bytes,
+                    cancellation,
                 )
                 package_name = _parse_package_name(manifest, self.limits)
-                scheme_results = self._verify_signatures(stream, archive)
-                after_digest = _sha256_stream(stream, self.limits.io_chunk_size)
+                _raise_if_cancelled(cancellation)
+                scheme_results = self._verify_signatures(
+                    stream,
+                    archive,
+                    cancellation,
+                )
+                after_digest = _sha256_stream(
+                    stream,
+                    self.limits.io_chunk_size,
+                    cancellation,
+                )
+                _raise_if_cancelled(cancellation)
                 after = os.fstat(stream.fileno())
                 if (
                     after_digest != apk_digest
@@ -304,33 +335,71 @@ class ApkInspector:
                     for signer in result.signer_digests
                 )
             )
-            return ApkIdentity(
+            identity = ApkIdentity(
                 package_name=package_name,
                 sha256=apk_digest.hex(),
                 signer_sha256=signer_digests,
                 schemes=schemes,
                 verified=True,
             )
-        except ApkInspectionError:
+            _raise_if_cancelled(cancellation)
+            return identity
+        except ApkInspectionError as error:
+            if (
+                error.code is not ApkInspectionCode.CANCELLED
+                and _is_cancelled(cancellation)
+            ):
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "APK inspection was cancelled",
+                ) from error
             raise
         except _ParseFailure as error:
+            if (
+                error.code is ApkInspectionCode.CANCELLED
+                or _is_cancelled(cancellation)
+            ):
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "APK inspection was cancelled",
+                ) from error
             raise ApkInspectionError(error.code, str(error)) from error
         except FileNotFoundError as error:
+            if _is_cancelled(cancellation):
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "APK inspection was cancelled",
+                ) from error
             raise ApkInspectionError(
                 ApkInspectionCode.FILE_NOT_FOUND,
                 "APK file does not exist",
             ) from error
         except (PermissionError, OSError) as error:
+            if _is_cancelled(cancellation):
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "APK inspection was cancelled",
+                ) from error
             raise ApkInspectionError(
                 ApkInspectionCode.READ_FAILED,
                 "APK could not be read",
             ) from error
         except (zipfile.BadZipFile, zipfile.LargeZipFile) as error:
+            if _is_cancelled(cancellation):
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "APK inspection was cancelled",
+                ) from error
             raise ApkInspectionError(
                 ApkInspectionCode.INVALID_ZIP,
                 "APK is not a valid bounded ZIP archive",
             ) from error
         except Exception as error:
+            if _is_cancelled(cancellation):
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "APK inspection was cancelled",
+                ) from error
             # The public parser boundary must remain fuzz-friendly.  Programmer
             # and third-party parser exceptions are never exposed to callers.
             raise ApkInspectionError(
@@ -338,9 +407,15 @@ class ApkInspector:
                 "APK inspection failed safely",
             ) from error
 
-    def _open_archive(self, stream: BinaryIO, file_size: int) -> _Archive:
-        eocd = _read_eocd(stream, file_size)
-        signing_block = self._read_signing_block(stream, eocd)
+    def _open_archive(
+        self,
+        stream: BinaryIO,
+        file_size: int,
+        cancellation: CancellationProbe | None,
+    ) -> _Archive:
+        _raise_if_cancelled(cancellation)
+        eocd = _read_eocd(stream, file_size, cancellation)
+        signing_block = self._read_signing_block(stream, eocd, cancellation)
         data_boundary = (
             signing_block.offset
             if signing_block is not None
@@ -349,12 +424,18 @@ class ApkInspector:
         stream.seek(0)
         with zipfile.ZipFile(stream, mode="r", allowZip64=False) as apk:
             infos = tuple(apk.infolist())
+            _raise_if_cancelled(cancellation)
             if len(infos) > self.limits.maximum_entries:
                 raise _ParseFailure(
                     ApkInspectionCode.TOO_MANY_ENTRIES,
                     "APK contains too many archive entries",
                 )
-            by_name = self._validate_entries(stream, infos, data_boundary)
+            by_name = self._validate_entries(
+                stream,
+                infos,
+                data_boundary,
+                cancellation,
+            )
         if _MANIFEST_PATH not in by_name:
             raise _ParseFailure(
                 ApkInspectionCode.MANIFEST_MISSING,
@@ -367,11 +448,13 @@ class ApkInspector:
         stream: BinaryIO,
         infos: Sequence[zipfile.ZipInfo],
         data_boundary: int,
+        cancellation: CancellationProbe | None,
     ) -> dict[str, zipfile.ZipInfo]:
         expanded = 0
         normalized: dict[str, zipfile.ZipInfo] = {}
         ranges: list[tuple[int, int]] = []
         for info in infos:
+            _raise_if_cancelled(cancellation)
             name = _safe_archive_name(info.filename)
             identity = name.casefold()
             if identity in normalized:
@@ -424,7 +507,14 @@ class ApkInspector:
                     ApkInspectionCode.SUSPICIOUS_COMPRESSION,
                     "APK member exceeds the configured compression ratio",
                 )
-            ranges.append(self._validate_local_header(stream, info, data_boundary))
+            ranges.append(
+                self._validate_local_header(
+                    stream,
+                    info,
+                    data_boundary,
+                    cancellation,
+                )
+            )
         ranges.sort()
         for previous, current in zip(ranges, ranges[1:], strict=False):
             if current[0] < previous[1]:
@@ -439,13 +529,19 @@ class ApkInspector:
         stream: BinaryIO,
         info: zipfile.ZipInfo,
         data_boundary: int,
+        cancellation: CancellationProbe | None,
     ) -> tuple[int, int]:
         if info.header_offset < 0 or info.header_offset + 30 > data_boundary:
             raise _ParseFailure(
                 ApkInspectionCode.UNSAFE_ARCHIVE,
                 "APK local header is outside the signed data region",
             )
-        header = _read_exact_at(stream, info.header_offset, 30)
+        header = _read_exact_at(
+            stream,
+            info.header_offset,
+            30,
+            cancellation,
+        )
         (
             signature,
             _version,
@@ -478,7 +574,12 @@ class ApkInspector:
                 ApkInspectionCode.UNSAFE_ARCHIVE,
                 "APK local header flags are inconsistent",
             )
-        raw_name = _read_exact_at(stream, info.header_offset + 30, name_length)
+        raw_name = _read_exact_at(
+            stream,
+            info.header_offset + 30,
+            name_length,
+            cancellation,
+        )
         try:
             local_name = raw_name.decode("utf-8" if flags & 0x800 else "cp437")
         except UnicodeError as error:
@@ -500,11 +601,16 @@ class ApkInspector:
             )
         return (info.header_offset, data_end)
 
-    def _read_signing_block(self, stream: BinaryIO, eocd: _Eocd) -> _SigningBlock | None:
+    def _read_signing_block(
+        self,
+        stream: BinaryIO,
+        eocd: _Eocd,
+        cancellation: CancellationProbe | None,
+    ) -> _SigningBlock | None:
         central = eocd.central_directory_offset
         if central < 24:
             return None
-        footer = _read_exact_at(stream, central - 24, 24)
+        footer = _read_exact_at(stream, central - 24, 24, cancellation)
         if footer[8:] != _APK_SIG_BLOCK_MAGIC:
             return None
         size = struct.unpack_from("<Q", footer, 0)[0]
@@ -519,7 +625,7 @@ class ApkInspector:
                 ApkInspectionCode.SIGNATURE_BLOCK_INVALID,
                 "APK signing block starts outside the file",
             )
-        block = _read_exact_at(stream, block_offset, size + 8)
+        block = _read_exact_at(stream, block_offset, size + 8, cancellation)
         if struct.unpack_from("<Q", block, 0)[0] != size:
             raise _ParseFailure(
                 ApkInspectionCode.SIGNATURE_BLOCK_INVALID,
@@ -529,6 +635,7 @@ class ApkInspector:
         offset = 8
         pairs: dict[int, bytes] = {}
         while offset < pairs_end:
+            _raise_if_cancelled(cancellation)
             if pairs_end - offset < 8:
                 raise _ParseFailure(
                     ApkInspectionCode.SIGNATURE_BLOCK_INVALID,
@@ -562,6 +669,7 @@ class ApkInspector:
         stream: BinaryIO,
         info: zipfile.ZipInfo,
         limit: int,
+        cancellation: CancellationProbe | None,
     ) -> bytes:
         code = (
             ApkInspectionCode.MANIFEST_TOO_LARGE
@@ -573,12 +681,31 @@ class ApkInspector:
         stream.seek(0)
         with zipfile.ZipFile(stream, mode="r", allowZip64=False) as apk:
             with apk.open(info, mode="r") as member:
-                data = member.read(limit + 1)
-                if len(data) > limit or member.read(1):
-                    raise _ParseFailure(code, "APK metadata member exceeds its size limit")
-                return data
+                chunks: list[bytes] = []
+                total = 0
+                while True:
+                    _raise_if_cancelled(cancellation)
+                    chunk = member.read(
+                        min(self.limits.io_chunk_size, limit + 1 - total)
+                    )
+                    _raise_if_cancelled(cancellation)
+                    if not chunk:
+                        return b"".join(chunks)
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > limit:
+                        raise _ParseFailure(
+                            code,
+                            "APK metadata member exceeds its size limit",
+                        )
 
-    def _verify_signatures(self, stream: BinaryIO, archive: _Archive) -> tuple[_SchemeResult, ...]:
+    def _verify_signatures(
+        self,
+        stream: BinaryIO,
+        archive: _Archive,
+        cancellation: CancellationProbe | None,
+    ) -> tuple[_SchemeResult, ...]:
+        _raise_if_cancelled(cancellation)
         results: list[_SchemeResult] = []
         signing_block = archive.signing_block
         content_digests: dict[str, bytes] = {}
@@ -590,6 +717,7 @@ class ApkInspector:
                     signing_block.pairs[pair_id],
                     scheme="v3",
                     content_digests=content_digests,
+                    cancellation=cancellation,
                 )
                 for pair_id in (_APK_SIG_V3_ID, _APK_SIG_V31_ID)
                 if pair_id in signing_block.pairs
@@ -616,11 +744,19 @@ class ApkInspector:
                         v2,
                         scheme="v2",
                         content_digests=content_digests,
+                        cancellation=cancellation,
                     )
                 )
-        v1 = self._v1_signers(archive)
+        v1 = self._v1_signers(archive, cancellation)
         if v1:
-            results.append(self._verify_v1(stream, archive, v1))
+            results.append(
+                self._verify_v1(
+                    stream,
+                    archive,
+                    v1,
+                    cancellation,
+                )
+            )
         if not results:
             raise _ParseFailure(
                 ApkInspectionCode.SIGNATURE_MISSING,
@@ -637,7 +773,9 @@ class ApkInspector:
         *,
         scheme: str,
         content_digests: dict[str, bytes],
+        cancellation: CancellationProbe | None,
     ) -> _SchemeResult:
+        _raise_if_cancelled(cancellation)
         outer = _ByteReader(value)
         signers_data = outer.length_prefixed()
         outer.finish()
@@ -649,6 +787,7 @@ class ApkInspector:
             )
         signer_digests: list[str] = []
         for signer in signers:
+            _raise_if_cancelled(cancellation)
             signer_digests.append(
                 self._verify_scheme_signer(
                     stream,
@@ -656,6 +795,7 @@ class ApkInspector:
                     signer,
                     scheme=scheme,
                     content_digests=content_digests,
+                    cancellation=cancellation,
                 )
             )
         if len(set(signer_digests)) != len(signer_digests):
@@ -673,7 +813,9 @@ class ApkInspector:
         *,
         scheme: str,
         content_digests: dict[str, bytes],
+        cancellation: CancellationProbe | None,
     ) -> str:
+        _raise_if_cancelled(cancellation)
         reader = _ByteReader(signer)
         signed_data = reader.length_prefixed()
         outside_min_sdk: int | None = None
@@ -739,7 +881,9 @@ class ApkInspector:
         leaf = _load_x509_certificate(certificates[0])
         _verify_public_key_encoding(leaf, public_key)
         for algorithm in supported:
+            _raise_if_cancelled(cancellation)
             _verify_signature(leaf, algorithm, signature_records[algorithm], signed_data)
+            _raise_if_cancelled(cancellation)
             digest_name = _SIGNATURE_ALGORITHMS[algorithm][0]
             expected = digest_records[algorithm]
             actual = content_digests.get(digest_name)
@@ -749,6 +893,7 @@ class ApkInspector:
                     archive,
                     digest_name,
                     self.limits.io_chunk_size,
+                    cancellation,
                 )
                 content_digests[digest_name] = actual
             if not _constant_time_equal(actual, expected):
@@ -758,10 +903,15 @@ class ApkInspector:
                 )
         return hashlib.sha256(certificates[0]).hexdigest()
 
-    def _v1_signers(self, archive: _Archive) -> tuple[tuple[str, zipfile.ZipInfo, zipfile.ZipInfo], ...]:
+    def _v1_signers(
+        self,
+        archive: _Archive,
+        cancellation: CancellationProbe | None,
+    ) -> tuple[tuple[str, zipfile.ZipInfo, zipfile.ZipInfo], ...]:
         sf: dict[str, zipfile.ZipInfo] = {}
         blocks: dict[str, zipfile.ZipInfo] = {}
         for info in archive.infos:
+            _raise_if_cancelled(cancellation)
             sf_match = _V1_SIGNATURE_FILE.fullmatch(info.filename)
             if sf_match:
                 sf[sf_match.group(1).casefold()] = info
@@ -793,7 +943,9 @@ class ApkInspector:
         stream: BinaryIO,
         archive: _Archive,
         signers: Sequence[tuple[str, zipfile.ZipInfo, zipfile.ZipInfo]],
+        cancellation: CancellationProbe | None,
     ) -> _SchemeResult:
+        _raise_if_cancelled(cancellation)
         manifest_info = archive.by_name.get(_JAR_MANIFEST_PATH)
         if manifest_info is None:
             raise _ParseFailure(
@@ -804,20 +956,29 @@ class ApkInspector:
             stream,
             manifest_info,
             self.limits.maximum_v1_metadata_bytes,
+            cancellation,
         )
         manifest_sections = _parse_jar_manifest(manifest)
-        self._verify_v1_entry_digests(stream, archive, manifest_sections)
+        self._verify_v1_entry_digests(
+            stream,
+            archive,
+            manifest_sections,
+            cancellation,
+        )
         signer_digests: list[str] = []
         for _name, sf_info, block_info in signers:
+            _raise_if_cancelled(cancellation)
             sf_data = self._read_member_from_stream(
                 stream,
                 sf_info,
                 self.limits.maximum_v1_metadata_bytes,
+                cancellation,
             )
             signature_block = self._read_member_from_stream(
                 stream,
                 block_info,
                 self.limits.maximum_v1_metadata_bytes,
+                cancellation,
             )
             sf_sections = _parse_jar_manifest(sf_data)
             _verify_sf_manifest(sf_sections, manifest_sections, manifest)
@@ -826,6 +987,7 @@ class ApkInspector:
                 archive.signing_block,
             )
             signer_digests.extend(_verify_cms_signature(signature_block, sf_data))
+            _raise_if_cancelled(cancellation)
         unique = tuple(dict.fromkeys(signer_digests))
         if not unique:
             raise _ParseFailure(
@@ -839,9 +1001,11 @@ class ApkInspector:
         stream: BinaryIO,
         archive: _Archive,
         sections: Sequence[tuple[Mapping[str, bytes], bytes]],
+        cancellation: CancellationProbe | None,
     ) -> None:
         manifest_entries: dict[str, Mapping[str, bytes]] = {}
         for headers, _raw in sections[1:]:
+            _raise_if_cancelled(cancellation)
             raw_name = headers.get("name")
             if raw_name is None:
                 raise _ParseFailure(
@@ -872,11 +1036,17 @@ class ApkInspector:
         stream.seek(0)
         with zipfile.ZipFile(stream, mode="r", allowZip64=False) as apk:
             for info in expected_infos:
+                _raise_if_cancelled(cancellation)
                 headers = manifest_entries[info.filename.casefold()]
                 algorithm, expected = _select_manifest_digest(headers, "digest")
                 digest = hashlib.new(algorithm)
                 with apk.open(info, mode="r") as member:
-                    while chunk := member.read(self.limits.io_chunk_size):
+                    while True:
+                        _raise_if_cancelled(cancellation)
+                        chunk = member.read(self.limits.io_chunk_size)
+                        _raise_if_cancelled(cancellation)
+                        if not chunk:
+                            break
                         digest.update(chunk)
                 if not _constant_time_equal(digest.digest(), expected):
                     raise _ParseFailure(
@@ -889,10 +1059,14 @@ def inspect_apk(
     path: str | os.PathLike[str],
     *,
     limits: ApkInspectionLimits | None = None,
+    cancellation: CancellationProbe | None = None,
 ) -> ApkIdentity:
     """Convenience wrapper around :class:`ApkInspector`."""
 
-    return ApkInspector(limits=limits).inspect(path)
+    return ApkInspector(limits=limits).inspect(
+        path,
+        cancellation=cancellation,
+    )
 
 
 def _validated_source_path(path: str | os.PathLike[str]) -> Path:
@@ -911,30 +1085,71 @@ def _validated_source_path(path: str | os.PathLike[str]) -> Path:
     return source
 
 
-def _sha256_stream(stream: BinaryIO, chunk_size: int) -> bytes:
+def _is_cancelled(cancellation: CancellationProbe | None) -> bool:
+    return cancellation is not None and cancellation.cancelled
+
+
+def _raise_if_cancelled(cancellation: CancellationProbe | None) -> None:
+    if _is_cancelled(cancellation):
+        raise _ParseFailure(
+            ApkInspectionCode.CANCELLED,
+            "APK inspection was cancelled",
+        )
+
+
+def _sha256_stream(
+    stream: BinaryIO,
+    chunk_size: int,
+    cancellation: CancellationProbe | None = None,
+) -> bytes:
     stream.seek(0)
     digest = hashlib.sha256()
-    while chunk := stream.read(chunk_size):
+    while True:
+        _raise_if_cancelled(cancellation)
+        chunk = stream.read(chunk_size)
+        _raise_if_cancelled(cancellation)
+        if not chunk:
+            break
         digest.update(chunk)
     return digest.digest()
 
 
-def _read_exact_at(stream: BinaryIO, offset: int, size: int) -> bytes:
+def _read_exact_at(
+    stream: BinaryIO,
+    offset: int,
+    size: int,
+    cancellation: CancellationProbe | None = None,
+) -> bytes:
     if offset < 0 or size < 0:
         raise _ParseFailure(ApkInspectionCode.INVALID_ZIP, "APK offset is invalid")
+    _raise_if_cancelled(cancellation)
     stream.seek(offset)
-    data = stream.read(size)
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining:
+        _raise_if_cancelled(cancellation)
+        chunk = stream.read(min(1024 * 1024, remaining))
+        _raise_if_cancelled(cancellation)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    data = b"".join(chunks)
     if len(data) != size:
         raise _ParseFailure(ApkInspectionCode.INVALID_ZIP, "APK is truncated")
     return data
 
 
-def _read_eocd(stream: BinaryIO, file_size: int) -> _Eocd:
+def _read_eocd(
+    stream: BinaryIO,
+    file_size: int,
+    cancellation: CancellationProbe | None = None,
+) -> _Eocd:
     if file_size < 22:
         raise _ParseFailure(ApkInspectionCode.INVALID_ZIP, "APK ZIP footer is missing")
     tail_size = min(file_size, 22 + 0xFFFF)
     tail_offset = file_size - tail_size
-    tail = _read_exact_at(stream, tail_offset, tail_size)
+    tail = _read_exact_at(stream, tail_offset, tail_size, cancellation)
     position = tail.rfind(_EOCD_SIGNATURE)
     if position < 0 or position + 22 > len(tail):
         raise _ParseFailure(ApkInspectionCode.INVALID_ZIP, "APK ZIP footer is missing")
@@ -1447,6 +1662,7 @@ def _apk_content_digest(
     archive: _Archive,
     digest_name: str,
     io_chunk_size: int,
+    cancellation: CancellationProbe | None = None,
 ) -> bytes:
     signing_block = archive.signing_block
     if signing_block is None:
@@ -1459,16 +1675,29 @@ def _apk_content_digest(
     )
     chunk_hashes: list[bytes] = []
     for section in sections:
+        _raise_if_cancelled(cancellation)
         if isinstance(section, bytes):
             for offset in range(0, len(section), chunk_size):
+                _raise_if_cancelled(cancellation)
                 chunk_hashes.append(_digest_content_chunk(section[offset : offset + chunk_size], digest_name))
             continue
         start, end = section
         stream.seek(start)
         remaining = end - start
         while remaining:
+            _raise_if_cancelled(cancellation)
             requested = min(chunk_size, remaining)
-            chunk = stream.read(requested)
+            parts: list[bytes] = []
+            part_remaining = requested
+            while part_remaining:
+                _raise_if_cancelled(cancellation)
+                part = stream.read(min(io_chunk_size, part_remaining))
+                _raise_if_cancelled(cancellation)
+                if not part:
+                    break
+                parts.append(part)
+                part_remaining -= len(part)
+            chunk = b"".join(parts)
             if len(chunk) != requested:
                 raise _ParseFailure(ApkInspectionCode.READ_FAILED, "APK signed region is truncated")
             chunk_hashes.append(_digest_content_chunk(chunk, digest_name))
@@ -1479,8 +1708,8 @@ def _apk_content_digest(
     digest.update(b"\x5a")
     digest.update(struct.pack("<I", len(chunk_hashes)))
     for chunk_hash in chunk_hashes:
+        _raise_if_cancelled(cancellation)
         digest.update(chunk_hash)
-    _ = io_chunk_size  # API-level I/O bound retained for future streaming variants.
     return digest.digest()
 
 

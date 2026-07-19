@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -22,6 +23,7 @@ from .boot_inventory import (
     BOOT_SELECT_COMMAND,
     BootInventoryError,
     BootInventoryService,
+    BootSelection,
 )
 from .boot_patch import (
     BOOT_PATCH_COMMAND,
@@ -58,7 +60,7 @@ from .device_tools import (
     DeviceToolPlanningError,
     DeviceToolsService,
 )
-from .devices import DeviceService
+from .devices import DeviceScanResult, DeviceService
 from .executor import CommandExecutor
 from .firmware import FirmwareInspector
 from .firmware_artifacts import (
@@ -333,15 +335,16 @@ class CommandEngine:
                 (f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
             )
 
-        planning_token: CancellationToken | None = None
-        if command.kind in {BOOT_PATCH_COMMAND, "tools.pushFiles"}:
-            planning_token = self._register_cancellation(command)
-            if planning_token is None:
-                return self._denied(
-                    command,
-                    "operation_busy",
-                    "operation id is already active",
-                )
+        # Register before any service performs filesystem I/O or hashing.  The
+        # same token was created when the bridge request was accepted, so its
+        # deadline includes queueing, planning, confirmation and execution.
+        planning_token = self._register_cancellation(command)
+        if planning_token is None:
+            return self._denied(
+                command,
+                "operation_busy",
+                "operation id is already active",
+            )
 
         compilation: _ServiceCompilation
         try:
@@ -356,6 +359,7 @@ class CommandEngine:
                 compilation = self.package_service.compile(
                     command,
                     snapshot,
+                    planning_token,
                 )
             elif command.kind in PARTITION_COMMANDS:
                 partition_command = command
@@ -364,11 +368,23 @@ class CommandEngine:
                         command,
                         payload={key: value for key, value in command.payload.items() if key != "confirmationText"},
                     )
-                compilation = self.partition_service.compile(partition_command, snapshot)
+                compilation = self.partition_service.compile(
+                    partition_command,
+                    snapshot,
+                    planning_token,
+                )
             elif command.kind in BACKUP_COMMANDS:
-                compilation = self.backup_service.compile(command, snapshot)
+                compilation = self.backup_service.compile(
+                    command,
+                    snapshot,
+                    planning_token,
+                )
             elif command.kind in ROOTING_COMMANDS:
-                compilation = self.rooting_service.compile(command, snapshot)
+                compilation = self.rooting_service.compile(
+                    command,
+                    snapshot,
+                    planning_token,
+                )
             elif command.kind in OTA_DIAGNOSTIC_COMMANDS:
                 compilation = self.ota_diagnostics_service.compile(command, snapshot)
             elif command.kind == "tools.pushFiles":
@@ -389,15 +405,20 @@ class CommandEngine:
                     ),
                 )
             else:
-                compilation = self.device_tools_service.compile(command, snapshot)
+                compilation = self.device_tools_service.compile(
+                    command,
+                    snapshot,
+                    cancellation=planning_token,
+                )
         except BootPatchPlanningError as error:
             if planning_token is not None:
                 self._unregister_cancellation(command.operation_id)
             if error.code == "boot_patch_cancelled":
-                return OperationResult.cancelled(
-                    command.operation_id,
-                    code=error.code,
-                    message=str(error),
+                return self._stopped_result(
+                    command,
+                    planning_token,
+                    cancelled_code=error.code,
+                    cancelled_message=str(error),
                 )
             return OperationResult.failed(
                 command.operation_id,
@@ -414,11 +435,19 @@ class CommandEngine:
         ) as error:
             if planning_token is not None:
                 self._unregister_cancellation(command.operation_id)
-            if isinstance(error, DeviceToolPlanningError) and error.code == "push_cancelled":
-                return OperationResult.cancelled(
-                    command.operation_id,
-                    code=error.code,
-                    message=str(error),
+            if error.code in {
+                "backup_cancelled",
+                "device_tool_cancelled",
+                "package_cancelled",
+                "partition_cancelled",
+                "push_cancelled",
+                "rooting_cancelled",
+            }:
+                return self._stopped_result(
+                    command,
+                    planning_token,
+                    cancelled_code=error.code,
+                    cancelled_message=str(error),
                 )
             if isinstance(error, DeviceToolPlanningError) and error.code == "push_timed_out":
                 return OperationResult.failed(
@@ -434,6 +463,14 @@ class CommandEngine:
         except Exception as error:
             if planning_token is not None:
                 self._unregister_cancellation(command.operation_id)
+            if planning_token is not None and planning_token.cancelled:
+                return self._stopped_result(
+                    command,
+                    planning_token,
+                    cancelled_code="service_planning_cancelled",
+                    cancelled_message="service planning was cancelled",
+                    timeout_message="service planning timed out",
+                )
             return OperationResult.failed(
                 command.operation_id,
                 code="service_planning_error",
@@ -441,35 +478,56 @@ class CommandEngine:
             )
 
         if compilation.plan is None:
-            if planning_token is not None:
-                self._unregister_cancellation(command.operation_id)
             if command.kind != "root.apps.list" or not isinstance(
                 compilation,
                 RootingCompilation,
             ):
+                self._unregister_cancellation(command.operation_id)
                 return OperationResult.failed(
                     command.operation_id,
                     code="service_plan_missing",
                     message=f"{command.kind} did not produce an executable plan",
                 )
-            current = self.store.snapshot()
-            if current.revision != snapshot.revision:
-                return self._denied(
-                    command,
-                    "stale_revision",
-                    (f"state revision changed: expected {snapshot.revision}, current {current.revision}"),
+            try:
+                if planning_token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        planning_token,
+                        cancelled_code="rooting_cancelled",
+                        cancelled_message="root app inventory was cancelled",
+                        timeout_message="root app inventory timed out",
+                    )
+                current = self.store.snapshot()
+                if current.revision != snapshot.revision:
+                    return self._denied(
+                        command,
+                        "stale_revision",
+                        (
+                            f"state revision changed: expected {snapshot.revision}, "
+                            f"current {current.revision}"
+                        ),
+                    )
+                result = OperationResult.success(
+                    command.operation_id,
+                    code="root_apps_list_succeeded",
+                    message=f"found {len(compilation.root_apps)} local root app(s)",
+                    value={
+                        "count": len(compilation.root_apps),
+                        "apps": [app.to_dict() for app in compilation.root_apps],
+                    },
                 )
-            result = OperationResult.success(
-                command.operation_id,
-                code="root_apps_list_succeeded",
-                message=f"found {len(compilation.root_apps)} local root app(s)",
-                value={
-                    "count": len(compilation.root_apps),
-                    "apps": [app.to_dict() for app in compilation.root_apps],
-                },
-            )
-            self.store.complete_operation(result)
-            return result
+                if planning_token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        planning_token,
+                        cancelled_code="rooting_cancelled",
+                        cancelled_message="root app inventory was cancelled",
+                        timeout_message="root app inventory timed out",
+                    )
+                self.store.complete_operation(result)
+                return result
+            finally:
+                self._unregister_cancellation(command.operation_id)
 
         execution_plan = compilation.plan
         if isinstance(compilation, PartitionCompilation) and compilation.reinforced_confirmation:
@@ -481,6 +539,7 @@ class CommandEngine:
                 requires_confirmation=compilation.requires_confirmation,
             )
             if not reinforced.ok or reinforced.plan is None:
+                self._unregister_cancellation(command.operation_id)
                 return replace(
                     OperationResult.failed(
                         command.operation_id,
@@ -532,6 +591,7 @@ class CommandEngine:
                         result,
                     )
                 ),
+                cancellation=planning_token,
             )
         if isinstance(compilation, DeviceToolCompilation) and compilation.execution != "process":
             return self._execute_process(
@@ -543,6 +603,7 @@ class CommandEngine:
                         cancellation,
                     )
                 ),
+                cancellation=planning_token,
             )
         if isinstance(compilation, DeviceToolCompilation) and compilation.action.startswith("inspect."):
             return self._execute_process(
@@ -553,6 +614,7 @@ class CommandEngine:
                         result,
                     )
                 ),
+                cancellation=planning_token,
             )
         if isinstance(compilation, DeviceToolCompilation) and compilation.action.startswith("wifi."):
             return self._execute_process(
@@ -560,6 +622,7 @@ class CommandEngine:
                 result_finalizer=(
                     lambda result, _cancellation: self.device_tools_service.finalize_result(compilation, result)
                 ),
+                cancellation=planning_token,
             )
         return self._execute_process(
             planned,
@@ -940,25 +1003,60 @@ class CommandEngine:
         if token is None:
             return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            try:
-                inspection = self.firmware_inspector.inspect(
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_cancelled",
+                        cancelled_message="firmware inspection was cancelled while queued",
+                        timeout_message="firmware inspection timed out while queued",
+                    )
+                return self._inspect_and_promote_firmware(
+                    command,
+                    snapshot,
                     path,
-                    expected_devices=expected_devices,
-                    cancellation=token,
-                )
-            except Exception as error:
-                return OperationResult.failed(
-                    command.operation_id,
-                    code="firmware_inspection_failed",
-                    message=str(error),
+                    expected_devices,
+                    token,
                 )
         finally:
             self._unregister_cancellation(command.operation_id)
-        if inspection.code == "firmware_cancelled":
-            return OperationResult.cancelled(
+
+    def _inspect_and_promote_firmware(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        path: str,
+        expected_devices: tuple[str, ...],
+        token: CancellationToken,
+    ) -> OperationResult:
+        try:
+            inspection = self.firmware_inspector.inspect(
+                path,
+                expected_devices=expected_devices,
+                cancellation=token,
+            )
+        except Exception as error:
+            if token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="firmware_cancelled",
+                    cancelled_message="firmware inspection was cancelled",
+                    timeout_message="firmware inspection timed out",
+                )
+            return OperationResult.failed(
                 command.operation_id,
-                code="firmware_cancelled",
-                message=inspection.message,
+                code="firmware_inspection_failed",
+                message=str(error),
+            )
+        if inspection.code == "firmware_cancelled":
+            return self._stopped_result(
+                command,
+                token,
+                cancelled_code="firmware_cancelled",
+                cancelled_message=inspection.message,
+                timeout_message="firmware inspection timed out",
             )
         if not inspection.ok:
             return OperationResult.failed(
@@ -974,14 +1072,38 @@ class CommandEngine:
                     build=inspection.build,
                     expected_sha256=inspection.sha256,
                     device_codenames=(inspection.device,) if inspection.device else (),
+                    cancellation=token,
                 )
             except (OSError, RepositoryError, TypeError, ValueError):
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_cancelled",
+                        cancelled_message="firmware import was cancelled",
+                        timeout_message="firmware import timed out",
+                    )
                 return OperationResult.failed(
                     command.operation_id,
                     code="firmware_repository_import_failed",
                     message="the inspected firmware could not be stored safely",
                 )
             inspection = replace(inspection, path=str(record.path))
+        if token.cancelled:
+            return self._stopped_result(
+                command,
+                token,
+                cancelled_code="firmware_cancelled",
+                cancelled_message="firmware selection was cancelled before state promotion",
+                timeout_message="firmware selection timed out before state promotion",
+            )
+        current = self.store.snapshot()
+        if current.revision != snapshot.revision:
+            return self._denied(
+                command,
+                "stale_revision",
+                f"state revision changed: expected {snapshot.revision}, current {current.revision}",
+            )
         result = self._update_state(
             command,
             firmware=inspection.to_firmware_info(processed=False),
@@ -1012,14 +1134,36 @@ class CommandEngine:
         decision = self.safety_policy.evaluate(command, snapshot)
         if not decision.allowed:
             return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            entries = service.list_public()
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="boot_cancelled",
+                        cancelled_message="boot inventory was cancelled while queued",
+                        timeout_message="boot inventory timed out while queued",
+                    )
+                entries = service.list_public(token)
         except BootInventoryError as error:
+            if error.code == "boot_cancelled":
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code=error.code,
+                    cancelled_message=str(error),
+                    timeout_message="boot inventory timed out",
+                )
             return OperationResult.failed(
                 command.operation_id,
                 code=error.code,
                 message=str(error),
             )
+        finally:
+            self._unregister_cancellation(command.operation_id)
         return OperationResult.success(
             command.operation_id,
             code="boot_inventory_listed",
@@ -1066,57 +1210,108 @@ class CommandEngine:
                 message="the boot image repository is not configured",
             )
 
-        with self._operation_lock:
-            snapshot = self.store.snapshot()
-            decision = self.safety_policy.evaluate(command, snapshot)
-            if not decision.allowed:
-                return self._denied(command, decision.code, decision.message)
-            try:
-                if selecting_existing:
-                    selection = service.select(cast(str, boot_id))
-                    code = "boot_selected"
-                    message = "verified boot image selected"
-                else:
-                    selection = service.import_image(
-                        cast(str, path),
-                        partition=cast(str, partition),
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="boot_selection_cancelled",
+                        cancelled_message="boot selection was cancelled while queued",
+                        timeout_message="boot selection timed out while queued",
                     )
-                    code = "boot_imported"
-                    message = "boot image imported and selected"
-            except BootInventoryError as error:
-                return OperationResult.failed(
-                    command.operation_id,
-                    code=error.code,
-                    message=str(error),
-                )
-            try:
-                updated = self.store.update(
-                    expected_revision=command.expected_revision,
-                    boot=selection.info,
-                )
-            except StaleRevisionError as error:
-                if selection.imported:
-                    try:
-                        service.rollback_import(selection.info.id)
-                    except BootInventoryError:
-                        pass
-                return self._denied(command, "stale_revision", str(error))
-            except (TypeError, ValueError) as error:
-                if selection.imported:
-                    try:
-                        service.rollback_import(selection.info.id)
-                    except BootInventoryError:
-                        pass
-                return self._invalid(command, str(error))
-        return OperationResult.success(
-            command.operation_id,
-            code=code,
-            message=message,
-            value={
-                "selected": selection.entry.to_public_dict(),
-                "revision": updated.revision,
-            },
-        )
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                try:
+                    if selecting_existing:
+                        selection = service.select(cast(str, boot_id), token)
+                        code = "boot_selected"
+                        message = "verified boot image selected"
+                    else:
+                        selection = service.import_image(
+                            cast(str, path),
+                            partition=cast(str, partition),
+                            cancellation=token,
+                        )
+                        code = "boot_imported"
+                        message = "boot image imported and selected"
+                except BootInventoryError as error:
+                    if error.code == "boot_cancelled":
+                        return self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=error.code,
+                            cancelled_message=str(error),
+                            timeout_message="boot selection timed out",
+                        )
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                if token.cancelled:
+                    stopped = self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="boot_selection_cancelled",
+                        cancelled_message="boot selection was cancelled before state promotion",
+                        timeout_message="boot selection timed out before state promotion",
+                    )
+                    return self._rollback_boot_import(service, selection, command, stopped)
+                try:
+                    updated = self.store.update(
+                        expected_revision=command.expected_revision,
+                        boot=selection.info,
+                    )
+                except StaleRevisionError as error:
+                    denied = self._denied(command, "stale_revision", str(error))
+                    return self._rollback_boot_import(service, selection, command, denied)
+                except (TypeError, ValueError) as error:
+                    invalid = self._invalid(command, str(error))
+                    return self._rollback_boot_import(service, selection, command, invalid)
+            return OperationResult.success(
+                command.operation_id,
+                code=code,
+                message=message,
+                value={
+                    "selected": selection.entry.to_public_dict(),
+                    "revision": updated.revision,
+                },
+            )
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    @staticmethod
+    def _rollback_boot_import(
+        service: BootInventoryService,
+        selection: BootSelection,
+        command: AppCommand,
+        intended_result: OperationResult,
+    ) -> OperationResult:
+        """Make a failed boot-state promotion atomic or report rollback failure."""
+
+        if not selection.imported:
+            return intended_result
+        try:
+            service.rollback_import(selection.info.id)
+        except BootInventoryError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        except Exception:
+            return OperationResult.failed(
+                command.operation_id,
+                code="boot_import_rollback_failed",
+                message="the boot import could not be rolled back safely",
+            )
+        return intended_result
 
     def _process_firmware(self, command: AppCommand) -> OperationResult:
         """Verify, extract and atomically promote canonical firmware artifacts."""
@@ -1142,12 +1337,22 @@ class CommandEngine:
         if token is None:
             return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            with self._operation_lock:
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_processing_cancelled",
+                        cancelled_message="firmware processing was cancelled while queued",
+                        timeout_message="firmware processing timed out while queued",
+                    )
                 if token.cancelled:
-                    return OperationResult.cancelled(
-                        command.operation_id,
-                        code="firmware_processing_cancelled",
-                        message="firmware processing was cancelled before it started",
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_processing_cancelled",
+                        cancelled_message="firmware processing was cancelled before it started",
+                        timeout_message="firmware processing timed out before it started",
                     )
                 snapshot = self.store.snapshot()
                 decision = self.safety_policy.evaluate(command, snapshot)
@@ -1184,10 +1389,12 @@ class CommandEngine:
                         cancellation=token,
                     )
                     if token.cancelled and processing.ok:
-                        result = OperationResult.cancelled(
-                            command.operation_id,
-                            code="firmware_processing_cancelled",
-                            message="firmware processing was cancelled before state promotion",
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="firmware_processing_cancelled",
+                            cancelled_message="firmware processing was cancelled before state promotion",
+                            timeout_message="firmware processing timed out before state promotion",
                         )
                         promoted_firmware = None
                         promoted_boot = None
@@ -1197,24 +1404,48 @@ class CommandEngine:
                             snapshot,
                             processing,
                         )
+                        if (
+                            result.status is OperationStatus.CANCELLED
+                            and token.reason is CancellationReason.DEADLINE
+                        ):
+                            result = self._stopped_result(
+                                command,
+                                token,
+                                cancelled_code=result.code,
+                                cancelled_message=result.message,
+                                timeout_message="firmware processing timed out",
+                            )
+                            promoted_firmware = None
+                            promoted_boot = None
                 except Exception as error:
                     processing = None
                     promoted_firmware = None
                     promoted_boot = None
-                    result = OperationResult.failed(
-                        command.operation_id,
-                        code="firmware_processing_failed",
-                        message=str(error),
-                    )
+                    if token.cancelled:
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="firmware_processing_cancelled",
+                            cancelled_message="firmware processing was cancelled",
+                            timeout_message="firmware processing timed out",
+                        )
+                    else:
+                        result = OperationResult.failed(
+                            command.operation_id,
+                            code="firmware_processing_failed",
+                            message=str(error),
+                        )
 
                 current = self.store.snapshot()
                 if result.ok and token.cancelled:
                     promoted_firmware = None
                     promoted_boot = None
-                    result = OperationResult.cancelled(
-                        command.operation_id,
-                        code="firmware_processing_cancelled",
-                        message="firmware processing was cancelled before state promotion",
+                    result = self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_processing_cancelled",
+                        cancelled_message="firmware processing was cancelled before state promotion",
+                        timeout_message="firmware processing timed out before state promotion",
                     )
                 elif result.ok and (
                     current.revision != active_snapshot.revision
@@ -1242,10 +1473,7 @@ class CommandEngine:
                         code="firmware_state_promotion_failed",
                         message=str(error),
                     )
-                    try:
-                        self.store.complete_operation(fallback)
-                    except (TypeError, ValueError):
-                        pass
+                    self._abort_operation_safely(fallback)
                     return fallback
                 return result
         finally:
@@ -1263,12 +1491,22 @@ class CommandEngine:
         if token is None:
             return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            with self._operation_lock:
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="support_package_cancelled",
+                        cancelled_message="support package creation was cancelled while queued",
+                        timeout_message="support package creation timed out while queued",
+                    )
                 if token.cancelled:
-                    return OperationResult.cancelled(
-                        command.operation_id,
-                        code="support_package_cancelled",
-                        message="support package creation was cancelled before it started",
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="support_package_cancelled",
+                        cancelled_message="support package creation was cancelled before it started",
+                        timeout_message="support package creation timed out before it started",
                     )
                 snapshot = self.store.snapshot()
                 decision = self.safety_policy.evaluate(command, snapshot)
@@ -1286,38 +1524,59 @@ class CommandEngine:
                 except ValueError as error:
                     return self._denied(command, "operation_busy", str(error))
 
-                package = self.support_package_service.create(
-                    command.payload,
-                    snapshot=snapshot,
-                    cancellation=token,
-                )
-                if package.status is SupportPackageStatus.SUCCESS:
-                    result = OperationResult.success(
-                        command.operation_id,
-                        code=package.code,
-                        message=package.message,
-                        value=package.to_dict(),
+                try:
+                    package = self.support_package_service.create(
+                        command.payload,
+                        snapshot=snapshot,
+                        cancellation=token,
                     )
-                elif package.status is SupportPackageStatus.CANCELLED:
-                    result = OperationResult.cancelled(
-                        command.operation_id,
-                        code=package.code,
-                        message=package.message,
-                    )
+                except Exception as error:
+                    if token.cancelled:
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="support_package_cancelled",
+                            cancelled_message="support package creation was cancelled",
+                            timeout_message="support package creation timed out",
+                        )
+                    else:
+                        result = OperationResult.failed(
+                            command.operation_id,
+                            code="support_package_failed",
+                            message=str(error),
+                        )
                 else:
-                    result = OperationResult.failed(
-                        command.operation_id,
-                        code=package.code,
-                        message=package.message,
-                    )
+                    if package.status is SupportPackageStatus.SUCCESS:
+                        result = OperationResult.success(
+                            command.operation_id,
+                            code=package.code,
+                            message=package.message,
+                            value=package.to_dict(),
+                        )
+                    elif package.status is SupportPackageStatus.CANCELLED:
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=package.code,
+                            cancelled_message=package.message,
+                            timeout_message="support package creation timed out",
+                        )
+                    else:
+                        result = OperationResult.failed(
+                            command.operation_id,
+                            code=package.code,
+                            message=package.message,
+                        )
                 try:
                     self.store.complete_operation(result)
                 except (TypeError, ValueError) as error:
-                    return OperationResult.failed(
+                    fallback = OperationResult.failed(
                         command.operation_id,
                         code="support_state_completion_failed",
                         message=str(error),
                     )
+                    self._abort_operation_safely(fallback)
+                    return fallback
                 return result
         finally:
             self._unregister_cancellation(command.operation_id)
@@ -1451,7 +1710,23 @@ class CommandEngine:
         if token is None:
             return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            with self._operation_lock:
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="platform_tools_setup_cancelled",
+                        cancelled_message="Platform Tools setup was cancelled while queued",
+                        timeout_message="Platform Tools setup timed out while queued",
+                    )
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="platform_tools_setup_cancelled",
+                        cancelled_message="Platform Tools setup was cancelled before it started",
+                        timeout_message="Platform Tools setup timed out before it started",
+                    )
                 snapshot = self.store.snapshot()
                 decision = self.safety_policy.evaluate(command, snapshot)
                 if not decision.allowed:
@@ -1468,10 +1743,12 @@ class CommandEngine:
                     ),
                 )
                 if setup.status is PlatformToolsStatus.CANCELLED:
-                    return OperationResult.cancelled(
-                        command.operation_id,
-                        code=setup.code,
-                        message=setup.message,
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code=setup.code,
+                        cancelled_message=setup.message,
+                        timeout_message="Platform Tools setup timed out",
                     )
                 if not setup.ok or setup.toolchain is None:
                     return OperationResult.failed(
@@ -1498,6 +1775,14 @@ class CommandEngine:
                     },
                 )
         except Exception:
+            if token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="platform_tools_setup_cancelled",
+                    cancelled_message="Platform Tools setup was cancelled",
+                    timeout_message="Platform Tools setup timed out",
+                )
             return OperationResult.failed(
                 command.operation_id,
                 code="toolchain_setup_failed",
@@ -1560,16 +1845,26 @@ class CommandEngine:
                 try:
                     check = self.toolchain_service.discover(configured, cancellation=token)
                 except Exception as error:
+                    if token.cancelled:
+                        return self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="cancelled",
+                            cancelled_message="device scan was cancelled while validating Platform Tools",
+                            timeout_message="device scan timed out while validating Platform Tools",
+                        )
                     return OperationResult.failed(
                         command.operation_id,
                         code="toolchain_setup_failed",
                         message=str(error),
                     )
                 if check.code == "cancelled":
-                    return OperationResult.cancelled(
-                        command.operation_id,
-                        code="cancelled",
-                        message=check.message,
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="cancelled",
+                        cancelled_message=check.message,
+                        timeout_message="device scan timed out while validating Platform Tools",
                     )
                 if not check.ok:
                     return OperationResult.failed(
@@ -1587,18 +1882,44 @@ class CommandEngine:
                     cancellation=token,
                 )
             except Exception as error:
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="cancelled",
+                        cancelled_message="device scan was cancelled",
+                        timeout_message="device scan timed out",
+                    )
                 return OperationResult.failed(
                     command.operation_id,
                     code="device_scan_failed",
                     message=str(error),
                 )
+            return self._promote_device_scan(
+                command,
+                snapshot,
+                toolchain,
+                scan,
+                token,
+            )
         finally:
             self._unregister_cancellation(command.operation_id)
+
+    def _promote_device_scan(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        toolchain: ToolchainInfo,
+        scan: DeviceScanResult,
+        token: CancellationToken,
+    ) -> OperationResult:
         if scan.cancelled:
-            return OperationResult.cancelled(
-                command.operation_id,
-                code="cancelled",
-                message="device scan was cancelled",
+            return self._stopped_result(
+                command,
+                token,
+                cancelled_code="cancelled",
+                cancelled_message="device scan was cancelled",
+                timeout_message="device scan timed out",
             )
         if not scan.ok:
             return OperationResult.failed(
@@ -1621,6 +1942,14 @@ class CommandEngine:
         primary = (
             snapshot.selected_serial if snapshot.selected_serial in available else (selected[0] if selected else None)
         )
+        if token.cancelled:
+            return self._stopped_result(
+                command,
+                token,
+                cancelled_code="cancelled",
+                cancelled_message="device scan was cancelled before state promotion",
+                timeout_message="device scan timed out before state promotion",
+            )
         result = self._update_state(
             command,
             devices=devices,
@@ -1650,47 +1979,91 @@ class CommandEngine:
             payload=command.payload,
             operation_id=command.operation_id,
         )
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
         try:
-            compilation = self.operation_planner.compile(synthetic, snapshot, preview=True)
-        except Exception as error:
-            return OperationResult.failed(
-                command.operation_id,
-                code="planner_error",
-                message=str(error),
-            )
-        if not compilation.ok:
-            return replace(
-                OperationResult.failed(
+            try:
+                compilation = self.operation_planner.compile(synthetic, snapshot, preview=True)
+            except Exception as error:
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="planning_cancelled",
+                        cancelled_message="flash plan preview was cancelled",
+                        timeout_message="flash plan preview timed out",
+                    )
+                return OperationResult.failed(
                     command.operation_id,
-                    code=compilation.code,
-                    message=compilation.message,
-                ),
-                value=compilation.to_dict(),
+                    code="planner_error",
+                    message=str(error),
+                )
+            if token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="planning_cancelled",
+                    cancelled_message="flash plan preview was cancelled",
+                    timeout_message="flash plan preview timed out",
+                )
+            if not compilation.ok:
+                return replace(
+                    OperationResult.failed(
+                        command.operation_id,
+                        code=compilation.code,
+                        message=compilation.message,
+                    ),
+                    value=compilation.to_dict(),
+                )
+            return OperationResult.success(
+                command.operation_id,
+                code="flash_plan_preview",
+                value={
+                    "revision": snapshot.revision,
+                    "canonical_plan": snapshot.plan.to_dict(),
+                    "plan": snapshot.plan.to_dict(),
+                    "selected_serials": list(snapshot.selected_serials),
+                    "firmware": snapshot.firmware.to_dict(),
+                    "compiled": compilation.to_dict(),
+                },
             )
-        return OperationResult.success(
-            command.operation_id,
-            code="flash_plan_preview",
-            value={
-                "revision": snapshot.revision,
-                "canonical_plan": snapshot.plan.to_dict(),
-                "plan": snapshot.plan.to_dict(),
-                "selected_serials": list(snapshot.selected_serials),
-                "firmware": snapshot.firmware.to_dict(),
-                "compiled": compilation.to_dict(),
-            },
-        )
+        finally:
+            self._unregister_cancellation(command.operation_id)
 
     def _plan_and_execute(self, command: AppCommand) -> OperationResult:
         snapshot = self.store.snapshot()
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
         try:
             compilation = self.operation_planner.compile(command, snapshot)
         except Exception as error:
+            self._unregister_cancellation(command.operation_id)
+            if token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="planning_cancelled",
+                    cancelled_message="operation planning was cancelled",
+                    timeout_message="operation planning timed out",
+                )
             return OperationResult.failed(
                 command.operation_id,
                 code="planner_error",
                 message=str(error),
             )
+        if token.cancelled:
+            self._unregister_cancellation(command.operation_id)
+            return self._stopped_result(
+                command,
+                token,
+                cancelled_code="planning_cancelled",
+                cancelled_message="operation planning was cancelled",
+                timeout_message="operation planning timed out",
+            )
         if not compilation.ok or compilation.plan is None:
+            self._unregister_cancellation(command.operation_id)
             return replace(
                 OperationResult.failed(
                     command.operation_id,
@@ -1706,7 +2079,7 @@ class CommandEngine:
             destructive=compilation.destructive,
             requires_confirmation=compilation.requires_confirmation,
         )
-        result = self._execute_process(planned)
+        result = self._execute_process(planned, cancellation=token)
         if result.ok and compilation.plan.dry_run:
             return replace(
                 result,
@@ -1874,7 +2247,11 @@ class CommandEngine:
             return ExecutionBoundaryAck.accepted()
 
         try:
-            with self._operation_lock:
+            with self._operation_guard(token) as acquired:
+                if not acquired:
+                    return finalize(
+                        stopped_before_execution("operation stopped while queued")
+                    )
                 if token.cancelled:
                     return finalize(stopped_before_execution("operation stopped before execution"))
                 snapshot = self.store.snapshot()
@@ -2034,10 +2411,7 @@ class CommandEngine:
                                 fallback.message,
                                 None,
                             )
-                        try:
-                            self.store.complete_operation(fallback)
-                        except (TypeError, ValueError):
-                            pass
+                        self._abort_operation_safely(fallback)
                         return fallback
                 return result
         finally:
@@ -2050,6 +2424,59 @@ class CommandEngine:
                 return None
             self._cancellations[command.operation_id] = token
         return token
+
+    def _acquire_operation_lock(self, token: CancellationToken) -> bool:
+        """Wait for the serialized boundary without ignoring stop requests."""
+
+        while not token.cancelled:
+            remaining = token.remaining_seconds
+            if remaining is not None and remaining <= 0:
+                return False
+            wait_seconds = 0.05 if remaining is None else min(0.05, remaining)
+            if self._operation_lock.acquire(timeout=wait_seconds):
+                return True
+        return False
+
+    @contextmanager
+    def _operation_guard(self, token: CancellationToken) -> Generator[bool]:
+        acquired = self._acquire_operation_lock(token)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                self._operation_lock.release()
+
+    @staticmethod
+    def _stopped_result(
+        command: AppCommand,
+        token: CancellationToken,
+        *,
+        cancelled_code: str,
+        cancelled_message: str,
+        timeout_message: str | None = None,
+    ) -> OperationResult:
+        if token.reason is CancellationReason.DEADLINE:
+            return OperationResult.failed(
+                command.operation_id,
+                code="timed_out",
+                message=timeout_message or "operation deadline expired",
+            )
+        return OperationResult.cancelled(
+            command.operation_id,
+            code=cancelled_code,
+            message=cancelled_message,
+        )
+
+    def _abort_operation_safely(self, result: OperationResult) -> None:
+        """Never let a completion failure strand the canonical operation slot."""
+
+        try:
+            self.store.abort_operation(result)
+        except Exception:
+            # The original typed completion failure remains the public result.
+            # AppStateStore.abort_operation has no I/O and normally cannot fail;
+            # this guard preserves the engine's no-exception public boundary.
+            pass
 
     def _unregister_cancellation(self, operation_id: str) -> None:
         with self._cancellation_lock:

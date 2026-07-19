@@ -20,7 +20,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from .apk_inspection import ApkIdentity, ApkInspectionError, ApkInspector
+from .apk_inspection import (
+    ApkIdentity,
+    ApkInspectionCode,
+    ApkInspectionError,
+    ApkInspector,
+    CancellationProbe,
+)
 from .contracts import (
     AppCommand,
     AppSnapshot,
@@ -53,15 +59,15 @@ _MAX_ZIP_ENTRIES = 4096
 _MAX_ZIP_UNCOMPRESSED = 512 * 1024 * 1024
 
 
-class CancellationProbe(Protocol):
-    @property
-    def cancelled(self) -> bool: ...
-
-
 class RootApkInspector(Protocol):
     """Narrow injectable boundary for cryptographic APK inspection."""
 
-    def inspect(self, path: str | os.PathLike[str]) -> ApkIdentity: ...
+    def inspect(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> ApkIdentity: ...
 
 
 class RootingPlanningError(ValueError):
@@ -274,10 +280,20 @@ class RootingService:
                 )
             self._check_cancelled(cancellation)
             try:
-                apk_identity = self.apk_inspector.inspect(path)
+                apk_identity = self.apk_inspector.inspect(
+                    path,
+                    cancellation=cancellation,
+                )
             except ApkInspectionError as error:
+                self._check_cancelled(cancellation)
+                if error.code is ApkInspectionCode.CANCELLED:
+                    raise RootingPlanningError(
+                        "rooting_cancelled",
+                        "root operation planning was cancelled",
+                    ) from error
                 raise RootingPlanningError(error.code.value, str(error)) from error
             except (OSError, TypeError, ValueError) as error:
+                self._check_cancelled(cancellation)
                 raise RootingPlanningError(
                     "apk_inspection_failed",
                     "root-app APK identity verification failed",

@@ -18,6 +18,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from .contracts import (
     AppCommand,
@@ -137,6 +138,11 @@ class PartitionPlanningError(ValueError):
         self.code = code
 
 
+class CancellationProbe(Protocol):
+    @property
+    def cancelled(self) -> bool: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PartitionInfo:
     name: str
@@ -181,7 +187,9 @@ class PartitionService:
         self,
         command: AppCommand,
         snapshot: AppSnapshot,
+        cancellation: CancellationProbe | None = None,
     ) -> PartitionCompilation:
+        self._check_cancelled(cancellation)
         if command.kind not in PARTITION_COMMANDS:
             raise PartitionPlanningError(
                 "partition_command_unsupported",
@@ -196,7 +204,13 @@ class PartitionService:
         if command.kind == "partitions.read":
             return self._compile_read(command, snapshot, device, fastboot)
         if command.kind == "partitions.write":
-            return self._compile_write(command, snapshot, device, fastboot)
+            return self._compile_write(
+                command,
+                snapshot,
+                device,
+                fastboot,
+                cancellation,
+            )
         return self._compile_erase(command, snapshot, device, fastboot)
 
     def _compile_list(
@@ -264,13 +278,14 @@ class PartitionService:
         snapshot: AppSnapshot,
         device: DeviceInfo,
         fastboot: str,
+        cancellation: CancellationProbe | None,
     ) -> PartitionCompilation:
         self._validate_payload(command, {"serial", "partition", "path"})
         partition = self._partition(command.payload.get("partition"))
         path = self._input_path(command.payload.get("path"))
         artifact = FileArtifact(
             str(path),
-            self._sha256(path),
+            self._sha256(path, cancellation),
             f"partition:{partition}",
         )
         request = ProcessRequest(
@@ -340,11 +355,19 @@ class PartitionService:
             reinforced_confirmation=True,
         )
 
-    def _sha256(self, path: Path) -> str:
+    def _sha256(
+        self,
+        path: Path,
+        cancellation: CancellationProbe | None,
+    ) -> str:
         digest = hashlib.sha256()
         try:
             with path.open("rb") as stream:
-                while chunk := stream.read(self.hash_chunk_size):
+                while True:
+                    self._check_cancelled(cancellation)
+                    chunk = stream.read(self.hash_chunk_size)
+                    if not chunk:
+                        break
                     digest.update(chunk)
         except OSError as error:
             raise PartitionPlanningError(
@@ -352,6 +375,14 @@ class PartitionService:
                 str(error),
             ) from error
         return digest.hexdigest()
+
+    @staticmethod
+    def _check_cancelled(cancellation: CancellationProbe | None) -> None:
+        if cancellation is not None and cancellation.cancelled:
+            raise PartitionPlanningError(
+                "partition_cancelled",
+                "partition planning was cancelled",
+            )
 
     @staticmethod
     def _revision(command: AppCommand, snapshot: AppSnapshot) -> None:

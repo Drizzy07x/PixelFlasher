@@ -13,6 +13,7 @@ from .repositories import (
     ArtifactProvenance,
     ArtifactRecord,
     BootRepository,
+    CancellationProbe,
     RepositoryError,
 )
 
@@ -103,7 +104,11 @@ class BootInventoryService:
         self.maximum_entries = maximum_entries
         self.maximum_image_bytes = maximum_image_bytes
 
-    def list_public(self) -> tuple[BootInventoryEntry, ...]:
+    def list_public(
+        self,
+        cancellation: CancellationProbe | None = None,
+    ) -> tuple[BootInventoryEntry, ...]:
+        self._check_cancelled(cancellation)
         try:
             records = self.repository.list()
         except (OSError, RepositoryError) as error:
@@ -116,9 +121,17 @@ class BootInventoryService:
                 "boot_inventory_too_large",
                 "the boot image inventory exceeds its safe response limit",
             )
-        return tuple(self._entry(record) for record in records)
+        return tuple(
+            self._entry(record, cancellation=cancellation)
+            for record in records
+        )
 
-    def select(self, boot_id: str) -> BootSelection:
+    def select(
+        self,
+        boot_id: str,
+        cancellation: CancellationProbe | None = None,
+    ) -> BootSelection:
+        self._check_cancelled(cancellation)
         normalized_id = self._validate_id(boot_id)
         try:
             record = self.repository.repository.get(normalized_id)
@@ -137,14 +150,21 @@ class BootInventoryService:
                 "boot_metadata_invalid",
                 "the boot image has an unsupported partition",
             )
-        if not self._record_verified(record):
+        if not self._record_verified(record, cancellation):
             raise BootInventoryError(
                 "boot_integrity_failed",
                 "the stored boot image failed SHA-256 verification",
             )
         return self._selection(record, verified=True)
 
-    def import_image(self, path: str | Path, *, partition: str) -> BootSelection:
+    def import_image(
+        self,
+        path: str | Path,
+        *,
+        partition: str,
+        cancellation: CancellationProbe | None = None,
+    ) -> BootSelection:
+        self._check_cancelled(cancellation)
         normalized_partition = str(partition).strip().casefold()
         if normalized_partition not in BOOT_CHAIN_PARTITIONS:
             raise BootInventoryError(
@@ -187,21 +207,53 @@ class BootInventoryService:
                 source,
                 partition=normalized_partition,
                 provenance=ArtifactProvenance.USER_SUPPLIED,
+                cancellation=cancellation,
             )
         except RepositoryError as error:
+            if error.code == "artifact_import_cancelled":
+                raise BootInventoryError(
+                    "boot_cancelled",
+                    "boot inventory operation was cancelled",
+                ) from error
+            if error.code == "artifact_import_rollback_failed":
+                raise BootInventoryError(
+                    "boot_import_rollback_failed",
+                    "the cancelled boot import could not be rolled back",
+                ) from error
             raise BootInventoryError(error.code, str(error)) from error
         except OSError as error:
             raise BootInventoryError(
                 "boot_import_failed",
                 "the boot image could not be imported",
             ) from error
-        if not self._record_verified(record):
+        try:
+            self._check_cancelled(cancellation)
+            verified = self._record_verified(record, cancellation)
+        except BootInventoryError as error:
+            if error.code == "boot_cancelled":
+                self._rollback_cancelled_import(record.artifact_id)
+            raise
+        if not verified:
             self.repository.repository.delete(record.artifact_id)
             raise BootInventoryError(
                 "boot_integrity_failed",
                 "the imported boot image failed SHA-256 verification",
             )
         return self._selection(record, verified=True, imported=True)
+
+    def _rollback_cancelled_import(self, boot_id: str) -> None:
+        try:
+            removed = self.repository.repository.delete(boot_id)
+        except (OSError, RepositoryError) as error:
+            raise BootInventoryError(
+                "boot_import_rollback_failed",
+                "the cancelled boot import could not be rolled back",
+            ) from error
+        if not removed:
+            raise BootInventoryError(
+                "boot_import_rollback_failed",
+                "the cancelled boot import could not be rolled back",
+            )
 
     def rollback_import(self, boot_id: str) -> None:
         """Remove only a newly imported user record after state promotion fails."""
@@ -248,7 +300,9 @@ class BootInventoryService:
         record: ArtifactRecord,
         *,
         verified: bool | None = None,
+        cancellation: CancellationProbe | None = None,
     ) -> BootInventoryEntry:
+        self._check_cancelled(cancellation)
         if record.kind is not ArtifactKind.BOOT:
             raise BootInventoryError(
                 "boot_metadata_invalid",
@@ -264,7 +318,7 @@ class BootInventoryService:
         )
         if verified is None:
             try:
-                verified = self._record_verified(record)
+                verified = self._record_verified(record, cancellation)
             except (OSError, RepositoryError):
                 verified = False
         return BootInventoryEntry(
@@ -285,7 +339,12 @@ class BootInventoryService:
             verified=bool(verified),
         )
 
-    def _record_verified(self, record: ArtifactRecord) -> bool:
+    def _record_verified(
+        self,
+        record: ArtifactRecord,
+        cancellation: CancellationProbe | None = None,
+    ) -> bool:
+        self._check_cancelled(cancellation)
         expected_magic = _IMAGE_MAGIC.get(record.partition)
         if expected_magic is None or record.size <= 8 or record.size > self.maximum_image_bytes:
             return False
@@ -298,14 +357,27 @@ class BootInventoryService:
                     return False
                 digest.update(first)
                 size += len(first)
-                while chunk := stream.read(1024 * 1024):
+                while True:
+                    self._check_cancelled(cancellation)
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
                     digest.update(chunk)
                     size += len(chunk)
                     if size > self.maximum_image_bytes:
                         return False
+                self._check_cancelled(cancellation)
         except OSError:
             return False
         return size == record.size and digest.hexdigest() == record.sha256
+
+    @staticmethod
+    def _check_cancelled(cancellation: CancellationProbe | None) -> None:
+        if cancellation is not None and cancellation.cancelled:
+            raise BootInventoryError(
+                "boot_cancelled",
+                "boot inventory operation was cancelled",
+            )
 
     @staticmethod
     def _validate_id(value: object) -> str:

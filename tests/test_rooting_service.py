@@ -1,8 +1,10 @@
 import hashlib
+import os
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from typing import NoReturn
 
 from pixelflasher_core.apk_inspection import ApkInspectionCode, ApkInspectionError
 from pixelflasher_core.contracts import (
@@ -19,6 +21,7 @@ from pixelflasher_core.executor import (
     TransportOutcome,
 )
 from pixelflasher_core.rooting import (
+    CancellationProbe,
     RootAppSource,
     RootingPlanningError,
     RootingService,
@@ -614,6 +617,52 @@ class RootingServiceTests(unittest.TestCase):
         )
         self.assertEqual(OperationStatus.CANCELLED, result.status)
         self.assertEqual([], transport.calls)
+
+    def test_root_app_inspection_uses_same_token_and_normalizes_cancellation(self):
+        token = CancellationToken()
+
+        class CancellingInspector:
+            def inspect(
+                self,
+                path: str | os.PathLike[str],
+                *,
+                cancellation: CancellationProbe | None = None,
+            ) -> NoReturn:
+                _ = path
+                if cancellation is not token:
+                    raise AssertionError(
+                        "RootingService did not forward its cancellation token"
+                    )
+                token.cancel()
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "inspection cancelled inside APK I/O",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "Magisk.apk"
+            write_apk(apk)
+            service = RootingService(
+                (
+                    RootAppSource(
+                        str(apk),
+                        "Magisk",
+                        "stable",
+                        "30.7",
+                        "user-import",
+                    ),
+                ),
+                apk_inspector=CancellingInspector(),
+            )
+
+            with self.assertRaises(RootingPlanningError) as raised:
+                service.compile(
+                    AppCommand("root.apps.list", expected_revision=9),
+                    AppSnapshot(revision=9),
+                    token,
+                )
+
+        self.assertEqual("rooting_cancelled", raised.exception.code)
 
 
 class RootModuleParserTests(unittest.TestCase):

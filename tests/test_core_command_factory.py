@@ -1,10 +1,13 @@
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pixelflasher_core import AppSnapshot, BoundReadFile, GrantAccess, SensitiveText
 from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
+from ui.command_registry import COMMAND_REGISTRY
 from ui.core_command_factory import CommandFactoryError, create_command_factory
 
 
@@ -23,6 +26,44 @@ def request(command, *, payload=None, revision=4, request_id="factory-test"):
 
 
 class CoreCommandFactoryTests(unittest.TestCase):
+    def test_every_accepted_engine_command_receives_its_registry_deadline(self):
+        factory = create_command_factory(
+            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1")
+        )
+
+        commands = (
+            factory(request("settings.get", revision=None)),
+            factory(request("device.scan")),
+            factory(request("device.reboot", payload={"mode": "system"})),
+            factory(request("flash.execute", payload={"serial": "SERIAL-1"})),
+        )
+
+        for command in commands:
+            with self.subTest(command=command.kind):
+                self.assertEqual(
+                    COMMAND_REGISTRY[str(command.kind)].timeout_ms / 1000.0 * 0.95,
+                    command.execution_timeout_seconds,
+                )
+
+    def test_deadline_clock_starts_before_native_resource_resolution(self):
+        factory = create_command_factory(lambda: AppSnapshot(revision=4))
+        entered_resolution: list[float] = []
+        original = factory._resolve_native_resources
+
+        def observe_resolution(command, payload):
+            entered_resolution.append(time.monotonic())
+            return original(command, payload)
+
+        with patch.object(
+            factory,
+            "_resolve_native_resources",
+            side_effect=observe_resolution,
+        ):
+            command = factory(request("settings.get", revision=None))
+
+        self.assertEqual(1, len(entered_resolution))
+        self.assertLessEqual(command.accepted_monotonic, entered_resolution[0])
+
     def test_risk_metadata_is_backend_owned(self):
         factory = create_command_factory(
             lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1")

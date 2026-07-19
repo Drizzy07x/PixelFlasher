@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -211,6 +212,8 @@ class ProcessLauncher(Protocol):
 
     def launch(self, request: ProcessRequest) -> LaunchOutcome: ...
 
+    def terminate(self, pid: int) -> bool: ...
+
     def shutdown(self) -> None: ...
 
 
@@ -266,28 +269,75 @@ class ManagedProcessLauncher:
             self._children[process.pid] = process
         return LaunchOutcome(process.pid)
 
+    def terminate(self, pid: int) -> bool:
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return False
+        with self._lock:
+            process = self._children.pop(pid, None)
+        if process is None:
+            return False
+        return self._stop_child(process)
+
     def shutdown(self) -> None:
         with self._lock:
             self._closed = True
             children = tuple(self._children.values())
             self._children.clear()
         for process in children:
-            if process.poll() is not None:
-                continue
-            try:
-                process.terminate()
-                process.wait(timeout=2)
-            except (OSError, subprocess.TimeoutExpired):
-                try:
-                    process.kill()
-                    process.wait(timeout=1)
-                except (OSError, subprocess.TimeoutExpired):
-                    continue
+            self._stop_child(process)
 
     def _reap_finished(self) -> None:
         finished = [pid for pid, process in self._children.items() if process.poll() is not None]
         for pid in finished:
             self._children.pop(pid, None)
+
+    @staticmethod
+    def _stop_child(process: subprocess.Popen[bytes]) -> bool:
+        if process.poll() is not None:
+            return True
+        if os.name == "nt":
+            flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                subprocess.run(  # noqa: S603 - fixed system argv and owned PID
+                    ("taskkill.exe", "/PID", str(process.pid), "/T", "/F"),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=2,
+                    shell=False,
+                    creationflags=flags,
+                )
+            except (OSError, subprocess.SubprocessError):
+                try:
+                    process.kill()
+                except OSError:
+                    return process.poll() is not None
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return True
+            except OSError:
+                try:
+                    process.terminate()
+                except OSError:
+                    return process.poll() is not None
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            try:
+                if os.name == "nt":
+                    process.kill()
+                else:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                return False
+        return process.poll() is not None
 
 
 class SubprocessSecretRunner:
@@ -317,6 +367,12 @@ class SubprocessSecretRunner:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,
+            start_new_session=not sys.platform.startswith("win"),
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if sys.platform.startswith("win")
+                else 0
+            ),
         )
         assert process.stdin is not None
         assert process.stdout is not None
@@ -330,7 +386,15 @@ class SubprocessSecretRunner:
         def collect(stream: BinaryIO, target: bytearray) -> None:
             nonlocal captured_bytes
             while True:
-                chunk = stream.read(self.read_chunk_bytes)
+                with capture_lock:
+                    chunk_size = min(
+                        self.read_chunk_bytes,
+                        max(1, limit - captured_bytes + 1),
+                    )
+                try:
+                    chunk = os.read(stream.fileno(), chunk_size)
+                except OSError:
+                    return
                 if not chunk:
                     return
                 with capture_lock:
@@ -381,7 +445,8 @@ class SubprocessSecretRunner:
                 self._stop_process(process)
                 break
             if cancellation.cancelled:
-                cancelled = True
+                cancelled = cancellation.reason is CancellationReason.USER
+                timed_out = cancellation.reason is CancellationReason.DEADLINE
                 self._stop_process(process)
                 break
             if deadline is not None and time.monotonic() >= deadline:
@@ -408,20 +473,7 @@ class SubprocessSecretRunner:
 
     @staticmethod
     def _stop_process(process: subprocess.Popen[bytes]) -> None:
-        if process.poll() is not None:
-            return
-        try:
-            process.terminate()
-        except OSError:
-            pass
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            try:
-                process.kill()
-            except OSError:
-                pass
-            process.wait()
+        ManagedProcessLauncher._stop_child(process)
 
 
 class DeviceToolPlanningError(ValueError):
@@ -1004,7 +1056,10 @@ class DeviceToolsService:
         device = self._device(command, snapshot)
         adb = self._adb(snapshot)
         if command.kind == "tools.scrcpy":
-            return self._compile_scrcpy(command, snapshot, device)
+            self._check_planning_cancelled(cancellation)
+            compilation = self._compile_scrcpy(command, snapshot, device)
+            self._check_planning_cancelled(cancellation)
+            return compilation
         if command.kind == "device.inspect":
             return self._compile_inspection(command, snapshot, device, adb)
         if command.kind == "tools.wifi.status":
@@ -1019,6 +1074,14 @@ class DeviceToolsService:
             cancellation=cancellation,
             progress=progress,
         )
+
+    @staticmethod
+    def _check_planning_cancelled(cancellation: CancellationToken | None) -> None:
+        if cancellation is not None and cancellation.cancelled:
+            raise DeviceToolPlanningError(
+                "device_tool_cancelled",
+                "device tool planning was cancelled",
+            )
 
     def _compile_inspection(
         self,
@@ -1259,6 +1322,22 @@ class DeviceToolsService:
                     operation_id,
                     code="scrcpy_launch_failed",
                     message="scrcpy could not be launched",
+                )
+            if cancellation.cancelled:
+                try:
+                    terminated = self.process_launcher.terminate(pid)
+                except Exception:
+                    terminated = False
+                if not terminated:
+                    return OperationResult.failed(
+                        operation_id,
+                        code="managed_process_termination_failed",
+                        message="scrcpy cancellation could not terminate the managed process",
+                    )
+                return OperationResult.cancelled(
+                    operation_id,
+                    code="cancelled",
+                    message="scrcpy launch was cancelled",
                 )
             return OperationResult.success(
                 operation_id,

@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from collections.abc import Mapping
@@ -9,6 +10,7 @@ from pixelflasher_core.apk_inspection import (
     ApkInspectionCode,
     ApkInspectionError,
 )
+from pixelflasher_core.cancellation import CancellationToken
 from pixelflasher_core.contracts import (
     AppCommand,
     AppSnapshot,
@@ -19,6 +21,7 @@ from pixelflasher_core.contracts import (
 )
 from pixelflasher_core.executor import CommandExecutor, FakeProcessTransport, TransportOutcome
 from pixelflasher_core.packages import (
+    CancellationProbe,
     PackageCompilation,
     PackagePlanningError,
     PackageService,
@@ -30,7 +33,13 @@ from tests.command_engine_factory import make_test_command_engine
 
 
 class StubApkInspector:
-    def inspect(self, path: str | Path) -> ApkIdentity:
+    def inspect(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> ApkIdentity:
+        _ = cancellation
         source = Path(path)
         return ApkIdentity(
             "com.example.verified",
@@ -90,6 +99,49 @@ class PackageServiceTests(unittest.TestCase):
         self.assertFalse(compilation.requires_confirmation)
         self.assertIs(OperationRisk.READ_ONLY, compilation.plan.risk)
         self.assertEqual((), compilation.plan.postconditions)
+
+    def test_apk_inspection_cancellation_is_reported_before_plan_creation(self):
+        token = CancellationToken()
+
+        class CancellingInspector(StubApkInspector):
+            def inspect(
+                self,
+                path: str | os.PathLike[str],
+                *,
+                cancellation: CancellationProbe | None = None,
+            ) -> ApkIdentity:
+                _ = path
+                if cancellation is not token:
+                    raise AssertionError(
+                        "PackageService did not forward its cancellation token"
+                    )
+                token.cancel()
+                raise ApkInspectionError(
+                    ApkInspectionCode.CANCELLED,
+                    "inspection cancelled inside APK I/O",
+                )
+
+        service = PackageService(
+            hash_chunk_size=2,
+            apk_inspector=CancellingInspector(),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "verified.apk"
+            apk.write_bytes(b"verified")
+
+            with self.assertRaises(PackagePlanningError) as raised:
+                service.compile(
+                    AppCommand(
+                        "apps.action",
+                        expected_revision=4,
+                        target_serial="SERIAL",
+                        payload={"action": "install", "path": str(apk)},
+                    ),
+                    self.snapshot,
+                    token,
+                )
+
+        self.assertEqual("package_cancelled", raised.exception.code)
 
     def test_destructive_multi_package_action_is_deterministic(self):
         compilation = self.compile(
@@ -321,7 +373,14 @@ class PackageServiceTests(unittest.TestCase):
 
     def test_install_propagates_typed_signature_failure_without_compiling_argv(self):
         class RejectingInspector:
-            def inspect(self, _path: str | Path) -> ApkIdentity:
+            def inspect(
+                self,
+                path: str | os.PathLike[str],
+                *,
+                cancellation: CancellationProbe | None = None,
+            ) -> ApkIdentity:
+                _ = path
+                _ = cancellation
                 raise ApkInspectionError(
                     ApkInspectionCode.SIGNATURE_MISSING,
                     "APK has no verified signature",

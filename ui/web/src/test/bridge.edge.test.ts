@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BridgeError,
   bridge,
+  commandTimeoutMs,
   interactionFromEvent,
   normalizeOperationStatus,
   normalizePreferences,
@@ -364,7 +365,7 @@ describe('bridge client failure and lifecycle behavior', () => {
     window.pixelflasher = { postMessage: vi.fn() };
     const pending = bridge.command(commands.deviceScan, {}, 1);
     const assertion = expect(pending).rejects.toThrow('Timed out waiting for device.scan');
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(commandTimeoutMs(commands.deviceScan));
     await assertion;
   });
 

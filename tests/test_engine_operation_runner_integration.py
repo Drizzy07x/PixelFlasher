@@ -10,6 +10,7 @@ from pixelflasher_core.contracts import (
     DeviceInfo,
     OperationPlan,
     OperationPostcondition,
+    OperationResult,
     OperationRisk,
     OperationStatus,
     ProcessRequest,
@@ -64,6 +65,34 @@ def mutation() -> AppCommand:
 
 
 class EngineOperationRunnerIntegrationTests(unittest.TestCase):
+    def test_completion_failure_aborts_matching_active_operation(self):
+        class FailingCompletionStore(AppStateStore):
+            def complete_operation(self, *args, **kwargs):
+                raise ValueError("injected completion failure")
+
+        store = FailingCompletionStore(state())
+        engine = CommandEngine(
+            store=store,
+            executor=CommandExecutor(FakeProcessTransport([TransportOutcome(0)])),
+            postcondition_observer=lambda *_args: True,
+        )
+
+        result = engine.execute(mutation())
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("operation_state_completion_failed", result.code)
+        self.assertIsNone(store.snapshot().active_operation)
+        self.assertEqual(result, store.snapshot().last_result)
+        reopened = store.begin_operation(
+            "next-operation",
+            expected_revision=store.snapshot().revision,
+        )
+        self.assertEqual("next-operation", reopened.active_operation.operation_id)
+        store.abort_operation(
+            OperationResult.failed("next-operation", code="test_cleanup")
+        )
+        engine.shutdown()
+
     def test_begin_operation_occurs_at_runner_boundary_and_completion_closes_state(self):
         store = AppStateStore(state())
         transport = FakeProcessTransport([TransportOutcome(0)])

@@ -13,6 +13,7 @@ from pixelflasher_core import (
     AppSnapshot,
     AppStateStore,
     BackupService,
+    CancellationToken,
     CommandExecutor,
     DeviceInfo,
     DeviceToolsService,
@@ -39,9 +40,11 @@ from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 
 
 class RecordingLauncher:
-    def __init__(self, *, error=None):
+    def __init__(self, *, error=None, terminate_result=True):
         self.error = error
+        self.terminate_result = terminate_result
         self.calls = []
+        self.terminated = []
         self.shutdown_called = False
 
     def launch(self, request):
@@ -49,6 +52,10 @@ class RecordingLauncher:
         if self.error is not None:
             raise self.error
         return LaunchOutcome(4242)
+
+    def terminate(self, pid):
+        self.terminated.append(pid)
+        return self.terminate_result
 
     def shutdown(self):
         self.shutdown_called = True
@@ -135,6 +142,83 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
         self.assertIs(inspector, engine.package_service.apk_inspector)
         self.assertIs(inspector, engine.rooting_service.apk_inspector)
+
+    def test_expired_service_planning_deadlines_are_not_user_cancellations(self):
+        cases = (
+            ("apps.list", {}),
+            ("partitions.list", {}),
+            ("backups.create", {}),
+            ("root.apps.list", {}),
+            ("tools.logcat", {}),
+            ("device.ota.certificates", {}),
+            ("device.scan", {}),
+        )
+        for kind, payload in cases:
+            with self.subTest(kind=kind):
+                engine, transport = self.engine_for("adb", [])
+                result = engine.execute(
+                    AppCommand(
+                        kind,
+                        expected_revision=4,
+                        target_serial="SERIAL",
+                        payload=payload,
+                        execution_timeout_seconds=0.01,
+                        _accepted_monotonic=time.monotonic() - 1,
+                    )
+                )
+
+                self.assertEqual(OperationStatus.FAILED, result.status)
+                self.assertEqual("timed_out", result.code)
+                self.assertEqual([], transport.calls)
+
+    def test_process_command_deadline_interrupts_operation_lock_wait(self):
+        engine, transport = self.engine_for("adb", [])
+        engine._operation_lock.acquire()
+        try:
+            started = time.monotonic()
+            result = engine.execute(
+                AppCommand(
+                    "tools.logcat",
+                    expected_revision=4,
+                    target_serial="SERIAL",
+                    operation_id="logcat-lock-timeout",
+                    execution_timeout_seconds=0.03,
+                )
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            engine._operation_lock.release()
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("timed_out", result.code)
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual([], transport.calls)
+
+    def test_root_app_inventory_cancellation_before_promotion_never_returns_success(self):
+        class CancellingInventoryService(RootingService):
+            def compile(self, command, snapshot, cancellation=None):
+                compilation = super().compile(command, snapshot, cancellation)
+                cancellation.cancel()
+                return compilation
+
+        engine, transport = self.engine_for(
+            "adb",
+            [],
+            rooting_service=CancellingInventoryService(),
+        )
+
+        result = engine.execute(
+            AppCommand(
+                "root.apps.list",
+                expected_revision=4,
+                operation_id="cancel-root-inventory-before-promotion",
+            )
+        )
+
+        self.assertEqual(OperationStatus.CANCELLED, result.status)
+        self.assertEqual("rooting_cancelled", result.code)
+        self.assertIsNone(engine.store.snapshot().last_result)
+        self.assertEqual([], transport.calls)
 
     def engine_for(
         self,
@@ -336,6 +420,134 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             engine.shutdown()
             self.assertTrue(launcher.shutdown_called)
 
+    def test_scrcpy_cancel_during_launch_terminates_managed_process(self):
+        class BlockingLauncher(RecordingLauncher):
+            def __init__(self):
+                super().__init__()
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def launch(self, request):
+                self.calls.append(request)
+                self.started.set()
+                if not self.release.wait(2):
+                    raise TimeoutError("test launcher was not released")
+                return LaunchOutcome(4242)
+
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / (
+                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            )
+            write_scrcpy_executable(executable)
+            launcher = BlockingLauncher()
+            engine, transport = self.engine_for(
+                "adb",
+                [],
+                device_tools_service=DeviceToolsService(
+                    scrcpy_executable=executable,
+                    process_launcher=launcher,
+                ),
+            )
+            intent = AppCommand(
+                "tools.scrcpy",
+                expected_revision=4,
+                target_serial="SERIAL",
+                operation_id="scrcpy-cancel-during-launch",
+            )
+            results = []
+            worker = threading.Thread(target=lambda: results.append(engine.execute(intent)))
+            worker.start()
+            self.assertTrue(launcher.started.wait(1))
+
+            self.assertTrue(engine.cancel(intent.operation_id))
+            launcher.release.set()
+            worker.join(2)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(1, len(results))
+            self.assertEqual(OperationStatus.CANCELLED, results[0].status)
+            self.assertEqual([4242], launcher.terminated)
+            self.assertEqual([], transport.calls)
+            engine.shutdown()
+
+    def test_scrcpy_deadline_during_launch_terminates_before_timed_out_result(self):
+        class BlockingLauncher(RecordingLauncher):
+            def __init__(self):
+                super().__init__()
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def launch(self, request):
+                self.calls.append(request)
+                self.started.set()
+                if not self.release.wait(2):
+                    raise TimeoutError("test launcher was not released")
+                return LaunchOutcome(4242)
+
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / (
+                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            )
+            write_scrcpy_executable(executable)
+            launcher = BlockingLauncher()
+            engine, _transport = self.engine_for(
+                "adb",
+                [],
+                device_tools_service=DeviceToolsService(
+                    scrcpy_executable=executable,
+                    process_launcher=launcher,
+                ),
+            )
+            intent = AppCommand(
+                "tools.scrcpy",
+                expected_revision=4,
+                target_serial="SERIAL",
+                operation_id="scrcpy-deadline-during-launch",
+                execution_timeout_seconds=0.03,
+            )
+            results = []
+            worker = threading.Thread(target=lambda: results.append(engine.execute(intent)))
+            worker.start()
+            self.assertTrue(launcher.started.wait(1))
+            time.sleep(0.05)
+            launcher.release.set()
+            worker.join(2)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(OperationStatus.FAILED, results[0].status)
+            self.assertEqual("timed_out", results[0].code)
+            self.assertEqual([4242], launcher.terminated)
+            engine.shutdown()
+
+    def test_scrcpy_cancel_cleanup_failure_is_explicit(self):
+        class CancelDuringLaunch(RecordingLauncher):
+            def launch(self, request):
+                self.calls.append(request)
+                token.cancel()
+                return LaunchOutcome(4242)
+
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / (
+                "scrcpy.exe" if sys.platform.startswith("win") else "scrcpy"
+            )
+            write_scrcpy_executable(executable)
+            token = CancellationToken()
+            launcher = CancelDuringLaunch(terminate_result=False)
+            service = DeviceToolsService(
+                scrcpy_executable=executable,
+                process_launcher=launcher,
+            )
+            compilation = service.compile(
+                command("tools.scrcpy"),
+                snapshot_for("adb"),
+            )
+
+            result = service.execute_special(compilation, "scrcpy-cleanup-failed", token)
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("managed_process_termination_failed", result.code)
+            self.assertEqual([4242], launcher.terminated)
+
     def test_scrcpy_launch_failure_is_explicit_and_does_not_fake_success(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / ("scrcpy.exe" if sys.platform.startswith("win") else "scrcpy")
@@ -364,8 +576,13 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             launcher = RecordingLauncher()
 
             class MutatingService(DeviceToolsService):
-                def compile(self, command, snapshot):
-                    compilation = super().compile(command, snapshot)
+                def compile(self, command, snapshot, cancellation=None, progress=None):
+                    compilation = super().compile(
+                        command,
+                        snapshot,
+                        cancellation=cancellation,
+                        progress=progress,
+                    )
                     executable.write_bytes(executable.read_bytes() + b"changed")
                     return compilation
 

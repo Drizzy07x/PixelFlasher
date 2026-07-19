@@ -6,9 +6,13 @@ import hashlib
 import io
 import os
 import struct
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import TracebackType
+from typing import Any, BinaryIO, cast
 
 import pytest
 from cryptography import x509
@@ -27,6 +31,49 @@ from pixelflasher_core.apk_inspection import (
     ApkInspectionLimits,
     inspect_apk,
 )
+from pixelflasher_core.cancellation import CancellationReason, CancellationToken
+
+
+class _BlockingReader:
+    def __init__(
+        self,
+        raw: BinaryIO,
+        started: threading.Event,
+        release: threading.Event,
+        *,
+        fail_after_release: bool,
+    ) -> None:
+        self._raw = raw
+        self._started = started
+        self._release = release
+        self._fail_after_release = fail_after_release
+        self._blocked = False
+
+    def __enter__(self) -> _BlockingReader:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        _ = (exc_type, exc_value, traceback)
+        self._raw.close()
+        return False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._raw, name)
+
+    def read(self, size: int = -1) -> bytes:
+        if not self._blocked:
+            self._blocked = True
+            self._started.set()
+            if not self._release.wait(timeout=5.0):
+                raise TimeoutError("test did not release the blocked APK read")
+            if self._fail_after_release:
+                raise OSError("late synthetic read failure")
+        return self._raw.read(size)
 
 
 def _signer() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
@@ -251,7 +298,7 @@ def _write_v1_apk(path: Path) -> tuple[x509.Certificate, bytes]:
         "AndroidManifest.xml": _text_manifest(),
         "classes.dex": b"dex\n035\0v1 payload",
     }
-    sections = []
+    sections: list[str] = []
     for name, data in payloads.items():
         digest = base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
         sections.append(f"Name: {name}\r\nSHA-256-Digest: {digest}\r\n\r\n")
@@ -339,6 +386,120 @@ def test_v1_cms_and_every_manifest_member_are_verified(tmp_path: Path) -> None:
     assert identity.signer_sha256 == (
         hashlib.sha256(certificate.public_bytes(serialization.Encoding.DER)).hexdigest(),
     )
+
+
+def test_user_cancellation_interrupts_apk_hash_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "blocked.apk"
+    path.write_bytes(b"large-enough-to-enter-the-hash-loop")
+    started = threading.Event()
+    release = threading.Event()
+    token = CancellationToken()
+    real_open = Path.open
+
+    def blocking_open(
+        source: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> _BlockingReader:
+        return _BlockingReader(
+            cast(
+                BinaryIO,
+                real_open(
+                    source,
+                    mode,
+                    buffering,
+                    encoding,
+                    errors,
+                    newline,
+                ),
+            ),
+            started,
+            release,
+            fail_after_release=False,
+        )
+
+    monkeypatch.setattr(Path, "open", blocking_open)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            inspect_apk,
+            path,
+            limits=ApkInspectionLimits(io_chunk_size=4),
+            cancellation=token,
+        )
+        try:
+            assert started.wait(timeout=2.0)
+            token.cancel()
+            release.set()
+            with pytest.raises(ApkInspectionError) as raised:
+                future.result(timeout=2.0)
+        finally:
+            release.set()
+
+    assert raised.value.code is ApkInspectionCode.CANCELLED
+    assert token.reason is CancellationReason.USER
+
+
+def test_deadline_precedes_late_apk_read_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "late-read-error.apk"
+    path.write_bytes(b"read failure must not mask an expired operation deadline")
+    started = threading.Event()
+    release = threading.Event()
+    token = CancellationToken()
+    real_open = Path.open
+
+    def blocking_open(
+        source: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> _BlockingReader:
+        return _BlockingReader(
+            cast(
+                BinaryIO,
+                real_open(
+                    source,
+                    mode,
+                    buffering,
+                    encoding,
+                    errors,
+                    newline,
+                ),
+            ),
+            started,
+            release,
+            fail_after_release=True,
+        )
+
+    monkeypatch.setattr(Path, "open", blocking_open)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            inspect_apk,
+            path,
+            limits=ApkInspectionLimits(io_chunk_size=4),
+            cancellation=token,
+        )
+        try:
+            assert started.wait(timeout=2.0)
+            token.set_deadline_at(0.0)
+            release.set()
+            with pytest.raises(ApkInspectionError) as raised:
+                future.result(timeout=2.0)
+        finally:
+            release.set()
+
+    assert raised.value.code is ApkInspectionCode.CANCELLED
+    assert token.reason is CancellationReason.DEADLINE
 
 
 def test_v2_content_tampering_fails_closed(tmp_path: Path) -> None:

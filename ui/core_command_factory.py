@@ -7,6 +7,7 @@ paths are introduced here after the native selection is revalidated.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -290,6 +291,7 @@ class CoreCommandFactory:
         return self.secret_grants.issue(secret, purpose=purpose).to_public_dict()
 
     def __call__(self, request: BridgeRequest) -> AppCommand:
+        accepted_monotonic = time.monotonic()
         # Defence in depth for direct Python callers that bypass from_json().
         request.validate()
         if request.version != BRIDGE_VERSION:  # explicit for static audits
@@ -307,11 +309,13 @@ class CoreCommandFactory:
             destructive=request.command in DESTRUCTIVE_COMMANDS,
             requires_confirmation=request.command in CONFIRMATION_COMMANDS,
             operation_id=request.request_id,
+            # Reserve five percent for the host to serialize the terminal
+            # bridge response.  The absolute budget starts here, before the
+            # command can wait in the native FIFO.
             execution_timeout_seconds=(
                 COMMAND_REGISTRY[request.command].timeout_ms / 1000.0 * 0.95
-                if request.command == "tools.pushFiles"
-                else None
             ),
+            _accepted_monotonic=accepted_monotonic,
         )
 
     def _resolve_native_resources(self, command: str, payload: dict[str, Any]) -> None:

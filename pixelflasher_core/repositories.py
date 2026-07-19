@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import stat
 import tempfile
@@ -17,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, BinaryIO, Protocol, cast
 from uuid import uuid4
 
 from .contracts import FileArtifact, JSONValue
@@ -55,6 +54,11 @@ class RepositoryError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class CancellationProbe(Protocol):
+    @property
+    def cancelled(self) -> bool: ...
 
 
 class ArtifactKind(StrEnum):
@@ -139,7 +143,21 @@ def _public_text(value: str) -> str:
     return value
 
 
-def _sha256(path: Path, *, maximum_bytes: int | None = None) -> tuple[str, int]:
+def _check_cancelled(cancellation: CancellationProbe | None) -> None:
+    if cancellation is not None and cancellation.cancelled:
+        raise RepositoryError(
+            "artifact_import_cancelled",
+            "artifact import was cancelled",
+        )
+
+
+def _sha256(
+    path: Path,
+    *,
+    maximum_bytes: int | None = None,
+    cancellation: CancellationProbe | None = None,
+) -> tuple[str, int]:
+    _check_cancelled(cancellation)
     digest = hashlib.sha256()
     size = 0
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -152,7 +170,11 @@ def _sha256(path: Path, *, maximum_bytes: int | None = None) -> tuple[str, int]:
         stream = os.fdopen(descriptor, "rb")
         descriptor_open = False
         with stream:
-            while chunk := stream.read(1024 * 1024):
+            while True:
+                _check_cancelled(cancellation)
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
                 digest.update(chunk)
                 size += len(chunk)
                 if maximum_bytes is not None and size > maximum_bytes:
@@ -160,7 +182,24 @@ def _sha256(path: Path, *, maximum_bytes: int | None = None) -> tuple[str, int]:
     finally:
         if descriptor_open:
             os.close(descriptor)
+    _check_cancelled(cancellation)
     return digest.hexdigest(), size
+
+
+def _copy_to_stream(
+    source: Path,
+    output_stream: BinaryIO,
+    *,
+    cancellation: CancellationProbe | None = None,
+) -> None:
+    with source.open("rb") as input_stream:
+        while True:
+            _check_cancelled(cancellation)
+            chunk = input_stream.read(1024 * 1024)
+            if not chunk:
+                break
+            output_stream.write(chunk)
+            _check_cancelled(cancellation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,15 +386,22 @@ class ArtifactRepository:
         signature: str = "",
         metadata: Mapping[str, object] | None = None,
         artifact_id: str | None = None,
+        cancellation: CancellationProbe | None = None,
     ) -> ArtifactRecord:
+        _check_cancelled(cancellation)
         if not isinstance(kind, ArtifactKind) or not isinstance(provenance, ArtifactProvenance):
             raise TypeError("kind and provenance must use repository enum values")
         source_path = Path(source).expanduser().resolve(strict=True)
+        _check_cancelled(cancellation)
         if not source_path.is_file():
             raise RepositoryError("artifact_not_file", "artifact source must be a regular file")
         if source_path.stat().st_size > self.maximum_import_bytes:
             raise RepositoryError("artifact_too_large", "artifact exceeds repository size limit")
-        sha256, size = _sha256(source_path, maximum_bytes=self.maximum_import_bytes)
+        sha256, size = _sha256(
+            source_path,
+            maximum_bytes=self.maximum_import_bytes,
+            cancellation=cancellation,
+        )
         if expected_sha256 is not None and sha256 != _validate_digest(expected_sha256):
             raise RepositoryError("artifact_hash_mismatch", "artifact SHA-256 does not match expectation")
         relative_path = self._canonical_relative_path(sha256)
@@ -380,6 +426,7 @@ class ArtifactRepository:
         signature_value = str(signature)
 
         with self._lock:
+            _check_cancelled(cancellation)
             existing = self._connection.execute(
                 "SELECT * FROM artifacts WHERE artifact_id = ?",
                 (record_id,),
@@ -405,55 +452,77 @@ class ArtifactRepository:
                         "artifact_identity_conflict",
                         "artifact id is already bound to different content or metadata",
                     )
-                if not self._verify_record(record):
+                if not self._verify_record(record, cancellation=cancellation):
                     raise RepositoryError(
                         "repository_object_corrupt",
                         "stored artifact hash or size is invalid",
                     )
+                _check_cancelled(cancellation)
                 return record
-            self._commit_object(source_path, object_path, sha256)
-            with self._connection:
-                self._connection.execute(
-                    "INSERT OR IGNORE INTO objects(sha256, size, relative_path, created_at) VALUES(?, ?, ?, ?)",
-                    (sha256, size, relative_path.as_posix(), created_at),
-                )
-                object_row = self._connection.execute(
-                    "SELECT size, relative_path FROM objects WHERE sha256 = ?",
-                    (sha256,),
-                ).fetchone()
-                if (
-                    object_row is None
-                    or int(object_row["size"]) != size
-                    or str(object_row["relative_path"]) != relative_path.as_posix()
-                ):
-                    raise RepositoryError(
-                        "repository_object_conflict",
-                        "stored object metadata conflicts with its content address",
+            object_created = self._commit_object(
+                source_path,
+                object_path,
+                sha256,
+                cancellation=cancellation,
+            )
+            artifact_inserted = False
+            try:
+                _check_cancelled(cancellation)
+                with self._connection:
+                    self._connection.execute(
+                        "INSERT OR IGNORE INTO objects(sha256, size, relative_path, created_at) VALUES(?, ?, ?, ?)",
+                        (sha256, size, relative_path.as_posix(), created_at),
                     )
-                self._connection.execute(
-                    """
-                    INSERT INTO artifacts(
-                        artifact_id, kind, sha256, role, provenance, created_at,
-                        source_hash, device_codenames, partition_name, patcher,
-                        patcher_version, signature, metadata
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        record_id,
-                        kind.value,
-                        sha256,
-                        role_value,
-                        provenance.value,
-                        created_at,
-                        source_hash_value,
-                        json.dumps(codenames),
-                        partition_value,
-                        patcher_value,
-                        patcher_version_value,
-                        signature_value,
-                        metadata_json,
-                    ),
-                )
+                    object_row = self._connection.execute(
+                        "SELECT size, relative_path FROM objects WHERE sha256 = ?",
+                        (sha256,),
+                    ).fetchone()
+                    if (
+                        object_row is None
+                        or int(object_row["size"]) != size
+                        or str(object_row["relative_path"]) != relative_path.as_posix()
+                    ):
+                        raise RepositoryError(
+                            "repository_object_conflict",
+                            "stored object metadata conflicts with its content address",
+                        )
+                    _check_cancelled(cancellation)
+                    self._connection.execute(
+                        """
+                        INSERT INTO artifacts(
+                            artifact_id, kind, sha256, role, provenance, created_at,
+                            source_hash, device_codenames, partition_name, patcher,
+                            patcher_version, signature, metadata
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            record_id,
+                            kind.value,
+                            sha256,
+                            role_value,
+                            provenance.value,
+                            created_at,
+                            source_hash_value,
+                            json.dumps(codenames),
+                            partition_value,
+                            patcher_value,
+                            patcher_version_value,
+                            signature_value,
+                            metadata_json,
+                        ),
+                    )
+                    _check_cancelled(cancellation)
+                artifact_inserted = True
+                _check_cancelled(cancellation)
+            except RepositoryError as error:
+                if error.code == "artifact_import_cancelled":
+                    self._rollback_cancelled_import(
+                        record_id=record_id,
+                        object_path=object_path,
+                        object_created=object_created,
+                        artifact_inserted=artifact_inserted,
+                    )
+                raise
             row = self._connection.execute(
                 "SELECT * FROM artifacts WHERE artifact_id = ?",
                 (record_id,),
@@ -546,10 +615,18 @@ class ArtifactRepository:
         )
 
     @staticmethod
-    def _verify_record(record: ArtifactRecord) -> bool:
+    def _verify_record(
+        record: ArtifactRecord,
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> bool:
         try:
-            digest, size = _sha256(record.path)
-        except (OSError, RepositoryError):
+            digest, size = _sha256(record.path, cancellation=cancellation)
+        except RepositoryError as error:
+            if error.code == "artifact_import_cancelled":
+                raise
+            return False
+        except OSError:
             return False
         return digest == record.sha256 and size == record.size
 
@@ -563,7 +640,15 @@ class ArtifactRepository:
         finally:
             os.close(descriptor)
 
-    def _commit_object(self, source: Path, destination: Path, expected_sha256: str) -> None:
+    def _commit_object(
+        self,
+        source: Path,
+        destination: Path,
+        expected_sha256: str,
+        *,
+        cancellation: CancellationProbe | None = None,
+    ) -> bool:
+        _check_cancelled(cancellation)
         expected_path = self._validated_object_path(expected_sha256)
         if destination != expected_path:
             raise RepositoryError(
@@ -571,11 +656,12 @@ class ArtifactRepository:
                 "artifact destination does not match its content address",
             )
         if destination.exists():
-            actual, _size = _sha256(destination)
+            actual, _size = _sha256(destination, cancellation=cancellation)
             if actual != expected_sha256:
                 raise RepositoryError("repository_object_corrupt", "stored artifact hash is invalid")
-            return
+            return False
         destination.parent.mkdir(parents=True, exist_ok=True)
+        _check_cancelled(cancellation)
         destination = self._validated_object_path(expected_sha256)
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{expected_sha256}.",
@@ -583,29 +669,93 @@ class ArtifactRepository:
             dir=destination.parent,
         )
         temporary = Path(temporary_name)
+        published = False
         try:
-            with os.fdopen(descriptor, "wb") as output_stream, source.open("rb") as input_stream:
-                shutil.copyfileobj(input_stream, output_stream, length=1024 * 1024)
+            with os.fdopen(descriptor, "wb") as output_stream:
+                _copy_to_stream(
+                    source,
+                    output_stream,
+                    cancellation=cancellation,
+                )
                 output_stream.flush()
                 os.fsync(output_stream.fileno())
-            actual, _size = _sha256(temporary)
+                _check_cancelled(cancellation)
+            actual, _size = _sha256(temporary, cancellation=cancellation)
             if actual != expected_sha256:
                 raise RepositoryError("artifact_copy_corrupt", "artifact changed while being copied")
+            _check_cancelled(cancellation)
             try:
                 os.replace(temporary, destination)
+                published = True
             except OSError:
                 if not destination.exists():
                     raise
             final_path = self._validated_object_path(expected_sha256)
-            actual, _size = _sha256(final_path)
+            actual, _size = _sha256(final_path, cancellation=cancellation)
             if actual != expected_sha256:
                 raise RepositoryError(
                     "repository_object_corrupt",
                     "published artifact hash is invalid",
                 )
             self._fsync_directory(destination.parent)
+            _check_cancelled(cancellation)
+            return published
+        except Exception as error:
+            if published:
+                try:
+                    destination.unlink(missing_ok=True)
+                    self._fsync_directory(destination.parent)
+                except OSError as rollback_error:
+                    if (
+                        isinstance(error, RepositoryError)
+                        and error.code == "artifact_import_cancelled"
+                    ):
+                        raise RepositoryError(
+                            "artifact_import_rollback_failed",
+                            "cancelled artifact content could not be rolled back",
+                        ) from rollback_error
+                    raise
+            raise
         finally:
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                if cancellation is not None and cancellation.cancelled:
+                    raise RepositoryError(
+                        "artifact_import_rollback_failed",
+                        "cancelled artifact temporary content could not be rolled back",
+                    ) from cleanup_error
+                raise
+
+    def _rollback_cancelled_import(
+        self,
+        *,
+        record_id: str,
+        object_path: Path,
+        object_created: bool,
+        artifact_inserted: bool,
+    ) -> None:
+        try:
+            if artifact_inserted:
+                if not self.delete(record_id):
+                    raise RepositoryError(
+                        "artifact_import_rollback_failed",
+                        "cancelled artifact metadata could not be rolled back",
+                    )
+                return
+            if object_created:
+                object_path.unlink(missing_ok=True)
+                self._fsync_directory(object_path.parent)
+        except (OSError, RepositoryError) as error:
+            if (
+                isinstance(error, RepositoryError)
+                and error.code == "artifact_import_rollback_failed"
+            ):
+                raise
+            raise RepositoryError(
+                "artifact_import_rollback_failed",
+                "cancelled artifact content could not be rolled back",
+            ) from error
 
     def get(self, artifact_id: str) -> ArtifactRecord | None:
         with self._lock:
@@ -1001,12 +1151,19 @@ class FirmwareRepository:
     def __init__(self, repository: ArtifactRepository) -> None:
         self.repository = repository
 
-    def import_firmware(self, path: str | os.PathLike[str], **metadata: Any) -> ArtifactRecord:
+    def import_firmware(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        cancellation: CancellationProbe | None = None,
+        **metadata: Any,
+    ) -> ArtifactRecord:
         return self.repository.import_file(
             path,
             kind=ArtifactKind.FIRMWARE,
             role=str(metadata.pop("role", "firmware")),
             provenance=metadata.pop("provenance", ArtifactProvenance.USER_SUPPLIED),
+            cancellation=cancellation,
             **metadata,
         )
 
@@ -1022,6 +1179,7 @@ class FirmwareRepository:
         expected_sha256: str,
         provenance: ArtifactProvenance = ArtifactProvenance.USER_SUPPLIED,
         device_codenames: Iterable[str] = (),
+        cancellation: CancellationProbe | None = None,
     ) -> ArtifactRecord:
         """Store one inspected firmware package under a stable repository identity."""
 
@@ -1072,6 +1230,7 @@ class FirmwareRepository:
                 "firmwareType": normalized_type,
             },
             artifact_id=artifact_id,
+            cancellation=cancellation,
         )
 
     def resolve_selection(
@@ -1229,6 +1388,7 @@ class BootRepository:
         *,
         partition: str,
         provenance: ArtifactProvenance = ArtifactProvenance.USER_SUPPLIED,
+        cancellation: CancellationProbe | None = None,
         **metadata: Any,
     ) -> ArtifactRecord:
         normalized_partition = str(partition).strip()
@@ -1240,6 +1400,7 @@ class BootRepository:
             role=f"partition:{normalized_partition}",
             provenance=provenance,
             partition=normalized_partition,
+            cancellation=cancellation,
             **metadata,
         )
 
@@ -1253,6 +1414,7 @@ class BootRepository:
         partition: str,
         patched: bool,
         expected_sha256: str,
+        cancellation: CancellationProbe | None = None,
     ) -> ArtifactRecord:
         """Canonicalize a backend-produced stock or patched boot selection."""
 
@@ -1294,6 +1456,7 @@ class BootRepository:
                 "isPatched": patched,
             },
             artifact_id=artifact_id,
+            cancellation=cancellation,
         )
 
     def resolve_selection(

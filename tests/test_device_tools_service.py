@@ -3,6 +3,7 @@ import pickle
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -29,10 +30,12 @@ from pixelflasher_core.grants import PathGrantStore
 
 
 class RecordingLauncher:
-    def __init__(self, *, pid=4242, error=None):
+    def __init__(self, *, pid=4242, error=None, terminate_result=True):
         self.pid = pid
         self.error = error
+        self.terminate_result = terminate_result
         self.calls = []
+        self.terminated = []
         self.shutdown_called = False
 
     def launch(self, request):
@@ -40,6 +43,10 @@ class RecordingLauncher:
         if self.error is not None:
             raise self.error
         return LaunchOutcome(self.pid)
+
+    def terminate(self, pid):
+        self.terminated.append(pid)
+        return self.terminate_result
 
     def shutdown(self):
         self.shutdown_called = True
@@ -792,6 +799,19 @@ class DeviceToolsServiceTests(unittest.TestCase):
                     ProcessRequest(("scrcpy.exe", "--serial", "SERIAL"))
                 )
 
+    def test_default_scrcpy_launcher_terminates_one_tracked_process_tree(self):
+        launcher = ManagedProcessLauncher()
+        outcome = launcher.launch(
+            ProcessRequest(
+                (sys.executable, "-c", "import time; time.sleep(30)"),
+            )
+        )
+        try:
+            self.assertTrue(launcher.terminate(outcome.pid))
+            self.assertFalse(launcher.terminate(outcome.pid))
+        finally:
+            launcher.shutdown()
+
     def test_default_pair_runner_writes_secret_to_stdin_never_argv(self):
         real_popen = subprocess.Popen
         with patch(
@@ -819,20 +839,26 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertFalse(outcome.output_limited)
 
     def test_default_pair_runner_terminates_at_aggregate_output_limit(self):
+        started = time.monotonic()
         outcome = SubprocessSecretRunner().run(
             ProcessRequest(
                 (
                     sys.executable,
                     "-c",
-                    "import sys; sys.stdin.readline(); sys.stdout.buffer.write(b'x' * 1048576)",
+                    (
+                        "import sys,time; sys.stdin.readline(); "
+                        "sys.stdout.buffer.write(b'x' * 2048); "
+                        "sys.stdout.buffer.flush(); time.sleep(5)"
+                    ),
                 ),
-                timeout_seconds=5,
+                timeout_seconds=10,
                 output_limit_bytes=1_024,
             ),
             "123456",
             CancellationToken(),
         )
 
+        self.assertLess(time.monotonic() - started, 3)
         self.assertTrue(outcome.output_limited)
         self.assertFalse(outcome.timed_out)
         self.assertLessEqual(
@@ -840,6 +866,29 @@ class DeviceToolsServiceTests(unittest.TestCase):
             + len(outcome.stderr.encode("utf-8")),
             1_024,
         )
+
+    def test_default_pair_runner_maps_token_deadline_and_stops_process_tree(self):
+        token = CancellationToken()
+        token.set_deadline(0.03)
+        started = time.monotonic()
+
+        outcome = SubprocessSecretRunner().run(
+            ProcessRequest(
+                (
+                    sys.executable,
+                    "-c",
+                    "import sys,time; sys.stdin.readline(); time.sleep(5)",
+                ),
+                timeout_seconds=10,
+                output_limit_bytes=1_024,
+            ),
+            "123456",
+            token,
+        )
+
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertTrue(outcome.timed_out)
+        self.assertFalse(outcome.cancelled)
 
 
 if __name__ == "__main__":

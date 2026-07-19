@@ -120,6 +120,36 @@ class PartitionServiceTests(unittest.TestCase):
                 )
             self.assertEqual("partition_overwrite_invalid", raised.exception.code)
 
+    def test_write_hashing_observes_cancellation_during_planning(self):
+        class CancelAfterFirstChunk:
+            def __init__(self):
+                self.checks = 0
+
+            @property
+            def cancelled(self):
+                self.checks += 1
+                return self.checks >= 3
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "boot.img"
+            source.write_bytes(b"abcdef")
+            probe = CancelAfterFirstChunk()
+
+            with self.assertRaises(PartitionPlanningError) as raised:
+                self.service.compile(
+                    AppCommand(
+                        "partitions.write",
+                        expected_revision=7,
+                        target_serial="SERIAL",
+                        payload={"partition": "boot", "path": str(source)},
+                    ),
+                    self.snapshot,
+                    probe,
+                )
+
+        self.assertEqual("partition_cancelled", raised.exception.code)
+        self.assertEqual(3, probe.checks)
+
     def test_read_rejects_missing_parent_and_directory_destination(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -15,6 +15,7 @@ from pixelflasher_core import (
     AppCommand,
     ApplicationRuntime,
     AppSnapshot,
+    AppStateStore,
     CancellationToken,
     DeviceInfo,
     GrantAccess,
@@ -385,6 +386,38 @@ class SupportPackageServiceTests(unittest.TestCase):
 
 
 class SupportEngineIntegrationTests(unittest.TestCase):
+    def test_support_completion_failure_clears_active_operation(self):
+        class FailingCompletionStore(AppStateStore):
+            def complete_operation(self, *args, **kwargs):
+                raise ValueError("injected completion failure")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "PixelFlasher.json"
+            config.write_text("{}", encoding="utf-8")
+            destination = root / "completion-failure.zip"
+            service = SupportPackageService(config)
+            destination_id = service.register_destination(destination)
+            store = FailingCompletionStore(snapshot())
+            engine = CommandEngine(
+                store=store,
+                support_package_service=service,
+            )
+
+            result = engine.execute(
+                AppCommand(
+                    "support.create",
+                    expected_revision=0,
+                    payload={"destinationId": destination_id},
+                )
+            )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("support_state_completion_failed", result.code)
+            self.assertIsNone(store.snapshot().active_operation)
+            self.assertEqual(result, store.snapshot().last_result)
+            engine.shutdown()
+
     def test_runtime_registers_native_destination_and_engine_returns_explicit_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -528,6 +561,36 @@ class SupportEngineIntegrationTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertIsNone(engine.store.snapshot().active_operation)
             self.assertFalse(engine.cancel(command.operation_id))
+            engine.shutdown()
+
+    def test_expired_support_deadline_fails_without_consuming_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "PixelFlasher.json"
+            config.write_text("{}", encoding="utf-8")
+            destination = root / "engine-timeout.zip"
+            service = SupportPackageService(config)
+            destination_id = service.register_destination(destination)
+            engine = CommandEngine(
+                store=None,
+                support_package_service=service,
+            )
+
+            result = engine.execute(
+                AppCommand(
+                    "support.create",
+                    expected_revision=0,
+                    operation_id="support-timeout",
+                    payload={"destinationId": destination_id},
+                    execution_timeout_seconds=0.01,
+                    _accepted_monotonic=time.monotonic() - 1,
+                )
+            )
+
+            self.assertEqual(OperationStatus.FAILED, result.status)
+            self.assertEqual("timed_out", result.code)
+            self.assertFalse(destination.exists())
+            self.assertIsNone(engine.store.snapshot().active_operation)
             engine.shutdown()
 
     def test_safety_rejects_target_and_process_plan_for_local_support(self):
