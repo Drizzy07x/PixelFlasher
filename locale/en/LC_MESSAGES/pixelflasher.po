@@ -4788,5 +4788,5 @@ msgid "Network announcements are untrusted suggestions. Selecting one never conn
 msgstr ""
 
 msgctxt "web.tools.wifiConnectGuard"
-msgid "Discovery is available, but pairing and connection still require one selected ADB device."
+msgid "Checking status requires one selected device in ADB mode."
 msgstr ""

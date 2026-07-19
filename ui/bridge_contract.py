@@ -8,6 +8,7 @@ and validated here before it can reach a command factory or a native picker.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import re
 from collections.abc import Mapping
@@ -305,9 +306,20 @@ def _validate_payload_values(
         if patch_method != "apatch" and "secretGrant" in payload:
             _payload_error("boot.patch secretGrant is valid only for APatch", request_id)
     elif command == "tools.wifi":
-        if payload.get("action") == "pair" and "secretGrant" not in payload:
+        action = payload.get("action")
+        if action not in {"pair", "connect", "disconnect"}:
+            _payload_error(
+                "tools.wifi action must be exactly pair, connect, or disconnect",
+                request_id,
+            )
+        if not _valid_wifi_host(payload.get("host")):
+            _payload_error("tools.wifi host must be a numeric IP address", request_id)
+        port = payload.get("port")
+        if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+            _payload_error("tools.wifi port must be between 1 and 65535", request_id)
+        if action == "pair" and "secretGrant" not in payload:
             _payload_error("tools.wifi pair requires a native secretGrant", request_id)
-        if payload.get("action") != "pair" and "secretGrant" in payload:
+        if action != "pair" and "secretGrant" in payload:
             _payload_error("tools.wifi secretGrant is valid only for pair", request_id)
 
     if "serial" in payload and not _nonempty_string(payload["serial"], limit=256):
@@ -341,6 +353,18 @@ def _require_grant(value: Any, field: str, request_id: str) -> None:
 
 def _nonempty_string(value: Any, *, limit: int) -> bool:
     return isinstance(value, str) and bool(value.strip()) and len(value) <= limit and "\x00" not in value
+
+
+def _valid_wifi_host(value: object) -> bool:
+    if not isinstance(value, str) or not value or value != value.strip():
+        return False
+    if any(character in value for character in "[]%"):
+        return False
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return not address.is_unspecified and not address.is_multicast
 
 
 def _payload_error(message: str, request_id: str) -> None:

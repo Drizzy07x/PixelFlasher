@@ -81,7 +81,11 @@ class CommandRegistryTests(unittest.TestCase):
                 "unsupported",
             ),
             ("settings.update", {"zoom": True}, "integer"),
-            ("tools.wifi", {"action": "connect", "port": "37123"}, "integer"),
+            (
+                "tools.wifi",
+                {"action": "connect", "host": "192.0.2.20", "port": "37123"},
+                "integer",
+            ),
             ("device.ota.certificates", {"path": "/system/etc/security"}, "unsupported"),
             ("device.ota.logs", {"maxLines": True}, "integer"),
             ("device.ota.logs", {"timeoutSeconds": "30"}, "integer"),
@@ -103,7 +107,7 @@ class CommandRegistryTests(unittest.TestCase):
     def test_device_tools_accept_only_the_adb_state_supported_by_the_service(self):
         for command in (
             "tools.scrcpy",
-            "tools.wifi",
+            "tools.wifi.status",
             "tools.logcat",
             "device.ota.certificates",
             "device.ota.logs",

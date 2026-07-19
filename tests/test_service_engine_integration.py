@@ -381,29 +381,36 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
     def test_wifi_connect_disconnect_and_status_require_verified_adb_output(self):
         cases = (
             (
+                "tools.wifi",
                 {"action": "connect", "host": "192.0.2.10", "port": 5555},
                 "connected to 192.0.2.10:5555\n",
                 "wifi_connect_succeeded",
+                None,
             ),
             (
+                "tools.wifi",
                 {"action": "disconnect", "host": "192.0.2.10", "port": 5555},
                 "disconnected 192.0.2.10:5555\n",
                 "wifi_disconnect_succeeded",
+                None,
             ),
-            ({"action": "status"}, "device\n", "wifi_status_succeeded"),
+            ("tools.wifi.status", {}, "device\n", "wifi_status_succeeded", "SERIAL"),
         )
-        for payload, stdout, expected_code in cases:
-            with self.subTest(action=payload["action"]):
+        for command_kind, payload, stdout, expected_code, expected_serial in cases:
+            with self.subTest(command=command_kind, action=payload.get("action", "status")):
                 engine, transport = self.engine_for(
                     "adb",
                     [TransportOutcome(0, stdout)],
                 )
-                result = engine.execute(command("tools.wifi", payload))
+                result = engine.execute(command(command_kind, payload))
 
                 self.assertTrue(result.ok)
                 self.assertEqual(expected_code, result.code)
                 self.assertNotIn("shell", transport.calls[0].argv)
-                self.assertEqual("SERIAL", result.value["targetSerial"])
+                if expected_serial is None:
+                    self.assertNotIn("targetSerial", result.value)
+                else:
+                    self.assertEqual(expected_serial, result.value["targetSerial"])
 
         engine, _transport = self.engine_for(
             "adb",

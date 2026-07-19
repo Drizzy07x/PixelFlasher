@@ -1013,10 +1013,17 @@ export function installDevelopmentBridge() {
             const action = typeof request.payload.action === 'string' ? request.payload.action : '';
             respond(request, success(`ADB Wi-Fi ${action} succeeded`, {
               action,
-              ...(action === 'status' ? { state: 'device' } : { endpoint: `${String(request.payload.host)}:${String(request.payload.port)}` }),
+              endpoint: `${String(request.payload.host)}:${String(request.payload.port)}`,
             }));
             break;
           }
+          case 'tools.wifi.status':
+            respond(request, success('ADB Wi-Fi status succeeded', {
+              action: 'status',
+              state: 'device',
+              targetSerial: request.payload.serial,
+            }));
+            break;
           case 'tools.pushFiles':
             requestGuardedConfirmation(
               request,

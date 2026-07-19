@@ -55,6 +55,8 @@ class SafetyPolicy:
             "tools.adbShell",
             "tools.scrcpy",
             "tools.wifi",
+            "tools.wifi.status",
+            "tools.wifi.discover",
             "device.inspect",
             "backups.create",
             "backups.restore",

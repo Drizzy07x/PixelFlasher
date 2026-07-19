@@ -438,7 +438,6 @@ describe('PixelFlasher web workspace', () => {
       serial: '47161FDJH00A8L',
     });
     expect(requests.find((request) => request.command === 'tools.wifi')?.payload).toEqual({
-      serial: '47161FDJH00A8L',
       action: 'pair',
       host: '192.168.1.42',
       port: 5555,

@@ -343,7 +343,7 @@ export const sourceMessages = {
   'tools.wifiDiscovered': 'Discovered wireless devices',
   'tools.wifiNone': 'No compatible wireless ADB services were found.',
   'tools.wifiUntrusted': 'Network announcements are untrusted suggestions. Selecting one never connects automatically.',
-  'tools.wifiConnectGuard': 'Discovery is available, but pairing and connection still require one selected ADB device.',
+  'tools.wifiConnectGuard': 'Checking status requires one selected device in ADB mode.',
   'tools.push': 'Push files',
   'tools.pushDetail': 'Send selected files to one allow-listed device folder.',
   'tools.support': 'Support package',

@@ -368,11 +368,15 @@ function PixelFlasherApp({
   const runCommand = useCallback(async (
     command: BridgeCommand,
     payload: Record<string, unknown> = {},
-    options: { returnCancelled?: boolean } = {},
+    options: { returnCancelled?: boolean; expectedRevision?: number } = {},
   ): Promise<CommandResponse | null> => {
     setNotice(null);
     try {
-      const response = await bridge.command<Record<string, unknown>>(command, payload, snapshot.revision);
+      const response = await bridge.command<Record<string, unknown>>(
+        command,
+        payload,
+        options.expectedRevision ?? snapshot.revision,
+      );
       if (typeof response.revision === 'number') {
         setSnapshot((current) => ({ ...current, revision: response.revision ?? current.revision }));
       }

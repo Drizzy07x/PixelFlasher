@@ -4821,5 +4821,5 @@ msgid "Network announcements are untrusted suggestions. Selecting one never conn
 msgstr "網路公告是不受信任的建議。選取公告絕不會自動連線。"
 
 msgctxt "web.tools.wifiConnectGuard"
-msgid "Discovery is available, but pairing and connection still require one selected ADB device."
-msgstr "探索功能可用，但配對和連線仍需要選取一部 ADB 裝置。"
+msgid "Checking status requires one selected device in ADB mode."
+msgstr "檢查狀態需要選取一部處於 ADB 模式的裝置。"

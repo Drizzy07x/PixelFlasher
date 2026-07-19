@@ -65,14 +65,17 @@ function discoveryCommand() {
   return onCommand;
 }
 
-function renderTools(onCommand: SharedPageProps['onCommand']) {
+function renderTools(
+  onCommand: SharedPageProps['onCommand'],
+  onSelectionChange: SharedPageProps['onSelectionChange'] = vi.fn(),
+) {
   const snapshot = snapshotWithoutSelection();
   return render(
     <I18nProvider locale="en">
       <ToolsPage
         snapshot={snapshot}
         selectedSerials={[]}
-        onSelectionChange={vi.fn()}
+        onSelectionChange={onSelectionChange}
         onCommand={onCommand}
         expertMode={false}
       />
@@ -108,12 +111,16 @@ describe('Wireless ADB discovery', () => {
     expect(within(workspace).getByText('Pixel-Legacy')).toBeVisible();
   });
 
-  it('uses advertisements only to populate the form and keeps Apply disabled without an ADB selection', async () => {
+  it('uses advertisements only to populate an enabled endpoint action without selecting or executing it', async () => {
     const onCommand = discoveryCommand();
-    renderTools(onCommand);
+    const onSelectionChange = vi.fn<SharedPageProps['onSelectionChange']>();
+    renderTools(onCommand, onSelectionChange);
     const { user, workspace } = await discover(onCommand);
     const action = within(workspace).getByRole('combobox', { name: 'Action' });
     const apply = within(workspace).getByRole('button', { name: 'Apply changes' });
+
+    expect(action).toHaveValue('status');
+    expect(apply).toBeDisabled();
 
     const pairing = within(workspace).getByRole('button', { name: /Pixel-Pairing/i });
     expect(pairing).toHaveAttribute('aria-pressed', 'false');
@@ -122,22 +129,25 @@ describe('Wireless ADB discovery', () => {
     expect(action).toHaveValue('pair');
     expect(within(workspace).getByRole('textbox', { name: 'Numeric IP address' })).toHaveValue('192.168.1.20');
     expect(within(workspace).getByRole('spinbutton', { name: 'Port' })).toHaveValue(37123);
-    expect(apply).toBeDisabled();
+    expect(apply).toBeEnabled();
     expect(onCommand.mock.calls.map(([command]) => command)).toEqual([commands.toolsWifiDiscover]);
+    expect(onSelectionChange).not.toHaveBeenCalled();
 
     await user.click(within(workspace).getByRole('button', { name: /Pixel-Connect/i }));
     expect(action).toHaveValue('connect');
     expect(within(workspace).getByRole('textbox', { name: 'Numeric IP address' })).toHaveValue('192.168.1.20');
     expect(within(workspace).getByRole('spinbutton', { name: 'Port' })).toHaveValue(39001);
-    expect(apply).toBeDisabled();
+    expect(apply).toBeEnabled();
     expect(onCommand.mock.calls.map(([command]) => command)).toEqual([commands.toolsWifiDiscover]);
+    expect(onSelectionChange).not.toHaveBeenCalled();
 
     await user.click(within(workspace).getByRole('button', { name: /Pixel-Legacy/i }));
     expect(action).toHaveValue('connect');
     expect(within(workspace).getByRole('textbox', { name: 'Numeric IP address' })).toHaveValue('192.168.1.21');
     expect(within(workspace).getByRole('spinbutton', { name: 'Port' })).toHaveValue(5555);
-    expect(apply).toBeDisabled();
+    expect(apply).toBeEnabled();
     expect(onCommand.mock.calls.map(([command]) => command)).toEqual([commands.toolsWifiDiscover]);
+    expect(onSelectionChange).not.toHaveBeenCalled();
   });
 
   it('does not turn a failed discovery into a verified empty result', async () => {

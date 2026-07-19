@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ElementTree
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
+from typing import BinaryIO, Protocol, cast
 
 from .contracts import (
     AppCommand,
@@ -45,6 +45,7 @@ DEVICE_TOOL_COMMANDS = frozenset(
         "tools.adbShell",
         "tools.scrcpy",
         "tools.wifi",
+        "tools.wifi.status",
         "tools.wifi.discover",
         "device.inspect",
     }
@@ -107,6 +108,7 @@ _MDNS_SERVICES_OUTPUT_LIMIT = 255 * 1_024
 _MDNS_AGGREGATE_OUTPUT_LIMIT = _MDNS_CHECK_OUTPUT_LIMIT + _MDNS_SERVICES_OUTPUT_LIMIT
 _MDNS_MAX_ROWS = 256
 _MDNS_MAX_LINE_BYTES = 512
+_WIFI_PAIR_OUTPUT_LIMIT = 64 * 1_024
 _GETPROP_LINE_PATTERN = re.compile(r"^\[([A-Za-z0-9_.-]{1,128})\]: \[(.*)\]$")
 _INSPECTION_ACTIONS = frozenset({"properties", "screenXml", "bootloaderVersions", "pifPrint"})
 _GETPROP_OUTPUT_LIMIT = 1024 * 1024
@@ -283,6 +285,8 @@ class SubprocessSecretRunner:
     """Run one argv-only process while keeping a credential out of argv/env."""
 
     poll_interval_seconds = 0.05
+    default_output_limit_bytes = 64 * 1_024
+    read_chunk_bytes = 16 * 1_024
 
     def run(
         self,
@@ -294,7 +298,8 @@ class SubprocessSecretRunner:
         if request.env:
             environment = os.environ.copy()
             environment.update(dict(request.env))
-        process = subprocess.Popen(  # noqa: S603 - reviewed argv, shell disabled
+        limit = request.output_limit_bytes or self.default_output_limit_bytes
+        process: subprocess.Popen[bytes] = subprocess.Popen(  # noqa: S603 - reviewed argv, shell disabled
             list(request.argv),
             cwd=request.cwd,
             env=environment,
@@ -302,45 +307,112 @@ class SubprocessSecretRunner:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding=request.encoding,
-            errors="replace",
+            text=False,
         )
         assert process.stdin is not None
+        assert process.stdout is not None
+        assert process.stderr is not None
+        stdout_buffer = bytearray()
+        stderr_buffer = bytearray()
+        capture_lock = threading.Lock()
+        output_limited = threading.Event()
+        captured_bytes = 0
+
+        def collect(stream: BinaryIO, target: bytearray) -> None:
+            nonlocal captured_bytes
+            while True:
+                chunk = stream.read(self.read_chunk_bytes)
+                if not chunk:
+                    return
+                with capture_lock:
+                    remaining = max(0, limit - captured_bytes)
+                    accepted = min(len(chunk), remaining)
+                    if accepted:
+                        target.extend(chunk[:accepted])
+                        captured_bytes += accepted
+                    if accepted != len(chunk):
+                        output_limited.set()
+                        return
+
+        readers = (
+            threading.Thread(
+                target=collect,
+                args=(process.stdout, stdout_buffer),
+                name="pixelflasher-secret-stdout-capture",
+                daemon=True,
+            ),
+            threading.Thread(
+                target=collect,
+                args=(process.stderr, stderr_buffer),
+                name="pixelflasher-secret-stderr-capture",
+                daemon=True,
+            ),
+        )
+        for reader in readers:
+            reader.start()
+
+        encoded_secret = (secret + "\n").encode(request.encoding, errors="replace")
         try:
-            process.stdin.write(secret + "\n")
+            process.stdin.write(encoded_secret)
             process.stdin.flush()
         except (BrokenPipeError, OSError):
             pass
         finally:
+            encoded_secret = b""
             try:
                 process.stdin.close()
             except OSError:
                 pass
-            process.stdin = None
 
         deadline = time.monotonic() + request.timeout_seconds if request.timeout_seconds is not None else None
-        while True:
+        cancelled = False
+        timed_out = False
+        while process.poll() is None:
+            if output_limited.is_set():
+                self._stop_process(process)
+                break
             if cancellation.cancelled:
-                stdout, stderr = self._terminate(process)
-                return TransportOutcome(process.returncode, stdout, stderr, cancelled=True)
+                cancelled = True
+                self._stop_process(process)
+                break
             if deadline is not None and time.monotonic() >= deadline:
-                stdout, stderr = self._terminate(process)
-                return TransportOutcome(process.returncode, stdout, stderr, timed_out=True)
-            try:
-                stdout, stderr = process.communicate(timeout=self.poll_interval_seconds)
-            except subprocess.TimeoutExpired:
-                continue
-            return TransportOutcome(process.returncode, stdout, stderr)
+                timed_out = True
+                self._stop_process(process)
+                break
+            cancellation.wait(self.poll_interval_seconds)
+
+        for reader in readers:
+            reader.join(timeout=1)
+        for stream, reader in zip((process.stdout, process.stderr), readers, strict=True):
+            if reader.is_alive():
+                stream.close()
+                reader.join(timeout=1)
+
+        return TransportOutcome(
+            process.returncode,
+            stdout_buffer.decode(request.encoding, errors="replace"),
+            stderr_buffer.decode(request.encoding, errors="replace"),
+            cancelled=cancelled,
+            timed_out=timed_out,
+            output_limited=output_limited.is_set(),
+        )
 
     @staticmethod
-    def _terminate(process: subprocess.Popen[str]) -> tuple[str, str]:
-        process.terminate()
+    def _stop_process(process: subprocess.Popen[bytes]) -> None:
+        if process.poll() is not None:
+            return
         try:
-            return process.communicate(timeout=1)
+            process.terminate()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            process.kill()
-            return process.communicate()
+            try:
+                process.kill()
+            except OSError:
+                pass
+            process.wait()
 
 
 class DeviceToolPlanningError(ValueError):
@@ -859,14 +931,16 @@ class DeviceToolsService:
         self._revision(command, snapshot)
         if command.kind == "tools.wifi.discover":
             return self._compile_wifi_discovery(command, snapshot, self._adb(snapshot))
+        if command.kind == "tools.wifi":
+            return self._compile_wifi(command, snapshot, self._adb(snapshot))
         device = self._device(command, snapshot)
         adb = self._adb(snapshot)
         if command.kind == "tools.scrcpy":
             return self._compile_scrcpy(command, snapshot, device)
         if command.kind == "device.inspect":
             return self._compile_inspection(command, snapshot, device, adb)
-        if command.kind == "tools.wifi":
-            return self._compile_wifi(command, snapshot, device, adb)
+        if command.kind == "tools.wifi.status":
+            return self._compile_wifi_status(command, snapshot, device, adb)
         if command.kind == "tools.logcat":
             return self._compile_logcat(command, snapshot, device, adb)
         return self._compile_push_files(command, snapshot, device, adb)
@@ -976,45 +1050,23 @@ class DeviceToolsService:
         self,
         command: AppCommand,
         snapshot: AppSnapshot,
-        device: DeviceInfo,
         adb: str,
     ) -> DeviceToolCompilation:
         self._validate_payload(
             command,
-            {"serial", "action", "host", "port", "pairingCode"},
+            {"action", "host", "port", "pairingCode"},
         )
         raw_action = command.payload.get("action")
         if not isinstance(raw_action, str):
             raise DeviceToolPlanningError(
                 "wifi_action_invalid",
-                "action must be exactly pair, connect, disconnect, or status",
+                "action must be exactly pair, connect, or disconnect",
             )
         action = raw_action.strip().casefold()
-        if action not in {"pair", "connect", "disconnect", "status"}:
+        if action not in {"pair", "connect", "disconnect"}:
             raise DeviceToolPlanningError(
                 "wifi_action_invalid",
-                "action must be exactly pair, connect, disconnect, or status",
-            )
-
-        if action == "status":
-            unexpected = set(command.payload) & {"host", "port", "pairingCode"}
-            if unexpected:
-                raise DeviceToolPlanningError(
-                    "wifi_status_payload_invalid",
-                    f"status does not accept {sorted(unexpected)[0]}",
-                )
-            request = ProcessRequest(
-                (adb, "-s", device.serial, "get-state"),
-                timeout_seconds=10.0,
-            )
-            return DeviceToolCompilation(
-                self._base_plan(
-                    snapshot,
-                    device,
-                    (request,),
-                    label=f"Read ADB status for {device.serial}",
-                ),
-                "wifi.status",
+                "action must be exactly pair, connect, or disconnect",
             )
 
         endpoint = self._wifi_endpoint(
@@ -1044,12 +1096,13 @@ class DeviceToolsService:
         request = ProcessRequest(
             (adb, action, endpoint),
             timeout_seconds=30.0,
+            output_limit_bytes=(_WIFI_PAIR_OUTPUT_LIMIT if action == "pair" else None),
         )
         postcondition = (
             OperationPostcondition(
                 "adb_wifi_pairing_recorded",
                 {"endpoint": endpoint},
-                "the ADB pairing record is independently observable",
+                "bounded ADB pairing returned exact endpoint-bound success evidence",
             )
             if action == "pair"
             else OperationPostcondition(
@@ -1062,9 +1115,8 @@ class DeviceToolsService:
             )
         )
         return DeviceToolCompilation(
-            self._base_plan(
+            self._host_plan(
                 snapshot,
-                device,
                 (request,),
                 label=f"ADB Wi-Fi {action} {endpoint}",
                 risk=OperationRisk.MUTATING,
@@ -1076,6 +1128,29 @@ class DeviceToolsService:
             execution=execution,
             endpoint=endpoint,
             pairing_code=pairing_code,
+        )
+
+    def _compile_wifi_status(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> DeviceToolCompilation:
+        self._validate_payload(command, {"serial"})
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "get-state"),
+            timeout_seconds=10.0,
+            output_limit_bytes=1_024,
+        )
+        return DeviceToolCompilation(
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Read ADB status for {device.serial}",
+            ),
+            "wifi.status",
         )
 
     def execute_special(
@@ -1161,6 +1236,13 @@ class DeviceToolsService:
                     message="ADB Wi-Fi pairing timed out",
                     exit_code=outcome.returncode,
                 )
+            if outcome.output_limited:
+                return OperationResult.failed(
+                    operation_id,
+                    code="output_limit_exceeded",
+                    message="ADB Wi-Fi pairing exceeded its output limit",
+                    exit_code=outcome.returncode,
+                )
             if outcome.returncode != 0:
                 return OperationResult.failed(
                     operation_id,
@@ -1244,10 +1326,9 @@ class DeviceToolsService:
                 stderr="" if redact_output else result.stderr,
             )
 
-        value: dict[str, object] = {
-            "action": action,
-            "targetSerial": compilation.plan.target_serial,
-        }
+        value: dict[str, object] = {"action": action}
+        if compilation.plan.target_serial is not None:
+            value["targetSerial"] = compilation.plan.target_serial
         if compilation.endpoint:
             value["endpoint"] = compilation.endpoint
         if action == "pair":
@@ -1876,14 +1957,19 @@ class DeviceToolsService:
         requests: tuple[ProcessRequest, ...],
         *,
         label: str,
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
+        data_behavior: str = "preserve",
     ) -> OperationPlan:
         return OperationPlan(
             requests=requests,
             label=label,
-            risk=OperationRisk.READ_ONLY,
+            risk=risk,
+            postconditions=postconditions,
             snapshot_revision=snapshot.revision,
             firmware_hash=snapshot.firmware.hash,
             boot_hash=snapshot.boot.hash,
+            data_behavior=data_behavior,
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
         )

@@ -79,7 +79,7 @@ class DeviceToolsServiceTests(unittest.TestCase):
             AppCommand(
                 kind,
                 expected_revision=self.snapshot.revision,
-                target_serial="SERIAL",
+                target_serial=None if kind == "tools.wifi" else "SERIAL",
                 payload=payload,
             ),
             self.snapshot,
@@ -469,6 +469,7 @@ class DeviceToolsServiceTests(unittest.TestCase):
         compilation = self.service.compile(command, self.snapshot)
 
         self.assertEqual(("ADB", "pair", "192.0.2.20:37123"), compilation.plan.request.argv)
+        self.assertEqual(64 * 1_024, compilation.plan.request.output_limit_bytes)
         self.assertEqual("secret-stdin", compilation.execution)
         self.assertTrue(compilation.device_write)
         self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
@@ -499,7 +500,7 @@ class DeviceToolsServiceTests(unittest.TestCase):
                     ("ADB", action, "[2001:db8::1]:5555"),
                     compilation.plan.request.argv,
                 )
-                self.assertEqual("SERIAL", compilation.plan.target_serial)
+                self.assertIsNone(compilation.plan.target_serial)
                 self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
                 self.assertEqual(
                     "adb_wifi_endpoint_state",
@@ -510,8 +511,9 @@ class DeviceToolsServiceTests(unittest.TestCase):
                     compilation.plan.postconditions[0].expected["connected"],
                 )
 
-        status = self.compile("tools.wifi", {"action": "status"})
+        status = self.compile("tools.wifi.status", {})
         self.assertEqual(("ADB", "-s", "SERIAL", "get-state"), status.plan.request.argv)
+        self.assertEqual(1_024, status.plan.request.output_limit_bytes)
         self.assertEqual("wifi.status", status.action)
         self.assertIs(OperationRisk.READ_ONLY, status.plan.risk)
         self.assertEqual((), status.plan.postconditions)
@@ -595,6 +597,20 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertIs(OperationStatus.SUCCESS, result.status)
         self.assertEqual("wifi_pair_succeeded", result.code)
 
+        limited = DeviceToolsService(
+            secret_runner=RecordingSecretRunner(
+                TransportOutcome(1, "x" * 1_024, output_limited=True)
+            )
+        ).execute_special(
+            pair,
+            "pair-output-limited",
+            CancellationToken(),
+        )
+        self.assertIs(OperationStatus.FAILED, limited.status)
+        self.assertEqual("output_limit_exceeded", limited.code)
+        self.assertEqual("", limited.stdout)
+        self.assertEqual("", limited.stderr)
+
         safety_failure = OperationResult.failed(
             "pair-guarded",
             code="postcondition_unverified",
@@ -634,7 +650,7 @@ class DeviceToolsServiceTests(unittest.TestCase):
                 },
                 "wifi_pairing_code_invalid",
             ),
-            ({"action": "status", "host": "192.0.2.1"}, "wifi_status_payload_invalid"),
+            ({"action": "status", "host": "192.0.2.1"}, "wifi_action_invalid"),
             ({"action": "shell"}, "wifi_action_invalid"),
         )
         for payload, code in cases:
@@ -683,17 +699,21 @@ class DeviceToolsServiceTests(unittest.TestCase):
                 )
 
     def test_default_pair_runner_writes_secret_to_stdin_never_argv(self):
-        process = MagicMock()
-        input_stream = MagicMock()
-        process.stdin = input_stream
-        process.returncode = 0
-        process.communicate.return_value = ("Successfully paired", "")
+        real_popen = subprocess.Popen
         with patch(
             "pixelflasher_core.device_tools.subprocess.Popen",
-            return_value=process,
+            wraps=real_popen,
         ) as popen:
             outcome = SubprocessSecretRunner().run(
-                ProcessRequest(("ADB", "pair", "192.0.2.20:37123"), timeout_seconds=1),
+                ProcessRequest(
+                    (
+                        sys.executable,
+                        "-c",
+                        "import sys; value=sys.stdin.readline(); print('Successfully paired')",
+                    ),
+                    timeout_seconds=5,
+                    output_limit_bytes=1_024,
+                ),
                 "123456",
                 CancellationToken(),
             )
@@ -701,9 +721,31 @@ class DeviceToolsServiceTests(unittest.TestCase):
         self.assertEqual(0, outcome.returncode)
         self.assertNotIn("123456", popen.call_args.args[0])
         self.assertIs(False, popen.call_args.kwargs["shell"])
-        input_stream.write.assert_called_once_with("123456\n")
-        input_stream.flush.assert_called_once_with()
-        input_stream.close.assert_called_once_with()
+        self.assertEqual("Successfully paired", outcome.stdout.strip())
+        self.assertFalse(outcome.output_limited)
+
+    def test_default_pair_runner_terminates_at_aggregate_output_limit(self):
+        outcome = SubprocessSecretRunner().run(
+            ProcessRequest(
+                (
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdin.readline(); sys.stdout.buffer.write(b'x' * 1048576)",
+                ),
+                timeout_seconds=5,
+                output_limit_bytes=1_024,
+            ),
+            "123456",
+            CancellationToken(),
+        )
+
+        self.assertTrue(outcome.output_limited)
+        self.assertFalse(outcome.timed_out)
+        self.assertLessEqual(
+            len(outcome.stdout.encode("utf-8"))
+            + len(outcome.stderr.encode("utf-8")),
+            1_024,
+        )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Bounded, serial-bound postcondition observation for device mutations."""
+"""Bounded postcondition observation for device- and host-scoped mutations."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ _MODULE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 _FASTBOOT_FETCH_PATTERN = re.compile(r"(?mi)^\s*fetch(?:\s|:)")
 _MAX_PROPERTY_OUTPUT_BYTES = 4 * 1024
 _MAX_FASTBOOT_OUTPUT_BYTES = 64 * 1024
+_MAX_ADB_INVENTORY_OUTPUT_BYTES = 64 * 1024
 _MAX_HELP_OUTPUT_BYTES = 128 * 1024
 _DEFAULT_MAX_PARTITION_BYTES = 128 * 1024 * 1024
 _DEFAULT_MAX_HASH_TARGETS = 16
@@ -105,6 +106,51 @@ class DeviceObservation:
             self,
             "erased_partitions",
             MappingProxyType(dict(self.erased_partitions)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HostObservation:
+    """Bounded evidence about host-owned ADB daemon state."""
+
+    adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
+
+    def __post_init__(self) -> None:
+        if any(
+            not isinstance(endpoint, str) or not isinstance(value, bool)
+            for endpoint, value in self.adb_endpoints.items()
+        ):
+            raise TypeError("observed host ADB endpoint states are invalid")
+        object.__setattr__(
+            self,
+            "adb_endpoints",
+            MappingProxyType(dict(self.adb_endpoints)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HostPostconditionSpec:
+    """Postconditions that can be proven without a selected device."""
+
+    timeout_seconds: float
+    expected_adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
+
+    def __post_init__(self) -> None:
+        if self.timeout_seconds <= 0:
+            raise ValueError("host postcondition timeout must be positive")
+        if not self.expected_adb_endpoints:
+            raise ValueError("host postconditions require at least one ADB endpoint")
+        if any(
+            not isinstance(endpoint, str)
+            or not ProcessDeviceObservationProbe.safe_adb_endpoint(endpoint)
+            or not isinstance(value, bool)
+            for endpoint, value in self.expected_adb_endpoints.items()
+        ):
+            raise ValueError("expected host ADB endpoint state is invalid")
+        object.__setattr__(
+            self,
+            "expected_adb_endpoints",
+            MappingProxyType(dict(self.expected_adb_endpoints)),
         )
 
 
@@ -209,7 +255,7 @@ class ObservationResult:
     attempts: int
     mismatches: Mapping[str, tuple[object, object]] = field(default_factory=_empty_mismatches)
     missing: tuple[str, ...] = ()
-    observation: DeviceObservation | None = None
+    observation: DeviceObservation | HostObservation | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mismatches", MappingProxyType(dict(self.mismatches)))
@@ -233,6 +279,17 @@ class SpecObservationProbe(Protocol):
         spec: PostconditionSpec,
         cancellation: CancellationToken,
     ) -> DeviceObservation | None: ...
+
+
+@runtime_checkable
+class HostSpecObservationProbe(Protocol):
+    """Optional probe extension for application-scoped ADB evidence."""
+
+    def observe_host_spec(
+        self,
+        spec: HostPostconditionSpec,
+        cancellation: CancellationToken,
+    ) -> HostObservation | None: ...
 
 
 ToolchainProvider = Callable[[], ToolchainInfo]
@@ -321,6 +378,28 @@ class ProcessDeviceObservationProbe:
         if adb.explicitly_absent and fastboot.explicitly_absent:
             return DeviceObservation(serial, connected=False)
         return None
+
+    def observe_host_spec(
+        self,
+        spec: HostPostconditionSpec,
+        cancellation: CancellationToken,
+    ) -> HostObservation | None:
+        if cancellation.cancelled:
+            return None
+        try:
+            toolchain = self.toolchain_provider()
+        except Exception:
+            raise ObservationProbeUnavailable("host postcondition toolchain is unavailable") from None
+        if not isinstance(toolchain, ToolchainInfo) or not toolchain.ready or not toolchain.adb:
+            raise ObservationProbeUnavailable("host postcondition toolchain is unavailable")
+        timeout = min(self.command_timeout_seconds, spec.timeout_seconds)
+        endpoints = self._adb_endpoint_states(
+            spec,
+            toolchain,
+            cancellation,
+            timeout,
+        )
+        return HostObservation(endpoints) if endpoints else None
 
     def _observe_adb(
         self,
@@ -758,7 +837,7 @@ class ProcessDeviceObservationProbe:
 
     def _adb_endpoint_states(
         self,
-        spec: PostconditionSpec,
+        spec: PostconditionSpec | HostPostconditionSpec,
         toolchain: ToolchainInfo,
         token: CancellationToken,
         timeout: float,
@@ -772,6 +851,7 @@ class ProcessDeviceObservationProbe:
             (toolchain.adb, "devices", "-l"),
             token,
             timeout,
+            output_limit_bytes=_MAX_ADB_INVENTORY_OUTPUT_BYTES,
         )
         listed = self._parse_adb_device_states(outcome)
         if listed is None:
@@ -790,7 +870,7 @@ class ProcessDeviceObservationProbe:
             port = int(raw_port)
         except ValueError:
             return False
-        return not address.is_unspecified and 1 <= port <= 65535
+        return not address.is_unspecified and not address.is_multicast and 1 <= port <= 65535
 
     @staticmethod
     def _parse_adb_device_states(
@@ -1162,12 +1242,18 @@ class ProcessDeviceObservationProbe:
         argv: tuple[str, ...],
         token: CancellationToken,
         timeout: float,
+        *,
+        output_limit_bytes: int | None = None,
     ) -> TransportOutcome | None:
         if token.cancelled:
             return None
         try:
             return self.transport.run(
-                ProcessRequest(argv, timeout_seconds=timeout),
+                ProcessRequest(
+                    argv,
+                    timeout_seconds=timeout,
+                    output_limit_bytes=output_limit_bytes,
+                ),
                 token,
             )
         except Exception:
@@ -1461,6 +1547,100 @@ class PostconditionObserver:
                     observation=last_observation,
                 )
             self._sleeper(min(self.poll_interval_seconds, max(0.0, deadline - now)))
+
+    def verify_host(
+        self,
+        spec: HostPostconditionSpec,
+        cancellation: CancellationToken | None = None,
+    ) -> ObservationResult:
+        """Poll only host-owned ADB inventory; never infer a target serial."""
+
+        token = cancellation or CancellationToken()
+        deadline = self._clock() + spec.timeout_seconds
+        attempts = 0
+        last_observation: HostObservation | None = None
+        last_mismatches: dict[str, tuple[object, object]] = {}
+        last_missing: tuple[str, ...] = ()
+
+        while True:
+            if token.cancelled:
+                return ObservationResult(
+                    ObservationStatus.CANCELLED,
+                    "postcondition_cancelled",
+                    "host postcondition observation was cancelled",
+                    attempts,
+                    last_mismatches,
+                    last_missing,
+                    last_observation,
+                )
+            attempts += 1
+            if not isinstance(self.probe, HostSpecObservationProbe):
+                return ObservationResult(
+                    ObservationStatus.UNVERIFIED,
+                    "postcondition_unverified",
+                    "required host evidence is unavailable",
+                    attempts,
+                    missing=("probe",),
+                )
+            try:
+                observation = self.probe.observe_host_spec(spec, token)
+            except ObservationProbeUnavailable:
+                return ObservationResult(
+                    ObservationStatus.UNVERIFIED,
+                    "postcondition_unverified",
+                    "required host evidence is unavailable",
+                    attempts,
+                    missing=("probe",),
+                )
+            if observation is not None:
+                last_observation = observation
+                last_mismatches, last_missing = self._compare_host(spec, observation)
+                if not last_mismatches and not last_missing:
+                    return ObservationResult(
+                        ObservationStatus.VERIFIED,
+                        "postcondition_verified",
+                        "all host operation postconditions were verified",
+                        attempts,
+                        observation=observation,
+                    )
+
+            now = self._clock()
+            if now >= deadline:
+                if last_mismatches:
+                    return ObservationResult(
+                        ObservationStatus.MISMATCH,
+                        "postcondition_mismatch",
+                        "observed host state does not match the operation plan",
+                        attempts,
+                        last_mismatches,
+                        last_missing,
+                        last_observation,
+                    )
+                return ObservationResult(
+                    ObservationStatus.UNVERIFIED,
+                    "postcondition_unverified",
+                    "required host state could not be observed",
+                    attempts,
+                    missing=last_missing or ("host",),
+                    observation=last_observation,
+                )
+            self._sleeper(min(self.poll_interval_seconds, max(0.0, deadline - now)))
+
+    @staticmethod
+    def _compare_host(
+        spec: HostPostconditionSpec,
+        observation: HostObservation,
+    ) -> tuple[dict[str, tuple[object, object]], tuple[str, ...]]:
+        mismatches: dict[str, tuple[object, object]] = {}
+        missing: list[str] = []
+        for endpoint, expected in spec.expected_adb_endpoints.items():
+            actual = observation.adb_endpoints.get(endpoint)
+            key = f"adb_endpoint:{endpoint}"
+            if actual is None:
+                missing.append(key)
+            elif actual is not expected:
+                mismatches[key] = (expected, actual)
+        return mismatches, tuple(missing)
 
     @staticmethod
     def _compare(

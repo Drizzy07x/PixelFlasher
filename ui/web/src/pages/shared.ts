@@ -18,6 +18,8 @@ export interface SharedPageProps {
 export interface CommandRunOptions {
   /** Return the typed CANCELLED result instead of reporting it as an error. */
   returnCancelled?: boolean;
+  /** Bind a follow-up command to the revision returned by its predecessor. */
+  expectedRevision?: number;
 }
 
 export function record(value: unknown): Record<string, unknown> {

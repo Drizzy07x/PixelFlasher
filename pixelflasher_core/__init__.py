@@ -153,6 +153,9 @@ from .grants import (
 from .interaction import InteractionBroker
 from .observer import (
     DeviceObservation,
+    HostObservation,
+    HostPostconditionSpec,
+    HostSpecObservationProbe,
     ObservationProbe,
     ObservationProbeUnavailable,
     ObservationResult,
@@ -374,6 +377,9 @@ __all__ = [
     "ConfigStore",
     "DeviceInfo",
     "DeviceObservation",
+    "HostObservation",
+    "HostPostconditionSpec",
+    "HostSpecObservationProbe",
     "DevicePoller",
     "DeviceScanResult",
     "DeviceService",

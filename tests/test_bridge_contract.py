@@ -124,7 +124,6 @@ class BridgeContractTests(unittest.TestCase):
             message(
                 command="tools.wifi",
                 payload={
-                    "serial": "SERIAL",
                     "action": "pair",
                     "host": "192.0.2.20",
                     "port": 37123,
@@ -173,7 +172,12 @@ class BridgeContractTests(unittest.TestCase):
             BridgeRequest.from_json(
                 message(
                     command="tools.wifi",
-                    payload={"serial": "SERIAL", "action": "pair", "pairingCode": "123456"},
+                    payload={
+                        "action": "pair",
+                        "host": "192.0.2.20",
+                        "port": 37123,
+                        "pairingCode": "123456",
+                    },
                     expectedRevision=7,
                 )
             )

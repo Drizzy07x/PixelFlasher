@@ -1428,26 +1428,28 @@
       "area": "device",
       "capability": "Wireless ADB discovery, pairing and connection",
       "owner": "device",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "ui/web/src/pages/tooling/ToolsPage.tsx:runWifi/discoverWifi",
         "pixelflasher_core/contracts.py:SensitiveText/AppCommand",
         "pixelflasher_core/device_tools.py:DeviceToolsService._compile_wifi_discovery/_compile_wifi/execute_special/finalize_result",
         "pixelflasher_core/engine.py:_compile_service_command/_execute_process",
-        "ui/command_registry.py:tools.wifi.discover",
+        "pixelflasher_core/observer.py:HostPostconditionSpec/observe_host_spec/verify_host",
+        "pixelflasher_core/operation_runner.py:_verify_with_host_polling_observer",
+        "ui/command_registry.py:tools.wifi/tools.wifi.status/tools.wifi.discover",
         "ui/public_bridge.py:_project_wifi_discovery",
         "ui/pages/modern_webview_host.py:_command_finished/_on_engine_event"
       ],
-      "gap": "Bounded mDNS discovery now works without a selected device. Pair/connect without a selected ADB device and robust post-scan handoff remain open.",
+      "gap": "",
       "exitCriteria": [
         "Wireless ADB discovery, pairing and connection is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
-        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
+        "Every mutation is compiled below the UI, bound to the current revision, revalidated immediately before execution and verified against bounded host ADB inventory afterward; status remains explicitly serial-bound."
       ],
       "dependsOn": [
         "device.discovery",
         "platform_tools.setup"
       ],
-      "risk": "device_write",
+      "risk": "host_write",
       "platforms": [
         "windows",
         "macos",
@@ -1458,8 +1460,10 @@
         "tests/test_wifi_discovery_contract.py",
         "tests/test_wifi_discovery_service.py",
         "tests/test_service_engine_integration.py",
+        "tests/test_wifi_host_operations.py",
         "ui/web/src/test/App.test.tsx:Tools workspace",
-        "ui/web/src/test/wifi-discovery.test.tsx"
+        "ui/web/src/test/wifi-discovery.test.tsx",
+        "ui/web/src/test/wifi-operations.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -1470,6 +1474,7 @@
       "modernCommandIds": [
         "secret.issue",
         "tools.wifi",
+        "tools.wifi.status",
         "tools.wifi.discover"
       ]
     },

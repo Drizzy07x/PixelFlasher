@@ -26,7 +26,13 @@ from .contracts import (
     OperationStatus,
 )
 from .executor import CancellationToken, CommandExecutor
-from .observer import ObservationResult, ObservationStatus, PostconditionSpec
+from .observer import (
+    DeviceObservation,
+    HostPostconditionSpec,
+    ObservationResult,
+    ObservationStatus,
+    PostconditionSpec,
+)
 from .safety import SafetyPolicy
 
 SnapshotProvider = Callable[[str], AppSnapshot]
@@ -83,6 +89,12 @@ class PollingPostconditionObserver(Protocol):
     def verify(
         self,
         spec: PostconditionSpec,
+        cancellation: CancellationToken | None = None,
+    ) -> ObservationResult: ...
+
+    def verify_host(
+        self,
+        spec: HostPostconditionSpec,
         cancellation: CancellationToken | None = None,
     ) -> ObservationResult: ...
 
@@ -588,9 +600,24 @@ class OperationRunner:
                 message=("a mutating operation requires declared postconditions and a backend postcondition observer"),
             )
         verifier = getattr(observer, "verify", None) if observer is not None else None
-        if mutating and callable(verifier):
+        if mutating:
             try:
-                self._postcondition_spec(plan)
+                for postcondition in plan.postconditions:
+                    if self._is_execution_postcondition(postcondition.kind):
+                        self._validate_execution_postcondition(postcondition)
+                observable = tuple(
+                    postcondition
+                    for postcondition in plan.postconditions
+                    if not self._is_execution_postcondition(postcondition.kind)
+                )
+                if plan.target_serial is None and observable:
+                    host_verifier = getattr(observer, "verify_host", None)
+                    if callable(host_verifier):
+                        self._host_postcondition_spec(plan)
+                    elif callable(verifier):
+                        raise ValueError("no backend host postcondition observer is available")
+                elif plan.target_serial is not None and callable(verifier):
+                    self._postcondition_spec(plan)
             except (TypeError, ValueError) as error:
                 return OperationResult.failed(
                     command.operation_id,
@@ -792,6 +819,26 @@ class OperationRunner:
             )
         if not execution_evidence.ok:
             return replace(execution_evidence, operation_id=operation_id)
+        observable = tuple(
+            postcondition
+            for postcondition in plan.postconditions
+            if not self._is_execution_postcondition(postcondition.kind)
+        )
+        if not observable:
+            return OperationResult.success(
+                operation_id,
+                code="postconditions_satisfied",
+                message="all execution postconditions were verified",
+            )
+        if plan.target_serial is None:
+            host_verifier = getattr(observer, "verify_host", None)
+            if callable(host_verifier):
+                return self._verify_with_host_polling_observer(
+                    plan,
+                    host_verifier,
+                    token,
+                    operation_id,
+                )
         verifier = getattr(observer, "verify", None) if observer is not None else None
         if callable(verifier):
             return self._verify_with_polling_observer(
@@ -905,11 +952,79 @@ class OperationRunner:
                 "postcondition observation was cancelled after mutation",
                 safety_observation=self._minimal_verifier_observation(plan, verifier),
             )
-        if result.observation is not None and not result.observation.connected:
+        if isinstance(result.observation, DeviceObservation) and not result.observation.connected:
             return self._unknown_outcome(
                 operation_id,
                 "the target disconnected during postcondition observation",
                 safety_observation=self._observation_result_summary(result),
+            )
+        if result.status is ObservationStatus.MISMATCH:
+            return OperationResult.failed(
+                operation_id,
+                code="postcondition_mismatch",
+                message=result.message,
+            )
+        if result.status is not ObservationStatus.VERIFIED:
+            return OperationResult.failed(
+                operation_id,
+                code="postcondition_unverified",
+                message=result.message,
+            )
+        return OperationResult.success(
+            operation_id,
+            code="postconditions_satisfied",
+            message=result.message,
+        )
+
+    def _verify_with_host_polling_observer(
+        self,
+        plan: OperationPlan,
+        verifier: Callable[..., object],
+        token: CancellationToken,
+        operation_id: str,
+    ) -> OperationResult:
+        try:
+            spec = self._host_postcondition_spec(plan)
+        except (TypeError, ValueError) as error:
+            return OperationResult.failed(
+                operation_id,
+                code="postcondition_unverified",
+                message=str(error),
+            )
+        try:
+            result = verifier(spec, token)
+        except Exception as error:
+            if token.cancelled:
+                return self._unknown_outcome(
+                    operation_id,
+                    "cancellation arrived during host postcondition observation",
+                    safety_observation=self._minimal_host_verifier_observation(
+                        plan,
+                        verifier,
+                    ),
+                )
+            return OperationResult.failed(
+                operation_id,
+                code="postcondition_unverified",
+                message=str(error),
+            )
+        if token.cancelled or (
+            isinstance(result, ObservationResult)
+            and result.status is ObservationStatus.CANCELLED
+        ):
+            return self._unknown_outcome(
+                operation_id,
+                "host postcondition observation was cancelled after mutation",
+                safety_observation=self._minimal_host_verifier_observation(
+                    plan,
+                    verifier,
+                ),
+            )
+        if not isinstance(result, ObservationResult):
+            return OperationResult.failed(
+                operation_id,
+                code="postcondition_unverified",
+                message="host postcondition verifier returned an invalid result",
             )
         if result.status is ObservationStatus.MISMATCH:
             return OperationResult.failed(
@@ -974,6 +1089,10 @@ class OperationRunner:
                 "status": "unverified",
                 "code": "safety_observer_unavailable",
             }
+        if plan.target_serial is None:
+            host_verifier = getattr(observer, "verify_host", None)
+            if callable(host_verifier):
+                return self._minimal_host_verifier_observation(plan, host_verifier)
         verifier = getattr(observer, "verify", None)
         if callable(verifier):
             return self._minimal_verifier_observation(plan, verifier)
@@ -1035,6 +1154,30 @@ class OperationRunner:
             }
         return self._observation_result_summary(result)
 
+    def _minimal_host_verifier_observation(
+        self,
+        plan: OperationPlan,
+        verifier: Callable[..., object],
+    ) -> dict[str, object]:
+        try:
+            planned = self._host_postcondition_spec(plan)
+            spec = HostPostconditionSpec(
+                min(planned.timeout_seconds, 5.0),
+                planned.expected_adb_endpoints,
+            )
+            result = verifier(spec, CancellationToken())
+        except Exception:
+            return {
+                "status": "unverified",
+                "code": "safety_observation_failed",
+            }
+        if not isinstance(result, ObservationResult):
+            return {
+                "status": "unverified",
+                "code": "safety_observation_invalid",
+            }
+        return self._observation_result_summary(result)
+
     @staticmethod
     def _observation_result_summary(result: ObservationResult) -> dict[str, object]:
         """Return bounded, non-sensitive diagnostic evidence from an observation."""
@@ -1045,7 +1188,7 @@ class OperationRunner:
             "attempts": result.attempts,
         }
         observation = result.observation
-        if observation is not None:
+        if isinstance(observation, DeviceObservation):
             summary["connected"] = observation.connected
             if observation.mode is not None:
                 summary["mode"] = observation.mode
@@ -1356,6 +1499,37 @@ class OperationRunner:
     @staticmethod
     def _sha256_valid(value: str) -> bool:
         return len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
+
+    def _host_postcondition_spec(self, plan: OperationPlan) -> HostPostconditionSpec:
+        """Translate only application-scoped postconditions with host evidence."""
+
+        if plan.target_serial is not None:
+            raise ValueError("host postconditions cannot name a target serial")
+        expected_adb_endpoints: dict[str, bool] = {}
+        for postcondition in plan.postconditions:
+            if self._is_execution_postcondition(postcondition.kind):
+                continue
+            if postcondition.kind != "adb_wifi_endpoint_state":
+                raise ValueError(
+                    f"no host observer mapping exists for postcondition: {postcondition.kind}"
+                )
+            expected = postcondition.expected
+            if set(expected) != {"endpoint", "connected"}:
+                raise ValueError("ADB Wi-Fi endpoint postcondition fields are invalid")
+            endpoint = expected.get("endpoint")
+            connected = expected.get("connected")
+            if not isinstance(endpoint, str) or not endpoint:
+                raise ValueError("ADB Wi-Fi endpoint is unavailable")
+            if not isinstance(connected, bool):
+                raise TypeError("ADB Wi-Fi endpoint state must be a boolean")
+            current = expected_adb_endpoints.get(endpoint)
+            if current is not None and current is not connected:
+                raise ValueError("conflicting ADB Wi-Fi endpoint postconditions")
+            expected_adb_endpoints[endpoint] = connected
+        return HostPostconditionSpec(
+            self.postcondition_timeout_seconds,
+            expected_adb_endpoints,
+        )
 
     def _postcondition_spec(self, plan: OperationPlan) -> PostconditionSpec:
         """Translate only postconditions for which the observer has evidence."""

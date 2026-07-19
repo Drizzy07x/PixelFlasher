@@ -3,7 +3,7 @@ import type { AssetName } from '../../assets';
 import { commands, type BridgeCommand } from '../../commands';
 import { useI18n } from '../../i18n';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
-import { isToolchainReady, record, selectedGrant, selectedGrants, type SharedPageProps } from '../shared';
+import { isToolchainReady, record, selectedGrant, selectedGrants, type CommandRunOptions, type SharedPageProps } from '../shared';
 
 type ToolPanel = 'wifi' | 'logcat' | 'partitions' | 'push' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
@@ -155,12 +155,18 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
     resolve?.(value);
   };
 
-  const runTool = async (command: BridgeCommand, payload: Record<string, unknown>) => {
+  const runTool = async (
+    command: BridgeCommand,
+    payload: Record<string, unknown>,
+    options?: CommandRunOptions,
+  ) => {
     if (busy) return null;
     setBusy(command);
     setResult(null);
     try {
-      const response = await onCommand(command, payload);
+      const response = await (options
+        ? onCommand(command, payload, options)
+        : onCommand(command, payload));
       if (response) setResult(record(response.result));
       return response;
     } finally {
@@ -253,12 +259,18 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
   };
 
   const runWifi = async () => {
-    if (!primary || !adbReady || busy) return;
-    const payload: Record<string, unknown> = { serial: primary.serial, action: wifiAction };
-    if (wifiAction !== 'status') {
-      payload.host = wifiHost;
-      payload.port = wifiPort;
+    if (!toolchainReady || busy) return;
+    if (wifiAction === 'status') {
+      if (!primary || !adbReady) return;
+      await runTool(commands.toolsWifiStatus, { serial: primary.serial });
+      return;
     }
+    const payload: Record<string, unknown> = {
+      action: wifiAction,
+      host: wifiHost,
+      port: wifiPort,
+    };
+    let operationRevision: number | undefined;
     if (wifiAction === 'pair') {
       let secret = await requestPairingCode();
       if (!secret) return;
@@ -272,13 +284,26 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
         secret = '';
       }
       const secretGrant = selectedGrant(approved);
-      if (!secretGrant) return;
+      const issuedRevision = approved?.revision;
+      if (!secretGrant || typeof issuedRevision !== 'number' || !Number.isInteger(issuedRevision) || issuedRevision < 0) return;
       payload.secretGrant = secretGrant;
+      operationRevision = issuedRevision;
     }
-    const response = await runTool(commands.toolsWifi, payload);
+    const response = await runTool(
+      commands.toolsWifi,
+      payload,
+      operationRevision === undefined ? undefined : { expectedRevision: operationRevision },
+    );
     const status = record(response?.result).status;
-    if (status === 'SUCCESS' && (wifiAction === 'connect' || wifiAction === 'disconnect')) {
-      await onCommand(commands.deviceScan);
+    const nextRevision = response?.revision;
+    if (
+      status === 'SUCCESS'
+      && (wifiAction === 'connect' || wifiAction === 'disconnect')
+      && typeof nextRevision === 'number'
+      && Number.isInteger(nextRevision)
+      && nextRevision >= 0
+    ) {
+      await onCommand(commands.deviceScan, {}, { expectedRevision: nextRevision });
     }
   };
 
@@ -403,13 +428,13 @@ export function ToolsPage({ snapshot, selectedSerials, onCommand, expertMode }: 
                 </ul>
               ) : wifiDiscoveryRan ? <EmptyState icon="scan" title={t('common.none')} detail={t('tools.wifiNone')} /> : null}
               <p className="tool-help">{t('tools.wifiUntrusted')}</p>
-              {!adbReady ? <div className="inline-alert inline-alert--warning"><Icon name="warningPng" size={18} /><span>{t('tools.wifiConnectGuard')}</span></div> : null}
+              {wifiAction === 'status' && !adbReady ? <div className="inline-alert inline-alert--warning"><Icon name="warningPng" size={18} /><span>{t('tools.wifiConnectGuard')}</span></div> : null}
               <div className="tool-form-grid">
                 <label><span>{t('tools.action')}</span><select value={wifiAction} onChange={(event) => setWifiAction(event.currentTarget.value as typeof wifiAction)} disabled={Boolean(busy)}><option value="status">{t('tools.status')}</option><option value="pair">{t('tools.pair')}</option><option value="connect">{t('tools.connect')}</option><option value="disconnect">{t('tools.disconnect')}</option></select></label>
                 {wifiAction !== 'status' ? <label><span>{t('tools.host')}</span><input value={wifiHost} onChange={(event) => setWifiHost(event.currentTarget.value)} inputMode="decimal" autoComplete="off" /></label> : null}
                 {wifiAction !== 'status' ? <label><span>{t('tools.port')}</span><input type="number" min="1" max="65535" value={wifiPort} onChange={(event) => setWifiPort(Number(event.currentTarget.value))} /></label> : null}
                 {wifiAction === 'pair' ? <p className="tool-help">{t('tools.pairingCode')}</p> : null}
-                <Button variant="primary" icon="adb" onClick={() => void runWifi()} disabled={Boolean(busy) || !adbReady || (wifiAction !== 'status' && (!wifiHost || wifiPort < 1 || wifiPort > 65535))}>{t('common.apply')}</Button>
+                <Button variant="primary" icon="adb" onClick={() => void runWifi()} disabled={Boolean(busy) || !toolchainReady || (wifiAction === 'status' ? !adbReady : (!wifiHost || wifiPort < 1 || wifiPort > 65535))}>{t('common.apply')}</Button>
               </div>
             </div>
           ) : null}

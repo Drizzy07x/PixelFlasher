@@ -4825,5 +4825,5 @@ msgid "Network announcements are untrusted suggestions. Selecting one never conn
 msgstr "Gli annunci di rete sono suggerimenti non attendibili. La selezione non avvia mai una connessione automatica."
 
 msgctxt "web.tools.wifiConnectGuard"
-msgid "Discovery is available, but pairing and connection still require one selected ADB device."
-msgstr "Il rilevamento è disponibile, ma l'associazione e la connessione richiedono ancora un dispositivo ADB selezionato."
+msgid "Checking status requires one selected device in ADB mode."
+msgstr "La verifica dello stato richiede un dispositivo selezionato in modalità ADB."

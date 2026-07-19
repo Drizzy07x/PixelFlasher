@@ -1239,6 +1239,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.pushFiles": _project_none,
     "tools.scrcpy": _project_none,
     "tools.wifi": _project_none,
+    "tools.wifi.status": _project_none,
     "tools.wifi.discover": _project_wifi_discovery,
 }
 

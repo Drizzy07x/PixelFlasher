@@ -256,7 +256,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
 
         wifi = factory(request("tools.wifi", payload=payload))
 
-        self.assertEqual("SERIAL-WIFI", wifi.target_serial)
+        self.assertIsNone(wifi.target_serial)
         self.assertIsInstance(wifi.payload["pairingCode"], SensitiveText)
         self.assertNotIn("123456", repr(wifi))
         self.assertEqual("[REDACTED]", wifi.to_dict()["payload"]["pairingCode"])
