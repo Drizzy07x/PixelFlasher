@@ -23,6 +23,15 @@ from .artifact_downloads import (
     PinnedEd25519Keyring,
     canonical_manifest_bytes,
 )
+from .avb_downgrade import (
+    AvbDowngradeTool,
+    AvbImageMetadata,
+    BundledAvbDowngradeTool,
+    DowngradePatchCode,
+    DowngradePatchResult,
+    DowngradePatchService,
+    DowngradePatchStatus,
+)
 from .backups import (
     BACKUP_COMMANDS,
     SUPPORTED_BACKUP_PARTITIONS,
@@ -401,6 +410,8 @@ __all__ = [
     "AppSnapshot",
     "AppStateStore",
     "ApplicationRuntime",
+    "AvbDowngradeTool",
+    "AvbImageMetadata",
     "ApkIdentity",
     "ApkIdentityInspector",
     "ApkInspectionCode",
@@ -434,6 +445,7 @@ __all__ = [
     "BootPatchPlanningError",
     "BootPatchService",
     "BootInfo",
+    "BundledAvbDowngradeTool",
     "BootloaderLockDecision",
     "BootloaderLockEvidence",
     "BootloaderLockPolicy",
@@ -467,6 +479,10 @@ __all__ = [
     "DeviceToolCompilation",
     "DeviceToolPlanningError",
     "DeviceToolsService",
+    "DowngradePatchCode",
+    "DowngradePatchResult",
+    "DowngradePatchService",
+    "DowngradePatchStatus",
     "EngineListener",
     "LaunchOutcome",
     "LogcatStreamOutcome",

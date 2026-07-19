@@ -53,9 +53,20 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
         )
 
     def resolve(self, snapshot: AppSnapshot) -> tuple[FileArtifact, ...]:
-        records = self.firmware_repository.resolve_processed(
+        return self.resolve_binding(
             firmware_hash=snapshot.firmware.hash,
             plan_fingerprint=snapshot.plan.fingerprint,
+        )
+
+    def resolve_binding(
+        self,
+        *,
+        firmware_hash: str = "",
+        plan_fingerprint: str = "",
+    ) -> tuple[FileArtifact, ...]:
+        records = self.firmware_repository.resolve_processed(
+            firmware_hash=firmware_hash,
+            plan_fingerprint=plan_fingerprint,
         )
         return tuple(record.to_file_artifact() for record in records)
 

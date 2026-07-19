@@ -9427,7 +9427,7 @@ def update_kb_index_with_crl():
 # ============================================================================
 def get_boot_image_info(boot_image_path) -> Any:
     try:
-        tool = avbtool.AvbTool()
+        tool = avbtool.AvbTool(verbose=get_verbose())
         if not os.path.exists(boot_image_path):
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Boot image file not found: {boot_image_path}")
             return None
@@ -9457,7 +9457,7 @@ def add_hash_footer(boot_image_path,
                 ):
 
     try:
-        tool = avbtool.AvbTool()
+        tool = avbtool.AvbTool(verbose=get_verbose())
         tool.run(['avbtool.py','add_hash_footer',
                     '--image', boot_image_path,
                     '--partition_size', partition_size,

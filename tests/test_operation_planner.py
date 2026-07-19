@@ -2001,7 +2001,6 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             )
             for options in (
                 {"verify": False},
-                {"downgrade": True},
                 {"disableVerity": True},
             ):
                 with self.subTest(options=options):
@@ -2019,6 +2018,250 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                     ).execute(command("flash.execute"))
                     self.assertEqual("option_not_supported_for_mode", result.code)
                     self.assertEqual([], transport.calls)
+
+    def test_no_wipe_downgrade_uses_only_backend_bound_boot_artifact(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            stock_boot = root / "boot.img"
+            downgrade_boot = root / "downgrade-boot.img"
+            factory.write_bytes(b"factory")
+            stock_boot.write_bytes(b"stock boot")
+            downgrade_boot.write_bytes(b"backend patched downgrade boot")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "old-build", digest(factory), True, True
+            )
+            plan = FlashPlan(
+                "keepData",
+                {
+                    "downgrade": True,
+                    "dataBehavior": "preserve",
+                    "noReboot": True,
+                },
+                fingerprint="downgrade-plan",
+                dry_run=False,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (
+                    FileArtifact(
+                        str(stock_boot.resolve()),
+                        digest(stock_boot),
+                        "partition:boot",
+                    ),
+                    FileArtifact(
+                        str(downgrade_boot.resolve()),
+                        digest(downgrade_boot),
+                        "downgrade:boot",
+                    ),
+                ),
+                firmware_hash=firmware.hash,
+            )
+
+            compilation = OperationPlanner(artifact_repository=repository).compile(
+                command("flash.execute"),
+                snapshot_for("fastboot", plan=plan, firmware=firmware),
+                preview=True,
+            )
+
+            self.assertTrue(compilation.ok)
+            assert compilation.plan is not None
+            self.assertEqual("preserve", compilation.plan.data_behavior)
+            self.assertEqual(("boot",), compilation.plan.partitions)
+            self.assertEqual(
+                (
+                    "FASTBOOT",
+                    "-s",
+                    "SERIAL-A",
+                    "flash",
+                    "boot",
+                    str(downgrade_boot.resolve()),
+                ),
+                compilation.plan.requests[0].argv,
+            )
+            self.assertNotIn(
+                str(stock_boot.resolve()),
+                tuple(
+                    argument
+                    for request in compilation.plan.requests
+                    for argument in request.argv
+                ),
+            )
+
+    def test_no_wipe_downgrade_fails_closed_without_exact_backend_artifact(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            stock_boot = root / "boot.img"
+            factory.write_bytes(b"factory")
+            stock_boot.write_bytes(b"stock boot")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "old-build", digest(factory), True, True
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (
+                    FileArtifact(
+                        str(stock_boot.resolve()),
+                        digest(stock_boot),
+                        "partition:boot",
+                    ),
+                ),
+                firmware_hash=firmware.hash,
+            )
+            planner = OperationPlanner(artifact_repository=repository)
+
+            missing = planner.compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "fastboot",
+                    plan=FlashPlan("keepData", {"downgrade": True}, dry_run=False),
+                    firmware=firmware,
+                ),
+                preview=True,
+            )
+            wrong_mode = planner.compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "fastboot",
+                    plan=FlashPlan("wipe", {"downgrade": True}, dry_run=False),
+                    firmware=firmware,
+                ),
+                preview=True,
+            )
+            wrong_firmware = planner.compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "fastboot",
+                    plan=FlashPlan("customFlash", {"downgrade": True}, dry_run=False),
+                    firmware=replace(firmware, type="custom"),
+                ),
+                preview=True,
+            )
+
+            self.assertEqual("downgrade_artifact_unavailable", missing.code)
+            self.assertEqual("option_not_supported_for_mode", wrong_mode.code)
+            self.assertEqual("option_not_supported_for_mode", wrong_firmware.code)
+
+    def test_no_wipe_downgrade_cannot_omit_boot_or_use_tampered_artifact(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            factory = root / "factory.zip"
+            stock_boot = root / "boot.img"
+            vbmeta = root / "vbmeta.img"
+            downgrade_boot = root / "downgrade-boot.img"
+            factory.write_bytes(b"factory")
+            stock_boot.write_bytes(b"stock")
+            vbmeta.write_bytes(b"vbmeta")
+            downgrade_boot.write_bytes(b"downgrade")
+            firmware = FirmwareInfo(
+                str(factory), "factory", "old-build", digest(factory), True, True
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (
+                    FileArtifact(str(stock_boot), digest(stock_boot), "partition:boot"),
+                    FileArtifact(str(vbmeta), digest(vbmeta), "partition:vbmeta"),
+                    FileArtifact(
+                        str(downgrade_boot), digest(downgrade_boot), "downgrade:boot"
+                    ),
+                ),
+                firmware_hash=firmware.hash,
+            )
+            planner = OperationPlanner(artifact_repository=repository)
+            omit_boot = planner.compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "fastboot",
+                    plan=FlashPlan(
+                        "keepData",
+                        {"downgrade": True, "partitions": ["vbmeta"]},
+                        dry_run=False,
+                    ),
+                    firmware=firmware,
+                ),
+                preview=True,
+            )
+            downgrade_boot.write_bytes(b"tampered")
+            tampered = planner.compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "fastboot",
+                    plan=FlashPlan("keepData", {"downgrade": True}, dry_run=False),
+                    firmware=firmware,
+                ),
+                preview=True,
+            )
+
+            self.assertEqual("downgrade_boot_required", omit_boot.code)
+            self.assertEqual("artifact_hash_mismatch", tampered.code)
+
+    @settings(max_examples=20, deadline=None)
+    @given(
+        mode=st.sampled_from(
+            ("factory", "keep", "keepData", "wipe", "customFlash", "images")
+        ),
+        firmware_type=st.sampled_from(("factory", "custom")),
+    )
+    def test_property_downgrade_compiles_only_for_factory_preserve_modes(
+        self, mode, firmware_type
+    ):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            firmware_file = root / "firmware.zip"
+            stock_boot = root / "boot.img"
+            downgrade_boot = root / "downgrade.img"
+            firmware_file.write_bytes(b"firmware")
+            stock_boot.write_bytes(b"stock")
+            downgrade_boot.write_bytes(b"downgrade")
+            firmware = FirmwareInfo(
+                str(firmware_file),
+                firmware_type,
+                "old-build",
+                digest(firmware_file),
+                True,
+                True,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (
+                    FileArtifact(str(stock_boot), digest(stock_boot), "partition:boot"),
+                    FileArtifact(
+                        str(downgrade_boot), digest(downgrade_boot), "downgrade:boot"
+                    ),
+                ),
+                firmware_hash=firmware.hash,
+            )
+
+            compilation = OperationPlanner(artifact_repository=repository).compile(
+                command("flash.execute"),
+                snapshot_for(
+                    "fastboot",
+                    plan=FlashPlan(
+                        mode,
+                        {"downgrade": True, "noReboot": True},
+                        dry_run=False,
+                    ),
+                    firmware=firmware,
+                ),
+                preview=True,
+            )
+
+            allowed = firmware_type == "factory" and mode.casefold() in {
+                "factory",
+                "keep",
+                "keepdata",
+            }
+            self.assertEqual(allowed, compilation.ok)
+            if not allowed:
+                self.assertIn(
+                    compilation.code,
+                    {
+                        "option_not_supported_for_mode",
+                        "factory_firmware_required",
+                        "custom_firmware_required",
+                    },
+                )
 
     def test_plan_fingerprint_change_during_prompt_blocks_subprocess(self):
         with TemporaryDirectory() as directory:

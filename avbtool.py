@@ -4278,9 +4278,10 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
 class AvbTool(object):
   """Object for avbtool command-line tool."""
 
-  def __init__(self):
+  def __init__(self, verbose=False):
     """Initializer method."""
     self.avb = Avb()
+    self.verbose = bool(verbose)
 
   def _add_common_args(self, sub_parser):
     """Adds arguments used by several sub-commands.
@@ -4410,8 +4411,6 @@ class AvbTool(object):
     Arguments:
       argv: Pass sys.argv from main.
     """
-    from runtime import get_verbose
-
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(title='subcommands')
 
@@ -4858,12 +4857,12 @@ class AvbTool(object):
       # arguments. It mimics the original Python 2 behavior.
       parser.print_usage()
       print('avbtool: error: too few arguments')
-      if get_verbose():
+      if self.verbose:
         traceback.print_exc()
       # sys.exit(2)
     except AvbError as e:
       sys.stderr.write('{}: {}\n'.format(argv[0], str(e)))
-      if get_verbose():
+      if self.verbose:
         traceback.print_exc()
       # sys.exit(1)
 

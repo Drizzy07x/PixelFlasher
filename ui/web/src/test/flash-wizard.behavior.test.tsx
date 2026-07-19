@@ -61,13 +61,14 @@ describe('five-step flash planning edge behavior', () => {
 
     await user.click(screen.getByRole('radio', { name: /Clean install/ }));
     await user.click(screen.getByRole('radio', { name: /Both slots/ }));
+    expect(screen.getByRole('checkbox', { name: 'Verify package checksums before flashing' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Verify package checksums before flashing' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /^Allow firmware downgrade/ })).toBeDisabled();
     for (const label of [
-      'Verify package checksums before flashing',
       'Disable dm-verity',
       'Disable Android Verified Boot verification',
       'Force flash when host compatibility checks warn',
       'Do not reboot after flashing',
-      'Allow firmware downgrade',
       'Boot a patched image for temporary root',
       'Dry run only — do not write partitions',
     ]) {
@@ -76,17 +77,17 @@ describe('five-step flash planning edge behavior', () => {
 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText('Simulate partition writes')).toBeVisible();
-    expect(screen.getByText('Leave device in its resulting mode')).toBeVisible();
+    expect(screen.getByText('Reboot after verification')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Prepare review' }));
     expect(await screen.findByText('Verified dry run')).toBeVisible();
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Dry run — no writes')).toHaveClass('badge--accent');
-    expect(screen.getByText('Checksum verification was disabled')).toBeVisible();
+    expect(screen.getByText('Checksum verification')).toBeVisible();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 
     expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'wipe', slotTarget: 'both', verify: false, disableVerity: true,
-      disableVerification: true, force: true, noReboot: true, downgrade: true,
+      mode: 'wipe', slotTarget: 'both', verify: true, disableVerity: true,
+      disableVerification: true, force: true, noReboot: false, downgrade: false,
       temporaryRoot: true, dryRun: true,
     }));
     await user.click(screen.getByRole('button', { name: 'Run simulation' }));

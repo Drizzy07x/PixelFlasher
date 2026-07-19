@@ -188,11 +188,11 @@ becomes implicit success.
 | Device connection | Bounded mDNS discovery is native without a selected device, and versioned scan/hotplug management is complete. Pair/connect without a selected ADB target and disconnected-device handoff remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | React APK install, download, denylist, SU controls and the remaining package actions. |
 | Device tools | The explicit expert ADB shell decision, production Scrcpy manifests/smokes and a reproducibly sourced OTA cancel/reset runner. Scrcpy's authenticated installer, typed options and managed lifecycle are implemented. Safe HTTP(S) URL opening, independently verified per-slot bootloader inspection, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing, filtered logs, closed update_engine status/preflight and an independent bounded OTA-idle observer are now native. The opaque legacy OTA binaries are not admitted to the modern core. |
-| Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, trusted stock-flash evidence production before bootloader lock, downgrade artifact production, custom `payload.bin`, runtime recovery/fastbootd transitions, real patch APK/runner resources and KMI/architecture-based kernel selection. |
+| Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, custom `payload.bin`, remaining runtime recovery/fastbootd validation, real patch APK/runner resources and KMI/architecture-based kernel selection. Stock-flash relock evidence and a firmware-bound AVB downgrade producer now exist; their packaged/hardware and bridge flows remain. |
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
 | Backups | Persisted raw-backup inventory/results and complete Magisk list/import/delete behavior. |
 | Root and integrity | `/data/adb` backup/restore/clear, PIF/TargetedFix, PI analysis, Shizuku and SOS. |
-| Developer/personal tools | Keybox, binary XML, AVB tools and arbitrary My Tools commands. |
+| Developer/personal tools | Keybox, binary XML, the React/grant surface for the existing headless AVB downgrade producer, and arbitrary My Tools commands. |
 | Application shell | About/help, remaining 9.x/expert preferences, toolbar customization, folders, update/link actions and console controls. |
 
 The JSON inventory maps each individual menu/context-menu and primary-control

@@ -102,13 +102,14 @@ export function FlashWizard({
   };
 
   useEffect(() => {
-    if (mode !== 'ota') return;
-    setSlotTarget('default');
-    setDisableVerity(false);
-    setDisableVerification(false);
-    setForce(false);
-    setDowngrade(false);
-    setTemporaryRoot(false);
+    if (mode !== 'keep') setDowngrade(false);
+    if (mode === 'ota') {
+      setSlotTarget('default');
+      setDisableVerity(false);
+      setDisableVerification(false);
+      setForce(false);
+      setTemporaryRoot(false);
+    }
   }, [mode]);
 
   useEffect(() => {
@@ -298,15 +299,15 @@ export function FlashWizard({
               </fieldset>
             ) : null}
             <div className="toggle-stack wizard-options__toggles">
-              <Toggle checked={verify} onChange={setVerify} label={t('flash.option.verify')} />
+              <Toggle checked={verify} onChange={setVerify} label={t('flash.option.verify')} disabled />
               {expertMode ? (
                 <>
                   <Toggle checked={disableVerity} onChange={setDisableVerity} label={t('flash.option.disableVerity')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
                   <Toggle checked={disableVerification} onChange={setDisableVerification} label={t('flash.option.disableVerification')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
                   <Toggle checked={force} onChange={setForce} label={t('flash.option.force')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
-                  <Toggle checked={noReboot} onChange={setNoReboot} label={t('flash.option.noReboot')} />
-                  <Toggle checked={downgrade} onChange={setDowngrade} label={t('flash.option.downgrade')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
-                  <Toggle checked={temporaryRoot} onChange={setTemporaryRoot} label={t('flash.option.temporaryRoot')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
+                  <Toggle checked={noReboot} onChange={(value) => { setNoReboot(value); if (value) setTemporaryRoot(false); }} label={t('flash.option.noReboot')} />
+                  <Toggle checked={downgrade} onChange={setDowngrade} label={t('flash.option.downgrade')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode !== 'keep'} />
+                  <Toggle checked={temporaryRoot} onChange={(value) => { setTemporaryRoot(value); if (value) setNoReboot(false); }} label={t('flash.option.temporaryRoot')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
                 </>
               ) : null}
               <Toggle checked={dryRun} onChange={setDryRun} label={t('flash.option.dryRun')} />

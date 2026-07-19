@@ -2027,12 +2027,14 @@
       "owner": "flash",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep",
+        "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "ui/web/src/App.tsx:prepareFlash",
+        "pixelflasher_core/avb_downgrade.py:DowngradePatchService",
         "pixelflasher_core/planner.py:_normalized_flash_options/_validate_ota_options/_image_flash",
+        "tests/test_avb_downgrade.py:AvbDowngradeTests",
         "tests/test_operation_planner.py:test_inactive_slot_is_resolved_from_backend_observed_state"
       ],
-      "gap": "Downgrade artifact generation and complete option/mode execution coverage remain open.",
+      "gap": "The verified downgrade producer and planner contract are implemented; the bridge/React creation flow plus packaged and hardware option-matrix validation remain open.",
       "exitCriteria": [
         "Both/inactive slots, verity/verification, force, no-reboot, downgrade and temporary-root options is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -2058,7 +2060,10 @@
         "tests/test_operation_planner.py:test_wipe_intent_cannot_be_smuggled_into_a_non_wipe_mode",
         "tests/test_operation_planner.py:test_custom_flash_accepts_only_processed_custom_artifacts",
         "tests/test_operation_planner.py:test_property_non_wipe_modes_never_compile_wipe_intent",
-        "tests/test_operation_planner.py:test_property_wipe_modes_never_compile_preserve_intent"
+        "tests/test_operation_planner.py:test_property_wipe_modes_never_compile_preserve_intent",
+        "tests/test_operation_planner.py:test_property_downgrade_compiles_only_for_factory_preserve_modes",
+        "tests/test_avb_downgrade.py:AvbDowngradeTests",
+        "ui/web/src/test/flash-wizard.behavior.test.tsx:five-step flash planning edge behavior"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -2226,9 +2231,12 @@
       "area": "developer_tools",
       "capability": "Keybox validation, binary XML decode and AVB image/downgrade tools",
       "owner": "developer_tools",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No modern keybox validation, binary XML decode or AVB/downgrade flow exists.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/avb_downgrade.py:DowngradePatchService/BundledAvbDowngradeTool",
+        "tests/test_avb_downgrade.py:AvbDowngradeTests"
+      ],
+      "gap": "The headless AVB downgrade producer exists, but no modern keybox/XML services or bridge/React AVB flow exists yet.",
       "exitCriteria": [
         "Keybox validation, binary XML decode and AVB image/downgrade tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2241,7 +2249,9 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_avb_downgrade.py:AvbDowngradeTests"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [

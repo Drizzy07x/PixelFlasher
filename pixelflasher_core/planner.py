@@ -217,10 +217,21 @@ class ProcessedArtifactRepository:
             self._artifacts[(firmware_hash.casefold(), plan_fingerprint)] = normalized
 
     def resolve(self, snapshot: AppSnapshot) -> tuple[FileArtifact, ...]:
+        return self.resolve_binding(
+            firmware_hash=snapshot.firmware.hash,
+            plan_fingerprint=snapshot.plan.fingerprint,
+        )
+
+    def resolve_binding(
+        self,
+        *,
+        firmware_hash: str = "",
+        plan_fingerprint: str = "",
+    ) -> tuple[FileArtifact, ...]:
         keys = (
-            (snapshot.firmware.hash.casefold(), snapshot.plan.fingerprint),
-            (snapshot.firmware.hash.casefold(), ""),
-            ("", snapshot.plan.fingerprint),
+            (firmware_hash.casefold(), plan_fingerprint),
+            (firmware_hash.casefold(), ""),
+            ("", plan_fingerprint),
         )
         with self._lock:
             for key in keys:
@@ -1024,11 +1035,6 @@ class OperationPlanner:
                 "fastboot_required",
                 "image flashing requires bootloader fastboot or userspace fastbootd mode",
             )
-        if options.get("downgrade") is True:
-            raise PlanningError(
-                "option_not_supported_for_mode",
-                "downgrade requires a backend-produced downgrade artifact and is not supported for image plans",
-            )
         if options.get("temporaryRoot") is True and options.get("noReboot") is True:
             raise PlanningError(
                 "flash_option_conflict",
@@ -1055,7 +1061,19 @@ class OperationPlanner:
                 )
 
         images: dict[str, FileArtifact] = {}
+        downgrade_boot: FileArtifact | None = None
         for artifact in repository_artifacts:
+            if artifact.role == "downgrade:boot":
+                if downgrade_boot is not None:
+                    raise PlanningError(
+                        "processed_artifacts_invalid",
+                        "duplicate backend downgrade artifact for boot",
+                    )
+                issue = self._revalidate_artifact(artifact)
+                if issue is not None:
+                    raise PlanningError(*issue)
+                downgrade_boot = artifact
+                continue
             if not artifact.role.startswith("partition:"):
                 continue
             partition = self._partition(artifact.role.partition(":")[2])
@@ -1073,6 +1091,25 @@ class OperationPlanner:
                 "processed_artifacts_unavailable",
                 "backend repository contains no flashable partition artifacts",
             )
+
+        downgrade = options.get("downgrade") is True
+        if downgrade:
+            if firmware_type != "factory" or mode not in {"factory", "keepdata", "keep"}:
+                raise PlanningError(
+                    "option_not_supported_for_mode",
+                    "no-wipe downgrade requires canonical factory firmware in a preserve-data mode",
+                )
+            if downgrade_boot is None:
+                raise PlanningError(
+                    "downgrade_artifact_unavailable",
+                    "a backend-produced downgrade boot artifact bound to this firmware is required",
+                )
+            if "boot" not in images:
+                raise PlanningError(
+                    "downgrade_source_unavailable",
+                    "the processed factory firmware does not contain a stock boot artifact",
+                )
+            images["boot"] = downgrade_boot
 
         selected_partitions = options.get("partitions")
         if selected_partitions is not None:
@@ -1097,6 +1134,11 @@ class OperationPlanner:
                     f"no backend artifact is available for partition {missing[0]}",
                 )
             images = {partition: images[partition] for partition in requested}
+            if downgrade and "boot" not in images:
+                raise PlanningError(
+                    "downgrade_boot_required",
+                    "a no-wipe downgrade plan must flash the backend-produced boot artifact",
+                )
 
         factory_components = {
             partition: images[partition]
