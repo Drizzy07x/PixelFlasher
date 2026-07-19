@@ -756,11 +756,13 @@
       "owner": "flash",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/components/FlashWizard.tsx:OptionsStep/ReviewStep",
+        "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "ui/web/src/App.tsx:prepareFlash/startFlash",
-        "pixelflasher_core/planner.py:OperationPlanner._image_flash/_bind_reinforced_confirmation"
+        "pixelflasher_core/planner.py:OperationPlanner._image_flash/_bind_reinforced_confirmation/_bind_batch_confirmation",
+        "pixelflasher_core/contracts.py:OperationBatch.required_confirmation_text",
+        "pixelflasher_core/operation_runner.py:OperationRunner.execute/execute_batch"
       ],
-      "gap": "Transition orchestration, disconnect recovery, postconditions and packaged hardware coverage remain incomplete.",
+      "gap": "The wipe-only flash contract, individual/batch confirmations and unknown-outcome semantics are complete; packaged-platform and hardware coverage remain incomplete.",
       "exitCriteria": [
         "Factory flash with explicit data wipe is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -778,7 +780,10 @@
         "linux"
       ],
       "tests": [
-        "tests/test_operation_planner.py:test_wipe_preview_issues_nonce_and_exact_text_before_execution"
+        "tests/test_operation_planner.py:test_wipe_preview_issues_nonce_and_exact_text_before_execution",
+        "tests/test_operation_runner_v2.py:test_confirmation_phrases_use_real_serial_suffixes_and_batch_fingerprint",
+        "tests/test_operation_runner_v2.py:test_planner_compiles_one_stable_confirmed_flash_plan_per_serial",
+        "tests/test_modern_parity_inventory.py:test_standalone_wipe_is_policy_absent"
       ],
       "blockReason": null,
       "releaseGate": true,

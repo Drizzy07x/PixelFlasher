@@ -1010,6 +1010,12 @@ class OperationBatch:
             raise ValueError("batch plans must target unique serials")
         if any(plan.dry_run or plan.risk is not OperationRisk.DESTRUCTIVE for plan in normalized_plans):
             raise ValueError("batch flash plans must be destructive, non-dry-run plans")
+        data_behaviors = tuple(
+            plan.data_behavior.strip().casefold().replace("-", "_")
+            for plan in normalized_plans
+        )
+        if len(set(data_behaviors)) != 1:
+            raise ValueError("batch flash plans must use one canonical data behavior")
 
         created_value = time.time() if created is None else float(created)
         maximum_expiry = min(plan.expires for plan in normalized_plans)
@@ -1089,7 +1095,12 @@ class OperationBatch:
         )
 
     def required_confirmation_text(self) -> str:
-        return f"FLASH {len(self.plans)} {self.fingerprint[:8]}"
+        verb = (
+            "WIPE"
+            if self.plans[0].data_behavior.strip().casefold().replace("-", "_") == "wipe"
+            else "FLASH"
+        )
+        return f"{verb} {len(self.plans)} {self.fingerprint[:8]}"
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {

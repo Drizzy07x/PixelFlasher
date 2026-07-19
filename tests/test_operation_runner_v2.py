@@ -212,6 +212,21 @@ class OperationPlanV2Tests(unittest.TestCase):
             f"FLASH 2 {batch.fingerprint[:8]}",
             batch.required_confirmation_text(),
         )
+        wipe_batch = OperationBatch(
+            tuple(replace(plan, data_behavior="wipe") for plan in batch.plans),
+            created=NOW,
+            expires=NOW + 300,
+        )
+        self.assertEqual(
+            f"WIPE 2 {wipe_batch.fingerprint[:8]}",
+            wipe_batch.required_confirmation_text(),
+        )
+        with self.assertRaisesRegex(ValueError, "one canonical data behavior"):
+            OperationBatch(
+                (batch.plans[0], replace(batch.plans[1], data_behavior="wipe")),
+                created=NOW,
+                expires=NOW + 300,
+            )
         changed = OperationBatch(
             (second, destructive_plan()),
             created=NOW,
@@ -284,6 +299,37 @@ class OperationPlanV2Tests(unittest.TestCase):
             self.assertTrue(execution.batch.reinforced_confirmation_valid)
             self.assertEqual(serials, execution.batch.target_serials)
             self.assertTrue(all(plan.risk is OperationRisk.DESTRUCTIVE for plan in execution.batch.plans))
+
+            wipe_snapshot = replace(
+                snapshot,
+                firmware=FirmwareInfo(
+                    path=str(image.resolve()),
+                    type="factory",
+                    hash=digest,
+                    verified=True,
+                    processed=True,
+                ),
+                plan=FlashPlan(
+                    "wipe",
+                    {"verify": True},
+                    revision=3,
+                    fingerprint="P1",
+                    dry_run=False,
+                ),
+            )
+            wipe_preview = planner.compile_batch(
+                AppCommand("flash.execute", expected_revision=7),
+                wipe_snapshot,
+                preview=True,
+            )
+            self.assertTrue(wipe_preview.ok, wipe_preview.to_dict())
+            self.assertEqual(
+                f"WIPE 2 {wipe_preview.batch.fingerprint[:8]}",
+                wipe_preview.confirmation_text,
+            )
+            self.assertTrue(
+                all(plan.data_behavior == "wipe" for plan in wipe_preview.batch.plans)
+            )
 
 
 class OperationRunnerStatefulTests(unittest.TestCase):

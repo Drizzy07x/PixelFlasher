@@ -1621,6 +1621,56 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 transport.calls,
             )
 
+            cancelled_transport = FakeProcessTransport([])
+            cancelled_engine = CommandEngine(
+                store=AppStateStore(
+                    snapshot_for("fastboot", plan=plan, firmware=firmware)
+                ),
+                executor=CommandExecutor(cancelled_transport),
+                postcondition_observer=StatefulPostconditionObserver(cancelled_transport),
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+                operation_planner=OperationPlanner(artifact_repository=repository),
+            )
+            cancelled_preview = cancelled_engine.execute(command("flash.plan.preview"))
+            cancelled_confirmation = cancelled_preview.value["compiled"]["confirmation"]
+            cancelled_command = AppCommand(
+                "flash.execute",
+                expected_revision=0,
+                target_serial="SERIAL-A",
+                payload={
+                    "confirmationText": cancelled_confirmation["required_text"]
+                },
+            )
+            cancelled_command.cancellation_token.cancel()
+            cancelled = cancelled_engine.execute(cancelled_command)
+            self.assertEqual(OperationStatus.CANCELLED, cancelled.status)
+            self.assertEqual("planning_cancelled", cancelled.code)
+            self.assertEqual([], cancelled_transport.calls)
+
+            timeout_transport = FakeProcessTransport(
+                [TransportOutcome(None, timed_out=True)]
+            )
+            timeout_engine = CommandEngine(
+                store=AppStateStore(
+                    snapshot_for("fastboot", plan=plan, firmware=firmware)
+                ),
+                executor=CommandExecutor(timeout_transport),
+                postcondition_observer=StatefulPostconditionObserver(timeout_transport),
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+                operation_planner=OperationPlanner(artifact_repository=repository),
+            )
+            timeout_preview = timeout_engine.execute(command("flash.plan.preview"))
+            timeout_confirmation = timeout_preview.value["compiled"]["confirmation"]
+            unknown = timeout_engine.execute(
+                command(
+                    "flash.execute",
+                    payload={"confirmationText": timeout_confirmation["required_text"]},
+                )
+            )
+            self.assertEqual(OperationStatus.FAILED, unknown.status)
+            self.assertEqual("outcome_unknown", unknown.code)
+            self.assertEqual(1, len(timeout_transport.calls))
+
     def test_backend_artifacts_are_required_and_ui_metadata_is_rejected(self):
         transport = FakeProcessTransport([])
         no_images = CommandEngine(
