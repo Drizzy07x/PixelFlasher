@@ -64,6 +64,24 @@ class DeliveryHardeningTests(unittest.TestCase):
         runtime_hook = (ROOT / "pyi_runtime_linux_gtk.py").read_text(encoding="utf-8")
         self.assertNotIn('setdefault("NO_AT_BRIDGE"', runtime_hook)
 
+    def test_every_native_artifact_proves_react_bridge_and_clean_shutdown(self):
+        expected_targets = {
+            "windows.yml": ("windows", "x86_64"),
+            "windows-arm64.yml": ("windows", "arm64"),
+            "mac.yml": ("macos", '"${{ matrix.arch }}"'),
+            "ubuntu_24_04.yml": ("linux", "x86_64"),
+            "ubuntu_22_04.yml": ("linux", "x86_64"),
+            "appimage-x86_64.yml": ("linux", "x86_64"),
+        }
+        for workflow, (platform, architecture) in expected_targets.items():
+            source = self.source(workflow)
+            with self.subTest(workflow=workflow):
+                self.assertIn("--ui-smoke-report", source)
+                self.assertIn("--ui-smoke-timeout", source)
+                self.assertIn("scripts/verify_ui_smoke.py", source)
+                self.assertIn(f"--expect-platform {platform}", source)
+                self.assertIn(f"--expect-architecture {architecture}", source)
+
     def test_codeql_covers_python_and_typescript_without_actor_filter(self):
         source = self.source("codeql-analysis.yml")
         self.assertIn("'python', 'javascript-typescript'", source)

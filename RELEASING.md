@@ -11,7 +11,8 @@ release, and artifacts from another run are never reused.
 - Python, frontend, accessibility, packaged WebView and fake ADB/Fastboot
   suites are green at their required coverage thresholds.
 - Windows x64/ARM64, macOS Intel/Apple Silicon, Ubuntu 22/24 and AppImage jobs
-  all launch the real packaged entrypoint.
+  all launch the real packaged entrypoint and validate its closed
+  `--ui-smoke-report` receipt after React bridge v2 readiness and clean shutdown.
 - The release environment contains Windows signing, Apple Developer ID and
   notarization credentials plus `RELEASE_SIGNING_KEY`.
 - There are no open P0/P1 defects and the hardware validation report is

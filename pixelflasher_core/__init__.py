@@ -55,14 +55,6 @@ from .binary_xml import (
     BinaryXmlService,
     BinaryXmlStatus,
 )
-from .my_tools import (
-    MY_TOOLS_SCHEMA_VERSION,
-    LegacyRawTool,
-    MyToolSpec,
-    MyToolsError,
-    MyToolsRepository,
-    MyToolsService,
-)
 from .boot_patch import (
     BOOT_PATCH_COMMAND,
     SUPPORTED_BOOT_PATCH_FLAVORS,
@@ -245,6 +237,14 @@ from .keybox_validation import (
     KeyboxValidationService,
     SignedKeyboxRevocationProvider,
     UnavailableKeyboxRevocationProvider,
+)
+from .my_tools import (
+    MY_TOOLS_SCHEMA_VERSION,
+    LegacyRawTool,
+    MyToolsError,
+    MyToolSpec,
+    MyToolsRepository,
+    MyToolsService,
 )
 from .observer import (
     DeviceObservation,

@@ -101,10 +101,17 @@ class ModernWebViewHostContractTests(unittest.TestCase):
     def test_application_ready_returns_the_host_version_and_refreshes_snapshot(self):
         responses: list[dict] = []
         snapshots: list[bool] = []
+        ready_revisions: list[int] = []
         host = SimpleNamespace(
             _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
             _complete_request=lambda _request, message: responses.append(message),
             _emit_snapshot=lambda: snapshots.append(True),
+            _bridge_ready_callback=ready_revisions.append,
+            _bridge_ready_signalled=False,
+        )
+        host._signal_bridge_ready = lambda revision: ModernWebViewFrame._signal_bridge_ready(  # type: ignore[attr-defined]
+            host,
+            revision,
         )
 
         ModernWebViewFrame._dispatch_request(
@@ -115,6 +122,14 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertTrue(responses[0]["ok"])
         self.assertEqual(VERSION, responses[0]["result"]["version"])
         self.assertEqual([True], snapshots)
+        self.assertEqual([3], ready_revisions)
+        self.assertTrue(host._bridge_ready_signalled)
+
+        ModernWebViewFrame._dispatch_request(
+            host,
+            request("application-ready-second", command="app.ready"),
+        )
+        self.assertEqual([3], ready_revisions)
 
     def test_application_folders_are_backend_owned_and_never_disclose_paths(self):
         with tempfile.TemporaryDirectory() as directory:

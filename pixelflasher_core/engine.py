@@ -505,7 +505,12 @@ class CommandEngine:
                     result = self.my_tools_service.run(command, tool_id, token)
                     if not result.ok:
                         return result
-                    value = result.value if isinstance(result.value, Mapping) else {}
+                    raw_value = cast(object, result.value)
+                    value: Mapping[str, object]
+                    if isinstance(raw_value, Mapping):
+                        value = cast(Mapping[str, object], raw_value)
+                    else:
+                        value = {}
                     return replace(
                         result,
                         value={**value, "revision": self.store.snapshot().revision},

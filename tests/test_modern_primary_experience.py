@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 
 from ui.bridge_contract import ALLOWED_COMMANDS, BRIDGE_CHANNEL, BRIDGE_VERSION
-from ui.pages.modern_primary_app import _application_directories_for_config
+from ui.pages.modern_primary_app import (
+    _application_directories_for_config,
+    _ui_smoke_options_from_argv,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PIXELFLASHER_SOURCE = ROOT / "PixelFlasher.py"
@@ -21,6 +24,25 @@ DESKTOP_SPECS = (
 
 
 class ModernPrimaryExperienceTests(unittest.TestCase):
+    def test_ui_smoke_options_are_bounded_and_require_a_receipt(self):
+        options = _ui_smoke_options_from_argv(
+            ("PixelFlasher", "--ui-smoke-report", "receipt.json", "--ui-smoke-timeout=45")
+        )
+        self.assertIsNotNone(options)
+        assert options is not None
+        self.assertEqual(45, options.timeout_seconds)
+        self.assertEqual("receipt.json", options.report_path.name)
+
+        self.assertIsNone(_ui_smoke_options_from_argv(("PixelFlasher",)))
+        for arguments in (
+            ("PixelFlasher", "--ui-smoke-timeout", "30"),
+            ("PixelFlasher", "--ui-smoke-report", ""),
+            ("PixelFlasher", "--ui-smoke-report=x", "--ui-smoke-timeout=4"),
+            ("PixelFlasher", "--ui-smoke-report=x", "--ui-smoke-timeout=121"),
+        ):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                _ui_smoke_options_from_argv(arguments)
+
     def test_shell_directories_are_derived_from_config_without_browser_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "PixelFlasher.json"

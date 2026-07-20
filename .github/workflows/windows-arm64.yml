@@ -188,6 +188,18 @@ jobs:
             Write-Error "Native ARM64 packaged self-test failed."
             exit $LASTEXITCODE
           }
+          $smokeReport = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows-arm64.json"
+          $smokeConfig = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows-arm64\PixelFlasher.json"
+          New-Item -ItemType Directory -Force -Path (Split-Path $smokeConfig) | Out-Null
+          $smokeProcess = Start-Process -FilePath "dist/PixelFlasher-arm64.exe" -ArgumentList @(
+            "--ui-smoke-report", $smokeReport, "--ui-smoke-timeout", "30", "--config", $smokeConfig
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($smokeProcess.ExitCode -ne 0) {
+            Write-Error "Native ARM64 React/WebView smoke failed."
+            exit $smokeProcess.ExitCode
+          }
+          & $env:PYTHON_EXE scripts/verify_ui_smoke.py --report $smokeReport --expect-platform windows --expect-architecture arm64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Generate SHA256
         shell: pwsh

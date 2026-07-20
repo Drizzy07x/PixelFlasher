@@ -34,6 +34,7 @@
 # <https://www.gnu.org/licenses/>.
 
 import os
+
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import sys
@@ -66,6 +67,7 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --self-test     Run startup checks")
         print("  python PixelFlasher.py --doctor        Alias for --self-test")
         print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
+        print("  python PixelFlasher.py --ui-smoke-report PATH  Prove React/WebView startup")
         print("  python PixelFlasher.py --version       Print version")
         raise SystemExit(0)
 
@@ -94,7 +96,7 @@ def _run_modern_primary(argv):
     except Exception as exc:
         _log_startup_failure(exc)
         print(f"Modern UI startup unavailable: {exc}")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
     raise SystemExit(result)
 
 

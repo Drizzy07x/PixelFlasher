@@ -148,6 +148,17 @@ jobs:
           set -euo pipefail
           dist/PixelFlasher.app/Contents/MacOS/PixelFlasher --version
           dist/PixelFlasher.app/Contents/MacOS/PixelFlasher --self-test
+          smoke_report="$RUNNER_TEMP/pixelflasher-ui-smoke-${{ matrix.arch }}.json"
+          smoke_config="$RUNNER_TEMP/pixelflasher-ui-smoke-${{ matrix.arch }}/PixelFlasher.json"
+          mkdir -p "$(dirname "$smoke_config")"
+          dist/PixelFlasher.app/Contents/MacOS/PixelFlasher \
+            --ui-smoke-report "$smoke_report" \
+            --ui-smoke-timeout 30 \
+            --config "$smoke_config"
+          myenv/bin/python scripts/verify_ui_smoke.py \
+            --report "$smoke_report" \
+            --expect-platform macos \
+            --expect-architecture "${{ matrix.arch }}"
 
       - name: Create architecture-specific DMG
         shell: bash

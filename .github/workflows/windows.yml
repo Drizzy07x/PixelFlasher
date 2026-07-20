@@ -204,6 +204,18 @@ jobs:
             Write-Error "Packaged PixelFlasher self-test failed."
             exit $LASTEXITCODE
           }
+          $smokeReport = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows.json"
+          $smokeConfig = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows\PixelFlasher.json"
+          New-Item -ItemType Directory -Force -Path (Split-Path $smokeConfig) | Out-Null
+          $smokeProcess = Start-Process -FilePath "dist/PixelFlasher.exe" -ArgumentList @(
+            "--ui-smoke-report", $smokeReport, "--ui-smoke-timeout", "30", "--config", $smokeConfig
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($smokeProcess.ExitCode -ne 0) {
+            Write-Error "Packaged PixelFlasher React/WebView smoke failed."
+            exit $smokeProcess.ExitCode
+          }
+          & $env:PYTHON_EXE scripts/verify_ui_smoke.py --report $smokeReport --expect-platform windows --expect-architecture x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Get sha256
         shell: pwsh

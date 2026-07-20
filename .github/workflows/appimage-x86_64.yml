@@ -87,7 +87,7 @@ jobs:
           sudo apt-get install -y libnotify-dev
           sudo apt-get install -y libsm-dev
           # Install tools needed for AppImage creation
-          sudo apt-get install -y patchelf curl zsync xvfb xauth xdotool weston
+          sudo apt-get install -y patchelf curl zsync xvfb xauth weston
 
       - name: Create virtual environment and install dependencies
         run: |
@@ -235,27 +235,26 @@ jobs:
           ls -la
         shell: bash
 
-      - name: Launch AppImage default entrypoint under Xvfb
+      - name: Prove AppImage React and bridge startup under Xvfb
         run: |
           set -euo pipefail
           launch_log="$RUNNER_TEMP/pixelflasher-appimage-default.log"
           config_dir="$RUNNER_TEMP/pixelflasher-appimage-config"
+          smoke_report="$RUNNER_TEMP/pixelflasher-appimage-x11-ui-smoke.json"
           mkdir -p "$config_dir"
-          if ! xvfb-run -a bash -ceu '
-            export XDG_CONFIG_HOME="$1"
-            export APPIMAGE_EXTRACT_AND_RUN=1
-            "$2" >"$3" 2>&1 &
-            app_pid=$!
-            cleanup() { kill "$app_pid" 2>/dev/null || true; }
-            trap cleanup EXIT
-            timeout 30s xdotool search --sync --onlyvisible --name "PixelFlasher" >/dev/null
-            kill -0 "$app_pid"
-          ' bash "$config_dir" "$GITHUB_WORKSPACE/dist/PixelFlasher-x86_64.AppImage" "$launch_log"; then
+          if ! XDG_CONFIG_HOME="$config_dir" APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
+            dist/PixelFlasher-x86_64.AppImage \
+              --ui-smoke-report "$smoke_report" \
+              --ui-smoke-timeout 30 \
+              --config "$config_dir/PixelFlasher.json" >"$launch_log" 2>&1; then
             cat "$launch_log"
             exit 1
           fi
           cat "$launch_log"
-          ! grep -F "Modern UI WebView is not available" "$launch_log"
+          myenv/bin/python scripts/verify_ui_smoke.py \
+            --report "$smoke_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
 
       - name: Launch AppImage with the native Wayland backend
         shell: bash
@@ -263,7 +262,10 @@ jobs:
           set -euo pipefail
           runtime_dir="$RUNNER_TEMP/pixelflasher-wayland"
           launch_log="$RUNNER_TEMP/pixelflasher-appimage-wayland.log"
+          config_dir="$RUNNER_TEMP/pixelflasher-appimage-wayland-config"
+          smoke_report="$RUNNER_TEMP/pixelflasher-appimage-wayland-ui-smoke.json"
           mkdir -p "$runtime_dir"
+          mkdir -p "$config_dir"
           chmod 700 "$runtime_dir"
           XDG_RUNTIME_DIR="$runtime_dir" weston \
             --backend=headless-backend.so \
@@ -271,7 +273,6 @@ jobs:
             --idle-time=0 >"$RUNNER_TEMP/weston.log" 2>&1 &
           weston_pid=$!
           cleanup() {
-            kill "$app_pid" 2>/dev/null || true
             kill "$weston_pid" 2>/dev/null || true
           }
           trap cleanup EXIT
@@ -280,15 +281,25 @@ jobs:
             sleep 1
           done
           test -S "$runtime_dir/wayland-pixelflasher"
-          XDG_RUNTIME_DIR="$runtime_dir" \
-          WAYLAND_DISPLAY=wayland-pixelflasher \
-          GDK_BACKEND=wayland \
-          APPIMAGE_EXTRACT_AND_RUN=1 \
-            dist/PixelFlasher-x86_64.AppImage >"$launch_log" 2>&1 &
-          app_pid=$!
-          sleep 10
-          kill -0 "$app_pid"
-          ! grep -F "Modern UI WebView is not available" "$launch_log"
+          if ! timeout 45s env \
+            XDG_RUNTIME_DIR="$runtime_dir" \
+            XDG_CONFIG_HOME="$config_dir" \
+            WAYLAND_DISPLAY=wayland-pixelflasher \
+            GDK_BACKEND=wayland \
+            APPIMAGE_EXTRACT_AND_RUN=1 \
+            dist/PixelFlasher-x86_64.AppImage \
+              --ui-smoke-report "$smoke_report" \
+              --ui-smoke-timeout 30 \
+              --config "$config_dir/PixelFlasher.json" >"$launch_log" 2>&1; then
+            cat "$launch_log"
+            cat "$RUNNER_TEMP/weston.log"
+            exit 1
+          fi
+          cat "$launch_log"
+          myenv/bin/python scripts/verify_ui_smoke.py \
+            --report "$smoke_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
 
       # Upload artifacts
       - name: Upload AppImage Artifact
@@ -310,7 +321,10 @@ jobs:
           set -euo pipefail
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates libgtk-3-0 libwebkit2gtk-4.0-37 xvfb xauth
+            ca-certificates git libgtk-3-0 libwebkit2gtk-4.0-37 python3-minimal xvfb xauth
+
+      - name: Checkout the receipt verifier
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Download the AppImage from this workflow run
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -318,17 +332,23 @@ jobs:
           name: PixelFlasher-x86_64.AppImage Artifacts
           path: dist
 
-      - name: Run self-test and default entrypoint without build dependencies
+      - name: Prove the packaged UI without build dependencies
         shell: bash
         run: |
           set -euo pipefail
           chmod +x dist/PixelFlasher-x86_64.AppImage
           APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage --self-test
           launch_log="$RUNNER_TEMP/pixelflasher-clean-appimage.log"
+          config_dir="$RUNNER_TEMP/pixelflasher-clean-config"
+          smoke_report="$RUNNER_TEMP/pixelflasher-clean-ui-smoke.json"
+          mkdir -p "$config_dir"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
-            dist/PixelFlasher-x86_64.AppImage >"${launch_log}" 2>&1 &
-          app_pid=$!
-          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
-          sleep 10
-          kill -0 "$app_pid"
-          ! grep -F "Modern UI WebView is not available" "${launch_log}"
+            dist/PixelFlasher-x86_64.AppImage \
+              --ui-smoke-report "$smoke_report" \
+              --ui-smoke-timeout 30 \
+              --config "$config_dir/PixelFlasher.json" >"${launch_log}" 2>&1
+          cat "$launch_log"
+          python3 scripts/verify_ui_smoke.py \
+            --report "$smoke_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64

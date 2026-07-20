@@ -21,8 +21,8 @@ Describe what changed and why.
 
 - [ ] `python PixelFlasher.py --self-test`
 - [ ] `python -m unittest discover -s tests -v`
-- [ ] Windows smoke test
-- [ ] Linux smoke test
+- [ ] Packaged `--ui-smoke-report` receipt verified on affected platforms
+- [ ] Functional fake ADB/Fastboot smoke completed where applicable
 - [ ] Device detection tested
 - [ ] Dry Run tested
 - [ ] Real flash tested on secondary device only

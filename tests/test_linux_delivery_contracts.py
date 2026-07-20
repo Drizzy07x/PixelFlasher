@@ -35,7 +35,7 @@ class LinuxDeliveryContractTests(unittest.TestCase):
                 self.assertIn("html2.WebView.New", source)
                 self.assertIn("xvfb-run", source)
 
-    def test_source_smoke_launches_the_unflagged_default_entrypoint(self):
+    def test_source_smoke_proves_the_react_bridge_and_clean_shutdown(self):
         source = UBUNTU_SMOKE.read_text(encoding="utf-8")
 
         self.assertIn("needs: frontend_smoke", source)
@@ -51,15 +51,14 @@ class LinuxDeliveryContractTests(unittest.TestCase):
             if source.startswith(DOWNLOAD_ARTIFACT, position)
         ]
         self.assertLess(downloads[0], source.index("python PixelFlasher.py --self-test"))
-        self.assertLess(downloads[1], source.index("Launch the real default modern entrypoint"))
-        self.assertIn("Launch the real default modern entrypoint", source)
-        self.assertIn('"$2" PixelFlasher.py >"$3" 2>&1 &', source)
-        self.assertIn(
-            'xdotool search --sync --onlyvisible --name "PixelFlasher"', source
-        )
-        self.assertIn("Modern UI WebView is not available", source)
+        self.assertLess(downloads[1], source.index("Prove the source React and bridge startup"))
+        self.assertIn("--ui-smoke-report", source)
+        self.assertIn("scripts/verify_ui_smoke.py", source)
+        self.assertIn("--expect-platform linux", source)
+        self.assertIn("--expect-architecture x86_64", source)
+        self.assertNotIn("xdotool", source)
 
-    def test_each_linux_artifact_is_launched_through_its_default_entrypoint(self):
+    def test_each_linux_artifact_proves_the_packaged_react_bridge(self):
         expected_artifacts = {
             UBUNTU_24: "dist/PixelFlasher_Ubuntu_24_04",
             UBUNTU_22: "dist/PixelFlasher_Ubuntu_22_04",
@@ -70,11 +69,11 @@ class LinuxDeliveryContractTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             with self.subTest(path=path):
                 self.assertIn(artifact, source)
-                self.assertIn(
-                    'xdotool search --sync --onlyvisible --name "PixelFlasher"',
-                    source,
-                )
-                self.assertIn("Modern UI WebView is not available", source)
+                self.assertIn("--ui-smoke-report", source)
+                self.assertIn("scripts/verify_ui_smoke.py", source)
+                self.assertIn("--expect-platform linux", source)
+                self.assertIn("--expect-architecture x86_64", source)
+                self.assertNotIn("xdotool", source)
                 self.assertNotIn(f"{artifact} --modern-", source)
 
     def test_each_linux_artifact_builds_and_bundles_the_locked_react_ui(self):

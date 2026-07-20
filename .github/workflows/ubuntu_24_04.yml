@@ -67,8 +67,7 @@ jobs:
             libgstreamer1.0-dev \
             gstreamer1.0-plugins-base \
             xvfb \
-            xauth \
-            xdotool
+            xauth
           python3 --version
           xvfb-run -a python3 - <<'PY'
           import wx
@@ -136,32 +135,29 @@ jobs:
             fi
           done
 
-      - name: Launch packaged default entrypoint under Xvfb
+      - name: Prove packaged React and bridge startup under Xvfb
         run: |
           set -euo pipefail
           launch_log="$RUNNER_TEMP/pixelflasher-ubuntu24-default.log"
           config_dir="$RUNNER_TEMP/pixelflasher-ubuntu24-config"
+          smoke_report="$RUNNER_TEMP/pixelflasher-ubuntu24-ui-smoke.json"
           mkdir -p "$config_dir"
 
-          if ! xvfb-run -a bash -ceu '
-            export XDG_CONFIG_HOME="$1"
-            "$2" >"$3" 2>&1 &
-            app_pid=$!
-            cleanup() { kill "$app_pid" 2>/dev/null || true; }
-            trap cleanup EXIT
-            timeout 30s xdotool search --sync --onlyvisible --name "PixelFlasher" >/dev/null
-            kill -0 "$app_pid"
-          ' bash "$config_dir" "$GITHUB_WORKSPACE/dist/PixelFlasher_Ubuntu_24_04" "$launch_log"; then
+          if ! XDG_CONFIG_HOME="$config_dir" xvfb-run -a \
+            dist/PixelFlasher_Ubuntu_24_04 \
+              --ui-smoke-report "$smoke_report" \
+              --ui-smoke-timeout 30 \
+              --config "$config_dir/PixelFlasher.json" >"$launch_log" 2>&1; then
             cat "$launch_log"
-            echo "The packaged default PixelFlasher UI did not expose a live window."
+            echo "The packaged React/WebView bridge did not become ready."
             exit 1
           fi
 
           cat "$launch_log"
-          if grep -F "Modern UI WebView is not available" "$launch_log"; then
-            echo "The packaged application started without its required WebView backend."
-            exit 1
-          fi
+          myenv/bin/python scripts/verify_ui_smoke.py \
+            --report "$smoke_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
 
       - name: Upload Ubuntu 24.04 Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

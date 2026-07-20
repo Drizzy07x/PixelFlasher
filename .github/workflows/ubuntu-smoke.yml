@@ -50,6 +50,7 @@ jobs:
             self_test.py \
             diagnostics.py \
             platform_utils.py \
+            ui_smoke_contract.py \
             config.py \
             ui/bridge_contract.py \
             ui/core_command_factory.py \
@@ -95,8 +96,7 @@ jobs:
             python3-wxgtk4.0 \
             python3-wxgtk-webview4.0 \
             xvfb \
-            xauth \
-            xdotool
+            xauth
 
       - name: Install full default-entrypoint dependencies
         run: |
@@ -125,31 +125,29 @@ jobs:
           frame.Destroy()
           PY
 
-      - name: Launch the real default modern entrypoint under Xvfb
+      - name: Prove the source React and bridge startup under Xvfb
         run: |
           set -euo pipefail
           launch_log="$RUNNER_TEMP/pixelflasher-source-default.log"
           config_dir="$RUNNER_TEMP/pixelflasher-source-config"
+          smoke_report="$RUNNER_TEMP/pixelflasher-source-ui-smoke.json"
           mkdir -p "$config_dir"
 
-          if ! xvfb-run -a bash -ceu '
-            export XDG_CONFIG_HOME="$1"
-            "$2" PixelFlasher.py >"$3" 2>&1 &
-            app_pid=$!
-            cleanup() { kill "$app_pid" 2>/dev/null || true; }
-            trap cleanup EXIT
-            timeout 30s xdotool search --sync --onlyvisible --name "PixelFlasher" >/dev/null
-            kill -0 "$app_pid"
-          ' bash "$config_dir" "$GITHUB_WORKSPACE/myenv/bin/python" "$launch_log"; then
+          if ! XDG_CONFIG_HOME="$config_dir" xvfb-run -a \
+            myenv/bin/python PixelFlasher.py \
+              --ui-smoke-report "$smoke_report" \
+              --ui-smoke-timeout 30 \
+              --config "$config_dir/PixelFlasher.json" >"$launch_log" 2>&1; then
             cat "$launch_log"
-            echo "The default PixelFlasher entrypoint did not expose a live window."
+            echo "The source React/WebView bridge did not become ready."
             exit 1
           fi
 
           cat "$launch_log"
-          if grep -F "Modern UI WebView is not available" "$launch_log"; then
-            exit 1
-          fi
+          myenv/bin/python scripts/verify_ui_smoke.py \
+            --report "$smoke_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
 
   frontend_smoke:
     runs-on: ubuntu-latest

@@ -647,6 +647,7 @@ def create_modern_webview_frame(
     command_factory: CoreCommandFactory,
     support_destination_registrar: SupportDestinationRegistrar,
     application_directories: Mapping[str, str | Path] | None = None,
+    bridge_ready_callback: Callable[[int], None] | None = None,
     parent: wx.Window | None = None,
     index_path: Path | None = None,
 ) -> ModernWebViewFrame:
@@ -657,6 +658,7 @@ def create_modern_webview_frame(
         command_factory=command_factory,
         support_destination_registrar=support_destination_registrar,
         application_directories=application_directories,
+        bridge_ready_callback=bridge_ready_callback,
         parent=parent,
         index_path=index_path,
     )
@@ -672,6 +674,7 @@ class ModernWebViewFrame(wx.Frame):
         command_factory: CoreCommandFactory,
         support_destination_registrar: SupportDestinationRegistrar,
         application_directories: Mapping[str, str | Path] | None = None,
+        bridge_ready_callback: Callable[[int], None] | None = None,
         parent: wx.Window | None = None,
         index_path: Path | None = None,
     ) -> None:
@@ -696,6 +699,8 @@ class ModernWebViewFrame(wx.Frame):
         }
         self._loaded = False
         self._closing = False
+        self._bridge_ready_callback = bridge_ready_callback
+        self._bridge_ready_signalled = False
         self._pending_messages: list[dict[str, Any]] = []
         self._logcat_progress_batcher = _LogcatProgressBatcher(
             self._emit_batch,
@@ -822,6 +827,7 @@ class ModernWebViewFrame(wx.Frame):
             self._handle_native_request(request)
             return
         if request.command == "app.ready":
+            revision = _revision(self._engine.snapshot())
             self._complete_request(
                 request,
                 response_envelope(
@@ -831,11 +837,12 @@ class ModernWebViewFrame(wx.Frame):
                         "status": "SUCCESS",
                         "message": "Bridge ready.",
                         "version": VERSION,
-                        "revision": _revision(self._engine.snapshot()),
+                        "revision": revision,
                     },
                 ),
             )
             self._emit_snapshot()
+            self._signal_bridge_ready(revision)
             return
         if request.command == "snapshot.get":
             snapshot = self._engine.snapshot()
@@ -1413,6 +1420,13 @@ class ModernWebViewFrame(wx.Frame):
                 revision=_revision(snapshot),
             )
         )
+
+    def _signal_bridge_ready(self, revision: int) -> None:
+        callback = self._bridge_ready_callback
+        if callback is None or self._bridge_ready_signalled:
+            return
+        self._bridge_ready_signalled = True
+        callback(revision)
 
     def _complete_request(
         self,
