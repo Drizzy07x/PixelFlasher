@@ -529,7 +529,9 @@ describe('apps, backups and settings workflows', () => {
       onApplicationConsoleExport={callbacks.consoleExport}
     /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
+    await user.click(screen.getByRole('checkbox', { name: /Create Odin boot.tar/ }));
     await user.click(screen.getByRole('checkbox', { name: /Low-memory processing/ }));
+    expect(callbacks.maintenance).toHaveBeenCalledWith('createBootTar', true);
     expect(callbacks.maintenance).toHaveBeenCalledWith('lowMemoryMode', true);
     expect(callbacks.zoom).toHaveBeenCalledWith(200);
     expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true');

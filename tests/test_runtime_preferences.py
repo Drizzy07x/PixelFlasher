@@ -124,6 +124,7 @@ class RuntimePreferencesTests(unittest.TestCase):
                         "toolbarShowDevice": False,
                         "toolbarShowTheme": False,
                         "toolbarShowLanguage": True,
+                        "createBootTar": True,
                     },
                 )
             )
@@ -157,6 +158,7 @@ class RuntimePreferencesTests(unittest.TestCase):
                 toolbar_show_device=False,
                 toolbar_show_theme=False,
                 toolbar_show_language=True,
+                create_boot_tar=True,
             )
             self.assertTrue(result.ok)
             self.assertEqual("settings_updated", result.code)
@@ -191,6 +193,7 @@ class RuntimePreferencesTests(unittest.TestCase):
             self.assertFalse(payload["toolbarShowDevice"])
             self.assertFalse(payload["toolbarShowTheme"])
             self.assertTrue(payload["toolbarShowLanguage"])
+            self.assertTrue(payload["create_boot_tar"])
             self.assertEqual(
                 expected.to_dict(),
                 runtime.config_document.values[PREFERENCES_KEY],

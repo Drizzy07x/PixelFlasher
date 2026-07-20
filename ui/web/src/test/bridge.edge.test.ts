@@ -44,6 +44,7 @@ const snapshotPreferences = {
   toolbarShowDevice: true,
   toolbarShowTheme: true,
   toolbarShowLanguage: true,
+  createBootTar: false,
 };
 
 const originalBridge = window.pixelflasher;
@@ -98,6 +99,7 @@ describe('bridge v2 validation boundaries', () => {
     { ...snapshotPreferences, toolbarShowDevice: 1 },
     { ...snapshotPreferences, toolbarShowTheme: 'yes' },
     { ...snapshotPreferences, toolbarShowLanguage: null },
+    { ...snapshotPreferences, createBootTar: null },
   ])('rejects malformed preferences %#', (value) => {
     expect(() => normalizePreferences(value)).toThrow(BridgeError);
   });

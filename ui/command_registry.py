@@ -1921,6 +1921,7 @@ _COMMAND_SPECS = (
             ("toolbarShowDevice", PayloadKind.BOOLEAN),
             ("toolbarShowTheme", PayloadKind.BOOLEAN),
             ("toolbarShowLanguage", PayloadKind.BOOLEAN),
+            ("createBootTar", PayloadKind.BOOLEAN),
         ),
         owner=CommandOwner.SETTINGS,
         **_LIVE,

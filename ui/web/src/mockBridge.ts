@@ -90,6 +90,7 @@ const defaultPreferences: ModernPreferences = {
   toolbarShowDevice: true,
   toolbarShowTheme: true,
   toolbarShowLanguage: true,
+  createBootTar: false,
 };
 
 function storedValue<T>(key: string, fallback: T): T {
@@ -130,6 +131,7 @@ function mockPreferences(): ModernPreferences {
   const toolbarShowDevice = storedValue('pf.toolbarShowDevice', true);
   const toolbarShowTheme = storedValue('pf.toolbarShowTheme', true);
   const toolbarShowLanguage = storedValue('pf.toolbarShowLanguage', true);
+  const createBootTar = storedValue('pf.createBootTar', false);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -162,6 +164,7 @@ function mockPreferences(): ModernPreferences {
     toolbarShowDevice: typeof toolbarShowDevice === 'boolean' ? toolbarShowDevice : true,
     toolbarShowTheme: typeof toolbarShowTheme === 'boolean' ? toolbarShowTheme : true,
     toolbarShowLanguage: typeof toolbarShowLanguage === 'boolean' ? toolbarShowLanguage : true,
+    createBootTar: typeof createBootTar === 'boolean' ? createBootTar : false,
   };
 }
 
@@ -195,6 +198,7 @@ function persistMockPreferences(preferences: ModernPreferences) {
     ['pf.toolbarShowDevice', preferences.toolbarShowDevice],
     ['pf.toolbarShowTheme', preferences.toolbarShowTheme],
     ['pf.toolbarShowLanguage', preferences.toolbarShowLanguage],
+    ['pf.createBootTar', preferences.createBootTar],
   ];
   try {
     entries.forEach(([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)));
@@ -211,7 +215,7 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     'offerPatchMethods', 'showRecoveryPatching', 'keepPatchTemporaryFiles', 'useBusyboxShell',
     'lowMemoryMode', 'extraImageExtracts', 'showCustomRomOptions', 'keyboxIndex',
     'customizeFont', 'fontFace', 'fontSize', 'toolbarPosition', 'toolbarShowDevice',
-    'toolbarShowTheme', 'toolbarShowLanguage',
+    'toolbarShowTheme', 'toolbarShowLanguage', 'createBootTar',
   ]);
   if (Object.keys(payload).some((key) => !allowed.has(key))) return null;
   const current = mockPreferences();
@@ -257,6 +261,7 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     || typeof next.toolbarShowDevice !== 'boolean'
     || typeof next.toolbarShowTheme !== 'boolean'
     || typeof next.toolbarShowLanguage !== 'boolean'
+    || typeof next.createBootTar !== 'boolean'
   ) return null;
   return next as unknown as ModernPreferences;
 }

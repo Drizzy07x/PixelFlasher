@@ -32,6 +32,7 @@ export interface ModernPreferences {
   toolbarShowDevice: boolean;
   toolbarShowTheme: boolean;
   toolbarShowLanguage: boolean;
+  createBootTar: boolean;
 }
 export type RouteId =
   | 'dashboard'

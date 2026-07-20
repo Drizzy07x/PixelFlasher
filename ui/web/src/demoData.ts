@@ -79,6 +79,7 @@ export const demoSnapshot: HostSnapshot = {
     toolbarShowDevice: true,
     toolbarShowTheme: true,
     toolbarShowLanguage: true,
+    createBootTar: false,
   },
   deviceManagement: {
     schemaVersion: 1,

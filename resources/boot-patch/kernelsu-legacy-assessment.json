@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "provider": "legacy",
+  "repository": "rsuntk/KernelSU",
+  "tag": "v3.2.2-10-legacy",
+  "releaseUrl": "https://github.com/rsuntk/KernelSU/releases/tag/v3.2.2-10-legacy",
+  "installationGuide": "https://github.com/rsuntk/KernelSU/blob/v3.2.2-10-legacy/website/docs/guide/installation.md",
+  "publishedAssets": [
+    {
+      "name": "KernelSU_v3.2.2-10-legacy-42-g915b4872_32490-release.apk",
+      "size": 7572584,
+      "sha256": "78fe80980e65d30ced2a5f560680f8d6343d4443baee4c3bf1c82cbd6847147d"
+    }
+  ],
+  "usablePatchInputs": [],
+  "decision": "fail_closed",
+  "reason": "The pinned official release publishes a manager APK but no KMI image or kernelsu.ko input. Unsupported devices require a reproducibly compiled compatible kernel or module before PixelFlasher can patch them safely."
+}

@@ -20,6 +20,8 @@ import hashlib
 import hmac
 import os
 import re
+import tarfile
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -194,6 +196,7 @@ class BootPatchCompilation:
     app: RootAppInfo
     destination: str
     partition: str
+    tar_destination: str = ""
     device_write: bool = True
     destructive: bool = False
     requires_confirmation: bool = True
@@ -204,6 +207,7 @@ class BootPatchCompilation:
             "app": self.app.to_dict(),
             "destination": self.destination,
             "partition": self.partition,
+            "createBootTar": bool(self.tar_destination),
             "device_write": self.device_write,
             "destructive": self.destructive,
             "requires_confirmation": self.requires_confirmation,
@@ -286,6 +290,11 @@ class BootPatchService:
         )
         self._reject_duplicate_artifacts((boot_artifact, app_artifact, runner, *support))
         destination = self._output_path(command.payload.get("destination"))
+        tar_destination = (
+            str(destination.with_suffix(".tar"))
+            if snapshot.preferences.create_boot_tar
+            else ""
+        )
         token = hashlib.sha256(
             f"{command.operation_id}\0{boot_artifact.sha256}\0{flavor}".encode()
         ).hexdigest()[:16]
@@ -432,6 +441,7 @@ class BootPatchService:
             app,
             str(destination),
             partition,
+            tar_destination,
         )
 
     def _compatible_bundle(self, flavor: str, device: DeviceInfo) -> PatchToolBundle:
@@ -576,6 +586,15 @@ class BootPatchService:
             return result
         try:
             patched = self.finalize(compilation, cancellation)
+            boot_tar = (
+                self._create_boot_tar(
+                    patched.artifact,
+                    Path(compilation.tar_destination),
+                    cancellation,
+                )
+                if compilation.tar_destination
+                else None
+            )
         except BootPatchPlanningError as error:
             if error.code == "boot_patch_cancelled":
                 return OperationResult.cancelled(
@@ -593,15 +612,148 @@ class BootPatchService:
                 stdout=result.stdout,
                 stderr=result.stderr,
             )
+        value: dict[str, object] = {
+            "patchedBoot": patched.to_dict(),
+            "boot": patched.to_boot_info().to_dict(),
+        }
+        if boot_tar is not None:
+            value["bootTar"] = boot_tar
         return replace(
             result,
             code="boot_patched",
-            message=f"patched {patched.partition} with {patched.flavor}",
-            value={
-                "patchedBoot": patched.to_dict(),
-                "boot": patched.to_boot_info().to_dict(),
-            },
+            message=(
+                f"patched {patched.partition} with {patched.flavor} and created boot.tar"
+                if boot_tar is not None
+                else f"patched {patched.partition} with {patched.flavor}"
+            ),
+            value=value,
         )
+
+    def _create_boot_tar(
+        self,
+        patched: FileArtifact,
+        destination: Path,
+        cancellation: CancellationProbe | None,
+    ) -> dict[str, object]:
+        """Publish one deterministic Odin archive after verifying its member hash."""
+
+        self._check_cancelled(cancellation)
+        source = self._absolute_existing_file(
+            patched.path,
+            ".img",
+            "boot_tar_source_invalid",
+        )
+        try:
+            target = destination.resolve(strict=False)
+            parent = target.parent.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise BootPatchPlanningError("boot_tar_destination_invalid", str(error)) from error
+        if (
+            not target.is_absolute()
+            or target.parent != parent
+            or target.suffix.casefold() != ".tar"
+            or target.name != destination.name
+            or target.is_dir()
+        ):
+            raise BootPatchPlanningError(
+                "boot_tar_destination_invalid",
+                "boot.tar destination must be a canonical file beside the patched image",
+            )
+        descriptor = -1
+        temporary: Path | None = None
+        try:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                dir=parent,
+            )
+            temporary = Path(temporary_name)
+            size = source.stat().st_size
+            with os.fdopen(descriptor, "w+b") as stream:
+                descriptor = -1
+                with tarfile.open(
+                    fileobj=stream,
+                    mode="w",
+                    format=tarfile.USTAR_FORMAT,
+                ) as archive:
+                    member = tarfile.TarInfo("boot.img")
+                    member.size = size
+                    member.mode = 0o644
+                    member.mtime = 0
+                    member.uid = 0
+                    member.gid = 0
+                    member.uname = ""
+                    member.gname = ""
+                    with source.open("rb") as source_stream:
+                        archive.addfile(member, source_stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            self._verify_boot_tar(temporary, patched.sha256, size, cancellation)
+            archive_sha256 = self._sha256(temporary, cancellation)
+            archive_size = temporary.stat().st_size
+            self._check_cancelled(cancellation)
+            os.replace(temporary, target)
+            temporary = None
+            return {
+                "name": target.name,
+                "sha256": archive_sha256,
+                "size": archive_size,
+                "member": "boot.img",
+                "memberSha256": patched.sha256,
+            }
+        except BootPatchPlanningError:
+            raise
+        except (OSError, tarfile.TarError) as error:
+            raise BootPatchPlanningError("boot_tar_creation_failed", str(error)) from error
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _verify_boot_tar(
+        self,
+        path: Path,
+        expected_sha256: str,
+        expected_size: int,
+        cancellation: CancellationProbe | None,
+    ) -> None:
+        self._check_cancelled(cancellation)
+        try:
+            with tarfile.open(path, mode="r:") as archive:
+                members = archive.getmembers()
+                if (
+                    len(members) != 1
+                    or members[0].name != "boot.img"
+                    or not members[0].isfile()
+                    or members[0].size != expected_size
+                ):
+                    raise BootPatchPlanningError(
+                        "boot_tar_verification_failed",
+                        "boot.tar does not contain exactly the verified boot image",
+                    )
+                extracted = archive.extractfile(members[0])
+                if extracted is None:
+                    raise BootPatchPlanningError(
+                        "boot_tar_verification_failed",
+                        "boot.tar member is unreadable",
+                    )
+                digest = hashlib.sha256()
+                while chunk := extracted.read(self.hash_chunk_size):
+                    self._check_cancelled(cancellation)
+                    digest.update(chunk)
+        except BootPatchPlanningError:
+            raise
+        except (OSError, tarfile.TarError) as error:
+            raise BootPatchPlanningError("boot_tar_verification_failed", str(error)) from error
+        if not hmac.compare_digest(digest.hexdigest(), expected_sha256):
+            raise BootPatchPlanningError(
+                "boot_tar_verification_failed",
+                "boot.tar member hash does not match the patched image",
+            )
 
     def _verified_app(
         self,

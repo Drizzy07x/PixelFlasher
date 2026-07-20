@@ -6937,3 +6937,17 @@ msgstr ""
 msgctxt "web.tools.ownerDeveloperTools"
 msgid "Developer tools"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.createBootTar"
+msgid "Create Odin boot.tar after patching"
+msgstr "Create Odin boot.tar after patching"
+
+msgctxt "web.settings.createBootTarDetail"
+msgid ""
+"Publishes a verified boot.tar beside the patched image for compatible "
+"Samsung workflows."
+msgstr "Publishes a verified boot.tar beside the patched image for compatible Samsung workflows."

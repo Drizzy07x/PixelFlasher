@@ -386,6 +386,7 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "toolbarShowDevice": _boolean(source.get("toolbarShowDevice"), default=True),
         "toolbarShowTheme": _boolean(source.get("toolbarShowTheme"), default=True),
         "toolbarShowLanguage": _boolean(source.get("toolbarShowLanguage"), default=True),
+        "createBootTar": _boolean(source.get("createBootTar")),
     }
 
 

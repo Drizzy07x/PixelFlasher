@@ -12,6 +12,9 @@ they belong to the separately signed, on-demand root-app catalog and are
 validated by hash, package ID and signer before this runner can receive them.
 
 The current runner covers Magisk, APatch and the app-provided LKM patchers for
-KernelSU, KernelSU-Next, SukiSU and Wild_KSU. KernelSU Legacy kernel-image
-replacement remains fail-closed until its KMI-specific image catalog is
-implemented.
+KernelSU, KernelSU-Next, SukiSU and Wild_KSU. The pinned official KernelSU
+Legacy release publishes only its manager APK: it contains neither a
+KMI-specific kernel image nor a usable `kernelsu.ko`. The audited absence and
+official source references are recorded in `kernelsu-legacy-assessment.json`.
+Legacy remains fail-closed until a reproducible compatible kernel/module input
+and its device/KMI policy are available.

@@ -120,6 +120,7 @@ const defaultPreferences: ModernPreferences = {
   toolbarShowDevice: true,
   toolbarShowTheme: true,
   toolbarShowLanguage: true,
+  createBootTar: false,
 };
 
 function mockPreferences(): ModernPreferences {
@@ -151,6 +152,7 @@ function mockPreferences(): ModernPreferences {
   const toolbarShowDevice = storedValue<unknown>('pf.toolbarShowDevice', true);
   const toolbarShowTheme = storedValue<unknown>('pf.toolbarShowTheme', true);
   const toolbarShowLanguage = storedValue<unknown>('pf.toolbarShowLanguage', true);
+  const createBootTar = storedValue<unknown>('pf.createBootTar', false);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -186,6 +188,7 @@ function mockPreferences(): ModernPreferences {
     toolbarShowDevice: typeof toolbarShowDevice === 'boolean' ? toolbarShowDevice : true,
     toolbarShowTheme: typeof toolbarShowTheme === 'boolean' ? toolbarShowTheme : true,
     toolbarShowLanguage: typeof toolbarShowLanguage === 'boolean' ? toolbarShowLanguage : true,
+    createBootTar: typeof createBootTar === 'boolean' ? createBootTar : false,
   };
 }
 
@@ -401,6 +404,7 @@ function PixelFlasherApp({
       persist('pf.toolbarShowDevice', applicationPreferences.toolbarShowDevice);
       persist('pf.toolbarShowTheme', applicationPreferences.toolbarShowTheme);
       persist('pf.toolbarShowLanguage', applicationPreferences.toolbarShowLanguage);
+      persist('pf.createBootTar', applicationPreferences.createBootTar);
     }
   }, [theme, highContrast, reducedMotion, zoom, locale, expertMode, applicationPreferences, isMockHost]);
 
@@ -624,7 +628,7 @@ function PixelFlasherApp({
   }, [changePreferences]);
 
   const changeMaintenancePreference = useCallback((
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize' | 'toolbarPosition' | 'toolbarShowDevice' | 'toolbarShowTheme' | 'toolbarShowLanguage',
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize' | 'toolbarPosition' | 'toolbarShowDevice' | 'toolbarShowTheme' | 'toolbarShowLanguage' | 'createBootTar',
     value: boolean | number | string,
   ) => {
     void changePreferences({ [field]: value });

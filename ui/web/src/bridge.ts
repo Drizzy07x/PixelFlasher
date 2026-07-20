@@ -74,6 +74,7 @@ const defaultPreferences: ModernPreferences = {
   toolbarShowDevice: true,
   toolbarShowTheme: true,
   toolbarShowLanguage: true,
+  createBootTar: false,
 };
 
 export function commandTimeoutMs(command: BridgeCommand) {
@@ -126,6 +127,7 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     || typeof raw.toolbarShowDevice !== 'boolean'
     || typeof raw.toolbarShowTheme !== 'boolean'
     || typeof raw.toolbarShowLanguage !== 'boolean'
+    || typeof raw.createBootTar !== 'boolean'
   ) {
     throw new BridgeError('Host returned invalid preferences.');
   }
@@ -159,6 +161,7 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     toolbarShowDevice: raw.toolbarShowDevice,
     toolbarShowTheme: raw.toolbarShowTheme,
     toolbarShowLanguage: raw.toolbarShowLanguage,
+    createBootTar: raw.createBootTar,
   };
 }
 

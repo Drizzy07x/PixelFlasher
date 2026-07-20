@@ -44,7 +44,7 @@ export function SettingsPage({
   onExpertModeChange: (value: boolean) => void;
   preferences: ModernPreferences;
   onMaintenancePreferenceChange: (
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize' | 'toolbarPosition' | 'toolbarShowDevice' | 'toolbarShowTheme' | 'toolbarShowLanguage',
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize' | 'toolbarPosition' | 'toolbarShowDevice' | 'toolbarShowTheme' | 'toolbarShowLanguage' | 'createBootTar',
     value: boolean | number | string,
   ) => void;
   onApplicationCommand: (
@@ -146,6 +146,7 @@ export function SettingsPage({
               <Toggle checked={preferences.offerPatchMethods} onChange={(value) => onMaintenancePreferenceChange('offerPatchMethods', value)} label={t('settings.patchMethods')} description={t('settings.patchMethodsDetail')} />
               <Toggle checked={preferences.showRecoveryPatching} onChange={(value) => onMaintenancePreferenceChange('showRecoveryPatching', value)} label={t('settings.recoveryPatching')} description={t('settings.recoveryPatchingDetail')} />
               <Toggle checked={preferences.keepPatchTemporaryFiles} onChange={(value) => onMaintenancePreferenceChange('keepPatchTemporaryFiles', value)} label={t('settings.keepPatchFiles')} description={t('settings.keepPatchFilesDetail')} />
+              <Toggle checked={preferences.createBootTar} onChange={(value) => onMaintenancePreferenceChange('createBootTar', value)} label={t('settings.createBootTar')} description={t('settings.createBootTarDetail')} />
               <Toggle checked={preferences.useBusyboxShell} onChange={(value) => onMaintenancePreferenceChange('useBusyboxShell', value)} label={t('settings.busyboxShell')} description={t('settings.busyboxShellDetail')} />
               <Toggle checked={preferences.lowMemoryMode} onChange={(value) => onMaintenancePreferenceChange('lowMemoryMode', value)} label={t('settings.lowMemory')} description={t('settings.lowMemoryDetail')} />
               <Toggle checked={preferences.extraImageExtracts} onChange={(value) => onMaintenancePreferenceChange('extraImageExtracts', value)} label={t('settings.extraImages')} description={t('settings.extraImagesDetail')} />

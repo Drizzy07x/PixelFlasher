@@ -1,9 +1,11 @@
 import hashlib
+import tarfile
 import tempfile
 import unittest
 import zipfile
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from pixelflasher_core.boot_patch import (
     SUPPORTED_BOOT_PATCH_FLAVORS,
@@ -17,6 +19,7 @@ from pixelflasher_core.contracts import (
     BootInfo,
     DeviceInfo,
     FileArtifact,
+    ModernPreferences,
     OperationResult,
     OperationRisk,
     OperationStatus,
@@ -102,6 +105,7 @@ class BootPatchServiceTests(unittest.TestCase):
         boot_hash: str | None = None,
         architecture: str = "",
         kmi: str = "",
+        create_boot_tar: bool = False,
     ) -> AppSnapshot:
         digest = boot_hash if boot_hash is not None else sha256(boot.read_bytes())
         return AppSnapshot(
@@ -124,6 +128,7 @@ class BootPatchServiceTests(unittest.TestCase):
                 partition,
                 patched,
             ),
+            preferences=ModernPreferences(create_boot_tar=create_boot_tar),
             toolchain=(ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True) if ready else ToolchainInfo()),
         )
 
@@ -170,6 +175,9 @@ class BootPatchServiceTests(unittest.TestCase):
                     self.command(flavor, app.id, destination),
                     snapshot,
                 )
+
+                self.assertEqual("", compilation.tar_destination)
+                self.assertFalse(compilation.to_dict()["createBootTar"])
 
                 self.assertEqual("SERIAL", compilation.plan.target_serial)
                 self.assertEqual(5, compilation.plan.snapshot_revision)
@@ -584,6 +592,96 @@ class BootPatchServiceTests(unittest.TestCase):
             )
             self.assertEqual(OperationStatus.FAILED, unchanged.status)
             self.assertEqual("patch_output_unchanged", unchanged.code)
+
+    def test_finalize_publishes_a_deterministic_verified_boot_tar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            boot = root / "boot.img"
+            boot.write_bytes(b"stock boot")
+            service, app, _, _ = self.make_service(root, "magisk")
+            destination = root / "patched.img"
+            compilation = service.compile(
+                self.command("magisk", app.id, destination),
+                self.make_snapshot(boot, create_boot_tar=True),
+            )
+
+            self.assertEqual(str(root / "patched.tar"), compilation.tar_destination)
+            self.assertTrue(compilation.to_dict()["createBootTar"])
+            destination.write_bytes(b"patched boot image")
+            result = service.finalize_result(
+                compilation,
+                OperationResult.success("patch-operation"),
+            )
+
+            archive = root / "patched.tar"
+            first_archive = archive.read_bytes()
+            self.assertTrue(result.ok)
+            self.assertEqual("patched.tar", result.value["bootTar"]["name"])
+            self.assertEqual("boot.img", result.value["bootTar"]["member"])
+            self.assertEqual(
+                sha256(b"patched boot image"),
+                result.value["bootTar"]["memberSha256"],
+            )
+            self.assertEqual(sha256(first_archive), result.value["bootTar"]["sha256"])
+            self.assertEqual(len(first_archive), result.value["bootTar"]["size"])
+            with tarfile.open(archive, mode="r:") as opened:
+                self.assertEqual(["boot.img"], opened.getnames())
+                member = opened.extractfile("boot.img")
+                self.assertIsNotNone(member)
+                assert member is not None
+                self.assertEqual(b"patched boot image", member.read())
+
+            archive.unlink()
+            repeated = service.finalize_result(
+                compilation,
+                OperationResult.success("patch-operation"),
+            )
+            self.assertTrue(repeated.ok)
+            self.assertEqual(first_archive, archive.read_bytes())
+            self.assertEqual([], list(root.glob(".patched.tar.*.tmp")))
+
+    def test_boot_tar_cancellation_and_verification_failure_are_atomic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            boot = root / "boot.img"
+            boot.write_bytes(b"stock boot")
+            service, app, _, _ = self.make_service(root, "magisk")
+            destination = root / "patched.img"
+            compilation = service.compile(
+                self.command("magisk", app.id, destination),
+                self.make_snapshot(boot, create_boot_tar=True),
+            )
+            destination.write_bytes(b"patched boot image")
+            archive = root / "patched.tar"
+            archive.write_bytes(b"previous archive")
+            token = CancellationToken()
+            token.cancel()
+
+            cancelled = service.finalize_result(
+                compilation,
+                OperationResult.success("patch-operation"),
+                token,
+            )
+            self.assertIs(OperationStatus.CANCELLED, cancelled.status)
+            self.assertEqual("boot_patch_cancelled", cancelled.code)
+            self.assertEqual(b"previous archive", archive.read_bytes())
+
+            with patch.object(
+                service,
+                "_verify_boot_tar",
+                side_effect=BootPatchPlanningError(
+                    "boot_tar_verification_failed",
+                    "test verification failure",
+                ),
+            ):
+                failed = service.finalize_result(
+                    compilation,
+                    OperationResult.success("patch-operation"),
+                )
+            self.assertIs(OperationStatus.FAILED, failed.status)
+            self.assertEqual("boot_tar_verification_failed", failed.code)
+            self.assertEqual(b"previous archive", archive.read_bytes())
+            self.assertEqual([], list(root.glob(".patched.tar.*.tmp")))
 
     def test_cancellation_and_process_failure_remain_explicit(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -67,6 +67,7 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "toolbarShowDevice": ("toolbarShowDevice",),
     "toolbarShowTheme": ("toolbarShowTheme",),
     "toolbarShowLanguage": ("toolbarShowLanguage",),
+    "createBootTar": ("createBootTar", "create_boot_tar"),
 }
 
 type StoreLike = ConfigStore | str | os.PathLike[str]
@@ -227,6 +228,7 @@ def _legacy_mirrors(
         "toolbarShowDevice": preferences.toolbar_show_device,
         "toolbarShowTheme": preferences.toolbar_show_theme,
         "toolbarShowLanguage": preferences.toolbar_show_language,
+        "createBootTar": preferences.create_boot_tar,
     }
     preferred_keys = {
         "theme": "theme",
@@ -257,6 +259,7 @@ def _legacy_mirrors(
         "toolbarShowDevice": "toolbarShowDevice",
         "toolbarShowTheme": "toolbarShowTheme",
         "toolbarShowLanguage": "toolbarShowLanguage",
+        "createBootTar": "create_boot_tar",
     }
     mirrors: dict[str, object] = {}
     for field, aliases in _LEGACY_ALIASES.items():

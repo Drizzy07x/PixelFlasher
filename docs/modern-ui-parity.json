@@ -258,9 +258,10 @@
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
         "ui/web/src/bridge.ts:getPreferences/updatePreferences",
         "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
+        "pixelflasher_core/legacy_preference_policy.py:closed 31-option migration policy",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences"
       ],
-      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety, maintenance, patch/processing/keybox preferences and validated monospace font settings are host-persisted through one revisioned contract. Expert controls remain undisclosed until the host confirms Expert Mode. Specialized path, toolbar and shell preferences plus packaged restart/accessibility smokes are not represented yet.",
+      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety, maintenance, patch/processing/keybox preferences, validated monospace font settings and toolbar layout are host-persisted through one revisioned contract. Expert controls remain undisclosed until the host confirms Expert Mode. All 31 advanced 9.x options have explicit migrated, safely replaced or policy-enforced outcomes; backend-owned folder actions and PTY/My Tools replace arbitrary path/shell preferences. Packaged restart/accessibility smokes remain open.",
       "exitCriteria": [
         "The React Settings workspace exposes every supported versioned preference and persists it through ConfigStore."
       ],
@@ -276,6 +277,7 @@
       "tests": [
         "tests/test_preferences.py",
         "tests/test_runtime_preferences.py",
+        "tests/test_legacy_preference_policy.py",
         "ui/web/src/test/App.test.tsx:host-persisted preferences and Expert Mode",
         "ui/web/src/test/pages.behavior.test.tsx:Settings controls"
       ],
@@ -985,12 +987,13 @@
         "resources/boot-patch/runner/pf_boot_patch.sh:packaged protocol runner",
         "resources/boot-patch/runtime/patch-resources.json:ABI-bound runner manifest",
         "resources/root-apps/source-lock.json:audited official APK inputs",
+        "resources/boot-patch/kernelsu-legacy-assessment.json:fail-closed official release audit",
         "pixelflasher_core/root_app_distribution.py:signed catalog startup loader",
         "pixelflasher_core/runtime.py:PatchResourceRegistry composition",
         "pixelflasher_core/executor.py:SecretProcessTransport/SubprocessTransport.run_secret",
         "pixelflasher_core/engine.py:_plan_and_execute"
       ],
-      "gap": "Schema v3 independently binds packaged runners and on-demand verified APKs. The owned runner covers Magisk, APatch and four KernelSU-family LKM providers on four ABIs, and all seven official APK inputs are audited behind a strict signed-catalog loader. Production catalog signing, KMI-specific KernelSU Legacy images and packaged/real-device smokes remain open.",
+      "gap": "Schema v3 independently binds packaged runners and on-demand verified APKs. The owned runner covers Magisk, APatch and four KernelSU-family LKM providers on four ABIs, and all seven official APK inputs are audited behind a strict signed-catalog loader. createBootTar publishes a deterministic verified Odin archive atomically. The pinned official KernelSU Legacy release contains no usable kernel or module, so it remains fail-closed until a reproducible compatible input exists. Production catalog signing and packaged/real-device smokes remain open.",
       "exitCriteria": [
         "Each supported patch flavor executes only with backend-pinned compatible APK and runner resources and returns a verified registered image.",
         "Secret transport, architecture/KMI selection, cancellation and failure are typed and tested."
@@ -1018,7 +1021,7 @@
         "tests/test_build_root_app_catalog.py",
         "ui/web/src/test/App.test.tsx:root workflow"
       ],
-      "blockReason": "Production signing key/catalog, KernelSU Legacy KMI images and packaged real-device validation are not yet provisioned.",
+      "blockReason": "Production signing key/catalog, a reproducible compatible KernelSU Legacy kernel/module input and packaged real-device validation are not yet provisioned.",
       "releaseGate": true,
       "legacyEvidence": [
         "README.md:46-64",
@@ -1231,13 +1234,14 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
+        "pixelflasher_core/legacy_preference_policy.py:closed 31-option migration policy",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences",
         "pixelflasher_core/config_store.py:ConfigStore",
         "ui/web/src/pages/Pages.tsx:SettingsPage",
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
         "ui/web/src/bridge.ts:getPreferences/updatePreferences"
       ],
-      "gap": "Presentation, Expert Mode, flash safety, maintenance, eight boolean patch/processing/keybox settings and monospace family/size are validated, host-persisted, revisioned and mirrored to their 9.x keys. React applies changes only after confirmed success, updates shared console/editor font tokens and hides expert controls until host confirmation. Specialized path, toolbar and shell settings remain absent or require an explicit 10.x policy classification.",
+      "gap": "Presentation, Expert Mode, flash safety, maintenance, nine patch/processing/keybox settings, monospace family/size and toolbar layout are validated, host-persisted, revisioned and mirrored to their 9.x keys. A closed registry exhaustively classifies all 31 advanced 9.x options as migrated, safely replaced or policy-enforced; createBootTar drives verified atomic Odin archive generation. React applies changes only after confirmed success and hides expert controls until host confirmation. Expanded property coverage and packaged cross-platform visual/accessibility smokes remain open.",
       "exitCriteria": [
         "Edit PixelFlasher application settings is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -1251,6 +1255,8 @@
       "tests": [
         "tests/test_preferences.py",
         "tests/test_runtime_preferences.py",
+        "tests/test_legacy_preference_policy.py",
+        "tests/test_boot_patch_service.py:createBootTar deterministic atomic output",
         "ui/web/src/test/App.test.tsx:host-persisted preferences and Expert Mode",
         "ui/web/src/test/pages.behavior.test.tsx:Settings controls"
       ],

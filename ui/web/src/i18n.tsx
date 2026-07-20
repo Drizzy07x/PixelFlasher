@@ -843,6 +843,8 @@ export const sourceMessages = {
   'settings.recoveryPatchingDetail': 'Reveals recovery patching for compatible legacy A-only devices.',
   'settings.keepPatchFiles': 'Keep patch temporary files',
   'settings.keepPatchFilesDetail': 'Retains bounded patch staging files for local debugging.',
+  'settings.createBootTar': 'Create Odin boot.tar after patching',
+  'settings.createBootTarDetail': 'Publishes a verified boot.tar beside the patched image for compatible Samsung workflows.',
   'settings.busyboxShell': 'Use BusyBox shell for patching',
   'settings.busyboxShellDetail': 'Uses the packaged BusyBox ash only in compatible patch runners.',
   'settings.lowMemory': 'Low-memory processing',

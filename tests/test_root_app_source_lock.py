@@ -9,6 +9,8 @@ from scripts.audit_root_app_releases import RELEASES
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_LOCK = ROOT / "resources" / "root-apps" / "source-lock.json"
+LEGACY_ASSESSMENT = ROOT / "resources" / "boot-patch" / "kernelsu-legacy-assessment.json"
+PATCH_RESOURCES = ROOT / "resources" / "boot-patch" / "runtime" / "patch-resources.json"
 
 
 class RootAppSourceLockTests(unittest.TestCase):
@@ -58,6 +60,26 @@ class RootAppSourceLockTests(unittest.TestCase):
                 self.assertTrue(set(app["architectures"]) <= allowed_architectures)
                 self.assertEqual(len(app["architectures"]), len(set(app["architectures"])))
                 self.assertTrue(app["url"].startswith(f"https://github.com/{app['repository']}/releases/download/"))
+
+    def test_legacy_release_absence_is_explicit_and_cannot_enable_a_fake_runner(self) -> None:
+        source_apps = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))["apps"]
+        legacy = next(app for app in source_apps if app["provider"] == "legacy")
+        assessment = json.loads(LEGACY_ASSESSMENT.read_text(encoding="utf-8"))
+        resources = json.loads(PATCH_RESOURCES.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            {"schemaVersion", "provider", "repository", "tag", "releaseUrl", "installationGuide", "publishedAssets", "usablePatchInputs", "decision", "reason"},
+            set(assessment),
+        )
+        self.assertEqual("fail_closed", assessment["decision"])
+        self.assertEqual([], assessment["usablePatchInputs"])
+        self.assertEqual(legacy["repository"], assessment["repository"])
+        self.assertEqual(legacy["tag"], assessment["tag"])
+        self.assertEqual(
+            [{"name": legacy["asset"], "size": legacy["size"], "sha256": legacy["sha256"]}],
+            assessment["publishedAssets"],
+        )
+        self.assertNotIn("legacy", {bundle["flavor"] for bundle in resources["bundles"]})
 
 
 if __name__ == "__main__":

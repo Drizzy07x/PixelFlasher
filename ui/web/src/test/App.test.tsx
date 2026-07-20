@@ -37,6 +37,7 @@ const hostPreferences: ModernPreferences = {
   toolbarShowDevice: true,
   toolbarShowTheme: true,
   toolbarShowLanguage: true,
+  createBootTar: false,
 };
 
 function installPreferencesHost(

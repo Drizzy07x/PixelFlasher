@@ -253,6 +253,11 @@ from .keybox_validation import (
     SignedKeyboxRevocationProvider,
     UnavailableKeyboxRevocationProvider,
 )
+from .legacy_preference_policy import (
+    LEGACY_PREFERENCE_POLICIES,
+    LegacyPreferenceDisposition,
+    LegacyPreferencePolicy,
+)
 from .module_updates import (
     ModuleUpdateError,
     ModuleUpdateStatus,
@@ -680,6 +685,9 @@ __all__ = [
     "InteractionKind",
     "InteractionRequest",
     "InteractionResponse",
+    "LEGACY_PREFERENCE_POLICIES",
+    "LegacyPreferenceDisposition",
+    "LegacyPreferencePolicy",
     "ModernPreferences",
     "MY_TOOLS_SCHEMA_VERSION",
     "LegacyRawTool",

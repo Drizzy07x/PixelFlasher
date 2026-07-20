@@ -68,6 +68,7 @@ _PREFERENCE_FIELDS = frozenset(
         "toolbarShowDevice",
         "toolbarShowTheme",
         "toolbarShowLanguage",
+        "createBootTar",
     }
 )
 
@@ -112,6 +113,7 @@ class ModernPreferences:
     toolbar_show_device: bool = True
     toolbar_show_theme: bool = True
     toolbar_show_language: bool = True
+    create_boot_tar: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
@@ -168,6 +170,7 @@ class ModernPreferences:
             ("toolbarShowDevice", self.toolbar_show_device),
             ("toolbarShowTheme", self.toolbar_show_theme),
             ("toolbarShowLanguage", self.toolbar_show_language),
+            ("createBootTar", self.create_boot_tar),
         )
         for public_name, value in boolean_preferences:
             if not isinstance(value, bool):
@@ -318,6 +321,7 @@ class ModernPreferences:
             toolbar_show_language=raw.get(
                 "toolbarShowLanguage", defaults.toolbar_show_language
             ),
+            create_boot_tar=raw.get("createBootTar", defaults.create_boot_tar),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -351,6 +355,7 @@ class ModernPreferences:
             "toolbarShowDevice": self.toolbar_show_device,
             "toolbarShowTheme": self.toolbar_show_theme,
             "toolbarShowLanguage": self.toolbar_show_language,
+            "createBootTar": self.create_boot_tar,
         }
 
 

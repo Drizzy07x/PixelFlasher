@@ -6982,3 +6982,17 @@ msgstr "Soporte"
 msgctxt "web.tools.ownerDeveloperTools"
 msgid "Developer tools"
 msgstr "Herramientas de desarrollo"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.createBootTar"
+msgid "Create Odin boot.tar after patching"
+msgstr "Crear boot.tar de Odin después del parcheo"
+
+msgctxt "web.settings.createBootTarDetail"
+msgid ""
+"Publishes a verified boot.tar beside the patched image for compatible "
+"Samsung workflows."
+msgstr "Publica un boot.tar verificado junto a la imagen parcheada para flujos Samsung compatibles."

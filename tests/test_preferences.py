@@ -43,6 +43,7 @@ class ModernPreferencesValidationTests(unittest.TestCase):
         self.assertTrue(defaults.toolbar_show_device)
         self.assertTrue(defaults.toolbar_show_theme)
         self.assertTrue(defaults.toolbar_show_language)
+        self.assertFalse(defaults.create_boot_tar)
         self.assertEqual(80, MIN_ZOOM)
         self.assertEqual(200, MAX_ZOOM)
 
@@ -114,6 +115,7 @@ class ModernPreferencesValidationTests(unittest.TestCase):
             ({"toolbarShowDevice": 1}, "maintenance_preference_invalid"),
             ({"toolbarShowTheme": "yes"}, "maintenance_preference_invalid"),
             ({"toolbarShowLanguage": None}, "maintenance_preference_invalid"),
+            ({"createBootTar": 1}, "maintenance_preference_invalid"),
         )
         for values, code in cases:
             with self.subTest(values=values):

@@ -33,6 +33,7 @@ const snapshotPreferences = {
   toolbarShowDevice: true,
   toolbarShowTheme: true,
   toolbarShowLanguage: true,
+  createBootTar: false,
 };
 
 function hostFor(responseResult: (request: BridgeRequest) => Record<string, unknown>) {
