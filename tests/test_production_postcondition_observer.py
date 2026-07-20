@@ -45,6 +45,7 @@ class StatefulDeviceTransport:
         package_installers: dict[str, str] | None = None,
         adb_endpoints: dict[str, str] | None = None,
         root_modules: dict[str, str] | None = None,
+        pif_profiles: set[str] | None = None,
         magisk_denylist: set[str] | None = None,
         magisk_su_policies: dict[int, str] | None = None,
         magisk_backups: dict[str, str] | None = None,
@@ -67,6 +68,7 @@ class StatefulDeviceTransport:
         self.package_installers = package_installers or {}
         self.adb_endpoints = adb_endpoints or {}
         self.root_modules = root_modules or {}
+        self.pif_profiles = pif_profiles or set()
         self.magisk_denylist = magisk_denylist or set()
         self.magisk_su_policies = magisk_su_policies or {}
         self.magisk_backups = magisk_backups or {}
@@ -230,6 +232,22 @@ class StatefulDeviceTransport:
                 return TransportOutcome(0 if self.all_modules_disabled else 1)
             if command == 'test -d /data/adb && [ -z "$(find /data/adb -mindepth 1 -print -quit)" ]':
                 return TransportOutcome(0 if self.data_adb_empty else 1)
+            pif_paths = {
+                "pif.custom_json": "/data/adb/modules/playintegrityfix/custom.pif.json",
+                "pif.custom_prop": "/data/adb/modules/playintegrityfix/custom.pif.prop",
+                "pif.module_json": "/data/adb/modules/playintegrityfix/pif.json",
+                "pif.legacy_json": "/data/adb/pif.json",
+                "pif.app_replace": "/data/adb/modules/playintegrityfix/custom.app_replace.list",
+                "pif.scripts_only": "/data/adb/modules/playintegrityfix/scripts-only-mode",
+                "tricky.spoof": "/data/adb/tricky_store/spoof_build_vars",
+                "tricky.target": "/data/adb/tricky_store/target.txt",
+                "tricky.security_patch": "/data/adb/tricky_store/security_patch.txt",
+                "tricky.tee": "/data/adb/tricky_store/tee_status",
+                "targeted.targets": "/data/adb/modules/targetedfix/config/target.txt",
+            }
+            for profile_id, path in pif_paths.items():
+                if command == f"test -f {path}":
+                    return TransportOutcome(0 if profile_id in self.pif_profiles else 1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -697,6 +715,35 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             ),
             argv,
         )
+
+    def test_pif_profile_state_uses_only_canonical_backend_path(self) -> None:
+        profile_id = "pif.custom_json"
+        absent = observer(StatefulDeviceTransport(mode="adb")).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_mode="adb",
+                expected_pif_profiles={profile_id: False},
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, absent.status)
+
+        timer = FakeTime()
+        present = observer(
+            StatefulDeviceTransport(mode="adb", pif_profiles={profile_id}),
+            timer=timer,
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_pif_profiles={profile_id: False},
+            )
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, present.status)
+        self.assertEqual((False, True), present.mismatches[f"pif_profile:{profile_id}"])
+
+        with self.assertRaises(ValueError):
+            PostconditionSpec(SERIAL, 1, expected_pif_profiles={"../private": False})
 
     def test_root_recovery_aggregate_states_require_explicit_device_evidence(self) -> None:
         verified = observer(

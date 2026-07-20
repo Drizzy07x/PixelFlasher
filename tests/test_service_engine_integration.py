@@ -2187,6 +2187,35 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
         self.assertNotIn("PRIVATE_RAW_VALUE", repr(result))
 
+    def test_pif_profile_delete_requires_and_verifies_the_exact_canonical_target(self):
+        engine, transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0)],
+            root=True,
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+        )
+        profile_id = "pif.custom_json"
+
+        result = engine.execute(
+            command(
+                "tools.pif",
+                {
+                    "serial": "SERIAL",
+                    "action": "deleteProfile",
+                    "profileId": profile_id,
+                    "confirmationText": f"DELETE PIF {profile_id} SERIAL",
+                },
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("pif_profile_deleted", result.code)
+        self.assertEqual({"action": "deleteProfile", "profileId": profile_id}, result.value)
+        self.assertEqual(
+            "rm -f -- /data/adb/modules/playintegrityfix/custom.pif.json",
+            transport.calls[0].argv[6],
+        )
+
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (
             (

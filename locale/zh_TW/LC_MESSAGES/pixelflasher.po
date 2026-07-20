@@ -6071,3 +6071,19 @@ msgstr "設定檔遺失"
 msgctxt "web.root.pifTargetedFix"
 msgid "TargetedFix package profile"
 msgstr "TargetedFix 套件設定檔"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifDelete"
+msgid "Delete profile"
+msgstr "刪除設定檔"
+
+msgctxt "web.root.pifDeleteConfirm"
+msgid "Confirm deletion of {profile}"
+msgstr "確認刪除 {profile}"
+
+msgctxt "web.root.pifDeleteRun"
+msgid "Delete verified profile"
+msgstr "刪除已驗證的設定檔"

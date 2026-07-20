@@ -99,6 +99,51 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 with self.assertRaises(PublicProjectionError):
                     self.project(value)
 
+    def test_delete_contract_requires_canonical_profile_serial_and_phrase(self):
+        profile_id = "pif.custom_json"
+        payload = {
+            "serial": "SERIAL",
+            "action": "deleteProfile",
+            "profileId": profile_id,
+            "confirmationText": f"DELETE PIF {profile_id} SERIAL",
+        }
+        spec = COMMAND_REGISTRY["tools.pif"]
+        self.assertTrue(spec.implemented)
+        self.assertTrue(spec.exposed)
+        self.assertEqual("destructive", spec.mutability.value)
+        self.assertEqual("destructive", spec.risk.value)
+        request = BridgeRequest(2, "pif-delete", "tools.pif", payload, 7)
+        self.assertIs(request, request.validate())
+
+        projected = project_operation_result(
+            "tools.pif",
+            OperationResult.success(
+                "pif-delete",
+                value={"action": "deleteProfile", "profileId": profile_id},
+            ),
+        )["value"]
+        self.assertEqual({"action": "deleteProfile", "profileId": profile_id}, projected)
+
+        hostile_payloads = (
+            {**payload, "action": "delete"},
+            {**payload, "profileId": "../private"},
+            {**payload, "confirmationText": "DELETE"},
+            {**payload, "path": "/data/adb/private"},
+        )
+        for hostile in hostile_payloads:
+            with self.subTest(payload=hostile):
+                with self.assertRaises(BridgeProtocolError):
+                    BridgeRequest(2, "bad-pif-delete", "tools.pif", hostile, 7).validate()
+
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "tools.pif",
+                OperationResult.success(
+                    "bad-pif-delete",
+                    value={"action": "deleteProfile", "profileId": "../private"},
+                ),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

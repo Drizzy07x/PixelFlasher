@@ -74,4 +74,34 @@ describe('PIF and TargetedFix inventory', () => {
     expect(await within(card as HTMLElement).findByRole('alert')).toHaveTextContent('incomplete or unsafe');
     expect((await axe.run(container)).violations).toEqual([]);
   });
+
+  it('requires the serial-bound phrase before deleting a canonical profile', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn(async (command: BridgeCommand) => ({
+      result: command === 'root.pif.inventory'
+        ? { status: 'SUCCESS', value: inventory() }
+        : { status: 'SUCCESS', value: { action: 'deleteProfile', profileId: 'pif.custom_json' } },
+    }));
+    const { snapshot } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
+    await within(card as HTMLElement).findByText('pif.custom_json');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Delete profile' }));
+
+    const confirmation = `DELETE PIF pif.custom_json ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    const run = within(card as HTMLElement).getByRole('button', { name: 'Delete verified profile' });
+    expect(run).toBeDisabled();
+    await user.type(within(card as HTMLElement).getByRole('textbox'), confirmation);
+    expect(run).toBeEnabled();
+    await user.click(run);
+
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'deleteProfile',
+      profileId: 'pif.custom_json',
+      confirmationText: confirmation,
+    });
+    expect(within(card as HTMLElement).queryByText('pif.custom_json')).not.toBeInTheDocument();
+  });
 });

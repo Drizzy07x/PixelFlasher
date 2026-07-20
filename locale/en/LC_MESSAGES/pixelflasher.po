@@ -6038,3 +6038,19 @@ msgstr "Profile missing"
 msgctxt "web.root.pifTargetedFix"
 msgid "TargetedFix package profile"
 msgstr "TargetedFix package profile"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifDelete"
+msgid "Delete profile"
+msgstr "Delete profile"
+
+msgctxt "web.root.pifDeleteConfirm"
+msgid "Confirm deletion of {profile}"
+msgstr "Confirm deletion of {profile}"
+
+msgctxt "web.root.pifDeleteRun"
+msgid "Delete verified profile"
+msgstr "Delete verified profile"

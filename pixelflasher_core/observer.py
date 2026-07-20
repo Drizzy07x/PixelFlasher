@@ -24,6 +24,19 @@ _PARTITION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _PACKAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
 _REPORTED_PACKAGE_PATH_PATTERN = re.compile(r"^/(?:[A-Za-z0-9._+~=@%:-]{1,160}/)*[A-Za-z0-9._+~=@%:-]{1,160}$")
 _MODULE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
+_PIF_PROFILE_PATHS = {
+    "pif.custom_json": "/data/adb/modules/playintegrityfix/custom.pif.json",
+    "pif.custom_prop": "/data/adb/modules/playintegrityfix/custom.pif.prop",
+    "pif.module_json": "/data/adb/modules/playintegrityfix/pif.json",
+    "pif.legacy_json": "/data/adb/pif.json",
+    "pif.app_replace": "/data/adb/modules/playintegrityfix/custom.app_replace.list",
+    "pif.scripts_only": "/data/adb/modules/playintegrityfix/scripts-only-mode",
+    "tricky.spoof": "/data/adb/tricky_store/spoof_build_vars",
+    "tricky.target": "/data/adb/tricky_store/target.txt",
+    "tricky.security_patch": "/data/adb/tricky_store/security_patch.txt",
+    "tricky.tee": "/data/adb/tricky_store/tee_status",
+    "targeted.targets": "/data/adb/modules/targetedfix/config/target.txt",
+}
 _SU_POLICY_STATE_PATTERN = re.compile(r"^(?:absent|(?:allow|deny):[01]:[01]:\d{1,10})$")
 _SU_POLICY_ROW_PATTERN = re.compile(r"^PF_SU\|(\d{1,10})\|([12])\|([01])\|([01])\|(\d{1,10})$")
 _FASTBOOT_FETCH_PATTERN = re.compile(r"(?mi)^\s*fetch(?:\s|:)")
@@ -82,6 +95,7 @@ class DeviceObservation:
     package_installers: Mapping[str, str] = field(default_factory=_empty_hashes)
     adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
+    pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -122,6 +136,11 @@ class DeviceObservation:
             raise TypeError("observed ADB endpoint states must be booleans")
         if any(not isinstance(value, str) for value in self.root_modules.values()):
             raise TypeError("observed root module states must be strings")
+        if any(
+            profile_id not in _PIF_PROFILE_PATHS or not isinstance(value, bool)
+            for profile_id, value in self.pif_profiles.items()
+        ):
+            raise TypeError("observed PIF profile states are invalid")
         if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
@@ -165,6 +184,7 @@ class DeviceObservation:
             MappingProxyType(dict(self.adb_endpoints)),
         )
         object.__setattr__(self, "root_modules", MappingProxyType(dict(self.root_modules)))
+        object.__setattr__(self, "pif_profiles", MappingProxyType(dict(self.pif_profiles)))
         object.__setattr__(
             self,
             "magisk_denylist",
@@ -248,6 +268,7 @@ class PostconditionSpec:
     expected_package_installers: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
+    expected_pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -333,6 +354,11 @@ class PostconditionSpec:
         ):
             raise ValueError("expected root module state is invalid")
         if any(
+            profile_id not in _PIF_PROFILE_PATHS or not isinstance(value, bool)
+            for profile_id, value in self.expected_pif_profiles.items()
+        ):
+            raise ValueError("expected PIF profile state is invalid")
+        if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(listed, bool)
@@ -385,6 +411,11 @@ class PostconditionSpec:
             self,
             "expected_root_modules",
             MappingProxyType(dict(self.expected_root_modules)),
+        )
+        object.__setattr__(
+            self,
+            "expected_pif_profiles",
+            MappingProxyType(dict(self.expected_pif_profiles)),
         )
         object.__setattr__(
             self,
@@ -710,6 +741,13 @@ class ProcessDeviceObservationProbe:
                     timeout,
                 ),
                 root_modules=self._root_modules(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                pif_profiles=self._pif_profile_states(
                     spec,
                     toolchain,
                     mode,
@@ -1126,6 +1164,37 @@ class ProcessDeviceObservationProbe:
             if fields and fields[-1] in {"shizuku_server", "moe.shizuku.server"}:
                 return True
         return False
+
+    def _pif_profile_states(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, bool]:
+        profiles = tuple(spec.expected_pif_profiles)
+        if mode != "adb" or not profiles or len(profiles) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        observed: dict[str, bool] = {}
+        for profile_id in profiles:
+            if token.cancelled:
+                break
+            path = _PIF_PROFILE_PATHS.get(profile_id)
+            if path is None:
+                continue
+            present = self._root_test(
+                toolchain,
+                spec.serial,
+                f"test -f {path}",
+                token,
+                timeout,
+            )
+            if present is not None:
+                observed[profile_id] = present
+        return observed
 
     def _magisk_modules_disabled(
         self,
@@ -2259,6 +2328,14 @@ class PostconditionObserver:
             if actual is None:
                 missing.append(key)
             elif actual != expected:
+                mismatches[key] = (expected, actual)
+
+        for profile_id, expected in spec.expected_pif_profiles.items():
+            actual = observation.pif_profiles.get(profile_id)
+            key = f"pif_profile:{profile_id}"
+            if actual is None:
+                missing.append(key)
+            elif actual is not expected:
                 mismatches[key] = (expected, actual)
 
         for package_name, expected in spec.expected_magisk_denylist.items():

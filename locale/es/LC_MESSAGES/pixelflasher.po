@@ -6076,3 +6076,19 @@ msgstr "Perfil ausente"
 msgctxt "web.root.pifTargetedFix"
 msgid "TargetedFix package profile"
 msgstr "Perfil de paquete de TargetedFix"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifDelete"
+msgid "Delete profile"
+msgstr "Eliminar perfil"
+
+msgctxt "web.root.pifDeleteConfirm"
+msgid "Confirm deletion of {profile}"
+msgstr "Confirmar eliminación de {profile}"
+
+msgctxt "web.root.pifDeleteRun"
+msgid "Delete verified profile"
+msgstr "Eliminar perfil verificado"

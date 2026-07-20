@@ -1147,6 +1147,32 @@ export function installDevelopmentBridge() {
             });
             break;
           }
+          case 'tools.pif': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            const profileId = typeof request.payload.profileId === 'string' ? request.payload.profileId : '';
+            const required = `DELETE PIF ${profileId} ${serial.slice(-6).toUpperCase()}`;
+            if (
+              !target || target.mode !== 'adb' || !target.rooted
+              || request.payload.action !== 'deleteProfile'
+              || request.payload.confirmationText !== required
+            ) {
+              emit(errorMessage('PIF profile deletion request is invalid.', request));
+              break;
+            }
+            requestGuardedConfirmation(
+              request,
+              `Delete PIF profile ${profileId} on ${serial}?`,
+              true,
+              () => finishGuarded(request, {
+                status: 'SUCCESS',
+                code: 'pif_profile_deleted',
+                message: 'PIF profile deletion was independently verified',
+                value: { action: 'deleteProfile', profileId },
+              }),
+            );
+            break;
+          }
           case 'tools.sos': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);

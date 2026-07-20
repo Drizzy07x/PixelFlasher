@@ -1794,6 +1794,25 @@ class CommandEngine:
                 stdout="",
                 stderr="",
             )
+        if kind == "tools.pif":
+            if (
+                not isinstance(compilation, RootingCompilation)
+                or compilation.action != "pif.delete_profile"
+                or compilation.pif_profile_id is None
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="pif_action_compilation_invalid",
+                    message="PIF action returned an invalid compilation",
+                )
+            return replace(
+                result,
+                code="pif_profile_deleted",
+                message="PIF profile deletion was independently verified",
+                value={"action": "deleteProfile", "profileId": compilation.pif_profile_id},
+                stdout="",
+                stderr="",
+            )
         if kind == "tools.piAnalysis":
             if (
                 not isinstance(compilation, RootingCompilation)

@@ -45,6 +45,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.download",
         "root.modules.list",
         "root.pif.inventory",
+        "tools.pif",
         "root.dataAdb.backup",
         "root.dataAdb.restore",
         "root.dataAdb.clear",
@@ -3058,6 +3059,18 @@ def _project_pif_inventory(value: object) -> JSONValue:
     )
 
 
+def _project_pif_action(value: object) -> JSONValue:
+    source = _closed_record(value, fields=frozenset({"action", "profileId"}))
+    profile_ids = {
+        "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
+        "pif.app_replace", "pif.scripts_only", "tricky.spoof", "tricky.target",
+        "tricky.security_patch", "tricky.tee", "targeted.targets",
+    }
+    if source["action"] != "deleteProfile" or source["profileId"] not in profile_ids:
+        raise PublicProjectionError("PIF action receipt is invalid")
+    return ensure_public_json(dict(source))
+
+
 def _validate_pif_file_metadata(item: Mapping[str, object]) -> None:
     present = item["present"]
     size = item["size"]
@@ -3342,6 +3355,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.xml": _project_binary_xml,
     "tools.keybox": _project_keybox_analysis,
     "tools.piAnalysis": _project_pi_analysis,
+    "tools.pif": _project_pif_action,
     "tools.shizuku": _project_shizuku_recovery,
     "tools.sos": _project_sos_recovery,
     "tools.scrcpy": _project_none,

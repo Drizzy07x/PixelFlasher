@@ -6080,3 +6080,19 @@ msgstr "配置文件缺失"
 msgctxt "web.root.pifTargetedFix"
 msgid "TargetedFix package profile"
 msgstr "TargetedFix 软件包配置文件"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifDelete"
+msgid "Delete profile"
+msgstr "删除配置文件"
+
+msgctxt "web.root.pifDeleteConfirm"
+msgid "Confirm deletion of {profile}"
+msgstr "确认删除 {profile}"
+
+msgctxt "web.root.pifDeleteRun"
+msgid "Delete verified profile"
+msgstr "删除已验证的配置文件"

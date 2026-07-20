@@ -374,6 +374,54 @@ class RootingServiceTests(unittest.TestCase):
                 with self.assertRaises(RootingPlanningError):
                     parse_pif_inventory(output)
 
+    def test_pif_delete_is_canonical_confirmed_and_observed(self):
+        profile_id = "pif.custom_json"
+        compilation = RootingService().compile(
+            self.command(
+                "tools.pif",
+                {
+                    "serial": "SERIAL",
+                    "action": "deleteProfile",
+                    "profileId": profile_id,
+                    "confirmationText": f"DELETE PIF {profile_id} SERIAL",
+                },
+            ),
+            self.snapshot,
+        )
+
+        self.assertEqual("pif.delete_profile", compilation.action)
+        self.assertEqual(profile_id, compilation.pif_profile_id)
+        self.assertTrue(compilation.destructive)
+        assert compilation.plan is not None
+        self.assertEqual(
+            (
+                "ADB", "-s", "SERIAL", "shell", "su", "-c",
+                "rm -f -- /data/adb/modules/playintegrityfix/custom.pif.json",
+            ),
+            compilation.plan.request.argv,
+        )
+        self.assertEqual("pif_profile_state", compilation.plan.postconditions[0].kind)
+        self.assertEqual({"profileId": profile_id, "present": False}, compilation.plan.postconditions[0].expected)
+
+    def test_pif_delete_rejects_alias_path_and_wrong_confirmation(self):
+        base = {
+            "serial": "SERIAL",
+            "action": "deleteProfile",
+            "profileId": "pif.custom_json",
+            "confirmationText": "DELETE PIF pif.custom_json SERIAL",
+        }
+        cases = (
+            ({**base, "action": "delete"}, "pif_action_invalid"),
+            ({**base, "profileId": "../private"}, "pif_profile_invalid"),
+            ({**base, "confirmationText": "DELETE"}, "pif_confirmation_required"),
+            ({**base, "path": "/data/adb/private"}, "invalid_rooting_payload"),
+        )
+        for payload, code in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaises(RootingPlanningError) as raised:
+                    RootingService().compile(self.command("tools.pif", payload), self.snapshot)
+                self.assertEqual(code, raised.exception.code)
+
     def test_local_root_app_inventory_has_hash_and_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -348,6 +348,22 @@ def _validate_payload_values(
     elif command == "root.pif.inventory":
         if not _nonempty_string(payload.get("serial"), limit=256):
             _payload_error("root.pif.inventory serial is invalid", request_id)
+    elif command == "tools.pif":
+        serial = payload.get("serial")
+        profile_id = payload.get("profileId")
+        canonical_profiles = {
+            "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
+            "pif.app_replace", "pif.scripts_only", "tricky.spoof", "tricky.target",
+            "tricky.security_patch", "tricky.tee", "targeted.targets",
+        }
+        if not _nonempty_string(serial, limit=256):
+            _payload_error("tools.pif serial is invalid", request_id)
+        if payload.get("action") != "deleteProfile" or profile_id not in canonical_profiles:
+            _payload_error("tools.pif action or profileId is invalid", request_id)
+        assert isinstance(serial, str) and isinstance(profile_id, str)
+        required = f"DELETE PIF {profile_id} {serial[-6:].upper()}"
+        if payload.get("confirmationText") != required:
+            _payload_error("tools.pif confirmationText is invalid", request_id)
     elif command == "tools.sos":
         serial = payload.get("serial")
         if not _nonempty_string(serial, limit=256):

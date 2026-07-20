@@ -48,6 +48,7 @@ ROOTING_COMMANDS = frozenset(
         "root.modules.list",
         "root.modules.action",
         "root.pif.inventory",
+        "tools.pif",
         "tools.piAnalysis",
         "tools.shizuku",
         "tools.sos",
@@ -112,6 +113,19 @@ _PIF_PROFILE_SPECS = (
     ("targeted.targets", "targetedfix", "list"),
 )
 _PIF_PROFILE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
+_PIF_PROFILE_PATHS = {
+    "pif.custom_json": "/data/adb/modules/playintegrityfix/custom.pif.json",
+    "pif.custom_prop": "/data/adb/modules/playintegrityfix/custom.pif.prop",
+    "pif.module_json": "/data/adb/modules/playintegrityfix/pif.json",
+    "pif.legacy_json": "/data/adb/pif.json",
+    "pif.app_replace": "/data/adb/modules/playintegrityfix/custom.app_replace.list",
+    "pif.scripts_only": "/data/adb/modules/playintegrityfix/scripts-only-mode",
+    "tricky.spoof": "/data/adb/tricky_store/spoof_build_vars",
+    "tricky.target": "/data/adb/tricky_store/target.txt",
+    "tricky.security_patch": "/data/adb/tricky_store/security_patch.txt",
+    "tricky.tee": "/data/adb/tricky_store/tee_status",
+    "targeted.targets": "/data/adb/modules/targetedfix/config/target.txt",
+}
 
 
 class RootApkInspector(Protocol):
@@ -259,6 +273,7 @@ class RootingCompilation:
     plan: OperationPlan | None = None
     root_apps: tuple[RootAppInfo, ...] = ()
     module_id: str | None = None
+    pif_profile_id: str | None = None
     device_build: str | None = None
     device_write: bool = False
     destructive: bool = False
@@ -270,6 +285,7 @@ class RootingCompilation:
             "plan": self.plan.to_dict() if self.plan is not None else None,
             "root_apps": [item.to_dict() for item in self.root_apps],
             "module_id": self.module_id,
+            "pif_profile_id": self.pif_profile_id,
             "device_build": self.device_build,
             "device_write": self.device_write,
             "destructive": self.destructive,
@@ -357,6 +373,13 @@ class RootingService:
                     "PIF inventory requires a device reporting root access",
                 )
             return self._compile_pif_inventory(command, snapshot, device, adb)
+        if command.kind == "tools.pif":
+            if not device.root:
+                raise RootingPlanningError(
+                    "root_access_required",
+                    "PIF profile changes require a device reporting root access",
+                )
+            return self._compile_pif_action(command, snapshot, device, adb)
         if not device.root:
             raise RootingPlanningError(
                 "root_access_required",
@@ -437,6 +460,57 @@ class RootingService:
                 (request,),
                 label=f"List PIF and TargetedFix profiles on {device.serial}",
             ),
+        )
+
+    def _compile_pif_action(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        self._validate_payload(command, {"serial", "action", "profileId", "confirmationText"})
+        if command.payload.get("action") != "deleteProfile":
+            raise RootingPlanningError(
+                "pif_action_invalid",
+                "PIF action must be exactly deleteProfile",
+            )
+        profile_id = command.payload.get("profileId")
+        if not isinstance(profile_id, str) or profile_id not in _PIF_PROFILE_PATHS:
+            raise RootingPlanningError("pif_profile_invalid", "PIF profile ID is not canonical")
+        required = f"DELETE PIF {profile_id} {device.serial[-6:].upper()}"
+        if command.payload.get("confirmationText") != required:
+            raise RootingPlanningError(
+                "pif_confirmation_required",
+                f"confirmationText must be exactly {required}",
+            )
+        path = _PIF_PROFILE_PATHS[profile_id]
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", f"rm -f -- {path}"),
+            timeout_seconds=30.0,
+            output_limit_bytes=16 * 1024,
+        )
+        return RootingCompilation(
+            "pif.delete_profile",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Delete PIF profile {profile_id} on {device.serial}",
+                data_behavior="pif_profile_delete",
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "pif_profile_state",
+                        {"profileId": profile_id, "present": False},
+                        "the selected PIF profile is absent",
+                    ),
+                ),
+            ),
+            pif_profile_id=profile_id,
+            device_write=True,
+            destructive=True,
+            requires_confirmation=True,
         )
 
     def _compile_pi_analysis(

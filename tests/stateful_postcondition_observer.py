@@ -104,6 +104,8 @@ class StatefulPostconditionObserver:
             return self._result(self._adb_wifi_endpoint_state(calls, expected))
         if kind == "root_module_state":
             return self._result(self._root_module_state(plan, calls, expected))
+        if kind == "pif_profile_state":
+            return self._result(self._pif_profile_state(plan, calls, expected))
         return self._unverified(f"the fake has no probe for {kind}")
 
     @staticmethod
@@ -296,6 +298,37 @@ class StatefulPostconditionObserver:
         if state == "pending_remove":
             return f"touch {module_root}/remove" in shell_text
         return False
+
+    @staticmethod
+    def _pif_profile_state(
+        plan: OperationPlan,
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        profile_id = expected.get("profileId")
+        if not isinstance(profile_id, str) or expected.get("present") is not False:
+            return False
+        paths = {
+            "pif.custom_json": "/data/adb/modules/playintegrityfix/custom.pif.json",
+            "pif.custom_prop": "/data/adb/modules/playintegrityfix/custom.pif.prop",
+            "pif.module_json": "/data/adb/modules/playintegrityfix/pif.json",
+            "pif.legacy_json": "/data/adb/pif.json",
+            "pif.app_replace": "/data/adb/modules/playintegrityfix/custom.app_replace.list",
+            "pif.scripts_only": "/data/adb/modules/playintegrityfix/scripts-only-mode",
+            "tricky.spoof": "/data/adb/tricky_store/spoof_build_vars",
+            "tricky.target": "/data/adb/tricky_store/target.txt",
+            "tricky.security_patch": "/data/adb/tricky_store/security_patch.txt",
+            "tricky.tee": "/data/adb/tricky_store/tee_status",
+            "targeted.targets": "/data/adb/modules/targetedfix/config/target.txt",
+        }
+        path = paths.get(profile_id)
+        if path is None:
+            return False
+        return any(
+            request.argv[:6] == ("ADB", "-s", plan.target_serial, "shell", "su", "-c")
+            and request.argv[6] == f"rm -f -- {path}"
+            for request in calls
+        )
 
     @staticmethod
     def _package_state(

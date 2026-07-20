@@ -407,6 +407,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [piAnalysisInvalid, setPiAnalysisInvalid] = useState(false);
   const [pifInventory, setPifInventory] = useState<PifInventory | null>(null);
   const [pifInventoryInvalid, setPifInventoryInvalid] = useState(false);
+  const [pifDeleteProfile, setPifDeleteProfile] = useState('');
+  const [pifDeleteConfirmation, setPifDeleteConfirmation] = useState('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -654,6 +656,34 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         return;
       }
       setPifInventory(parsed);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const deletePifProfile = async () => {
+    if (!rootedAdb || !primary || busy || !pifDeleteProfile) return;
+    const required = `DELETE PIF ${pifDeleteProfile} ${primary.serial.slice(-6).toUpperCase()}`;
+    if (pifDeleteConfirmation !== required) return;
+    setBusy(`pif-delete:${pifDeleteProfile}`);
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: 'deleteProfile',
+        profileId: pifDeleteProfile,
+        confirmationText: pifDeleteConfirmation,
+      });
+      if (operationSucceeded(response)) {
+        setPifInventory((current) => current ? {
+          ...current,
+          profiles: current.profiles.map((item) => item.id === pifDeleteProfile
+            ? { ...item, present: false, size: 0, sha256: null }
+            : item),
+          ...(pifDeleteProfile === 'targeted.targets' ? { targetCount: 0, targets: [] } : {}),
+        } : current);
+        setPifDeleteProfile('');
+        setPifDeleteConfirmation('');
+      }
     } finally {
       setBusy('');
     }
@@ -985,6 +1015,11 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                   <span><Badge tone="success">{t('root.pifPresent')}</Badge><Badge tone="neutral">{item.module}</Badge><Badge tone="neutral">{item.format}</Badge></span>
                   <small>{item.size.toLocaleString()} · <code title={item.sha256 ?? undefined}>{item.sha256?.slice(0, 12)}…</code></small>
                 </span>
+                <Button
+                  variant="danger"
+                  onClick={() => { setPifDeleteProfile(item.id); setPifDeleteConfirmation(''); }}
+                  disabled={Boolean(busy)}
+                >{t('root.pifDelete')}</Button>
               </div>
             ))}
             {pifInventory.targets.map((item) => (
@@ -998,6 +1033,29 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               ? <EmptyState icon="shield" title={t('common.none')} detail={t('root.pifInventoryEmpty')} /> : null}
           </div>
         ) : <EmptyState icon="shield" title={t('root.pifInventoryEmpty')} detail={t('root.pifInventoryDetail')} />}
+        {pifDeleteProfile && primary ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.pifDeleteConfirm', { profile: pifDeleteProfile })}</span>
+              <small><code>{`DELETE PIF ${pifDeleteProfile} ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+              <input
+                value={pifDeleteConfirmation}
+                onChange={(event) => setPifDeleteConfirmation(event.currentTarget.value.slice(0, 320))}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={Boolean(busy)}
+              />
+            </label>
+            <span className="button-row">
+              <Button
+                variant="danger"
+                onClick={() => void deletePifProfile()}
+                disabled={Boolean(busy) || pifDeleteConfirmation !== `DELETE PIF ${pifDeleteProfile} ${primary.serial.slice(-6).toUpperCase()}`}
+              >{t('root.pifDeleteRun')}</Button>
+              <Button variant="ghost" onClick={() => { setPifDeleteProfile(''); setPifDeleteConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </span>
+          </div>
+        ) : null}
       </Card>
       <Card className="root-manager" aria-busy={busy === 'pi-analysis'}>
         <CardTitle icon="shield" after={(

@@ -80,6 +80,7 @@ class SafetyPolicy:
             "tools.xml",
             "tools.keybox",
             "tools.piAnalysis",
+            "tools.pif",
             "device.inspect",
             "device.openUrl",
             "backups.create",
