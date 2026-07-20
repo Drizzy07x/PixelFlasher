@@ -1342,6 +1342,8 @@ class OperationRunner:
             "adb_wifi_pairing_recorded",
             "package_data_cleared",
             "package_export_verified",
+            "data_adb_backup_verified",
+            "data_adb_restore_verified",
             "logcat_buffers_cleared",
             "view_intent_accepted",
         }
@@ -1351,6 +1353,35 @@ class OperationRunner:
         postcondition: OperationPostcondition,
     ) -> None:
         expected = postcondition.expected
+        if postcondition.kind == "data_adb_backup_verified":
+            if set(expected) != {"fileName"}:
+                raise ValueError("/data/adb backup postcondition fields are invalid")
+            file_name = expected.get("fileName")
+            if (
+                not isinstance(file_name, str)
+                or re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9._ -]{0,191}\.pfdataadb",
+                    file_name,
+                    re.I,
+                )
+                is None
+            ):
+                raise ValueError("/data/adb backup file name is invalid")
+            return
+        if postcondition.kind == "data_adb_restore_verified":
+            if set(expected) != {"contentFingerprint", "entryCount"}:
+                raise ValueError("/data/adb restore postcondition fields are invalid")
+            fingerprint = expected.get("contentFingerprint")
+            entry_count = expected.get("entryCount")
+            if (
+                not isinstance(fingerprint, str)
+                or not self._sha256_valid(fingerprint)
+                or not isinstance(entry_count, int)
+                or isinstance(entry_count, bool)
+                or not 0 <= entry_count <= 20_000
+            ):
+                raise ValueError("/data/adb restore identity is invalid")
+            return
         if postcondition.kind == "package_export_verified":
             if set(expected) != {"package", "fileName"}:
                 raise ValueError("APK export postcondition fields are invalid")
@@ -1533,6 +1564,11 @@ class OperationRunner:
                 evidence = self._verify_wifi_pairing_evidence(postcondition, result)
             elif postcondition.kind == "package_export_verified":
                 evidence = self._verify_package_export_evidence(postcondition, result)
+            elif postcondition.kind in {
+                "data_adb_backup_verified",
+                "data_adb_restore_verified",
+            }:
+                evidence = self._verify_data_adb_evidence(postcondition, result)
             elif postcondition.kind == "package_data_cleared":
                 evidence = self._verify_package_clear_evidence(postcondition, result)
             elif postcondition.kind == "logcat_buffers_cleared":
@@ -1546,6 +1582,82 @@ class OperationRunner:
         return OperationResult.success(
             plan.plan_id,
             code="execution_postconditions_satisfied",
+        )
+
+    @staticmethod
+    def _verify_data_adb_evidence(
+        postcondition: OperationPostcondition,
+        result: OperationResult,
+    ) -> OperationResult:
+        value = OperationRunner._result_value_mapping(cast(object, result.value))
+        digest_fields = ("sha256", "payloadSha256", "contentFingerprint")
+        if postcondition.kind == "data_adb_backup_verified":
+            valid = (
+                set(value)
+                == {
+                    "action",
+                    "targetSerial",
+                    "fileName",
+                    "sha256",
+                    "sizeBytes",
+                    "payloadSha256",
+                    "entryCount",
+                    "contentFingerprint",
+                    "deviceCodename",
+                    "verified",
+                    "remoteCleaned",
+                }
+                and value.get("action") == "backup"
+                and value.get("fileName") == postcondition.expected["fileName"]
+                and isinstance(value.get("sizeBytes"), int)
+                and not isinstance(value.get("sizeBytes"), bool)
+                and 1 <= cast(int, value.get("sizeBytes")) <= 2 * 1024 * 1024 * 1024 + 32 * 1024 * 1024
+            )
+        else:
+            digest_fields = ("payloadSha256", "contentFingerprint")
+            valid = (
+                set(value)
+                == {
+                    "action",
+                    "targetSerial",
+                    "payloadSha256",
+                    "entryCount",
+                    "contentFingerprint",
+                    "deviceCodename",
+                    "verified",
+                    "remoteCleaned",
+                }
+                and value.get("action") == "restore"
+                and value.get("contentFingerprint")
+                == postcondition.expected["contentFingerprint"]
+                and value.get("entryCount") == postcondition.expected["entryCount"]
+            )
+        valid = (
+            valid
+            and isinstance(value.get("targetSerial"), str)
+            and bool(value.get("targetSerial"))
+            and isinstance(value.get("deviceCodename"), str)
+            and bool(value.get("deviceCodename"))
+            and isinstance(value.get("entryCount"), int)
+            and not isinstance(value.get("entryCount"), bool)
+            and 0 <= cast(int, value.get("entryCount")) <= 20_000
+            and all(
+                isinstance(value.get(field), str)
+                and OperationRunner._sha256_valid(cast(str, value.get(field)))
+                for field in digest_fields
+            )
+            and value.get("verified") is True
+            and value.get("remoteCleaned") is True
+        )
+        if not valid:
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_mismatch",
+                message="/data/adb receipt does not prove identity, hashes, cleanup, and publication",
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code=postcondition.kind,
         )
 
     @staticmethod
@@ -1931,6 +2043,7 @@ class OperationRunner:
         expected_magisk_backups: dict[str, str] = {}
         expected_shizuku_running: bool | None = None
         expected_magisk_modules_disabled: bool | None = None
+        expected_data_adb_empty: bool | None = None
         erased_partitions: list[str] = []
 
         def bind(current: object, value: object, name: str) -> object:
@@ -2176,6 +2289,16 @@ class OperationRunner:
                         "Magisk module aggregate state",
                     ),
                 )
+            elif postcondition.kind == "data_adb_empty":
+                if set(expected) != {"empty"}:
+                    raise ValueError("/data/adb empty postcondition fields are invalid")
+                empty = expected.get("empty")
+                if not isinstance(empty, bool):
+                    raise TypeError("/data/adb empty state must be a boolean")
+                expected_data_adb_empty = cast(
+                    bool,
+                    bind(expected_data_adb_empty, empty, "/data/adb empty state"),
+                )
             elif postcondition.kind == "remote_files_written":
                 raw_mode = expected.get("mode")
                 if raw_mode is not None:
@@ -2277,6 +2400,7 @@ class OperationRunner:
             expected_magisk_backups=expected_magisk_backups,
             expected_shizuku_running=expected_shizuku_running,
             expected_magisk_modules_disabled=expected_magisk_modules_disabled,
+            expected_data_adb_empty=expected_data_adb_empty,
             erased_partitions=tuple(erased_partitions),
         )
 

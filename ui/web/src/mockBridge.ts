@@ -1519,6 +1519,41 @@ export function installDevelopmentBridge() {
             }));
             break;
           }
+          case 'root.dataAdb.backup':
+            respond(request, success('/data/adb backup created.', {
+              action: 'backup',
+              targetSerial: String(request.payload.serial ?? ''),
+              fileName: 'data-adb-mock.pfdataadb',
+              sha256: 'a'.repeat(64),
+              sizeBytes: 1024,
+              payloadSha256: 'b'.repeat(64),
+              entryCount: 4,
+              contentFingerprint: 'c'.repeat(64),
+              deviceCodename: 'komodo',
+              verified: true,
+              remoteCleaned: true,
+            }));
+            break;
+          case 'root.dataAdb.restore':
+            respond(request, success('/data/adb restore completed.', {
+              action: 'restore',
+              targetSerial: String(request.payload.serial ?? ''),
+              payloadSha256: 'b'.repeat(64),
+              entryCount: 4,
+              contentFingerprint: 'c'.repeat(64),
+              deviceCodename: 'komodo',
+              verified: true,
+              remoteCleaned: true,
+            }));
+            break;
+          case 'root.dataAdb.clear':
+            respond(request, success('/data/adb cleared.', {
+              action: 'clear',
+              targetSerial: String(request.payload.serial ?? ''),
+              empty: true,
+              verified: true,
+            }));
+            break;
           case 'backups.create': {
             const serial = String(request.payload.serial ?? snapshot.selectedSerial ?? 'MOCK-SERIAL');
             const partition = String(request.payload.partition ?? 'boot');

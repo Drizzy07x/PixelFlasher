@@ -87,6 +87,7 @@ class DeviceObservation:
     magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
     shizuku_running: bool | None = None
     magisk_modules_disabled: bool | None = None
+    data_adb_empty: bool | None = None
     erased_partitions: Mapping[str, bool] = field(default_factory=_empty_booleans)
     safe_mode: bool | None = None
     ota_idle: bool | None = None
@@ -103,6 +104,8 @@ class DeviceObservation:
             bool,
         ):
             raise TypeError("observed Magisk module aggregate state must be a boolean or null")
+        if self.data_adb_empty is not None and not isinstance(self.data_adb_empty, bool):
+            raise TypeError("observed /data/adb empty state must be a boolean or null")
         if any(not isinstance(value, bool) for value in self.packages.values()):
             raise TypeError("observed package states must be booleans")
         if any(not isinstance(value, str) for value in self.package_states.values()):
@@ -250,6 +253,7 @@ class PostconditionSpec:
     expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_shizuku_running: bool | None = None
     expected_magisk_modules_disabled: bool | None = None
+    expected_data_adb_empty: bool | None = None
     erased_partitions: tuple[str, ...] = ()
     expected_safe_mode: bool | None = None
     expected_ota_idle: bool | None = None
@@ -281,6 +285,11 @@ class PostconditionSpec:
             bool,
         ):
             raise TypeError("expected Magisk module aggregate state must be a boolean or null")
+        if self.expected_data_adb_empty is not None and not isinstance(
+            self.expected_data_adb_empty,
+            bool,
+        ):
+            raise TypeError("expected /data/adb empty state must be a boolean or null")
         if any(not isinstance(value, bool) for value in self.expected_packages.values()):
             raise TypeError("expected package states must be booleans")
         allowed_package_states = {
@@ -742,6 +751,13 @@ class ProcessDeviceObservationProbe:
                     token,
                     timeout,
                 ),
+                data_adb_empty=self._data_adb_empty(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
             )
         )
 
@@ -1144,6 +1160,26 @@ class ProcessDeviceObservationProbe:
         if outcome.returncode == 1:
             return False
         return None
+
+    def _data_adb_empty(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> bool | None:
+        if mode != "adb" or spec.expected_data_adb_empty is None:
+            return None
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return None
+        return self._root_test(
+            toolchain,
+            spec.serial,
+            'test -d /data/adb && [ -z "$(find /data/adb -mindepth 1 -print -quit)" ]',
+            token,
+            timeout,
+        )
 
     def _magisk_denylist_states(
         self,
@@ -2159,6 +2195,7 @@ class PostconditionObserver:
             ("safe_mode", spec.expected_safe_mode, observation.safe_mode),
             ("build", spec.expected_build, observation.build),
             ("ota_idle", spec.expected_ota_idle, observation.ota_idle),
+            ("data_adb_empty", spec.expected_data_adb_empty, observation.data_adb_empty),
         )
         for name, expected, actual in scalar_fields:
             if expected is None:

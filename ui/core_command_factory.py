@@ -142,6 +142,13 @@ _NATIVE_GRANT_SPECS = (
         GrantAccess.READ,
     ),
     NativeGrantSpec(
+        "native.pickFile",
+        "root.dataAdb.restore.source",
+        "root.dataAdb.restore",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
         "native.pickFiles",
         "tools.keybox.sources",
         "tools.keybox",
@@ -198,6 +205,13 @@ _NATIVE_GRANT_SPECS = (
         "native.saveFile",
         "support.create.destination",
         "support.create",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
+        "root.dataAdb.backup.destination",
+        "root.dataAdb.backup",
         GrantTarget.FILE,
         GrantAccess.WRITE,
     ),
@@ -441,6 +455,34 @@ class CoreCommandFactory:
                 self._resolve_one(payload, "backups.restore.source", "path")
         elif command == "backups.magisk.import":
             self._resolve_one(payload, "backups.magisk.import.source", "path")
+        elif command == "root.dataAdb.backup":
+            token = payload.pop("grant", None)
+            if not isinstance(token, str):
+                raise CommandFactoryError(
+                    "grant_required", "A native /data/adb backup destination is required."
+                )
+            spec = _SPECS_BY_PURPOSE["root.dataAdb.backup.destination"]
+            try:
+                payload["destination"] = self.path_grants.resolve_bound_write_file(
+                    token,
+                    purpose=spec.purpose,
+                )
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
+        elif command == "root.dataAdb.restore":
+            token = payload.pop("grant", None)
+            if not isinstance(token, str):
+                raise CommandFactoryError(
+                    "grant_required", "A native /data/adb restore source is required."
+                )
+            spec = _SPECS_BY_PURPOSE["root.dataAdb.restore.source"]
+            try:
+                payload["source"] = self.path_grants.resolve_bound_file(
+                    token,
+                    purpose=spec.purpose,
+                )
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "partitions.read":
             self._resolve_one(payload, "partitions.read.destination", "destination")
         elif command == "partitions.write":

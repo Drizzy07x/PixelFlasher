@@ -96,6 +96,9 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
   const [magiskState, setMagiskState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [confirmMagiskDelete, setConfirmMagiskDelete] = useState('');
   const [magiskConfirmationText, setMagiskConfirmationText] = useState('');
+  const [dataAdbAction, setDataAdbAction] = useState<'restore' | 'clear' | ''>('');
+  const [dataAdbConfirmation, setDataAdbConfirmation] = useState('');
+  const [dataAdbNotice, setDataAdbNotice] = useState('');
 
   const refreshInventory = useCallback(async (expectedRevision?: number) => {
     if (!serial) {
@@ -157,6 +160,9 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
     setConfirmationText('');
     setConfirmMagiskDelete('');
     setMagiskConfirmationText('');
+    setDataAdbAction('');
+    setDataAdbConfirmation('');
+    setDataAdbNotice('');
     void refreshInventory();
     void refreshMagisk();
   }, [refreshInventory, refreshMagisk]);
@@ -220,6 +226,89 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
       const response = await onCommand(commands.backupsCreate, { serial, partition, slot, grant });
       if (response && operationSucceeded(record(response.result))) {
         await refreshInventory(response.revision);
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const dataAdbReady = Boolean(serial && primary?.mode === 'adb' && primary.rooted);
+  const dataAdbRequired = dataAdbAction === 'restore'
+    ? `RESTORE DATAADB ${serial.slice(-6).toUpperCase()}`
+    : `CLEAR DATAADB ${serial.slice(-6).toUpperCase()}`;
+
+  const backupDataAdb = async () => {
+    if (!dataAdbReady || busy) return;
+    setBusy('data-adb-backup');
+    setDataAdbNotice('');
+    try {
+      const picked = await onCommand(commands.nativeSaveFile, {
+        purpose: 'root.dataAdb.backup.destination',
+        title: t('backups.dataAdbBackup'),
+        defaultName: `data-adb-${serial.slice(-6).toLowerCase()}.pfdataadb`,
+        filters: [{ label: t('backups.dataAdbFiles'), extensions: ['pfdataadb'] }],
+      }, { returnCancelled: true });
+      const grant = selectedGrant(picked);
+      if (!grant) return;
+      const response = await onCommand(
+        commands.rootDataAdbBackup,
+        { serial, grant },
+        { returnCancelled: true },
+      );
+      const result = record(response?.result);
+      const value = record(result.value);
+      if (operationSucceeded(result) && value.action === 'backup' && value.verified === true && value.remoteCleaned === true) {
+        setDataAdbNotice(t('backups.dataAdbBackupSuccess', { file: String(value.fileName ?? '') }));
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const restoreDataAdb = async () => {
+    if (!dataAdbReady || busy || dataAdbConfirmation !== dataAdbRequired) return;
+    setBusy('data-adb-restore');
+    setDataAdbNotice('');
+    try {
+      const picked = await onCommand(commands.nativePickFile, {
+        purpose: 'root.dataAdb.restore.source',
+        title: t('backups.dataAdbRestore'),
+        filters: [{ label: t('backups.dataAdbFiles'), extensions: ['pfdataadb'] }],
+      }, { returnCancelled: true });
+      const grant = selectedGrant(picked);
+      if (!grant) return;
+      const response = await onCommand(commands.rootDataAdbRestore, {
+        serial,
+        grant,
+        confirmationText: dataAdbConfirmation,
+      }, { returnCancelled: true });
+      const result = record(response?.result);
+      const value = record(result.value);
+      if (operationSucceeded(result) && value.action === 'restore' && value.verified === true && value.remoteCleaned === true) {
+        setDataAdbNotice(t('backups.dataAdbRestoreSuccess', { count: String(value.entryCount ?? 0) }));
+        setDataAdbAction('');
+        setDataAdbConfirmation('');
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const clearDataAdb = async () => {
+    if (!dataAdbReady || busy || dataAdbConfirmation !== dataAdbRequired) return;
+    setBusy('data-adb-clear');
+    setDataAdbNotice('');
+    try {
+      const response = await onCommand(commands.rootDataAdbClear, {
+        serial,
+        confirmationText: dataAdbConfirmation,
+      }, { returnCancelled: true });
+      const result = record(response?.result);
+      const value = record(result.value);
+      if (operationSucceeded(result) && value.action === 'clear' && value.empty === true && value.verified === true) {
+        setDataAdbNotice(t('backups.dataAdbClearSuccess'));
+        setDataAdbAction('');
+        setDataAdbConfirmation('');
       }
     } finally {
       setBusy('');
@@ -304,6 +393,33 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
           <Button variant="primary" icon="backupPng" onClick={() => void createBackup()} disabled={Boolean(busy) || !createReady}>{t('backups.create')}</Button>
         </div>
       )} />
+      <section aria-labelledby="data-adb-backups-title">
+        <Card>
+          <div className="card-title backup-inventory__title">
+            <span className="card-title__label"><Icon name="backup" size={20} /><span id="data-adb-backups-title">{t('backups.dataAdbTitle')}</span></span>
+            <div className="page-header__controls">
+              <Button variant="primary" icon="backupPng" onClick={() => void backupDataAdb()} disabled={Boolean(busy) || !dataAdbReady}>{t('backups.dataAdbBackup')}</Button>
+              <Button icon="restore" onClick={() => { setDataAdbAction('restore'); setDataAdbConfirmation(''); }} disabled={Boolean(busy) || !dataAdbReady}>{t('backups.dataAdbRestore')}</Button>
+              <Button variant="danger" onClick={() => { setDataAdbAction('clear'); setDataAdbConfirmation(''); }} disabled={Boolean(busy) || !dataAdbReady}>{t('backups.dataAdbClear')}</Button>
+            </div>
+          </div>
+          <p>{t('backups.dataAdbDetail')}</p>
+          {!dataAdbReady ? <p role="status">{t('backups.dataAdbGuard')}</p> : null}
+          {dataAdbNotice ? <p role="status">{dataAdbNotice}</p> : null}
+          {dataAdbAction ? (
+            <div className="backup-delete-confirm" role="group" aria-label={t(`backups.dataAdb${dataAdbAction === 'restore' ? 'Restore' : 'Clear'}`)}>
+              <label>
+                <span>{t('backups.dataAdbConfirmPrompt', { confirmation: dataAdbRequired })}</span>
+                <input value={dataAdbConfirmation} onChange={(event) => setDataAdbConfirmation(event.currentTarget.value)} aria-label={t('backups.confirmationLabel')} autoComplete="off" />
+              </label>
+              <div className="page-header__controls">
+                <Button variant="danger" onClick={() => void (dataAdbAction === 'restore' ? restoreDataAdb() : clearDataAdb())} disabled={Boolean(busy) || dataAdbConfirmation !== dataAdbRequired}>{t('common.continue')}</Button>
+                <Button variant="ghost" onClick={() => { setDataAdbAction(''); setDataAdbConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      </section>
       <section aria-labelledby="magisk-backups-title">
         <div className="card-title backup-inventory__title">
           <span className="card-title__label"><Icon name="root" size={20} /><span id="magisk-backups-title">{t('backups.magiskTitle')}</span></span>

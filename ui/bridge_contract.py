@@ -350,6 +350,23 @@ def _validate_payload_values(
         required = f"SOS {serial[-6:].upper()}"
         if payload.get("confirmationText") != required:
             _payload_error("tools.sos confirmationText is invalid", request_id)
+    elif command in {
+        "root.dataAdb.backup",
+        "root.dataAdb.restore",
+        "root.dataAdb.clear",
+    }:
+        serial = payload.get("serial")
+        if not _nonempty_string(serial, limit=256):
+            _payload_error(f"{command} serial is invalid", request_id)
+        assert isinstance(serial, str)
+        if command == "root.dataAdb.restore":
+            required = f"RESTORE DATAADB {serial[-6:].upper()}"
+            if payload.get("confirmationText") != required:
+                _payload_error("root.dataAdb.restore confirmationText is invalid", request_id)
+        elif command == "root.dataAdb.clear":
+            required = f"CLEAR DATAADB {serial[-6:].upper()}"
+            if payload.get("confirmationText") != required:
+                _payload_error("root.dataAdb.clear confirmationText is invalid", request_id)
 
     if command == "interaction.respond":
         if not _nonempty_string(payload.get("operationId"), limit=128):

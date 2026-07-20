@@ -74,6 +74,12 @@ from .contracts import (
     SnapshotChanged,
     ToolchainInfo,
 )
+from .data_adb import (
+    DATA_ADB_COMMANDS,
+    DataAdbCompilation,
+    DataAdbError,
+    DataAdbService,
+)
 from .device_management import DeviceManagementError, reconcile_device_management
 from .device_tools import (
     DEVICE_TOOL_COMMANDS,
@@ -204,6 +210,7 @@ _SERVICE_COMMANDS = (
     | DEVICE_TOOL_COMMANDS
     | OTA_DIAGNOSTIC_COMMANDS
     | BACKUP_COMMANDS
+    | DATA_ADB_COMMANDS
     | ROOTING_COMMANDS
     | frozenset({BOOT_PATCH_COMMAND})
 )
@@ -213,6 +220,7 @@ _ServiceCompilation = (
     | DeviceToolCompilation
     | OtaDiagnosticCompilation
     | BackupCompilation
+    | DataAdbCompilation
     | RootingCompilation
     | BootPatchCompilation
 )
@@ -246,6 +254,7 @@ class CommandEngine:
         ota_diagnostics_service: OtaDiagnosticsService,
         backup_service: BackupService,
         backup_repository: BackupRepository,
+        data_adb_service: DataAdbService,
         rooting_service: RootingService,
         boot_patch_service: BootPatchService,
         firmware_artifact_service: FirmwareArtifactService,
@@ -310,6 +319,7 @@ class CommandEngine:
         self.ota_diagnostics_service = ota_diagnostics_service
         self.backup_service = backup_service
         self.backup_repository = backup_repository
+        self.data_adb_service = data_adb_service
         self.rooting_service = rooting_service
         self.boot_patch_service = boot_patch_service
         self.boot_inventory_service = boot_inventory_service
@@ -1043,6 +1053,12 @@ class CommandEngine:
                 )
                 if command.kind == "backups.restore" and inventory_id is not None:
                     compilation = replace(compilation, backup_id=inventory_backup_id)
+            elif command.kind in DATA_ADB_COMMANDS:
+                compilation = self.data_adb_service.compile(
+                    command,
+                    snapshot,
+                    planning_token,
+                )
             elif command.kind in ROOTING_COMMANDS:
                 compilation = self.rooting_service.compile(
                     command,
@@ -1096,6 +1112,7 @@ class CommandEngine:
             OtaDiagnosticPlanningError,
             BackupPlanningError,
             BackupRepositoryError,
+            DataAdbError,
             RootingPlanningError,
         ) as error:
             if planning_token is not None:
@@ -1354,6 +1371,19 @@ class CommandEngine:
                     lambda command, _plan, cancellation: self.package_service.execute_export(
                         compilation,
                         command,
+                        self.executor,
+                        cancellation,
+                    )
+                ),
+            )
+        if isinstance(compilation, DataAdbCompilation):
+            return self._execute_process(
+                planned,
+                cancellation=planning_token,
+                operation_executor=(
+                    lambda app_command, _plan, cancellation: self.data_adb_service.execute(
+                        compilation,
+                        app_command,
                         self.executor,
                         cancellation,
                     )
@@ -1838,6 +1868,7 @@ class CommandEngine:
         for token in tokens:
             token.cancel()
         self.package_service.shutdown()
+        self.data_adb_service.shutdown()
         self.device_tools_service.shutdown()
         self.support_package_service.shutdown()
 

@@ -45,6 +45,7 @@ from .contracts import (
     SnapshotChanged,
     ToolchainInfo,
 )
+from .data_adb import DataAdbService
 from .device_management import (
     DEVICE_MANAGEMENT_KEY,
     DEVICE_MANAGER_COMMANDS,
@@ -335,6 +336,7 @@ class ApplicationRuntime:
             ota_diagnostics_service=OtaDiagnosticsService(),
             backup_service=BackupService(),
             backup_repository=self.backup_repository,
+            data_adb_service=DataAdbService(),
             rooting_service=rooting_service,
             boot_patch_service=BootPatchService(rooting_service, ()),
             support_package_service=support_package_service,

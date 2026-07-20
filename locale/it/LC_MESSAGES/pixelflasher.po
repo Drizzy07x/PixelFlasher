@@ -5928,3 +5928,46 @@ msgstr "Digita la frase SOS mostrata. Nessuna cartella dei moduli viene eliminat
 msgctxt "web.root.sosRun"
 msgid "Disable all modules"
 msgstr "Disabilita tutti i moduli"
+msgctxt "web.backups.dataAdbTitle"
+msgid "/data/adb backup"
+msgstr "Backup di /data/adb"
+
+msgctxt "web.backups.dataAdbDetail"
+msgid "Create or restore a verified, portable archive of root app state. Restore replaces all current /data/adb contents."
+msgstr "Crea o ripristina un archivio portatile e verificato dello stato delle app root. Il ripristino sostituisce tutto il contenuto attuale di /data/adb."
+
+msgctxt "web.backups.dataAdbGuard"
+msgid "Select one rooted device in ADB mode to manage /data/adb."
+msgstr "Seleziona un dispositivo con root in modalità ADB per gestire /data/adb."
+
+msgctxt "web.backups.dataAdbBackup"
+msgid "Back up /data/adb"
+msgstr "Esegui backup di /data/adb"
+
+msgctxt "web.backups.dataAdbRestore"
+msgid "Restore /data/adb"
+msgstr "Ripristina /data/adb"
+
+msgctxt "web.backups.dataAdbClear"
+msgid "Clear /data/adb"
+msgstr "Svuota /data/adb"
+
+msgctxt "web.backups.dataAdbFiles"
+msgid "PixelFlasher data/adb backups"
+msgstr "Backup data/adb di PixelFlasher"
+
+msgctxt "web.backups.dataAdbConfirmPrompt"
+msgid "Type {confirmation} to continue."
+msgstr "Digita {confirmation} per continuare."
+
+msgctxt "web.backups.dataAdbBackupSuccess"
+msgid "Verified backup created: {file}"
+msgstr "Backup verificato creato: {file}"
+
+msgctxt "web.backups.dataAdbRestoreSuccess"
+msgid "Verified {count} restored entries."
+msgstr "Verificati {count} elementi ripristinati."
+
+msgctxt "web.backups.dataAdbClearSuccess"
+msgid "/data/adb is empty and verified."
+msgstr "/data/adb è vuoto e verificato."

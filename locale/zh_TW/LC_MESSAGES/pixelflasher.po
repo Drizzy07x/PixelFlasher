@@ -5922,3 +5922,46 @@ msgstr "輸入顯示的 SOS 短語。不會刪除任何模組目錄。"
 msgctxt "web.root.sosRun"
 msgid "Disable all modules"
 msgstr "停用所有模組"
+msgctxt "web.backups.dataAdbTitle"
+msgid "/data/adb backup"
+msgstr "/data/adb 備份"
+
+msgctxt "web.backups.dataAdbDetail"
+msgid "Create or restore a verified, portable archive of root app state. Restore replaces all current /data/adb contents."
+msgstr "建立或還原經過驗證的可攜式 Root 應用程式狀態封存。還原會取代目前 /data/adb 的全部內容。"
+
+msgctxt "web.backups.dataAdbGuard"
+msgid "Select one rooted device in ADB mode to manage /data/adb."
+msgstr "請選擇一台處於 ADB 模式且已 Root 的裝置以管理 /data/adb。"
+
+msgctxt "web.backups.dataAdbBackup"
+msgid "Back up /data/adb"
+msgstr "備份 /data/adb"
+
+msgctxt "web.backups.dataAdbRestore"
+msgid "Restore /data/adb"
+msgstr "還原 /data/adb"
+
+msgctxt "web.backups.dataAdbClear"
+msgid "Clear /data/adb"
+msgstr "清空 /data/adb"
+
+msgctxt "web.backups.dataAdbFiles"
+msgid "PixelFlasher data/adb backups"
+msgstr "PixelFlasher data/adb 備份"
+
+msgctxt "web.backups.dataAdbConfirmPrompt"
+msgid "Type {confirmation} to continue."
+msgstr "請輸入 {confirmation} 以繼續。"
+
+msgctxt "web.backups.dataAdbBackupSuccess"
+msgid "Verified backup created: {file}"
+msgstr "已建立並驗證備份：{file}"
+
+msgctxt "web.backups.dataAdbRestoreSuccess"
+msgid "Verified {count} restored entries."
+msgstr "已驗證 {count} 個還原項目。"
+
+msgctxt "web.backups.dataAdbClearSuccess"
+msgid "/data/adb is empty and verified."
+msgstr "/data/adb 已清空並通過驗證。"

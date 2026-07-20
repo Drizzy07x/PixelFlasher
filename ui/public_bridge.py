@@ -44,6 +44,9 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.catalog.refresh",
         "root.apps.download",
         "root.modules.list",
+        "root.dataAdb.backup",
+        "root.dataAdb.restore",
+        "root.dataAdb.clear",
         "tools.shizuku",
         "tools.sos",
         "tools.logcat",
@@ -1522,6 +1525,104 @@ def _project_sos_recovery(value: object) -> JSONValue:
     return _project_root_recovery(value, expected_action="disableModules")
 
 
+def _project_data_adb_backup(value: object) -> JSONValue:
+    fields = frozenset(
+        {
+            "action",
+            "targetSerial",
+            "fileName",
+            "sha256",
+            "sizeBytes",
+            "payloadSha256",
+            "entryCount",
+            "contentFingerprint",
+            "deviceCodename",
+            "verified",
+            "remoteCleaned",
+        }
+    )
+    source = _closed_record(value, fields=fields)
+    file_name = source["fileName"]
+    size = source["sizeBytes"]
+    entry_count = source["entryCount"]
+    if (
+        source["action"] != "backup"
+        or not isinstance(source["targetSerial"], str)
+        or not is_valid_target_serial(source["targetSerial"])
+        or not isinstance(file_name, str)
+        or ntpath.basename(posixpath.basename(file_name.replace("\\", "/"))) != file_name
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,191}\.pfdataadb", file_name, re.I)
+        is None
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 1 <= size <= 2 * 1024 * 1024 * 1024 + 32 * 1024 * 1024
+        or not isinstance(entry_count, int)
+        or isinstance(entry_count, bool)
+        or not 0 <= entry_count <= 20_000
+        or source["verified"] is not True
+        or source["remoteCleaned"] is not True
+    ):
+        raise PublicProjectionError("/data/adb backup receipt is invalid")
+    for field in ("sha256", "payloadSha256", "contentFingerprint"):
+        digest = source[field]
+        if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+            raise PublicProjectionError("/data/adb backup digest is invalid")
+    if not isinstance(source["deviceCodename"], str) or not source["deviceCodename"]:
+        raise PublicProjectionError("/data/adb backup device identity is invalid")
+    return ensure_public_json(dict(source))
+
+
+def _project_data_adb_restore(value: object) -> JSONValue:
+    fields = frozenset(
+        {
+            "action",
+            "targetSerial",
+            "payloadSha256",
+            "entryCount",
+            "contentFingerprint",
+            "deviceCodename",
+            "verified",
+            "remoteCleaned",
+        }
+    )
+    source = _closed_record(value, fields=fields)
+    entry_count = source["entryCount"]
+    if (
+        source["action"] != "restore"
+        or not isinstance(source["targetSerial"], str)
+        or not is_valid_target_serial(source["targetSerial"])
+        or not isinstance(entry_count, int)
+        or isinstance(entry_count, bool)
+        or not 0 <= entry_count <= 20_000
+        or not isinstance(source["deviceCodename"], str)
+        or not source["deviceCodename"]
+        or source["verified"] is not True
+        or source["remoteCleaned"] is not True
+    ):
+        raise PublicProjectionError("/data/adb restore receipt is invalid")
+    for field in ("payloadSha256", "contentFingerprint"):
+        digest = source[field]
+        if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
+            raise PublicProjectionError("/data/adb restore digest is invalid")
+    return ensure_public_json(dict(source))
+
+
+def _project_data_adb_clear(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"action", "targetSerial", "empty", "verified"}),
+    )
+    if (
+        source["action"] != "clear"
+        or not isinstance(source["targetSerial"], str)
+        or not is_valid_target_serial(source["targetSerial"])
+        or source["empty"] is not True
+        or source["verified"] is not True
+    ):
+        raise PublicProjectionError("/data/adb clear receipt is invalid")
+    return ensure_public_json(dict(source))
+
+
 def _project_partitions(value: object) -> JSONValue:
     source = _record(value)
     partitions: list[dict[str, object]] = []
@@ -2955,6 +3056,9 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "root.apps.catalog.refresh": _project_root_app_catalog,
     "root.apps.download": _project_root_app_download,
     "root.apps.list": _project_root_apps,
+    "root.dataAdb.backup": _project_data_adb_backup,
+    "root.dataAdb.restore": _project_data_adb_restore,
+    "root.dataAdb.clear": _project_data_adb_clear,
     "root.modules.action": _project_root_module_action,
     "root.modules.list": _project_root_modules,
     "secret.issue": _project_native_grant,

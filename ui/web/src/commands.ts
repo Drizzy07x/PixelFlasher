@@ -56,6 +56,9 @@ export const commands = {
   rootAppsDownload: "root.apps.download",
   rootAppsInstall: "root.apps.install",
   rootAppsList: "root.apps.list",
+  rootDataAdbBackup: "root.dataAdb.backup",
+  rootDataAdbClear: "root.dataAdb.clear",
+  rootDataAdbRestore: "root.dataAdb.restore",
   rootModulesAction: "root.modules.action",
   rootModulesList: "root.modules.list",
   secretIssue: "secret.issue",
@@ -297,6 +300,19 @@ export interface BridgePayloadByCommand {
   "root.apps.list": {
     "serial"?: string;
   };
+  "root.dataAdb.backup": {
+    "grant": string;
+    "serial": string;
+  };
+  "root.dataAdb.clear": {
+    "confirmationText": string;
+    "serial": string;
+  };
+  "root.dataAdb.restore": {
+    "confirmationText": string;
+    "grant": string;
+    "serial": string;
+  };
   "root.modules.action": {
     "action": string;
     "grant"?: string;
@@ -459,6 +475,9 @@ export const allowedCommands = [
   commands.rootAppsDownload,
   commands.rootAppsInstall,
   commands.rootAppsList,
+  commands.rootDataAdbBackup,
+  commands.rootDataAdbClear,
+  commands.rootDataAdbRestore,
   commands.rootModulesAction,
   commands.rootModulesList,
   commands.secretIssue,
@@ -540,6 +559,9 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.rootAppsDownload]: 1800000,
   [commands.rootAppsInstall]: 1800000,
   [commands.rootAppsList]: 3600000,
+  [commands.rootDataAdbBackup]: 3600000,
+  [commands.rootDataAdbClear]: 600000,
+  [commands.rootDataAdbRestore]: 3600000,
   [commands.rootModulesAction]: 1800000,
   [commands.rootModulesList]: 300000,
   [commands.secretIssue]: 60000,
@@ -615,6 +637,9 @@ export const bridgeCommandMetadata = {
   [commands.rootAppsDownload]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.apps.download","confirmation":"none","postconditions":["root_app_download_verified","root_app_inventory_updated"]},
   [commands.rootAppsInstall]: {"owner":"root","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.app_install","confirmation":"standard","postconditions":["package_installed"]},
   [commands.rootAppsList]: {"owner":"root","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.apps_inventory","confirmation":"none","postconditions":["root_apps_returned"]},
+  [commands.rootDataAdbBackup]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.data_adb.backup","confirmation":"standard","postconditions":["data_adb_backup_verified"]},
+  [commands.rootDataAdbClear]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.data_adb.clear","confirmation":"standard","postconditions":["data_adb_empty"]},
+  [commands.rootDataAdbRestore]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.data_adb.restore","confirmation":"standard","postconditions":["data_adb_restore_verified"]},
   [commands.rootModulesAction]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.module_action","confirmation":"standard","postconditions":["root_module_state_verified"]},
   [commands.rootModulesList]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.modules_inventory","confirmation":"none","postconditions":["root_modules_returned"]},
   [commands.secretIssue]: {"owner":"native_host","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.secret_grant","confirmation":"none","postconditions":["secret_grant_issued"]},
@@ -721,6 +746,9 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.rootAppsDownload]: {"artifactId":{"kind":"string","required":true}},
   [commands.rootAppsInstall]: {"appId":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
   [commands.rootAppsList]: {"serial":{"kind":"string","required":false}},
+  [commands.rootDataAdbBackup]: {"grant":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
+  [commands.rootDataAdbClear]: {"confirmationText":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
+  [commands.rootDataAdbRestore]: {"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
   [commands.rootModulesAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"moduleId":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.rootModulesList]: {"serial":{"kind":"string","required":false}},
   [commands.secretIssue]: {"purpose":{"kind":"string","required":true},"secret":{"kind":"string","required":true}},

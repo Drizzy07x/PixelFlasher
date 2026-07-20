@@ -484,6 +484,58 @@ class CoreCommandFactoryTests(unittest.TestCase):
                     request_id="apk-export-arbitrary-path",
                 )
 
+    def test_data_adb_grants_stay_bound_and_cannot_be_replayed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            factory = create_command_factory(
+                lambda: AppSnapshot(revision=4, selected_serial="SERIAL123456")
+            )
+            destination = Path(directory) / "root-state.pfdataadb"
+            backup_picker = request(
+                "native.saveFile",
+                payload={"purpose": "root.dataAdb.backup.destination"},
+            )
+            backup_grant = factory.issue_native_grants(backup_picker, (destination,))
+            backup_payload = {
+                "serial": "SERIAL123456",
+                "grant": backup_grant["grant"],
+            }
+            backup = factory(request("root.dataAdb.backup", payload=backup_payload))
+            self.assertIsInstance(backup.payload["destination"], BoundWriteFile)
+            self.assertNotIn("grant", backup.payload)
+            self.assertNotIn(str(destination), repr(backup))
+            with self.assertRaises(CommandFactoryError) as replay:
+                factory(
+                    request(
+                        "root.dataAdb.backup",
+                        payload=backup_payload,
+                        request_id="data-adb-backup-replay",
+                    )
+                )
+            self.assertEqual("grant_not_found", replay.exception.code)
+
+            source = Path(directory) / "existing.pfdataadb"
+            source.write_bytes(b"opaque container")
+            restore_picker = request(
+                "native.pickFile",
+                payload={"purpose": "root.dataAdb.restore.source"},
+                request_id="data-adb-restore-picker",
+            )
+            restore_grant = factory.issue_native_grants(restore_picker, (source,))
+            restore = factory(
+                request(
+                    "root.dataAdb.restore",
+                    payload={
+                        "serial": "SERIAL123456",
+                        "grant": restore_grant["grant"],
+                        "confirmationText": "RESTORE DATAADB 123456",
+                    },
+                    request_id="data-adb-restore",
+                )
+            )
+            self.assertIsInstance(restore.payload["source"], BoundReadFile)
+            self.assertNotIn("grant", restore.payload)
+            self.assertNotIn(str(source), repr(restore))
+
     def test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             selected = Path(directory) / "current-boot.img"

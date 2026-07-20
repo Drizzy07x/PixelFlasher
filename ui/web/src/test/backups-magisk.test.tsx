@@ -95,7 +95,7 @@ describe('Magisk backup inventory', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByText(/Select one rooted device/)).toBeVisible();
+    expect(await screen.findByText('Select one rooted device connected through ADB to manage Magisk backups.')).toBeVisible();
     expect(onCommand.mock.calls.some(([command]) => command === 'backups.magisk.list')).toBe(false);
   });
 });

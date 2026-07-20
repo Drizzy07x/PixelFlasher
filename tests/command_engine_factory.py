@@ -28,6 +28,7 @@ from pixelflasher_core.contracts import (
     OperationResult,
     ToolchainInfo,
 )
+from pixelflasher_core.data_adb import DataAdbService
 from pixelflasher_core.device_tools import DeviceToolsService
 from pixelflasher_core.devices import DeviceService
 from pixelflasher_core.engine import (
@@ -88,6 +89,7 @@ def make_test_command_engine(
     ota_diagnostics_service: OtaDiagnosticsService | None = None,
     backup_service: BackupService | None = None,
     backup_repository: BackupRepository | None = None,
+    data_adb_service: DataAdbService | None = None,
     rooting_service: RootingService | None = None,
     apk_inspector: RootApkInspector | None = None,
     boot_patch_bundles: Sequence[PatchToolBundle] = (),
@@ -157,6 +159,7 @@ def make_test_command_engine(
         )
         backup_repository = BackupRepository(owned_backup_root)
     rooting_service = rooting_service or RootingService(apk_inspector=apk_inspector)
+    data_adb_service = data_adb_service or DataAdbService()
     boot_patch_service = BootPatchService(rooting_service, boot_patch_bundles)
     support_package_service = support_package_service or UnavailableSupportPackageV2Service()
     snapshot_provider = snapshot_provider or (lambda _serial: store.snapshot())
@@ -213,6 +216,7 @@ def make_test_command_engine(
         ota_diagnostics_service=ota_diagnostics_service,
         backup_service=backup_service,
         backup_repository=backup_repository,
+        data_adb_service=data_adb_service,
         rooting_service=rooting_service,
         boot_patch_service=boot_patch_service,
         firmware_artifact_service=firmware_artifact_service,

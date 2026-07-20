@@ -50,6 +50,7 @@ class StatefulDeviceTransport:
         magisk_backups: dict[str, str] | None = None,
         shizuku_running: bool = False,
         all_modules_disabled: bool = False,
+        data_adb_empty: bool = False,
         root_available: bool = True,
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
@@ -71,6 +72,7 @@ class StatefulDeviceTransport:
         self.magisk_backups = magisk_backups or {}
         self.shizuku_running = shizuku_running
         self.all_modules_disabled = all_modules_disabled
+        self.data_adb_empty = data_adb_empty
         self.root_available = root_available
         self.partitions = partitions or {}
         self.partition_sizes = partition_sizes or {name: len(content) for name, content in self.partitions.items()}
@@ -226,6 +228,8 @@ class StatefulDeviceTransport:
                 return TransportOutcome(0, f"{marker}\n") if marker else TransportOutcome(1)
             if command.startswith("for dir in /data/adb/modules/*;"):
                 return TransportOutcome(0 if self.all_modules_disabled else 1)
+            if command == 'test -d /data/adb && [ -z "$(find /data/adb -mindepth 1 -print -quit)" ]':
+                return TransportOutcome(0 if self.data_adb_empty else 1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -1024,6 +1028,47 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             )
         )
         self.assertEqual(ObservationStatus.VERIFIED, absent.status)
+
+    def test_data_adb_empty_requires_root_and_distinguishes_mismatch(self) -> None:
+        verified = observer(
+            StatefulDeviceTransport(mode="adb", data_adb_empty=True)
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_data_adb_empty=True,
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        mismatch = observer(
+            StatefulDeviceTransport(mode="adb", data_adb_empty=False)
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_data_adb_empty=True,
+            )
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
+        self.assertEqual((True, False), mismatch.mismatches["data_adb_empty"])
+
+        unavailable = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                data_adb_empty=True,
+                root_available=False,
+            ),
+            timer=FakeTime(),
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_data_adb_empty=True,
+            )
+        )
+        self.assertEqual(ObservationStatus.UNVERIFIED, unavailable.status)
+        self.assertIn("data_adb_empty", unavailable.missing)
 
     def test_adb_wifi_endpoint_state_uses_bounded_host_inventory(self) -> None:
         endpoint = "192.0.2.20:5555"

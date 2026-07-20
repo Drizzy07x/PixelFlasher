@@ -116,6 +116,14 @@ from .contracts import (
     ToolchainInfo,
     is_valid_target_serial,
 )
+from .data_adb import (
+    DATA_ADB_COMMANDS,
+    DataAdbCompilation,
+    DataAdbEntry,
+    DataAdbError,
+    DataAdbManifest,
+    DataAdbService,
+)
 from .device_management import (
     DEVICE_MANAGEMENT_KEY,
     DEVICE_MANAGER_COMMANDS,
@@ -504,6 +512,12 @@ __all__ = [
     "ConfigDocument",
     "ConfigError",
     "ConfigStore",
+    "DATA_ADB_COMMANDS",
+    "DataAdbCompilation",
+    "DataAdbEntry",
+    "DataAdbError",
+    "DataAdbManifest",
+    "DataAdbService",
     "DEVICE_MANAGEMENT_KEY",
     "DEVICE_MANAGER_COMMANDS",
     "DEVICE_MANAGER_POLICY_COMMAND",

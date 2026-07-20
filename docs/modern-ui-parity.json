@@ -2163,9 +2163,16 @@
       "area": "root",
       "capability": "Backup, restore and clear /data/adb",
       "owner": "root",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No modern backup, restore or clear flow exists for /data/adb.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/data_adb.py:DataAdbService",
+        "pixelflasher_core/operation_runner.py:_verify_data_adb_evidence",
+        "pixelflasher_core/observer.py:ProductionPostconditionObserver",
+        "ui/core_command_factory.py:CoreCommandFactory",
+        "ui/public_bridge.py:_project_data_adb_backup",
+        "ui/web/src/pages/backups/BackupsPage.tsx:BackupsPage"
+      ],
+      "gap": "The native flow is implemented with opaque grants, a confined hashed container, exact destructive confirmations and verified results. Release validation still needs packaged cross-platform smoke coverage, real rooted-device coverage, disconnect/cancellation-after-mutation coverage and the remaining hostile tar variants.",
       "exitCriteria": [
         "Backup, restore and clear /data/adb is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -2182,7 +2189,13 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_data_adb_service.py:DataAdbServiceTests",
+        "tests/test_data_adb_public_contract.py:DataAdbPublicContractTests",
+        "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_data_adb_grants_stay_bound_and_cannot_be_replayed",
+        "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests",
+        "ui/web/src/test/data-adb-backups.test.tsx:/data/adb backups"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
@@ -2190,7 +2203,9 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
-        "tools.dataAdb"
+        "root.dataAdb.backup",
+        "root.dataAdb.restore",
+        "root.dataAdb.clear"
       ]
     },
     {
