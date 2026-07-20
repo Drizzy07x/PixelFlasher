@@ -370,6 +370,7 @@ from .root_app_catalog import (
 )
 from .rooting import (
     ROOTING_COMMANDS,
+    PifImportInspection,
     PifProfileInfo,
     PifTargetInfo,
     RootApkInspector,
@@ -379,6 +380,7 @@ from .rooting import (
     RootingPlanningError,
     RootingService,
     RootModuleInfo,
+    inspect_pif_profile_stream,
     parse_pi_analysis,
     parse_pif_inventory,
     parse_root_module_list,
@@ -650,6 +652,7 @@ __all__ = [
     "PAYLOAD_OPERATION_TYPES",
     "PARTITION_COMMANDS",
     "PifProfileInfo",
+    "PifImportInspection",
     "PifTargetInfo",
     "PackageCompilation",
     "PackageInfo",
@@ -790,6 +793,7 @@ __all__ = [
     "document_with_device_management",
     "format_platform_tools_version",
     "inspect_apk",
+    "inspect_pif_profile_stream",
     "import_legacy_devices",
     "is_valid_target_serial",
     "merge_device_history",

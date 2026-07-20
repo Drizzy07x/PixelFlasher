@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import os
 import re
 import stat
@@ -20,7 +21,7 @@ import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import BinaryIO, Protocol
 from urllib.parse import urlsplit
 
 from .apk_inspection import (
@@ -126,6 +127,8 @@ _PIF_PROFILE_PATHS = {
     "tricky.tee": "/data/adb/tricky_store/tee_status",
     "targeted.targets": "/data/adb/modules/targetedfix/config/target.txt",
 }
+_MAX_PIF_IMPORT_BYTES = 1024 * 1024
+_PIF_PROPERTY_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
 
 
 class RootApkInspector(Protocol):
@@ -260,6 +263,22 @@ class PifTargetInfo:
             "packageName": self.package_name,
             "format": "json",
             "present": self.present,
+            "size": self.size,
+            "sha256": self.sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PifImportInspection:
+    profile_id: str
+    format: str
+    size: int
+    sha256: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "profileId": self.profile_id,
+            "format": self.format,
             "size": self.size,
             "sha256": self.sha256,
         }
@@ -1697,6 +1716,72 @@ def parse_pif_inventory(stdout: str) -> dict[str, object]:
     }
 
 
+def inspect_pif_profile_stream(profile_id: str, stream: BinaryIO) -> PifImportInspection:
+    """Validate a granted PIF source while returning metadata only."""
+
+    formats = {item[0]: item[2] for item in _PIF_PROFILE_SPECS}
+    profile_format = formats.get(profile_id)
+    if profile_format is None:
+        raise RootingPlanningError("pif_profile_invalid", "PIF profile ID is not canonical")
+    if not hasattr(stream, "read"):
+        raise RootingPlanningError("pif_import_invalid", "PIF import source is not readable")
+    digest = hashlib.sha256()
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := stream.read(64 * 1024):
+        if not isinstance(chunk, bytes):
+            raise RootingPlanningError("pif_import_invalid", "PIF import source must be binary")
+        size += len(chunk)
+        if size > _MAX_PIF_IMPORT_BYTES:
+            raise RootingPlanningError("pif_import_oversized", "PIF import exceeds 1 MiB")
+        digest.update(chunk)
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise RootingPlanningError("pif_import_encoding_invalid", "PIF import must be UTF-8") from error
+    if "\x00" in text or any(
+        ord(character) < 32 and character not in {"\n", "\r", "\t"}
+        for character in text
+    ):
+        raise RootingPlanningError("pif_import_controls_invalid", "PIF import contains control bytes")
+    normalized_lines = tuple(line.strip() for line in text.splitlines())
+    if profile_format == "json":
+        try:
+            value = json.loads(text)
+        except (json.JSONDecodeError, RecursionError) as error:
+            raise RootingPlanningError("pif_import_json_invalid", "PIF import JSON is invalid") from error
+        if not isinstance(value, dict) or not value:
+            raise RootingPlanningError("pif_import_json_invalid", "PIF import JSON must be a non-empty object")
+    elif profile_format in {"list"}:
+        entries = tuple(line for line in normalized_lines if line and not line.startswith("#"))
+        if not entries or len(entries) > 1024 or any(
+            _PACKAGE_NAME_PATTERN.fullmatch(entry) is None for entry in entries
+        ):
+            raise RootingPlanningError("pif_import_list_invalid", "PIF import list has invalid package IDs")
+        identities = tuple(entry.casefold() for entry in entries)
+        if len(set(identities)) != len(identities):
+            raise RootingPlanningError("pif_import_list_invalid", "PIF import list contains duplicates")
+    elif profile_format == "prop":
+        entries = tuple(line for line in normalized_lines if line and not line.startswith("#"))
+        if not entries or len(entries) > 1024:
+            raise RootingPlanningError("pif_import_prop_invalid", "PIF property file is empty or oversized")
+        for entry in entries:
+            key, separator, _value = entry.partition("=")
+            if not separator or _PIF_PROPERTY_KEY_PATTERN.fullmatch(key.strip()) is None:
+                raise RootingPlanningError("pif_import_prop_invalid", "PIF property entry is invalid")
+    elif profile_format == "marker":
+        if raw:
+            raise RootingPlanningError("pif_import_marker_invalid", "PIF marker profile must be empty")
+    elif profile_format == "text":
+        if not text.strip() or len(normalized_lines) > 1024:
+            raise RootingPlanningError("pif_import_text_invalid", "PIF text profile is empty or oversized")
+    else:
+        raise RootingPlanningError("pif_import_format_invalid", "PIF profile format is unsupported")
+    return PifImportInspection(profile_id, profile_format, size, digest.hexdigest())
+
+
 def _parse_pif_file_evidence(state: str, raw_size: str, digest: str) -> tuple[bool, int, str | None]:
     if state not in {"present", "absent"}:
         raise RootingPlanningError("pif_inventory_malformed", "PIF file state is invalid")
@@ -1882,6 +1967,7 @@ def _pi_count(value: str, label: str, maximum: int) -> int:
 __all__ = [
     "ROOTING_COMMANDS",
     "PifProfileInfo",
+    "PifImportInspection",
     "PifTargetInfo",
     "RootApkInspector",
     "RootAppInfo",
@@ -1890,6 +1976,7 @@ __all__ = [
     "RootingCompilation",
     "RootingPlanningError",
     "RootingService",
+    "inspect_pif_profile_stream",
     "parse_pif_inventory",
     "parse_pi_analysis",
     "parse_root_module_list",

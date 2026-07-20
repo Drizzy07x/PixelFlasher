@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import io
 import os
 import tempfile
 import unittest
@@ -26,6 +27,7 @@ from pixelflasher_core.rooting import (
     RootAppSource,
     RootingPlanningError,
     RootingService,
+    inspect_pif_profile_stream,
     parse_pi_analysis,
     parse_pif_inventory,
     parse_root_module_list,
@@ -420,6 +422,42 @@ class RootingServiceTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaises(RootingPlanningError) as raised:
                     RootingService().compile(self.command("tools.pif", payload), self.snapshot)
+                self.assertEqual(code, raised.exception.code)
+
+    def test_pif_import_inspection_is_format_specific_and_metadata_only(self):
+        cases = (
+            ("pif.custom_json", b'{"PRODUCT":"akita"}', "json"),
+            ("pif.custom_prop", b"PRODUCT=akita\nDEVICE=akita\n", "prop"),
+            ("pif.app_replace", b"com.google.android.gms\ncom.android.vending\n", "list"),
+            ("pif.scripts_only", b"", "marker"),
+            ("tricky.security_patch", b"2026-07-05\n", "text"),
+        )
+        for profile_id, contents, profile_format in cases:
+            with self.subTest(profile_id=profile_id):
+                inspected = inspect_pif_profile_stream(profile_id, io.BytesIO(contents))
+                self.assertEqual(profile_format, inspected.format)
+                self.assertEqual(len(contents), inspected.size)
+                self.assertEqual(hashlib.sha256(contents).hexdigest(), inspected.sha256)
+                if contents:
+                    self.assertNotIn(contents.decode(errors="ignore"), repr(inspected))
+
+    def test_pif_import_inspection_rejects_hostile_or_ambiguous_content(self):
+        cases = (
+            ("../private", b"{}", "pif_profile_invalid"),
+            ("pif.custom_json", b"[]", "pif_import_json_invalid"),
+            ("pif.custom_json", b'{"a":', "pif_import_json_invalid"),
+            ("pif.custom_prop", b"NOT A PROPERTY\n", "pif_import_prop_invalid"),
+            ("pif.app_replace", b"../private\n", "pif_import_list_invalid"),
+            ("pif.app_replace", b"com.example.app\nCOM.EXAMPLE.APP\n", "pif_import_list_invalid"),
+            ("pif.scripts_only", b"enabled", "pif_import_marker_invalid"),
+            ("tricky.security_patch", b"bad\x00value", "pif_import_controls_invalid"),
+            ("tricky.security_patch", b"\xff", "pif_import_encoding_invalid"),
+            ("tricky.security_patch", b"x" * (1024 * 1024 + 1), "pif_import_oversized"),
+        )
+        for profile_id, contents, code in cases:
+            with self.subTest(profile_id=profile_id, code=code):
+                with self.assertRaises(RootingPlanningError) as raised:
+                    inspect_pif_profile_stream(profile_id, io.BytesIO(contents))
                 self.assertEqual(code, raised.exception.code)
 
     def test_local_root_app_inventory_has_hash_and_provenance(self):
