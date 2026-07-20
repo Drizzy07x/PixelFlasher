@@ -847,6 +847,24 @@ _COMMAND_SPECS = (
         postconditions=("bounded_pif_inventory_returned",),
     ),
     _command(
+        "root.pif.document",
+        "rootPifDocument",
+        _payload(
+            ("serial", PayloadKind.STRING, True),
+            ("profileId", PayloadKind.STRING, True),
+        ),
+        owner=CommandOwner.ROOT,
+        **_LIVE,
+        mutability=CommandMutability.READ_ONLY,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.DEVICE_READ,
+        valid_device_states=ADB_DEVICE_STATES,
+        target_scope=TargetScope.SELECTED_DEVICE,
+        planner="root.pif.document",
+        timeout_ms=2 * 60_000,
+        postconditions=("bounded_pif_document_returned",),
+    ),
+    _command(
         "root.modules.action",
         "rootModulesAction",
         _payload(
@@ -1372,6 +1390,8 @@ _COMMAND_SPECS = (
             ("targetPackage", PayloadKind.STRING),
             ("targetFormat", PayloadKind.STRING),
             ("checker", PayloadKind.STRING),
+            ("content", PayloadKind.STRING),
+            ("baseSha256", PayloadKind.STRING),
             ("confirmationText", PayloadKind.STRING, True),
             ("grant", PayloadKind.STRING),
         ),

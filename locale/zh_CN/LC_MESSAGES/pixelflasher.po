@@ -6056,10 +6056,8 @@ msgid "PIF and TargetedFix profiles"
 msgstr "PIF 和 TargetedFix 配置文件"
 
 msgctxt "web.root.pifInventoryDetail"
-msgid ""
-"Verified metadata for backend-owned integrity profiles. Paths, contents, and"
-" keybox material are never exposed."
-msgstr "后端管理的完整性配置文件的已验证元数据。绝不公开路径、内容或 keybox 材料。"
+msgid "Verified metadata for backend-owned integrity profiles. Device paths and keybox material stay within the backend; editable content is loaded only on demand."
+msgstr "后端管理的完整性配置文件的已验证元数据。设备路径和 keybox 材料保持私密；可编辑内容仅在需要时加载。"
 
 msgctxt "web.root.pifInventoryInvalid"
 msgid "The backend returned an incomplete or unsafe profile inventory."
@@ -6220,3 +6218,47 @@ msgstr "确认启动完整性检查器"
 msgctxt "web.root.integrityCheckRun"
 msgid "Open and verify checker"
 msgstr "打开并验证检查器"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifEdit"
+msgid "Edit profile"
+msgstr "编辑配置文件"
+
+msgctxt "web.root.pifEditorInvalid"
+msgid "The backend returned an invalid or stale PIF document."
+msgstr "后端返回了无效或过期的 PIF 文档。"
+
+msgctxt "web.root.pifEditorTitle"
+msgid "Edit {profile}"
+msgstr "编辑 {profile}"
+
+msgctxt "web.root.pifEditorDetail"
+msgid "Validated UTF-8 content; device paths stay within the backend."
+msgstr "已验证 UTF-8 内容；设备路径仅由后端私密保管。"
+
+msgctxt "web.root.pifEditorUnchanged"
+msgid "Unchanged"
+msgstr "未更改"
+
+msgctxt "web.root.pifEditorModified"
+msgid "Modified"
+msgstr "已修改"
+
+msgctxt "web.root.pifEditorContent"
+msgid "PIF profile content"
+msgstr "PIF 配置文件内容"
+
+msgctxt "web.root.pifEditorConfirm"
+msgid "Confirm profile save"
+msgstr "确认保存配置文件"
+
+msgctxt "web.root.pifEditorReload"
+msgid "Reload verified content"
+msgstr "重新加载已验证内容"
+
+msgctxt "web.root.pifEditorSave"
+msgid "Save and verify profile"
+msgstr "保存并验证配置文件"

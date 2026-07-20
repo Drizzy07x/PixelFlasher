@@ -348,6 +348,14 @@ def _validate_payload_values(
     elif command == "root.pif.inventory":
         if not _nonempty_string(payload.get("serial"), limit=256):
             _payload_error("root.pif.inventory serial is invalid", request_id)
+    elif command == "root.pif.document":
+        if not _nonempty_string(payload.get("serial"), limit=256):
+            _payload_error("root.pif.document serial is invalid", request_id)
+        if payload.get("profileId") not in {
+            "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
+            "pif.app_replace", "tricky.spoof", "tricky.target", "tricky.security_patch",
+        }:
+            _payload_error("root.pif.document profileId is invalid", request_id)
     elif command == "tools.pif":
         serial = payload.get("serial")
         profile_id = payload.get("profileId")
@@ -363,7 +371,7 @@ def _validate_payload_values(
             checker = payload.get("checker")
             if checker not in {"piac", "spic", "aic", "playStore"} or any(
                 field in payload
-                for field in ("profileId", "targetPackage", "targetFormat", "grant")
+                for field in ("profileId", "targetPackage", "targetFormat", "grant", "content", "baseSha256")
             ):
                 _payload_error("tools.pif integrity checker payload is invalid", request_id)
             assert isinstance(serial, str)
@@ -371,17 +379,43 @@ def _validate_payload_values(
         elif action == "cleanupDroidGuard":
             if any(
                 field in payload
-                for field in ("profileId", "targetPackage", "targetFormat", "checker", "grant")
+                for field in ("profileId", "targetPackage", "targetFormat", "checker", "grant", "content", "baseSha256")
             ):
                 _payload_error("tools.pif DroidGuard cleanup payload is invalid", request_id)
             assert isinstance(serial, str)
             required = f"CLEANUP DG {serial[-6:].upper()}"
+        elif action == "updateProfile":
+            content = payload.get("content")
+            base_sha256 = payload.get("baseSha256")
+            editable_profiles = canonical_profiles - {
+                "pif.scripts_only", "tricky.tee", "targeted.targets",
+            }
+            if (
+                profile_id not in editable_profiles
+                or not _bounded_utf8_string(content, limit=32 * 1024)
+                or (
+                    base_sha256 != "absent"
+                    and (
+                        not isinstance(base_sha256, str)
+                        or re.fullmatch(r"[0-9a-f]{64}", base_sha256) is None
+                    )
+                )
+                or any(
+                    field in payload
+                    for field in ("targetPackage", "targetFormat", "checker", "grant")
+                )
+            ):
+                _payload_error("tools.pif editor payload is invalid", request_id)
+            assert isinstance(serial, str) and isinstance(profile_id, str)
+            required = f"SAVE PIF {profile_id} {serial[-6:].upper()}"
         elif action in {"deleteProfile", "importProfile"}:
             if (
                 profile_id not in canonical_profiles
                 or "targetPackage" in payload
                 or "targetFormat" in payload
                 or "checker" in payload
+                or "content" in payload
+                or "baseSha256" in payload
             ):
                 _payload_error("tools.pif profile action payload is invalid", request_id)
             assert isinstance(serial, str) and isinstance(profile_id, str)
@@ -402,6 +436,8 @@ def _validate_payload_values(
                 or len(target_package) > 255
                 or "profileId" in payload
                 or "checker" in payload
+                or "content" in payload
+                or "baseSha256" in payload
             ):
                 _payload_error("tools.pif TargetedFix payload is invalid", request_id)
             assert isinstance(serial, str)
@@ -724,6 +760,16 @@ def _require_grant(value: Any, field: str, request_id: str) -> None:
 
 def _nonempty_string(value: Any, *, limit: int) -> bool:
     return isinstance(value, str) and bool(value.strip()) and len(value) <= limit and "\x00" not in value
+
+
+def _bounded_utf8_string(value: object, *, limit: int) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        size = len(value.encode("utf-8", errors="strict"))
+    except UnicodeError:
+        return False
+    return size <= limit
 
 
 def _valid_wifi_host(value: object) -> bool:

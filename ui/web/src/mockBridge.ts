@@ -1147,6 +1147,36 @@ export function installDevelopmentBridge() {
             });
             break;
           }
+          case 'root.pif.document': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            const profileId = typeof request.payload.profileId === 'string' ? request.payload.profileId : '';
+            const formats: Record<string, 'json' | 'prop' | 'list' | 'text'> = {
+              'pif.custom_json': 'json', 'pif.custom_prop': 'prop', 'pif.module_json': 'json', 'pif.legacy_json': 'json',
+              'pif.app_replace': 'list', 'tricky.spoof': 'prop', 'tricky.target': 'list', 'tricky.security_patch': 'text',
+            };
+            const format = formats[profileId];
+            if (!target || target.mode !== 'adb' || !target.rooted || !format) {
+              emit(errorMessage('PIF editor request is invalid.', request));
+              break;
+            }
+            const content = format === 'json'
+              ? '{\n  "PRODUCT": "akita",\n  "DEVICE": "akita"\n}\n'
+              : format === 'prop'
+                ? 'PRODUCT=akita\nDEVICE=akita\n'
+                : format === 'list'
+                  ? 'com.google.android.gms\n'
+                  : '2026-07-05\n';
+            respond(request, {
+              status: 'SUCCESS', code: 'pif_document_loaded',
+              value: {
+                schemaVersion: 1, profileId, format, present: true, content,
+                size: new TextEncoder().encode(content).length, sha256: 'a'.repeat(64),
+                editable: true, bounded: true,
+              },
+            });
+            break;
+          }
           case 'tools.pif': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);
@@ -1156,10 +1186,14 @@ export function installDevelopmentBridge() {
             const targetAction = action === 'addTarget' || action === 'deleteTarget' || action === 'importTargetProfile';
             const cleaningDroidGuard = action === 'cleanupDroidGuard';
             const launchingIntegrityCheck = action === 'launchIntegrityCheck';
+            const updatingProfile = action === 'updateProfile';
             const checker = typeof request.payload.checker === 'string' ? request.payload.checker : '';
+            const content = typeof request.payload.content === 'string' ? request.payload.content : '';
             const targetPackage = typeof request.payload.targetPackage === 'string' ? request.payload.targetPackage : '';
             const targetFormat = request.payload.targetFormat === 'prop' ? 'prop' : 'json';
-            const required = launchingIntegrityCheck
+            const required = updatingProfile
+              ? `SAVE PIF ${profileId} ${serial.slice(-6).toUpperCase()}`
+              : launchingIntegrityCheck
               ? `OPEN PI ${checker} ${serial.slice(-6).toUpperCase()}`
               : cleaningDroidGuard
               ? `CLEANUP DG ${serial.slice(-6).toUpperCase()}`
@@ -1170,8 +1204,9 @@ export function installDevelopmentBridge() {
               : `${importing ? 'IMPORT' : 'DELETE'} PIF ${profileId} ${serial.slice(-6).toUpperCase()}`;
             if (
               !target || target.mode !== 'adb' || !target.rooted
-              || !['deleteProfile', 'importProfile', 'addTarget', 'deleteTarget', 'importTargetProfile', 'cleanupDroidGuard', 'launchIntegrityCheck'].includes(action)
+              || !['deleteProfile', 'importProfile', 'updateProfile', 'addTarget', 'deleteTarget', 'importTargetProfile', 'cleanupDroidGuard', 'launchIntegrityCheck'].includes(action)
               || (launchingIntegrityCheck && !['piac', 'spic', 'aic', 'playStore'].includes(checker))
+              || (updatingProfile && (!content || !['absent', 'a'.repeat(64)].includes(String(request.payload.baseSha256))))
               || request.payload.confirmationText !== required
             ) {
               emit(errorMessage('PIF or TargetedFix request is invalid.', request));
@@ -1179,7 +1214,9 @@ export function installDevelopmentBridge() {
             }
             requestGuardedConfirmation(
               request,
-              launchingIntegrityCheck
+              updatingProfile
+                ? `Save PIF profile ${profileId} on ${serial}?`
+                : launchingIntegrityCheck
                 ? `Open integrity checker ${checker} on ${serial}?`
                 : cleaningDroidGuard
                 ? `Clean DroidGuard cache on ${serial}?`
@@ -1189,7 +1226,9 @@ export function installDevelopmentBridge() {
               true,
               () => finishGuarded(request, {
                 status: 'SUCCESS',
-                code: launchingIntegrityCheck
+                code: updatingProfile
+                  ? 'pif_profile_updated'
+                  : launchingIntegrityCheck
                   ? 'integrity_checker_opened'
                   : cleaningDroidGuard
                   ? 'droidguard_cache_cleaned'
@@ -1200,14 +1239,18 @@ export function installDevelopmentBridge() {
                       ? 'targeted_fix_target_deleted'
                       : 'targeted_fix_profile_imported'
                   : importing ? 'pif_profile_imported' : 'pif_profile_deleted',
-                message: launchingIntegrityCheck
+                message: updatingProfile
+                  ? `PIF profile ${profileId} update hash was independently verified`
+                  : launchingIntegrityCheck
                   ? `Integrity checker ${checker} was opened and its process was independently verified`
                   : cleaningDroidGuard
                   ? 'DroidGuard cache absence was independently verified'
                   : targetAction
                   ? 'TargetedFix target state was independently verified'
                   : `PIF profile ${importing ? 'import hash' : 'deletion'} was independently verified`,
-                value: launchingIntegrityCheck
+                value: updatingProfile
+                  ? { action, profileId, sha256: 'e'.repeat(64), size: new TextEncoder().encode(content).length }
+                  : launchingIntegrityCheck
                   ? { action, checker, verified: true }
                   : cleaningDroidGuard
                   ? { action, verified: true }

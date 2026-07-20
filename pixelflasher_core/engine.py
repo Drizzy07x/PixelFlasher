@@ -151,6 +151,7 @@ from .rooting import (
     RootingPlanningError,
     RootingService,
     parse_pi_analysis,
+    parse_pif_document,
     parse_pif_inventory,
     parse_root_module_list,
 )
@@ -1794,6 +1795,36 @@ class CommandEngine:
                 stdout="",
                 stderr="",
             )
+        if kind == "root.pif.document":
+            if (
+                not isinstance(compilation, RootingCompilation)
+                or compilation.action != "pif.document"
+                or compilation.pif_profile_id is None
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="pif_document_compilation_invalid",
+                    message="PIF document returned an invalid compilation",
+                )
+            try:
+                document = parse_pif_document(
+                    result.stdout,
+                    expected_profile_id=compilation.pif_profile_id,
+                )
+            except RootingPlanningError as error:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            return replace(
+                result,
+                code="pif_document_loaded",
+                message="verified bounded PIF document loaded",
+                value=document.to_dict(),
+                stdout="",
+                stderr="",
+            )
         if kind == "tools.pif":
             if (
                 not isinstance(compilation, RootingCompilation)
@@ -1801,6 +1832,7 @@ class CommandEngine:
                 not in {
                     "pif.delete_profile",
                     "pif.import_profile",
+                    "pif.update_profile",
                     "pif.add_target",
                     "pif.delete_target",
                     "pif.import_target_profile",
@@ -1844,12 +1876,13 @@ class CommandEngine:
             action_names = {
                 "pif.delete_profile": "deleteProfile",
                 "pif.import_profile": "importProfile",
+                "pif.update_profile": "updateProfile",
                 "pif.add_target": "addTarget",
                 "pif.delete_target": "deleteTarget",
                 "pif.import_target_profile": "importTargetProfile",
             }
             public_action = action_names[compilation.action]
-            imported = compilation.action == "pif.import_profile"
+            imported = compilation.action in {"pif.import_profile", "pif.update_profile"}
             target_action = compilation.action in {
                 "pif.add_target",
                 "pif.delete_target",
@@ -1904,6 +1937,7 @@ class CommandEngine:
                 result,
                 code={
                     "importProfile": "pif_profile_imported",
+                    "updateProfile": "pif_profile_updated",
                     "deleteProfile": "pif_profile_deleted",
                     "addTarget": "targeted_fix_target_added",
                     "deleteTarget": "targeted_fix_target_deleted",
@@ -1911,6 +1945,7 @@ class CommandEngine:
                 }[public_action],
                 message={
                     "importProfile": "PIF profile import hash was independently verified",
+                    "updateProfile": "PIF profile update hash was independently verified",
                     "deleteProfile": "PIF profile deletion was independently verified",
                     "addTarget": "TargetedFix target addition was independently verified",
                     "deleteTarget": "TargetedFix target deletion was independently verified",

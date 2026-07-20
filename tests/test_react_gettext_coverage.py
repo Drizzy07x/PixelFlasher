@@ -12,15 +12,15 @@ from scripts.sync_react_gettext import (
 )
 
 EXPECTED_TRANSLATED_COUNTS = {
-    "en": 84,
-    "es": 596,
-    "fr": 596,
-    "it": 596,
-    "zh_CN": 596,
-    "zh_TW": 596,
+    "en": 94,
+    "es": 606,
+    "fr": 606,
+    "it": 606,
+    "zh_CN": 606,
+    "zh_TW": 606,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 697
+EXPECTED_WEB_CONTEXT_COUNT = 707
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     # Official firmware catalog/download UI awaits the next coordinated
     # translation pass and uses its canonical English source in the meantime.

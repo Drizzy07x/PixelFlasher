@@ -6014,10 +6014,8 @@ msgid "PIF and TargetedFix profiles"
 msgstr "PIF and TargetedFix profiles"
 
 msgctxt "web.root.pifInventoryDetail"
-msgid ""
-"Verified metadata for backend-owned integrity profiles. Paths, contents, and"
-" keybox material are never exposed."
-msgstr "Verified metadata for backend-owned integrity profiles. Paths, contents, and keybox material are never exposed."
+msgid "Verified metadata for backend-owned integrity profiles. Device paths and keybox material stay within the backend; editable content is loaded only on demand."
+msgstr "Verified metadata for backend-owned integrity profiles. Device paths and keybox material stay within the backend; editable content is loaded only on demand."
 
 msgctxt "web.root.pifInventoryInvalid"
 msgid "The backend returned an incomplete or unsafe profile inventory."
@@ -6178,3 +6176,47 @@ msgstr "Confirm integrity checker launch"
 msgctxt "web.root.integrityCheckRun"
 msgid "Open and verify checker"
 msgstr "Open and verify checker"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifEdit"
+msgid "Edit profile"
+msgstr "Edit profile"
+
+msgctxt "web.root.pifEditorInvalid"
+msgid "The backend returned an invalid or stale PIF document."
+msgstr "The backend returned an invalid or stale PIF document."
+
+msgctxt "web.root.pifEditorTitle"
+msgid "Edit {profile}"
+msgstr "Edit {profile}"
+
+msgctxt "web.root.pifEditorDetail"
+msgid "Validated UTF-8 content; device paths stay within the backend."
+msgstr "Validated UTF-8 content; device paths stay within the backend."
+
+msgctxt "web.root.pifEditorUnchanged"
+msgid "Unchanged"
+msgstr "Unchanged"
+
+msgctxt "web.root.pifEditorModified"
+msgid "Modified"
+msgstr "Modified"
+
+msgctxt "web.root.pifEditorContent"
+msgid "PIF profile content"
+msgstr "PIF profile content"
+
+msgctxt "web.root.pifEditorConfirm"
+msgid "Confirm profile save"
+msgstr "Confirm profile save"
+
+msgctxt "web.root.pifEditorReload"
+msgid "Reload verified content"
+msgstr "Reload verified content"
+
+msgctxt "web.root.pifEditorSave"
+msgid "Save and verify profile"
+msgstr "Save and verify profile"

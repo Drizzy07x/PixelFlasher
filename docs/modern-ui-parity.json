@@ -2218,6 +2218,7 @@
         "pixelflasher_core/rooting.py:RootingService._compile_pi_analysis",
         "pixelflasher_core/rooting.py:parse_pi_analysis",
         "pixelflasher_core/rooting.py:RootingService._compile_pif_inventory",
+        "pixelflasher_core/rooting.py:RootingService._compile_pif_document",
         "pixelflasher_core/rooting.py:RootingService._compile_pif_action",
         "pixelflasher_core/rooting.py:RootingService._compile_integrity_check_launch",
         "pixelflasher_core/rooting.py:inspect_pif_profile_stream",
@@ -2228,11 +2229,13 @@
         "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._targeted_fix_profile_hashes",
         "pixelflasher_core/engine.py:CommandEngine._parse_service_result",
         "ui/core_command_factory.py:CoreCommandFactory._resolve_native_resources",
+        "ui/core_command_factory.py:CoreCommandFactory._stage_pif_editor_content",
         "ui/public_bridge.py:_project_pif_inventory",
+        "ui/public_bridge.py:_project_pif_document",
         "ui/public_bridge.py:_project_pi_analysis",
         "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion/import and TargetedFix add/delete/import are serial-confirmed and independently observed. Per-package JSON/PROP import uses its own purpose-bound grant, strict validation, confined staging, alternate-format removal and a single-active-file SHA-256 observation. DroidGuard cleanup is a fixed backend mutation with an exact serial phrase and independent absence proof for its canonical cache and database files. Interactive integrity checks are limited to four backend-owned package identities, use exact argv and confirmation, and require a running-process postcondition. The modern editor and packaged rooted-device validation remain.",
+      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion/import and TargetedFix add/delete/import are serial-confirmed and independently observed. The React editor reads eight canonical bounded documents on demand, keeps routes backend-only, validates each format, stages content privately, rejects stale base hashes and verifies the final remote SHA-256. Per-package JSON/PROP import uses its own purpose-bound grant, strict validation, confined staging, alternate-format removal and a single-active-file SHA-256 observation. DroidGuard cleanup is a fixed backend mutation with an exact serial phrase and independent absence proof for its canonical cache and database files. Interactive integrity checks are limited to four backend-owned package identities, use exact argv and confirmation, and require a running-process postcondition. Advanced transformations/favorites and packaged rooted-device validation remain.",
       "exitCriteria": [
         "PIF/TargetedFix management and Play Integrity analysis is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -2251,6 +2254,8 @@
         "tests/test_rooting_service.py:PiAnalysisParserTests",
         "tests/test_rooting_service.py:RootingServiceTests.test_pi_analysis_compiles_one_fixed_read_only_redacted_probe",
         "tests/test_rooting_service.py:RootingServiceTests.test_pif_inventory_is_fixed_read_only_and_excludes_keybox",
+        "tests/test_rooting_service.py:RootingServiceTests.test_pif_document_is_bounded_hash_verified_and_path_free",
+        "tests/test_rooting_service.py:RootingServiceTests.test_pif_editor_update_is_validated_compare_and_swap_and_hash_observed",
         "tests/test_rooting_service.py:RootingServiceTests.test_pif_import_inspection_is_format_specific_and_metadata_only",
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pi_analysis_returns_only_closed_redacted_evidence",
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pif_inventory_returns_only_verified_metadata",
@@ -2266,6 +2271,7 @@
         "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_targeted_fix_target_state_requires_exact_root_readback",
         "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_targeted_fix_profile_hash_requires_one_exact_active_format",
         "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_pif_import_grant_resolves_only_for_the_exact_purpose_and_action",
+        "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_pif_editor_content_is_staged_privately_and_removed_from_the_command",
         "tests/test_pi_analysis_public_contract.py:PiAnalysisPublicContractTests",
         "tests/test_pif_inventory_public_contract.py:PifInventoryPublicContractTests",
         "ui/web/src/test/pi-analysis.test.tsx:redacted Play Integrity analysis",
@@ -2278,6 +2284,7 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
+        "root.pif.document",
         "root.pif.inventory",
         "tools.pif",
         "tools.piAnalysis"

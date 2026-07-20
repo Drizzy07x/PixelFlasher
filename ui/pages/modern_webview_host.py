@@ -1218,6 +1218,7 @@ class ModernWebViewFrame(wx.Frame):
                 wx.LogWarning("PixelFlasher's operation worker did not stop within the shutdown timeout.")
             self._command_factory.path_grants.clear()
             self._command_factory.secret_grants.clear()
+            self._command_factory.clear_transient_resources()
             with self._operation_commands_lock:
                 self._operation_commands.clear()
             self._replay_ledger.clear()

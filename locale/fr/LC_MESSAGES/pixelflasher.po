@@ -6051,10 +6051,8 @@ msgid "PIF and TargetedFix profiles"
 msgstr "Profils PIF et TargetedFix"
 
 msgctxt "web.root.pifInventoryDetail"
-msgid ""
-"Verified metadata for backend-owned integrity profiles. Paths, contents, and"
-" keybox material are never exposed."
-msgstr "Métadonnées vérifiées des profils d’intégrité gérés par le backend. Les chemins, le contenu et les données keybox ne sont jamais exposés."
+msgid "Verified metadata for backend-owned integrity profiles. Device paths and keybox material stay within the backend; editable content is loaded only on demand."
+msgstr "Métadonnées vérifiées des profils d’intégrité gérés par le backend. Les chemins de l’appareil et les données keybox restent privés ; le contenu modifiable n’est chargé qu’à la demande."
 
 msgctxt "web.root.pifInventoryInvalid"
 msgid "The backend returned an incomplete or unsafe profile inventory."
@@ -6215,3 +6213,47 @@ msgstr "Confirmer l’ouverture du vérificateur d’intégrité"
 msgctxt "web.root.integrityCheckRun"
 msgid "Open and verify checker"
 msgstr "Ouvrir et vérifier le vérificateur"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifEdit"
+msgid "Edit profile"
+msgstr "Modifier le profil"
+
+msgctxt "web.root.pifEditorInvalid"
+msgid "The backend returned an invalid or stale PIF document."
+msgstr "Le backend a renvoyé un document PIF non valide ou obsolète."
+
+msgctxt "web.root.pifEditorTitle"
+msgid "Edit {profile}"
+msgstr "Modifier {profile}"
+
+msgctxt "web.root.pifEditorDetail"
+msgid "Validated UTF-8 content; device paths stay within the backend."
+msgstr "Contenu UTF-8 validé ; les chemins de l’appareil restent privés dans le backend."
+
+msgctxt "web.root.pifEditorUnchanged"
+msgid "Unchanged"
+msgstr "Inchangé"
+
+msgctxt "web.root.pifEditorModified"
+msgid "Modified"
+msgstr "Modifié"
+
+msgctxt "web.root.pifEditorContent"
+msgid "PIF profile content"
+msgstr "Contenu du profil PIF"
+
+msgctxt "web.root.pifEditorConfirm"
+msgid "Confirm profile save"
+msgstr "Confirmer l’enregistrement du profil"
+
+msgctxt "web.root.pifEditorReload"
+msgid "Reload verified content"
+msgstr "Recharger le contenu vérifié"
+
+msgctxt "web.root.pifEditorSave"
+msgid "Save and verify profile"
+msgstr "Enregistrer et vérifier le profil"

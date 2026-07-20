@@ -8,6 +8,7 @@ display-only projection selected by the canonical command registry.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
 import math
 import ntpath
@@ -44,6 +45,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.catalog.refresh",
         "root.apps.download",
         "root.modules.list",
+        "root.pif.document",
         "root.pif.inventory",
         "tools.pif",
         "root.dataAdb.backup",
@@ -3059,6 +3061,65 @@ def _project_pif_inventory(value: object) -> JSONValue:
     )
 
 
+def _project_pif_document(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "schemaVersion", "profileId", "format", "present", "content",
+                "size", "sha256", "editable", "bounded",
+            }
+        ),
+    )
+    formats = {
+        "pif.custom_json": "json",
+        "pif.custom_prop": "prop",
+        "pif.module_json": "json",
+        "pif.legacy_json": "json",
+        "pif.app_replace": "list",
+        "tricky.spoof": "prop",
+        "tricky.target": "list",
+        "tricky.security_patch": "text",
+    }
+    profile_id = source["profileId"]
+    content = source["content"]
+    size = source["size"]
+    if (
+        source["schemaVersion"] != 1
+        or profile_id not in formats
+        or source["format"] != formats.get(profile_id)
+        or not isinstance(source["present"], bool)
+        or not isinstance(content, str)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 0 <= size <= 32 * 1024
+        or source["editable"] is not True
+        or source["bounded"] is not True
+    ):
+        raise PublicProjectionError("PIF document boundary is invalid")
+    try:
+        encoded = content.encode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise PublicProjectionError("PIF document content is invalid") from error
+    if source["present"]:
+        digest = source["sha256"]
+        if (
+            len(encoded) != size
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or not hmac.compare_digest(hashlib.sha256(encoded).hexdigest(), digest)
+            or "\x00" in content
+            or any(
+                ord(character) < 32 and character not in {"\n", "\r", "\t"}
+                for character in content
+            )
+        ):
+            raise PublicProjectionError("PIF document content is unverified")
+    elif content or size != 0 or source["sha256"] is not None:
+        raise PublicProjectionError("absent PIF document has content")
+    return ensure_public_json(dict(source))
+
+
 def _project_pif_action(value: object) -> JSONValue:
     if not isinstance(value, Mapping):
         raise PublicProjectionError("PIF action receipt is invalid")
@@ -3067,7 +3128,7 @@ def _project_pif_action(value: object) -> JSONValue:
         fields = frozenset({"action", "checker", "verified"})
     elif action == "cleanupDroidGuard":
         fields = frozenset({"action", "verified"})
-    elif action == "importProfile":
+    elif action in {"importProfile", "updateProfile"}:
         fields = frozenset({"action", "profileId", "sha256", "size"})
     elif action == "deleteProfile":
         fields = frozenset({"action", "profileId"})
@@ -3092,8 +3153,12 @@ def _project_pif_action(value: object) -> JSONValue:
         "pif.app_replace", "pif.scripts_only", "tricky.spoof", "tricky.target",
         "tricky.security_patch", "tricky.tee", "targeted.targets",
     }
-    if action in {"deleteProfile", "importProfile"} and source["profileId"] not in profile_ids:
+    if action in {"deleteProfile", "importProfile", "updateProfile"} and source["profileId"] not in profile_ids:
         raise PublicProjectionError("PIF profile action receipt is invalid")
+    if action == "updateProfile" and source["profileId"] in {
+        "pif.scripts_only", "tricky.tee", "targeted.targets",
+    }:
+        raise PublicProjectionError("PIF profile is not editable")
     if action in {"addTarget", "deleteTarget", "importTargetProfile"} and (
         not isinstance(source["targetPackage"], str)
         or re.fullmatch(
@@ -3113,7 +3178,7 @@ def _project_pif_action(value: object) -> JSONValue:
         or not 0 <= source["size"] <= 1024 * 1024
     ):
         raise PublicProjectionError("TargetedFix profile receipt is invalid")
-    if source["action"] == "importProfile" and (
+    if source["action"] in {"importProfile", "updateProfile"} and (
         not isinstance(source["sha256"], str)
         or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
         or not isinstance(source["size"], int)
@@ -3395,6 +3460,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "root.dataAdb.clear": _project_data_adb_clear,
     "root.modules.action": _project_root_module_action,
     "root.modules.list": _project_root_modules,
+    "root.pif.document": _project_pif_document,
     "root.pif.inventory": _project_pif_inventory,
     "secret.issue": _project_native_grant,
     "settings.get": _project_preferences,

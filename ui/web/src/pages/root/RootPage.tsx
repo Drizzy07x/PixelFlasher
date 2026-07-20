@@ -132,6 +132,18 @@ interface PifInventory {
   targets: { packageName: string; format: 'json' | 'prop'; present: boolean; size: number; sha256: string | null }[];
 }
 
+interface PifDocument {
+  schemaVersion: 1;
+  profileId: string;
+  format: 'json' | 'prop' | 'list' | 'text';
+  present: boolean;
+  content: string;
+  size: number;
+  sha256: string | null;
+  editable: true;
+  bounded: true;
+}
+
 const pifProfileSpecs = [
   ['pif.custom_json', 'playintegrityfix', 'json'],
   ['pif.custom_prop', 'playintegrityfix', 'prop'],
@@ -145,6 +157,61 @@ const pifProfileSpecs = [
   ['tricky.tee', 'tricky_store', 'text'],
   ['targeted.targets', 'targetedfix', 'list'],
 ] as const;
+
+const pifEditableProfileIds = new Set([
+  'pif.custom_json', 'pif.custom_prop', 'pif.module_json', 'pif.legacy_json',
+  'pif.app_replace', 'tricky.spoof', 'tricky.target', 'tricky.security_patch',
+]);
+
+const pifEditorFormats = new Map<string, PifDocument['format']>([
+  ['pif.custom_json', 'json'],
+  ['pif.custom_prop', 'prop'],
+  ['pif.module_json', 'json'],
+  ['pif.legacy_json', 'json'],
+  ['pif.app_replace', 'list'],
+  ['tricky.spoof', 'prop'],
+  ['tricky.target', 'list'],
+  ['tricky.security_patch', 'text'],
+]);
+
+function parsePifDocument(value: unknown): PifDocument | null {
+  const document = record(value);
+  const expectedFormat = typeof document.profileId === 'string'
+    ? pifEditorFormats.get(document.profileId)
+    : undefined;
+  if (
+    !exactKeys(document, ['schemaVersion', 'profileId', 'format', 'present', 'content', 'size', 'sha256', 'editable', 'bounded'])
+    || document.schemaVersion !== 1 || !expectedFormat || document.format !== expectedFormat
+    || typeof document.present !== 'boolean' || typeof document.content !== 'string'
+    || !boundedCount(document.size, 32 * 1024) || document.editable !== true || document.bounded !== true
+  ) return null;
+  const encodedSize = new TextEncoder().encode(document.content).length;
+  if (document.present) {
+    if (encodedSize !== document.size || typeof document.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(document.sha256)) return null;
+  } else if (document.content || document.size !== 0 || document.sha256 !== null) return null;
+  return document as unknown as PifDocument;
+}
+
+function validPifEditorContent(format: PifDocument['format'], content: string) {
+  if (!content || new TextEncoder().encode(content).length > 32 * 1024 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(content)) return false;
+  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+  if (format === 'json') {
+    try {
+      const parsed: unknown = JSON.parse(content);
+      return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length);
+    } catch {
+      return false;
+    }
+  }
+  if (format === 'prop') return Boolean(lines.length) && lines.length <= 1024 && lines.every((line) => /^[A-Za-z_][A-Za-z0-9_.-]{0,127}=/.test(line));
+  if (format === 'list') {
+    const identities = lines.map((line) => line.toLowerCase());
+    return Boolean(lines.length) && lines.length <= 1024
+      && lines.every((line) => /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(line))
+      && new Set(identities).size === identities.length;
+  }
+  return Boolean(content.trim()) && lines.length <= 1024;
+}
 
 function validPifFile(item: Record<string, unknown>) {
   return typeof item.present === 'boolean'
@@ -412,6 +479,10 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [pifImportProfile, setPifImportProfile] = useState('pif.custom_json');
   const [pifImportGrant, setPifImportGrant] = useState('');
   const [pifImportConfirmation, setPifImportConfirmation] = useState('');
+  const [pifDocument, setPifDocument] = useState<PifDocument | null>(null);
+  const [pifEditorContent, setPifEditorContent] = useState('');
+  const [pifEditorConfirmation, setPifEditorConfirmation] = useState('');
+  const [pifEditorInvalid, setPifEditorInvalid] = useState(false);
   const [targetedFixPackage, setTargetedFixPackage] = useState('');
   const [targetedFixAction, setTargetedFixAction] = useState<'addTarget' | 'deleteTarget' | ''>('');
   const [targetedFixConfirmation, setTargetedFixConfirmation] = useState('');
@@ -457,6 +528,13 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     if (!confirmBootDelete) return;
     window.requestAnimationFrame(() => bootDeleteConfirmRef.current?.focus());
   }, [confirmBootDelete]);
+
+  useEffect(() => {
+    setPifDocument(null);
+    setPifEditorContent('');
+    setPifEditorConfirmation('');
+    setPifEditorInvalid(false);
+  }, [primary?.serial]);
 
   useEffect(() => () => {
     apatchResolverRef.current?.(null);
@@ -671,6 +749,89 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         return;
       }
       setPifInventory(parsed);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const closePifEditor = () => {
+    setPifDocument(null);
+    setPifEditorContent('');
+    setPifEditorConfirmation('');
+    setPifEditorInvalid(false);
+  };
+
+  const loadPifDocument = async (profileId: string) => {
+    if (!rootedAdb || !primary || busy || !pifEditableProfileIds.has(profileId)) return;
+    setBusy(`pif-document:${profileId}`);
+    setPifEditorInvalid(false);
+    try {
+      const response = await onCommand(commands.rootPifDocument, {
+        serial: primary.serial,
+        profileId,
+      });
+      if (!operationSucceeded(response)) return;
+      const parsed = parsePifDocument(record(response?.result).value);
+      if (!parsed || parsed.profileId !== profileId) {
+        closePifEditor();
+        setPifEditorInvalid(true);
+        return;
+      }
+      setPifDocument(parsed);
+      setPifEditorContent(parsed.content);
+      setPifEditorConfirmation('');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const savePifDocument = async () => {
+    if (!rootedAdb || !primary || !pifDocument || busy) return;
+    const required = `SAVE PIF ${pifDocument.profileId} ${primary.serial.slice(-6).toUpperCase()}`;
+    if (
+      pifEditorConfirmation !== required
+      || !validPifEditorContent(pifDocument.format, pifEditorContent)
+      || pifEditorContent === pifDocument.content
+    ) return;
+    setBusy(`pif-editor-save:${pifDocument.profileId}`);
+    setPifEditorInvalid(false);
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: 'updateProfile',
+        profileId: pifDocument.profileId,
+        content: pifEditorContent,
+        baseSha256: pifDocument.sha256 ?? 'absent',
+        confirmationText: pifEditorConfirmation,
+      });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      const size = new TextEncoder().encode(pifEditorContent).length;
+      if (
+        value.action !== 'updateProfile'
+        || value.profileId !== pifDocument.profileId
+        || typeof value.sha256 !== 'string'
+        || !/^[0-9a-f]{64}$/.test(value.sha256)
+        || value.size !== size
+      ) {
+        setPifEditorInvalid(true);
+        return;
+      }
+      const updated: PifDocument = {
+        ...pifDocument,
+        present: true,
+        content: pifEditorContent,
+        size,
+        sha256: value.sha256,
+      };
+      setPifDocument(updated);
+      setPifEditorConfirmation('');
+      setPifInventory((current) => current ? {
+        ...current,
+        profiles: current.profiles.map((item) => item.id === updated.profileId
+          ? { ...item, present: true, size: updated.size, sha256: updated.sha256 }
+          : item),
+      } : current);
     } finally {
       setBusy('');
     }
@@ -1197,6 +1358,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 {pifProfileSpecs.map(([id]) => <option value={id} key={id}>{id}</option>)}
               </select>
             </label>
+            <Button onClick={() => void loadPifDocument(pifImportProfile)} disabled={Boolean(busy) || !rootedAdb || !pifEditableProfileIds.has(pifImportProfile)}>{t('root.pifEdit')}</Button>
             <Button icon="folderPng" onClick={() => void preparePifImport()} disabled={Boolean(busy) || !rootedAdb}>{t('root.pifImport')}</Button>
             <Button variant="danger" onClick={() => { setDroidGuardPending(true); setDroidGuardConfirmation(''); }} disabled={Boolean(busy) || !rootedAdb}>{t('root.droidGuardCleanup')}</Button>
             <Button onClick={() => { setIntegrityCheckPending(true); setIntegrityCheckConfirmation(''); }} disabled={Boolean(busy) || !rootedAdb}>{t('root.integrityCheckOpen')}</Button>
@@ -1206,6 +1368,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         <p className="root-manager__detail">{t('root.pifInventoryDetail')}</p>
         {!rootedAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.moduleDeviceRequired')}</p> : null}
         {pifInventoryInvalid ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('root.pifInventoryInvalid')}</p> : null}
+        {pifEditorInvalid ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('root.pifEditorInvalid')}</p> : null}
         {rootedAdb ? (
           <div className="root-footer root-footer--wrap">
             <label className="select-field">
@@ -1243,11 +1406,14 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                   <span><Badge tone="success">{t('root.pifPresent')}</Badge><Badge tone="neutral">{item.module}</Badge><Badge tone="neutral">{item.format}</Badge></span>
                   <small>{item.size.toLocaleString()} · <code title={item.sha256 ?? undefined}>{item.sha256?.slice(0, 12)}…</code></small>
                 </span>
-                <Button
-                  variant="danger"
-                  onClick={() => { setPifDeleteProfile(item.id); setPifDeleteConfirmation(''); }}
-                  disabled={Boolean(busy)}
-                >{t('root.pifDelete')}</Button>
+                <span className="root-inventory__actions">
+                  {pifEditableProfileIds.has(item.id) ? <Button variant="secondary" onClick={() => void loadPifDocument(item.id)} disabled={Boolean(busy)}>{t('root.pifEdit')}</Button> : null}
+                  <Button
+                    variant="danger"
+                    onClick={() => { setPifDeleteProfile(item.id); setPifDeleteConfirmation(''); }}
+                    disabled={Boolean(busy)}
+                  >{t('root.pifDelete')}</Button>
+                </span>
               </div>
             ))}
             {pifInventory.targets.map((item) => (
@@ -1266,6 +1432,54 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               ? <EmptyState icon="shield" title={t('common.none')} detail={t('root.pifInventoryEmpty')} /> : null}
           </div>
         ) : <EmptyState icon="shield" title={t('root.pifInventoryEmpty')} detail={t('root.pifInventoryDetail')} />}
+        {pifDocument && primary ? (
+          <section className="pif-editor" aria-label={t('root.pifEditorTitle', { profile: pifDocument.profileId })}>
+            <header className="pif-editor__header">
+              <span>
+                <strong>{t('root.pifEditorTitle', { profile: pifDocument.profileId })}</strong>
+                <small>{t('root.pifEditorDetail')}</small>
+              </span>
+              <span className="button-row">
+                <Badge tone={validPifEditorContent(pifDocument.format, pifEditorContent) ? 'success' : 'danger'}>{pifDocument.format.toUpperCase()}</Badge>
+                <Badge tone={pifEditorContent === pifDocument.content ? 'neutral' : 'warning'}>{pifEditorContent === pifDocument.content ? t('root.pifEditorUnchanged') : t('root.pifEditorModified')}</Badge>
+                <Badge tone={new TextEncoder().encode(pifEditorContent).length <= 32 * 1024 ? 'neutral' : 'danger'}>{new TextEncoder().encode(pifEditorContent).length.toLocaleString()} / 32 KiB</Badge>
+              </span>
+            </header>
+            <textarea
+              className="pif-editor__textarea"
+              aria-label={t('root.pifEditorContent')}
+              value={pifEditorContent}
+              onChange={(event) => { setPifEditorContent(event.currentTarget.value.slice(0, 32 * 1024)); setPifEditorConfirmation(''); }}
+              rows={14}
+              wrap="off"
+              spellCheck={false}
+              disabled={Boolean(busy)}
+            />
+            <footer className="pif-editor__footer">
+              <label className="select-field">
+                <span>{t('root.pifEditorConfirm')}</span>
+                <small><code>{`SAVE PIF ${pifDocument.profileId} ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+                <input
+                  aria-label={t('root.pifEditorConfirm')}
+                  value={pifEditorConfirmation}
+                  onChange={(event) => setPifEditorConfirmation(event.currentTarget.value.slice(0, 320))}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={Boolean(busy)}
+                />
+              </label>
+              <span className="button-row">
+                <Button onClick={() => void loadPifDocument(pifDocument.profileId)} disabled={Boolean(busy)}>{t('root.pifEditorReload')}</Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void savePifDocument()}
+                  disabled={Boolean(busy) || pifEditorContent === pifDocument.content || !validPifEditorContent(pifDocument.format, pifEditorContent) || pifEditorConfirmation !== `SAVE PIF ${pifDocument.profileId} ${primary.serial.slice(-6).toUpperCase()}`}
+                >{t('root.pifEditorSave')}</Button>
+                <Button variant="ghost" onClick={closePifEditor} disabled={Boolean(busy)}>{t('common.close')}</Button>
+              </span>
+            </footer>
+          </section>
+        ) : null}
         {pifDeleteProfile && primary ? (
           <div className="root-footer root-footer--wrap">
             <label className="select-field">

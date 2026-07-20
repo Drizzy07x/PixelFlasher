@@ -130,6 +130,20 @@ def pif_inventory_record() -> str:
     return "\n".join(lines)
 
 
+def pif_document_record(content: bytes = b'{"PRODUCT":"akita"}') -> str:
+    digest = hashlib.sha256(content).hexdigest()
+    encoded = base64.b64encode(content).decode("ascii")
+    return "\n".join(
+        (
+            "PF_PIF_DOC|schema|1",
+            "PF_PIF_DOC|root|verified",
+            f"PF_PIF_DOC|profile|pif.custom_json|json|present|{len(content)}|{digest}",
+            f"PF_PIF_DOC|content|{encoded}",
+            "PF_PIF_DOC|complete|1",
+        )
+    )
+
+
 class RecordingLauncher:
     def __init__(self, *, error=None, terminate_result=True):
         self.error = error
@@ -2187,6 +2201,29 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
         self.assertNotIn("PRIVATE_RAW_VALUE", repr(result))
 
+    def test_pif_document_returns_only_verified_bounded_content(self):
+        content = b'{"PRODUCT":"akita"}'
+        engine, transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0, pif_document_record(content))],
+            root=True,
+        )
+        result = engine.execute(
+            command(
+                "root.pif.document",
+                {"serial": "SERIAL", "profileId": "pif.custom_json"},
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("pif_document_loaded", result.code)
+        self.assertEqual(content.decode(), result.value["content"])
+        self.assertEqual(hashlib.sha256(content).hexdigest(), result.value["sha256"])
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+        self.assertNotIn("/data/adb", repr(result.value))
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), transport.calls[0].argv[:6])
+
     def test_pif_profile_delete_requires_and_verifies_the_exact_canonical_target(self):
         engine, transport = self.engine_for(
             "adb",
@@ -2248,6 +2285,45 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             result.value,
         )
         self.assertEqual(2, len(transport.calls))
+
+    def test_pif_editor_update_returns_only_verified_hash_metadata(self):
+        content = b'{"PRODUCT":"akita","DEVICE":"akita"}'
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "editor.json"
+            source.write_bytes(content)
+            digest = hashlib.sha256(content).hexdigest()
+            engine, transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0), TransportOutcome(0)],
+                root=True,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            result = engine.execute(
+                command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "updateProfile",
+                        "profileId": "pif.custom_json",
+                        "baseSha256": "absent",
+                        "confirmationText": "SAVE PIF pif.custom_json SERIAL",
+                        "path": str(source.resolve()),
+                    },
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("pif_profile_updated", result.code)
+        self.assertEqual(
+            {
+                "action": "updateProfile",
+                "profileId": "pif.custom_json",
+                "sha256": digest,
+                "size": len(content),
+            },
+            result.value,
+        )
+        self.assertIn('[ "$current" = absent ]', transport.calls[1].argv[6])
 
     def test_targeted_fix_target_changes_return_only_verified_package_identity(self):
         package = "com.example.app"

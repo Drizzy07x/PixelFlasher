@@ -30,6 +30,7 @@ from pixelflasher_core.rooting import (
     inspect_pif_profile_stream,
     inspect_targeted_fix_profile_stream,
     parse_pi_analysis,
+    parse_pif_document,
     parse_pif_inventory,
     parse_root_module_list,
 )
@@ -126,6 +127,25 @@ def pif_inventory_output(*, targets: tuple[str, ...] = ("com.google.android.gms"
         lines.append(f"PF_PIF|target|{encoded}|json|present|64|{'b' * 64}")
     lines.append("PF_PIF|complete|1")
     return "\n".join(lines)
+
+
+def pif_document_output(
+    content: bytes = b'{"PRODUCT":"akita"}',
+    *,
+    profile_id: str = "pif.custom_json",
+    profile_format: str = "json",
+) -> str:
+    digest = hashlib.sha256(content).hexdigest()
+    encoded = base64.b64encode(content).decode("ascii")
+    return "\n".join(
+        (
+            "PF_PIF_DOC|schema|1",
+            "PF_PIF_DOC|root|verified",
+            f"PF_PIF_DOC|profile|{profile_id}|{profile_format}|present|{len(content)}|{digest}",
+            f"PF_PIF_DOC|content|{encoded}",
+            "PF_PIF_DOC|complete|1",
+        )
+    )
 
 
 def write_apk(path: Path, payload: bytes = b"manifest") -> bytes:
@@ -376,6 +396,53 @@ class RootingServiceTests(unittest.TestCase):
             with self.subTest(output=output[-80:]):
                 with self.assertRaises(RootingPlanningError):
                     parse_pif_inventory(output)
+
+    def test_pif_document_is_bounded_hash_verified_and_path_free(self):
+        compilation = RootingService().compile(
+            self.command(
+                "root.pif.document",
+                {"serial": "SERIAL", "profileId": "pif.custom_json"},
+            ),
+            self.snapshot,
+        )
+        self.assertEqual("pif.document", compilation.action)
+        assert compilation.plan is not None
+        request = compilation.plan.request
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertEqual(64 * 1024, request.output_limit_bytes)
+        self.assertIn("PF_PIF_DOC|schema|1", request.argv[6])
+        self.assertIn("32768", request.argv[6])
+
+        parsed = parse_pif_document(
+            pif_document_output(),
+            expected_profile_id="pif.custom_json",
+        )
+        self.assertTrue(parsed.present)
+        self.assertEqual('{"PRODUCT":"akita"}', parsed.content)
+        self.assertNotIn("/data/adb", repr(parsed))
+
+        absent = parse_pif_document(
+            "\n".join(
+                (
+                    "PF_PIF_DOC|schema|1",
+                    "PF_PIF_DOC|root|verified",
+                    "PF_PIF_DOC|profile|pif.custom_json|json|absent|0|-",
+                    "PF_PIF_DOC|complete|1",
+                )
+            ),
+            expected_profile_id="pif.custom_json",
+        )
+        self.assertFalse(absent.present)
+        self.assertIsNone(absent.sha256)
+
+        for hostile in (
+            pif_document_output().replace(hashlib.sha256(b'{"PRODUCT":"akita"}').hexdigest(), "0" * 64),
+            pif_document_output().replace("pif.custom_json", "../private"),
+            pif_document_output().replace("PF_PIF_DOC|complete|1", "raw-private"),
+        ):
+            with self.subTest(hostile=hostile[-80:]):
+                with self.assertRaises(RootingPlanningError):
+                    parse_pif_document(hostile, expected_profile_id="pif.custom_json")
 
     def test_pif_delete_is_canonical_confirmed_and_observed(self):
         profile_id = "pif.custom_json"
@@ -702,6 +769,52 @@ class RootingServiceTests(unittest.TestCase):
         self.assertIn("rm -f -- /data/local/tmp/pixelflasher-pif-", compilation.plan.requests[1].argv[6])
         self.assertEqual("pif_profile_hash", compilation.plan.postconditions[0].kind)
         self.assertEqual({"profileId": profile_id, "sha256": digest}, compilation.plan.postconditions[0].expected)
+
+    def test_pif_editor_update_is_validated_compare_and_swap_and_hash_observed(self):
+        content = b'{"PRODUCT":"akita","DEVICE":"akita"}'
+        base_digest = "a" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "editor.json"
+            source.write_bytes(content)
+            digest = hashlib.sha256(content).hexdigest()
+            compilation = RootingService().compile(
+                self.command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "updateProfile",
+                        "profileId": "pif.custom_json",
+                        "baseSha256": base_digest,
+                        "confirmationText": "SAVE PIF pif.custom_json SERIAL",
+                        "path": str(source.resolve()),
+                    },
+                ),
+                self.snapshot,
+            )
+
+        self.assertEqual("pif.update_profile", compilation.action)
+        self.assertEqual(digest, compilation.pif_sha256)
+        assert compilation.plan is not None
+        self.assertEqual(2, len(compilation.plan.requests))
+        install = compilation.plan.requests[1].argv[6]
+        self.assertIn(f'[ "$current" = {base_digest} ]', install)
+        self.assertIn("exit 75", install)
+        self.assertEqual(
+            {"profileId": "pif.custom_json", "sha256": digest},
+            compilation.plan.postconditions[0].expected,
+        )
+
+        hostile = {
+            "serial": "SERIAL",
+            "action": "updateProfile",
+            "profileId": "pif.scripts_only",
+            "baseSha256": "absent",
+            "confirmationText": "SAVE PIF pif.scripts_only SERIAL",
+            "path": "C:/private",
+        }
+        with self.assertRaises(RootingPlanningError) as raised:
+            RootingService().compile(self.command("tools.pif", hostile), self.snapshot)
+        self.assertEqual("pif_editor_profile_invalid", raised.exception.code)
 
     def test_local_root_app_inventory_has_hash_and_provenance(self):
         with tempfile.TemporaryDirectory() as directory:

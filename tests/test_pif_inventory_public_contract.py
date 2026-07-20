@@ -1,3 +1,4 @@
+import hashlib
 import unittest
 from typing import Any, cast
 
@@ -319,6 +320,93 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 {**payload, "checker": "host.package"},
                 7,
             ).validate()
+
+    def test_editor_document_and_update_contracts_are_bounded_and_hash_verified(self):
+        content = '{"PRODUCT":"akita"}'
+        encoded = content.encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        document_request = BridgeRequest(
+            2,
+            "pif-document",
+            "root.pif.document",
+            {"serial": "SERIAL", "profileId": "pif.custom_json"},
+            7,
+        )
+        self.assertIs(document_request, document_request.validate())
+        projected_document = project_operation_result(
+            "root.pif.document",
+            OperationResult.success(
+                "pif-document",
+                value={
+                    "schemaVersion": 1,
+                    "profileId": "pif.custom_json",
+                    "format": "json",
+                    "present": True,
+                    "content": content,
+                    "size": len(encoded),
+                    "sha256": digest,
+                    "editable": True,
+                    "bounded": True,
+                },
+            ),
+        )["value"]
+        self.assertEqual(content, projected_document["content"])
+
+        payload = {
+            "serial": "SERIAL",
+            "action": "updateProfile",
+            "profileId": "pif.custom_json",
+            "content": content,
+            "baseSha256": "absent",
+            "confirmationText": "SAVE PIF pif.custom_json SERIAL",
+        }
+        self.assertIs(
+            request := BridgeRequest(2, "pif-update", "tools.pif", payload, 7),
+            request.validate(),
+        )
+        projected_update = project_operation_result(
+            "tools.pif",
+            OperationResult.success(
+                "pif-update",
+                value={
+                    "action": "updateProfile",
+                    "profileId": "pif.custom_json",
+                    "sha256": digest,
+                    "size": len(encoded),
+                },
+            ),
+        )["value"]
+        self.assertEqual("updateProfile", projected_update["action"])
+
+        hostile_payloads = (
+            {**payload, "profileId": "pif.scripts_only"},
+            {**payload, "baseSha256": "bad"},
+            {**payload, "grant": "G" * 32},
+            {**payload, "confirmationText": "SAVE PIF"},
+        )
+        for hostile in hostile_payloads:
+            with self.subTest(payload=hostile):
+                with self.assertRaises(BridgeProtocolError):
+                    BridgeRequest(2, "bad-pif-editor", "tools.pif", hostile, 7).validate()
+
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "root.pif.document",
+                OperationResult.success(
+                    "bad-document",
+                    value={
+                        "schemaVersion": 1,
+                        "profileId": "pif.custom_json",
+                        "format": "json",
+                        "present": True,
+                        "content": content,
+                        "size": len(encoded),
+                        "sha256": "0" * 64,
+                        "editable": True,
+                        "bounded": True,
+                    },
+                ),
+            )
 
 
 if __name__ == "__main__":

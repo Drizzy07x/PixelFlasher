@@ -370,6 +370,7 @@ from .root_app_catalog import (
 )
 from .rooting import (
     ROOTING_COMMANDS,
+    PifDocument,
     PifImportInspection,
     PifProfileInfo,
     PifTargetInfo,
@@ -384,6 +385,7 @@ from .rooting import (
     inspect_pif_profile_stream,
     inspect_targeted_fix_profile_stream,
     parse_pi_analysis,
+    parse_pif_document,
     parse_pif_inventory,
     parse_root_module_list,
 )
@@ -653,6 +655,7 @@ __all__ = [
     "PAYLOAD_MAJOR_VERSION",
     "PAYLOAD_OPERATION_TYPES",
     "PARTITION_COMMANDS",
+    "PifDocument",
     "PifProfileInfo",
     "PifImportInspection",
     "TargetedFixImportInspection",
@@ -812,6 +815,7 @@ __all__ = [
     "parse_package_permissions",
     "parse_platform_tools_version",
     "parse_pif_inventory",
+    "parse_pif_document",
     "parse_pi_analysis",
     "parse_root_module_list",
     "paused_device_management",

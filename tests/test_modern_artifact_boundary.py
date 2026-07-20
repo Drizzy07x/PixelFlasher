@@ -375,6 +375,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "root.dataAdb.clear",
                         "root.dataAdb.restore",
                         "root.modules.list",
+                        "root.pif.document",
                         "root.pif.inventory",
                         "tools.logcat",
                         "tools.logcat.clear",

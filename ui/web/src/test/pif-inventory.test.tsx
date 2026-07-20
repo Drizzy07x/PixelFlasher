@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
@@ -256,5 +256,64 @@ describe('PIF and TargetedFix inventory', () => {
       checker: 'spic',
       confirmationText: phrase,
     });
+  });
+
+  it('loads, edits, and hash-verifies a bounded PIF document without device paths', async () => {
+    const user = userEvent.setup();
+    const original = '{"PRODUCT":"akita"}';
+    const updated = '{"PRODUCT":"bramble"}';
+    const onCommand = vi.fn(async (command: BridgeCommand) => {
+      if (command === 'root.pif.document') {
+        return {
+          result: {
+            status: 'SUCCESS',
+            value: {
+              schemaVersion: 1, profileId: 'pif.custom_json', format: 'json', present: true,
+              content: original, size: new TextEncoder().encode(original).length,
+              sha256: 'a'.repeat(64), editable: true, bounded: true,
+            },
+          },
+        };
+      }
+      return {
+        result: {
+          status: 'SUCCESS',
+          value: {
+            action: 'updateProfile', profileId: 'pif.custom_json',
+            sha256: 'b'.repeat(64), size: new TextEncoder().encode(updated).length,
+          },
+        },
+      };
+    });
+    const { snapshot, container } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Edit profile' }));
+    expect(onCommand).toHaveBeenLastCalledWith('root.pif.document', {
+      serial: snapshot.devices[0].serial,
+      profileId: 'pif.custom_json',
+    });
+    const editor = within(card as HTMLElement).getByLabelText('PIF profile content');
+    expect(editor).toHaveValue(original);
+    expect(card.textContent).not.toContain('/data/adb');
+    fireEvent.change(editor, { target: { value: updated } });
+
+    const phrase = `SAVE PIF pif.custom_json ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    const save = within(card as HTMLElement).getByRole('button', { name: 'Save and verify profile' });
+    expect(save).toBeDisabled();
+    await user.type(within(card as HTMLElement).getByLabelText('Confirm profile save'), phrase);
+    expect(save).toBeEnabled();
+    await user.click(save);
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'updateProfile',
+      profileId: 'pif.custom_json',
+      content: updated,
+      baseSha256: 'a'.repeat(64),
+      confirmationText: phrase,
+    });
+    expect(within(card as HTMLElement).getByText('Unchanged')).toBeVisible();
+    expect((await axe.run(container)).violations).toEqual([]);
   });
 });

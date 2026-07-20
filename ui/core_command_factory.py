@@ -7,6 +7,9 @@ paths are introduced here after the native selection is revalidated.
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -252,6 +255,7 @@ class CoreCommandFactory:
         self.path_grants = path_grants or PathGrantStore()
         self.secret_grants = secret_grants or SecretGrantStore()
         self._support_destination_registrar: SupportDestinationRegistrar | None = None
+        self._transient_root: Path | None = None
 
     def bind_support_destination_registrar(
         self,
@@ -260,6 +264,12 @@ class CoreCommandFactory:
         if self._support_destination_registrar is not None:
             raise RuntimeError("support destination registrar is already bound")
         self._support_destination_registrar = registrar
+
+    def clear_transient_resources(self) -> None:
+        root = self._transient_root
+        self._transient_root = None
+        if root is not None:
+            shutil.rmtree(root, ignore_errors=True)
 
     def validate_native_request(self, request: BridgeRequest) -> NativeGrantSpec:
         request.validate()
@@ -443,6 +453,16 @@ class CoreCommandFactory:
                 self._resolve_one(payload, "root.pif.import", "path")
             elif payload.get("action") == "importTargetProfile":
                 self._resolve_one(payload, "root.pif.target.import", "path")
+            elif payload.get("action") == "updateProfile":
+                if "grant" in payload:
+                    raise CommandFactoryError(
+                        "grant_not_applicable",
+                        "The PIF editor does not accept a native file grant.",
+                    )
+                payload["path"] = self._stage_pif_editor_content(
+                    payload.get("profileId"),
+                    payload.pop("content", None),
+                )
             elif "grant" in payload:
                 raise CommandFactoryError(
                     "grant_not_applicable", "This PIF action does not accept a file grant."
@@ -641,6 +661,50 @@ class CoreCommandFactory:
                     "The selected support destination is invalid.",
                 ) from exc
             payload["destinationId"] = destination_id
+
+    def _stage_pif_editor_content(self, profile_id: object, content: object) -> str:
+        editable = {
+            "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
+            "pif.app_replace", "tricky.spoof", "tricky.target", "tricky.security_patch",
+        }
+        if profile_id not in editable or not isinstance(profile_id, str):
+            raise CommandFactoryError("pif_editor_profile_invalid", "PIF profile is not editable.")
+        if not isinstance(content, str) or not content:
+            raise CommandFactoryError("pif_editor_content_invalid", "PIF editor content is empty.")
+        try:
+            encoded = content.encode("utf-8", errors="strict")
+        except UnicodeError as error:
+            raise CommandFactoryError(
+                "pif_editor_content_invalid",
+                "PIF editor content must be valid UTF-8.",
+            ) from error
+        if len(encoded) > 32 * 1024:
+            raise CommandFactoryError(
+                "pif_editor_content_oversized",
+                "PIF editor content exceeds 32 KiB.",
+            )
+        if self._transient_root is None:
+            self._transient_root = Path(tempfile.mkdtemp(prefix="pixelflasher-pif-editor-"))
+        destination = self._transient_root / f"{profile_id.replace('.', '_')}.txt"
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=self._transient_root,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                descriptor = -1
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, destination)
+        except Exception:
+            if descriptor >= 0:
+                os.close(descriptor)
+            temporary.unlink(missing_ok=True)
+            raise
+        return str(destination.resolve())
 
     def _resolve_one(self, payload: dict[str, Any], purpose: str, field: str) -> None:
         payload[field] = str(self._pop_and_resolve(payload, purpose))

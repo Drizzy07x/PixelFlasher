@@ -909,6 +909,31 @@ class CoreCommandFactoryTests(unittest.TestCase):
             self.assertEqual(str(source.resolve()), command.payload["path"])
             self.assertNotIn("grant", command.payload)
 
+    def test_pif_editor_content_is_staged_privately_and_removed_from_the_command(self):
+        factory = create_command_factory(lambda: AppSnapshot(revision=4))
+        content = '{"PRODUCT":"akita"}'
+        command = factory(
+            request(
+                "tools.pif",
+                payload={
+                    "serial": "SERIAL",
+                    "action": "updateProfile",
+                    "profileId": "pif.custom_json",
+                    "content": content,
+                    "baseSha256": "absent",
+                    "confirmationText": "SAVE PIF pif.custom_json SERIAL",
+                },
+            )
+        )
+        staged = Path(command.payload["path"])
+        self.assertEqual(content, staged.read_text(encoding="utf-8"))
+        self.assertNotIn("content", command.payload)
+        self.assertNotIn("grant", command.payload)
+        self.assertNotIn(content, repr(command))
+
+        factory.clear_transient_resources()
+        self.assertFalse(staged.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

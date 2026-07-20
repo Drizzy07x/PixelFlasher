@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -49,6 +50,7 @@ ROOTING_COMMANDS = frozenset(
         "root.modules.list",
         "root.modules.action",
         "root.pif.inventory",
+        "root.pif.document",
         "tools.pif",
         "tools.piAnalysis",
         "tools.shizuku",
@@ -128,7 +130,21 @@ _PIF_PROFILE_PATHS = {
     "targeted.targets": "/data/adb/modules/targetedfix/config/target.txt",
 }
 _MAX_PIF_IMPORT_BYTES = 1024 * 1024
+_MAX_PIF_EDITOR_BYTES = 32 * 1024
+_PIF_DOCUMENT_PREFIX = "PF_PIF_DOC"
 _PIF_PROPERTY_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
+_PIF_EDITABLE_PROFILE_IDS = frozenset(
+    {
+        "pif.custom_json",
+        "pif.custom_prop",
+        "pif.module_json",
+        "pif.legacy_json",
+        "pif.app_replace",
+        "tricky.spoof",
+        "tricky.target",
+        "tricky.security_patch",
+    }
+)
 _PI_CHECKERS = {
     "piac": "gr.nikolasspyr.integritycheck",
     "spic": "com.henrikherzig.playintegritychecker",
@@ -292,6 +308,29 @@ class PifImportInspection:
 
 
 @dataclass(frozen=True, slots=True)
+class PifDocument:
+    profile_id: str
+    format: str
+    present: bool
+    content: str
+    size: int
+    sha256: str | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schemaVersion": 1,
+            "profileId": self.profile_id,
+            "format": self.format,
+            "present": self.present,
+            "content": self.content,
+            "size": self.size,
+            "sha256": self.sha256,
+            "editable": True,
+            "bounded": True,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class TargetedFixImportInspection:
     package_name: str
     format: str
@@ -417,6 +456,13 @@ class RootingService:
                     "PIF inventory requires a device reporting root access",
                 )
             return self._compile_pif_inventory(command, snapshot, device, adb)
+        if command.kind == "root.pif.document":
+            if not device.root:
+                raise RootingPlanningError(
+                    "root_access_required",
+                    "PIF editor requires a device reporting root access",
+                )
+            return self._compile_pif_document(command, snapshot, device, adb)
         if command.kind == "tools.pif":
             if not device.root:
                 raise RootingPlanningError(
@@ -511,6 +557,58 @@ class RootingService:
             ),
         )
 
+    def _compile_pif_document(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        self._validate_payload(command, {"serial", "profileId"})
+        profile_id = command.payload.get("profileId")
+        if not isinstance(profile_id, str) or profile_id not in _PIF_EDITABLE_PROFILE_IDS:
+            raise RootingPlanningError(
+                "pif_editor_profile_invalid",
+                "PIF profile is not editable",
+            )
+        path = _PIF_PROFILE_PATHS[profile_id]
+        profile_format = next(
+            item[2] for item in _PIF_PROFILE_SPECS if item[0] == profile_id
+        )
+        script = (
+            f"printf '{_PIF_DOCUMENT_PREFIX}|schema|1\\n'; "
+            "uid=$(id -u 2>/dev/null); [ \"$uid\" = 0 ] || { "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|root|missing\\n'; exit 71; }}; "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|root|verified\\n'; "
+            f"file={path}; "
+            "if [ ! -f \"$file\" ]; then "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|profile|{profile_id}|{profile_format}|absent|0|-\\n'; "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|complete|1\\n'; exit 0; fi; "
+            "size=$(wc -c < \"$file\" 2>/dev/null | tr -d ' '); "
+            "case \"$size\" in ''|*[!0-9]*) exit 72;; esac; "
+            f"[ \"$size\" -le {_MAX_PIF_EDITOR_BYTES} ] || exit 73; "
+            "digest=$(sha256sum \"$file\" 2>/dev/null | cut -d ' ' -f 1); "
+            "case \"$digest\" in [0-9a-f][0-9a-f][0-9a-f]*) ;; *) exit 74;; esac; "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|profile|{profile_id}|{profile_format}|present|%s|%s\\n' \"$size\" \"$digest\"; "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|content|'; base64 \"$file\" | tr -d '\\r\\n'; printf '\\n'; "
+            f"printf '{_PIF_DOCUMENT_PREFIX}|complete|1\\n'"
+        )
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            timeout_seconds=30.0,
+            output_limit_bytes=64 * 1024,
+        )
+        return RootingCompilation(
+            "pif.document",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Load PIF profile {profile_id} on {device.serial}",
+            ),
+            pif_profile_id=profile_id,
+        )
+
     def _compile_pif_action(
         self,
         command: AppCommand,
@@ -529,6 +627,7 @@ class RootingService:
                 "checker",
                 "confirmationText",
                 "path",
+                "baseSha256",
             },
         )
         action = command.payload.get("action")
@@ -540,6 +639,7 @@ class RootingService:
             "importTargetProfile",
             "cleanupDroidGuard",
             "launchIntegrityCheck",
+            "updateProfile",
         }:
             raise RootingPlanningError(
                 "pif_action_invalid",
@@ -562,7 +662,16 @@ class RootingService:
         profile_id = command.payload.get("profileId")
         if not isinstance(profile_id, str) or profile_id not in _PIF_PROFILE_PATHS:
             raise RootingPlanningError("pif_profile_invalid", "PIF profile ID is not canonical")
-        verb = "DELETE" if action == "deleteProfile" else "IMPORT"
+        if action == "updateProfile" and profile_id not in _PIF_EDITABLE_PROFILE_IDS:
+            raise RootingPlanningError(
+                "pif_editor_profile_invalid",
+                "PIF profile is not editable",
+            )
+        verb = {
+            "deleteProfile": "DELETE",
+            "importProfile": "IMPORT",
+            "updateProfile": "SAVE",
+        }[action]
         required = f"{verb} PIF {profile_id} {device.serial[-6:].upper()}"
         if command.payload.get("confirmationText") != required:
             raise RootingPlanningError(
@@ -570,7 +679,7 @@ class RootingService:
                 f"confirmationText must be exactly {required}",
             )
         path = _PIF_PROFILE_PATHS[profile_id]
-        if action == "importProfile":
+        if action in {"importProfile", "updateProfile"}:
             source = self._input_file(
                 command.payload.get("path"),
                 suffix="",
@@ -587,10 +696,33 @@ class RootingService:
             artifact = FileArtifact(str(source), inspection.sha256, f"pif-profile:{profile_id}")
             remote = f"/data/local/tmp/pixelflasher-pif-{inspection.sha256[:16]}.tmp"
             parent = path.rsplit("/", 1)[0]
-            install_script = (
-                f"mkdir -p {parent} && cp {remote} {path} && chmod 0600 {path}; "
-                f"status=$?; rm -f -- {remote}; exit $status"
-            )
+            if action == "updateProfile":
+                base_sha256 = command.payload.get("baseSha256")
+                if base_sha256 != "absent" and (
+                    not isinstance(base_sha256, str)
+                    or _SHA256_PATTERN.fullmatch(base_sha256) is None
+                ):
+                    raise RootingPlanningError(
+                        "pif_editor_base_invalid",
+                        "PIF editor base hash is invalid",
+                    )
+                expected = base_sha256
+                install_script = (
+                    f"current=absent; [ ! -f {path} ] || current=$(sha256sum {path} | cut -d ' ' -f 1); "
+                    f"[ \"$current\" = {expected} ] || {{ rm -f -- {remote}; exit 75; }}; "
+                    f"mkdir -p {parent} && cp {remote} {path} && chmod 0600 {path}; "
+                    f"status=$?; rm -f -- {remote}; exit $status"
+                )
+            else:
+                if "baseSha256" in command.payload:
+                    raise RootingPlanningError(
+                        "pif_import_source_ambiguous",
+                        "PIF import does not accept an editor base hash",
+                    )
+                install_script = (
+                    f"mkdir -p {parent} && cp {remote} {path} && chmod 0600 {path}; "
+                    f"status=$?; rm -f -- {remote}; exit $status"
+                )
             requests = (
                 ProcessRequest((adb, "-s", device.serial, "push", str(source), remote), timeout_seconds=120.0),
                 ProcessRequest(
@@ -600,13 +732,21 @@ class RootingService:
                 ),
             )
             return RootingCompilation(
-                "pif.import_profile",
+                "pif.update_profile" if action == "updateProfile" else "pif.import_profile",
                 self._base_plan(
                     snapshot,
                     device,
                     requests,
-                    label=f"Import PIF profile {profile_id} on {device.serial}",
-                    data_behavior="pif_profile_import",
+                    label=(
+                        f"Save PIF profile {profile_id} on {device.serial}"
+                        if action == "updateProfile"
+                        else f"Import PIF profile {profile_id} on {device.serial}"
+                    ),
+                    data_behavior=(
+                        "pif_profile_update"
+                        if action == "updateProfile"
+                        else "pif_profile_import"
+                    ),
                     artifacts=(artifact,),
                     risk=OperationRisk.DESTRUCTIVE,
                     postconditions=(
@@ -624,7 +764,7 @@ class RootingService:
                 destructive=True,
                 requires_confirmation=True,
             )
-        if "path" in command.payload:
+        if "path" in command.payload or "baseSha256" in command.payload:
             raise RootingPlanningError("pif_import_source_ambiguous", "PIF deletion does not accept a source")
         request = ProcessRequest(
             (adb, "-s", device.serial, "shell", "su", "-c", f"rm -f -- {path}"),
@@ -661,7 +801,7 @@ class RootingService:
         device: DeviceInfo,
         adb: str,
     ) -> RootingCompilation:
-        unexpected = {"profileId", "targetPackage", "targetFormat", "path"}.intersection(
+        unexpected = {"profileId", "targetPackage", "targetFormat", "path", "baseSha256"}.intersection(
             command.payload
         )
         if unexpected:
@@ -712,7 +852,7 @@ class RootingService:
         device: DeviceInfo,
         adb: str,
     ) -> RootingCompilation:
-        unexpected = {"profileId", "targetPackage", "targetFormat", "path"}.intersection(
+        unexpected = {"profileId", "targetPackage", "targetFormat", "path", "baseSha256"}.intersection(
             command.payload
         )
         if unexpected:
@@ -778,7 +918,7 @@ class RootingService:
         device: DeviceInfo,
         adb: str,
     ) -> RootingCompilation:
-        if "profileId" in command.payload:
+        if "profileId" in command.payload or "baseSha256" in command.payload:
             raise RootingPlanningError(
                 "targeted_fix_payload_ambiguous",
                 "TargetedFix profile import does not accept a canonical PIF profile ID",
@@ -885,7 +1025,11 @@ class RootingService:
         adb: str,
         action: str,
     ) -> RootingCompilation:
-        if "profileId" in command.payload or "path" in command.payload:
+        if (
+            "profileId" in command.payload
+            or "path" in command.payload
+            or "baseSha256" in command.payload
+        ):
             raise RootingPlanningError(
                 "targeted_fix_payload_ambiguous",
                 "TargetedFix target changes do not accept a profile or source path",
@@ -2160,6 +2304,70 @@ def parse_pif_inventory(stdout: str) -> dict[str, object]:
     }
 
 
+def parse_pif_document(stdout: str, *, expected_profile_id: str) -> PifDocument:
+    """Parse one bounded editable PIF profile without exposing its device path."""
+
+    if expected_profile_id not in _PIF_EDITABLE_PROFILE_IDS:
+        raise RootingPlanningError(
+            "pif_editor_profile_invalid",
+            "PIF profile is not editable",
+        )
+    if not isinstance(stdout, str):
+        raise RootingPlanningError("pif_document_invalid", "PIF document output must be text")
+    if len(stdout.encode("utf-8", errors="replace")) > 64 * 1024:
+        raise RootingPlanningError("pif_document_oversized", "PIF document output is oversized")
+    lines = tuple(line.strip() for line in stdout.splitlines() if line.strip())
+    if (
+        len(lines) not in {4, 5}
+        or lines[0] != f"{_PIF_DOCUMENT_PREFIX}|schema|1"
+        or lines[1] != f"{_PIF_DOCUMENT_PREFIX}|root|verified"
+        or lines[-1] != f"{_PIF_DOCUMENT_PREFIX}|complete|1"
+    ):
+        raise RootingPlanningError(
+            "pif_document_incomplete",
+            "PIF document output is missing its verified boundary",
+        )
+    fields = lines[2].split("|")
+    if (
+        len(fields) != 7
+        or fields[:2] != [_PIF_DOCUMENT_PREFIX, "profile"]
+        or fields[2] != expected_profile_id
+    ):
+        raise RootingPlanningError("pif_document_malformed", "PIF document identity is invalid")
+    profile_format = next(
+        item[2] for item in _PIF_PROFILE_SPECS if item[0] == expected_profile_id
+    )
+    if fields[3] != profile_format or fields[4] not in {"present", "absent"}:
+        raise RootingPlanningError("pif_document_malformed", "PIF document metadata is invalid")
+    try:
+        size = int(fields[5], 10)
+    except ValueError as error:
+        raise RootingPlanningError("pif_document_malformed", "PIF document size is invalid") from error
+    if not 0 <= size <= _MAX_PIF_EDITOR_BYTES:
+        raise RootingPlanningError("pif_document_oversized", "PIF document exceeds the editor limit")
+    if fields[4] == "absent":
+        if len(lines) != 4 or size != 0 or fields[6] != "-":
+            raise RootingPlanningError("pif_document_malformed", "absent PIF document has content")
+        return PifDocument(expected_profile_id, profile_format, False, "", 0, None)
+    if len(lines) != 5 or _SHA256_PATTERN.fullmatch(fields[6]) is None:
+        raise RootingPlanningError("pif_document_unverified", "PIF document hash is unavailable")
+    content_fields = lines[3].split("|", 2)
+    if content_fields[:2] != [_PIF_DOCUMENT_PREFIX, "content"] or len(content_fields) != 3:
+        raise RootingPlanningError("pif_document_malformed", "PIF document content record is invalid")
+    try:
+        raw = base64.b64decode(content_fields[2].encode("ascii"), validate=True)
+    except (UnicodeEncodeError, ValueError) as error:
+        raise RootingPlanningError("pif_document_malformed", "PIF document content is invalid") from error
+    if len(raw) != size or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), fields[6]):
+        raise RootingPlanningError("pif_document_unverified", "PIF document content does not match metadata")
+    inspection = inspect_pif_profile_stream(expected_profile_id, io.BytesIO(raw))
+    try:
+        content = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:  # defensive: inspection already enforces UTF-8
+        raise RootingPlanningError("pif_document_encoding_invalid", "PIF document must be UTF-8") from error
+    if inspection.size != size or not hmac.compare_digest(inspection.sha256, fields[6]):
+        raise RootingPlanningError("pif_document_unverified", "PIF document validation changed")
+    return PifDocument(expected_profile_id, profile_format, True, content, size, fields[6])
 def inspect_pif_profile_stream(profile_id: str, stream: BinaryIO) -> PifImportInspection:
     """Validate a granted PIF source while returning metadata only."""
 
@@ -2442,6 +2650,7 @@ __all__ = [
     "ROOTING_COMMANDS",
     "PifProfileInfo",
     "PifImportInspection",
+    "PifDocument",
     "PifTargetInfo",
     "TargetedFixImportInspection",
     "RootApkInspector",
@@ -2454,6 +2663,7 @@ __all__ = [
     "inspect_pif_profile_stream",
     "inspect_targeted_fix_profile_stream",
     "parse_pif_inventory",
+    "parse_pif_document",
     "parse_pi_analysis",
     "parse_root_module_list",
 ]
