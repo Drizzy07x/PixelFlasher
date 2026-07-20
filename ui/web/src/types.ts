@@ -59,6 +59,9 @@ export interface Device {
   slot: 'a' | 'b' | 'unknown';
   battery: number;
   connection: 'USB' | 'Wi-Fi';
+  architecture: string;
+  kernelRelease: string;
+  kmi: string;
   rooted: boolean;
 }
 

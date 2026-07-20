@@ -543,6 +543,27 @@ function methodForProvider(provider: string) {
     : '';
 }
 
+const architectureAliases: Readonly<Record<string, string>> = {
+  'arm64-v8a': 'arm64',
+  aarch64: 'arm64',
+  arm64: 'arm64',
+  'armeabi-v7a': 'arm',
+  armv7l: 'arm',
+  arm: 'arm',
+  'x86-64': 'x86_64',
+  x64: 'x86_64',
+  x86_64: 'x86_64',
+  x86: 'x86',
+};
+
+export function rootAppSupportsDeviceArchitecture(appArchitecture: string, deviceArchitecture: string) {
+  const app = appArchitecture.trim().toLowerCase();
+  if (app === 'universal' || app === 'all' || app === '*') return true;
+  const expected = architectureAliases[app];
+  const observed = architectureAliases[deviceArchitecture.trim().toLowerCase()];
+  return Boolean(expected && observed && expected === observed);
+}
+
 export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPageProps) {
   const { t } = useI18n();
   type RootMethod = { id: string; name: string; version: string; icon: 'magisk' | 'kernelSu' | 'apatch' | 'sukiSu' | 'wildKsu'; detail: string };
@@ -629,7 +650,10 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     : undefined;
   const singleAdb = selectedSerials.length === 1 && primary?.mode === 'adb';
   const rootedAdb = singleAdb && primary?.rooted === true;
-  const compatibleApps = rootApps.filter((app) => providerKey(app.provider) === patchProvider(method));
+  const compatibleApps = rootApps.filter((app) => (
+    providerKey(app.provider) === patchProvider(method)
+    && rootAppSupportsDeviceArchitecture(app.architecture, primary?.architecture ?? '')
+  ));
   const compatibleApp = compatibleApps.find((app) => methodForProvider(app.provider) === method) ?? compatibleApps[0];
 
   useEffect(() => {

@@ -43,7 +43,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
         support = root / "busybox"
         support.write_bytes(b"backend-pinned-support")
         document = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "protocol": PATCH_RUNNER_PROTOCOL,
             "apps": [
                 {
@@ -55,6 +55,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
                     "version": "1.0",
                     "provenance": "bundled",
                     "packageName": "com.topjohnwu.magisk",
+                    "architecture": "universal",
                 }
             ],
             "bundles": [
@@ -71,6 +72,10 @@ class PatchResourceRegistryTests(unittest.TestCase):
                             "sha256": sha256(support.read_bytes()),
                         }
                     ],
+                    "compatibility": {
+                        "architectures": ["arm64"],
+                        "kmi": ["android14-5.15"],
+                    },
                 }
             ],
         }
@@ -106,6 +111,8 @@ class PatchResourceRegistryTests(unittest.TestCase):
             self.assertEqual(inventory[0].id, bundle.app_id)
             self.assertEqual(str(runner.resolve()), bundle.runner.path)
             self.assertEqual("patch-runner:magisk", bundle.runner.role)
+            self.assertEqual(("arm64",), bundle.architectures)
+            self.assertEqual(("android14-5.15",), bundle.kmi_versions)
             self.assertEqual(str(support.resolve()), bundle.support_artifacts[0].path)
             self.assertEqual("patch-support:magisk:0", bundle.support_artifacts[0].role)
             service = BootPatchService(
@@ -134,7 +141,9 @@ class PatchResourceRegistryTests(unittest.TestCase):
                     runtime.root_app_catalog_service.rooting_service,
                     registry.rooting_service,
                 )
-                bundle = runtime.command_engine.boot_patch_service.tool_bundles["magisk"]
+                bundles = runtime.command_engine.boot_patch_service.tool_bundles["magisk"]
+                self.assertEqual(1, len(bundles))
+                bundle = bundles[0]
                 self.assertEqual(str(runner.resolve()), bundle.runner.path)
                 self.assertEqual(registry.tool_bundles[0].app_id, bundle.app_id)
             finally:
@@ -170,6 +179,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
                         "version": "1.0",
                         "provenance": "bundled",
                         "packageName": f"org.pixelflasher.{flavor.replace('-', '_')}",
+                        "architecture": "universal",
                     }
                 )
                 app_keys[flavor] = key
@@ -188,6 +198,10 @@ class PatchResourceRegistryTests(unittest.TestCase):
                             "sha256": sha256(support.read_bytes()),
                         }
                     ],
+                    "compatibility": {
+                        "architectures": ["*"],
+                        "kmi": ["*"],
+                    },
                 }
                 for flavor in (
                     "magisk",
@@ -202,7 +216,7 @@ class PatchResourceRegistryTests(unittest.TestCase):
             registry = self.load(
                 root,
                 {
-                    "schemaVersion": 1,
+                    "schemaVersion": 2,
                     "protocol": PATCH_RUNNER_PROTOCOL,
                     "apps": apps,
                     "bundles": bundles,
@@ -213,6 +227,43 @@ class PatchResourceRegistryTests(unittest.TestCase):
             self.assertEqual(frozenset(), registry.missing_flavors)
             self.assertEqual(7, len(registry.tool_bundles))
             self.assertEqual(6, len(registry.root_app_sources))
+
+    def test_same_flavor_variants_require_disjoint_compatibility(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document, _apk, _runner, _support = self.resources(root)
+            runner = root / "patch-runner-6.1"
+            runner.write_bytes(b"PIXELFLASHER_BOOT_PATCH_RUNNER_V1:6.1")
+            variant = deepcopy(document["bundles"][0])
+            variant["runner"] = {
+                "path": runner.name,
+                "sha256": sha256(runner.read_bytes()),
+            }
+            variant["compatibility"] = {
+                "architectures": ["arm64"],
+                "kmi": ["android15-6.1"],
+            }
+            document["bundles"].append(variant)
+
+            registry = self.load(root, document)
+
+            self.assertEqual(2, len(registry.tool_bundles))
+            self.assertEqual(
+                {("android14-5.15",), ("android15-6.1",)},
+                {bundle.kmi_versions for bundle in registry.tool_bundles},
+            )
+
+            overlapping = deepcopy(document)
+            overlapping["bundles"][1]["compatibility"]["kmi"] = ["*"]
+            with self.assertRaises(PatchResourceError) as raised:
+                self.load(root, overlapping)
+            self.assertEqual("patch_compatibility_overlap", raised.exception.code)
+
+            missing = deepcopy(document)
+            del missing["bundles"][0]["compatibility"]
+            with self.assertRaises(PatchResourceError) as raised:
+                self.load(root, missing)
+            self.assertEqual("manifest_schema_invalid", raised.exception.code)
 
     def test_manifest_and_every_resource_are_hash_pinned(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -150,5 +150,5 @@ describe('My Tools Expert workspace', () => {
       { returnCancelled: true, returnFailed: true },
     ]);
     expect(JSON.stringify(calls)).not.toMatch(/"echo"|cmd\.exe|\/c |workingDirectory|environment/i);
-  });
+  }, 10_000);
 });

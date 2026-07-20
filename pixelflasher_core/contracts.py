@@ -919,6 +919,8 @@ class OperationPlan:
     target_serial: str | None = None
     expected_codename: str = ""
     expected_device_state: str = ""
+    expected_architecture: str = ""
+    expected_kmi: str = ""
     firmware_hash: str = ""
     boot_hash: str = ""
     partitions: tuple[str, ...] = ()
@@ -946,6 +948,8 @@ class OperationPlan:
         target_serial: str | None = None,
         expected_codename: str = "",
         expected_device_state: str = "",
+        expected_architecture: str = "",
+        expected_kmi: str = "",
         firmware_hash: str = "",
         boot_hash: str = "",
         partitions: tuple[str, ...] = (),
@@ -995,6 +999,8 @@ class OperationPlan:
         object.__setattr__(self, "target_serial", target_serial)
         object.__setattr__(self, "expected_codename", expected_codename)
         object.__setattr__(self, "expected_device_state", expected_device_state)
+        object.__setattr__(self, "expected_architecture", expected_architecture)
+        object.__setattr__(self, "expected_kmi", expected_kmi)
         object.__setattr__(self, "firmware_hash", firmware_hash)
         object.__setattr__(self, "boot_hash", boot_hash)
         object.__setattr__(self, "partitions", tuple(partitions))
@@ -1041,6 +1047,10 @@ class OperationPlan:
             raise ValueError("slots cannot contain empty names")
         if not isinstance(self.expected_codename, str):
             raise TypeError("expected_codename must be a string")
+        if not isinstance(self.expected_architecture, str):
+            raise TypeError("expected_architecture must be a string")
+        if not isinstance(self.expected_kmi, str):
+            raise TypeError("expected_kmi must be a string")
 
     @property
     def request(self) -> ProcessRequest:
@@ -1066,6 +1076,8 @@ class OperationPlan:
             "target_serial": self.target_serial,
             "expected_codename": self.expected_codename,
             "expected_device_state": self.expected_device_state,
+            "expected_architecture": self.expected_architecture,
+            "expected_kmi": self.expected_kmi,
             "firmware_hash": self.firmware_hash,
             "boot_hash": self.boot_hash,
             "partitions": self.partitions,
@@ -1115,6 +1127,8 @@ class OperationPlan:
             "target_serial": self.target_serial,
             "expected_codename": self.expected_codename,
             "expected_device_state": self.expected_device_state,
+            "expected_architecture": self.expected_architecture,
+            "expected_kmi": self.expected_kmi,
             "firmware_hash": self.firmware_hash,
             "boot_hash": self.boot_hash,
             "partitions": list(self.partitions),
@@ -1151,6 +1165,8 @@ class OperationPlan:
             "target_serial": self.target_serial,
             "expected_codename": self.expected_codename,
             "expected_device_state": self.expected_device_state,
+            "expected_architecture": self.expected_architecture,
+            "expected_kmi": self.expected_kmi,
             "firmware_hash": self.firmware_hash,
             "boot_hash": self.boot_hash,
             "partitions": list(self.partitions),
@@ -1786,6 +1802,9 @@ class DeviceInfo:
     bootloader: str = "unknown"
     battery: int | None = None
     connection: str = ""
+    architecture: str = ""
+    kernel_release: str = ""
+    kmi: str = ""
 
     def to_dict(self) -> dict[str, JSONValue]:
         display_name = self.name or self.model or self.codename or self.serial
@@ -1805,6 +1824,9 @@ class DeviceInfo:
             "slot": slot,
             "battery": self.battery,
             "connection": self.connection,
+            "architecture": self.architecture,
+            "kernelRelease": self.kernel_release,
+            "kmi": self.kmi,
             "root": self.root,
             "rooted": self.root,
             "online": self.online,

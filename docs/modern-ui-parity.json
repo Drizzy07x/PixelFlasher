@@ -980,12 +980,13 @@
         "ui/web/src/pages/Pages.tsx:RootPage",
         "ui/web/src/commands.ts:bootPatch",
         "pixelflasher_core/boot_patch.py:BootPatchService",
+        "pixelflasher_core/devices.py:normalize_device_architecture/derive_android_kmi",
         "pixelflasher_core/patch_resources.py:PatchResourceRegistry/load_patch_resource_registry",
         "pixelflasher_core/runtime.py:PatchResourceRegistry composition",
         "pixelflasher_core/executor.py:SecretProcessTransport/SubprocessTransport.run_secret",
         "pixelflasher_core/engine.py:_plan_and_execute"
       ],
-      "gap": "The verified registry now composes into the runtime instead of being discarded; real provider APK delivery, production runners and KMI/architecture selection remain open.",
+      "gap": "The verified registry composes into the runtime and schema v2 selects non-overlapping runner variants from observed architecture/KMI, which are bound into and revalidated by the operation plan. Real provider APK delivery, production runners and packaged/real-device smokes remain open.",
       "exitCriteria": [
         "Each supported patch flavor executes only with backend-pinned compatible APK and runner resources and returns a verified registered image.",
         "Secret transport, architecture/KMI selection, cancellation and failure are typed and tested."

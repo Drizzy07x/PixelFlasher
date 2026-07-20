@@ -25,6 +25,7 @@ from typing import cast
 
 from .boot_patch import (
     SUPPORTED_BOOT_PATCH_FLAVORS,
+    BootPatchService,
     PatchToolBundle,
 )
 from .contracts import FileArtifact
@@ -36,7 +37,7 @@ from .rooting import (
     RootingService,
 )
 
-PATCH_RESOURCE_SCHEMA_VERSION = 1
+PATCH_RESOURCE_SCHEMA_VERSION = 2
 PATCH_RUNNER_PROTOCOL = "pixelflasher.boot-patch.v1"
 PATCH_RUNNER_MARKER = b"PIXELFLASHER_BOOT_PATCH_RUNNER_V1"
 PATCH_RESOURCE_MANIFEST_NAME = "patch-resources.json"
@@ -46,8 +47,10 @@ _KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _TRUSTED_PROVENANCE = frozenset({"official", "verified-download", "bundled"})
 _MAX_MANIFEST_BYTES = 1024 * 1024
 _MAX_APPS = 64
-_MAX_BUNDLES = len(SUPPORTED_BOOT_PATCH_FLAVORS)
+_MAX_BUNDLES = 64
 _MAX_SUPPORT_ARTIFACTS = 32
+_MAX_ARCHITECTURES = 5
+_MAX_KMI_VERSIONS = 64
 
 _PROVIDERS_FOR_FLAVOR = {
     "magisk": frozenset({"magisk"}),
@@ -204,6 +207,7 @@ def load_patch_resource_registry(
                 "version",
                 "provenance",
                 "packageName",
+                "architecture",
             },
             f"apps[{index}]",
         )
@@ -242,6 +246,10 @@ def load_patch_resource_registry(
                 app_values["packageName"],
                 f"apps[{index}].packageName",
             ),
+            architecture=_text(
+                app_values["architecture"],
+                f"apps[{index}].architecture",
+            ).casefold(),
         )
         sources.append(source)
         source_by_key[key] = source
@@ -267,7 +275,6 @@ def load_patch_resource_registry(
         app_by_key[key] = app
 
     bundles: list[PatchToolBundle] = []
-    seen_flavors: set[str] = set()
     for index, raw_bundle in enumerate(raw_bundles):
         if not isinstance(raw_bundle, Mapping):
             raise PatchResourceError(
@@ -277,7 +284,7 @@ def load_patch_resource_registry(
         bundle_values = cast(Mapping[str, object], raw_bundle)
         _exact_fields(
             bundle_values,
-            {"flavor", "app", "runner", "support"},
+            {"flavor", "app", "runner", "support", "compatibility"},
             f"bundles[{index}]",
         )
         flavor = _text(bundle_values["flavor"], f"bundles[{index}].flavor").casefold()
@@ -285,11 +292,6 @@ def load_patch_resource_registry(
             raise PatchResourceError(
                 "patch_flavor_unsupported",
                 f"manifest uses unsupported patch flavor: {flavor}",
-            )
-        if flavor in seen_flavors:
-            raise PatchResourceError(
-                "patch_flavor_duplicate",
-                f"manifest defines multiple runners for {flavor}",
             )
         app_key = _key(bundle_values["app"], f"bundles[{index}].app")
         app = app_by_key.get(app_key)
@@ -332,8 +334,34 @@ def load_patch_resource_registry(
             )
             for support_index, raw_artifact in enumerate(raw_support)
         )
-        bundles.append(PatchToolBundle(flavor, app.id, runner, support))
-        seen_flavors.add(flavor)
+        architectures, kmi_versions = _compatibility(
+            bundle_values["compatibility"],
+            field=f"bundles[{index}].compatibility",
+        )
+        try:
+            bundles.append(
+                PatchToolBundle(
+                    flavor,
+                    app.id,
+                    runner,
+                    support,
+                    architectures,
+                    kmi_versions,
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise PatchResourceError(
+                "patch_compatibility_invalid",
+                str(error),
+            ) from error
+
+    try:
+        BootPatchService(rooting_service, tuple(bundles))
+    except ValueError as error:
+        raise PatchResourceError(
+            "patch_compatibility_overlap",
+            str(error),
+        ) from error
 
     return PatchResourceRegistry(
         str(manifest),
@@ -343,6 +371,39 @@ def load_patch_resource_registry(
         rooting_service,
         tuple(bundles),
     )
+
+
+def _compatibility(
+    value: object,
+    *,
+    field: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if not isinstance(value, Mapping):
+        raise PatchResourceError(
+            "manifest_schema_invalid",
+            f"{field} must be an object",
+        )
+    values = cast(Mapping[str, object], value)
+    _exact_fields(values, {"architectures", "kmi"}, field)
+    raw_architectures = _bounded_list(
+        values["architectures"],
+        f"{field}.architectures",
+        _MAX_ARCHITECTURES,
+    )
+    raw_kmi = _bounded_list(
+        values["kmi"],
+        f"{field}.kmi",
+        _MAX_KMI_VERSIONS,
+    )
+    architectures = tuple(
+        _text(item, f"{field}.architectures[{index}]").casefold()
+        for index, item in enumerate(raw_architectures)
+    )
+    kmi_versions = tuple(
+        _text(item, f"{field}.kmi[{index}]").casefold()
+        for index, item in enumerate(raw_kmi)
+    )
+    return architectures, kmi_versions
 
 
 def _manifest_artifact(

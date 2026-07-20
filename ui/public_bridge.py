@@ -408,6 +408,9 @@ def _public_device(value: object) -> dict[str, JSONValue]:
         "slot": _string(source.get("slot"), default="unknown"),
         "battery": _integer(source.get("battery")),
         "connection": _string(source.get("connection")),
+        "architecture": _string(source.get("architecture")),
+        "kernelRelease": _string(source.get("kernelRelease", source.get("kernel_release"))),
+        "kmi": _string(source.get("kmi")),
         "rooted": _boolean(source.get("rooted", source.get("root"))),
         "online": _boolean(source.get("online"), default=True),
     }
@@ -668,6 +671,8 @@ def _public_operation_plan(value: object) -> dict[str, JSONValue]:
             "target_serial": _optional_string(source.get("target_serial")),
             "expected_codename": _optional_string(source.get("expected_codename")),
             "expected_device_state": _optional_string(source.get("expected_device_state")),
+            "expected_architecture": _optional_string(source.get("expected_architecture")),
+            "expected_kmi": _optional_string(source.get("expected_kmi")),
             "firmware_hash": _string(source.get("firmware_hash")),
             "boot_hash": _string(source.get("boot_hash")),
             "partitions": _strings(source.get("partitions", [])),

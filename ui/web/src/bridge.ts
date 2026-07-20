@@ -403,6 +403,11 @@ export function normalizeSnapshot(input: HostSnapshot): HostSnapshot {
       slot: device.slot === 'a' || device.slot === 'b' ? device.slot : 'unknown',
       battery: typeof device.battery === 'number' ? device.battery : 0,
       connection: device.connection === 'Wi-Fi' ? 'Wi-Fi' : 'USB',
+      architecture: typeof device.architecture === 'string' ? device.architecture : '',
+      kernelRelease: typeof device.kernelRelease === 'string'
+        ? device.kernelRelease
+        : typeof device.kernel_release === 'string' ? device.kernel_release : '',
+      kmi: typeof device.kmi === 'string' ? device.kmi : '',
       rooted: typeof device.rooted === 'boolean' ? device.rooted : Boolean(device.root),
       online: typeof device.online === 'boolean' ? device.online : true,
     } as Device;

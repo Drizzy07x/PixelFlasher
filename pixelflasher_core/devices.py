@@ -21,6 +21,24 @@ _ADB_ONLINE_MODES = frozenset({"adb", "recovery", "sideload"})
 _PROPERTY_SAFE_MODES = frozenset({"adb", "recovery"})
 _FASTBOOT_MODES = frozenset({"fastboot", "fastbootd"})
 _FASTBOOT_GETVARS = ("current-slot", "unlocked", "is-userspace")
+_KERNEL_RELEASE_PATTERN = re.compile(
+    r"^(?P<major>[1-9][0-9]*)\.(?P<minor>[0-9]+)(?:\.[0-9]+)?[^\r\n]*?-android(?P<android>[0-9]{2})-",
+    re.IGNORECASE,
+)
+_ARCHITECTURE_ALIASES = {
+    "aarch64": "arm64",
+    "arm64": "arm64",
+    "arm64-v8a": "arm64",
+    "armeabi": "arm",
+    "armeabi-v7a": "arm",
+    "armv7l": "arm",
+    "arm": "arm",
+    "amd64": "x86_64",
+    "x86_64": "x86_64",
+    "i386": "x86",
+    "i686": "x86",
+    "x86": "x86",
+}
 
 
 def _no_excluded_serials() -> frozenset[str]:
@@ -118,6 +136,29 @@ def parse_battery_level(output: str) -> int | None:
             level = int(match.group(1))
             return level if 0 <= level <= 100 else None
     return None
+
+
+def normalize_device_architecture(value: object) -> str:
+    """Return one closed device architecture name or an empty value."""
+
+    if not isinstance(value, str):
+        return ""
+    candidate = value.split(",", 1)[0].strip().casefold()
+    return _ARCHITECTURE_ALIASES.get(candidate, "")
+
+
+def derive_android_kmi(kernel_release: object) -> str:
+    """Derive the stable Android GKI KMI generation from ``uname -r``."""
+
+    if not isinstance(kernel_release, str):
+        return ""
+    candidate = kernel_release.strip()
+    if not candidate or len(candidate) > 256 or not candidate.isprintable():
+        return ""
+    match = _KERNEL_RELEASE_PATTERN.match(candidate)
+    if match is None:
+        return ""
+    return f"android{match.group('android')}-{match.group('major')}.{match.group('minor')}"
 
 
 def merge_device_inventories(
@@ -281,12 +322,14 @@ class DeviceService:
         property_timeout_seconds: float = 4.0,
         fastboot_property_timeout_seconds: float = 4.0,
         battery_timeout_seconds: float = 3.0,
+        kernel_timeout_seconds: float = 4.0,
     ) -> None:
         self.transport = transport or SubprocessTransport()
         self.scan_timeout_seconds = scan_timeout_seconds
         self.property_timeout_seconds = property_timeout_seconds
         self.fastboot_property_timeout_seconds = fastboot_property_timeout_seconds
         self.battery_timeout_seconds = battery_timeout_seconds
+        self.kernel_timeout_seconds = kernel_timeout_seconds
 
     def scan(
         self,
@@ -482,6 +525,38 @@ class DeviceService:
                 properties.get("ro.build.version.security_patch", "").strip()
                 or device.security_patch
             )
+            architecture = normalize_device_architecture(
+                properties.get("ro.product.cpu.abi")
+                or properties.get("ro.product.cpu.abilist")
+            )
+            property_kernel = (
+                properties.get("ro.kernel.version", "").strip()
+                or properties.get("ro.boot.kernel_version", "").strip()
+            )
+            kernel_release = property_kernel
+            kernel_outcome = self._run(
+                ProcessRequest(
+                    (toolchain.adb, "-s", device.serial, "shell", "uname", "-r"),
+                    timeout_seconds=self.kernel_timeout_seconds,
+                ),
+                token,
+                f"kernel:{device.serial}",
+                warnings,
+            )
+            if (
+                kernel_outcome is not None
+                and kernel_outcome.returncode == 0
+                and not kernel_outcome.timed_out
+                and not kernel_outcome.cancelled
+            ):
+                observed_kernel = kernel_outcome.stdout.strip()
+                if (
+                    observed_kernel
+                    and len(observed_kernel) <= 256
+                    and observed_kernel.isprintable()
+                    and not any(character.isspace() for character in observed_kernel)
+                ):
+                    kernel_release = observed_kernel
             bootloader = _bootloader_state(properties, device.bootloader)
             battery = device.battery
             if include_battery and device.mode == "adb" and not token.cancelled:
@@ -514,6 +589,9 @@ class DeviceService:
                     security_patch=security_patch,
                     bootloader=bootloader,
                     battery=battery,
+                    architecture=architecture,
+                    kernel_release=kernel_release,
+                    kmi=derive_android_kmi(kernel_release),
                 )
             )
         return tuple(enriched)

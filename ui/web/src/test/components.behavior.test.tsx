@@ -9,17 +9,17 @@ const devices: Device[] = [
   {
     serial: 'ADB:1', name: 'ADB device', model: 'Pixel', codename: 'akita', mode: 'adb',
     androidVersion: '16', build: 'BUILD', securityPatch: '2026-01-01', bootloader: 'unlocked',
-    slot: 'a', battery: 50, connection: 'USB', rooted: true,
+    slot: 'a', battery: 50, connection: 'USB', architecture: 'arm64', kernelRelease: '5.15.1-android14-1-gtest', kmi: 'android14-5.15', rooted: true,
   },
   {
     serial: 'FAST-2', name: 'Fastboot device', model: 'Pixel', codename: 'husky', mode: 'fastbootd',
     androidVersion: '16', build: 'BUILD', securityPatch: '2026-01-01', bootloader: 'locked',
-    slot: 'b', battery: 60, connection: 'Wi-Fi', rooted: false,
+    slot: 'b', battery: 60, connection: 'Wi-Fi', architecture: '', kernelRelease: '', kmi: '', rooted: false,
   },
   {
     serial: 'OFFLINE', name: 'Offline device', model: 'Pixel', codename: 'panther', mode: 'offline',
     androidVersion: '15', build: 'OLD', securityPatch: '2025-01-01', bootloader: 'unknown',
-    slot: 'unknown', battery: 0, connection: 'USB', rooted: false,
+    slot: 'unknown', battery: 0, connection: 'USB', architecture: '', kernelRelease: '', kmi: '', rooted: false,
   },
 ];
 

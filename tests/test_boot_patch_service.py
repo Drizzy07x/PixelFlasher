@@ -54,7 +54,7 @@ def write_apk(path: Path, provider: str) -> bytes:
 
 
 class BootPatchServiceTests(unittest.TestCase):
-    def make_service(self, root: Path, flavor: str):
+    def make_service(self, root: Path, flavor: str, *, app_architecture: str = "universal"):
         provider = PROVIDERS[flavor]
         apk = root / f"{flavor}.apk"
         apk_bytes = write_apk(apk, provider)
@@ -68,6 +68,7 @@ class BootPatchServiceTests(unittest.TestCase):
                     "1.0",
                     "official",
                     app_hash,
+                    architecture=app_architecture,
                 ),
             ),
             hash_chunk_size=2,
@@ -98,6 +99,8 @@ class BootPatchServiceTests(unittest.TestCase):
         ready: bool = True,
         patched: bool = False,
         boot_hash: str | None = None,
+        architecture: str = "",
+        kmi: str = "",
     ) -> AppSnapshot:
         digest = boot_hash if boot_hash is not None else sha256(boot.read_bytes())
         return AppSnapshot(
@@ -108,6 +111,8 @@ class BootPatchServiceTests(unittest.TestCase):
                     codename="akita",
                     mode=mode,
                     online=True,
+                    architecture=architecture,
+                    kmi=kmi,
                 ),
             ),
             selected_serial="SERIAL",
@@ -240,6 +245,107 @@ class BootPatchServiceTests(unittest.TestCase):
                 )
             self.assertEqual("boot_partition_incompatible", raised.exception.code)
 
+    def test_runner_selection_is_exactly_bound_to_architecture_and_kmi(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            boot = root / "boot.img"
+            boot.write_bytes(b"stock boot")
+            base, app, _apk, first_runner = self.make_service(root, "kernelsu")
+            first = PatchToolBundle(
+                "kernelsu",
+                app.id,
+                base.tool_bundles["kernelsu"][0].runner,
+                architectures=("arm64",),
+                kmi_versions=("android14-5.15",),
+            )
+            second_runner = root / "kernelsu-runner-6.1"
+            second_runner.write_bytes(b"runner:kernelsu:6.1")
+            second = PatchToolBundle(
+                "kernelsu",
+                app.id,
+                FileArtifact(
+                    str(second_runner.resolve()),
+                    sha256(second_runner.read_bytes()),
+                    "patch-runner:kernelsu",
+                ),
+                architectures=("arm64",),
+                kmi_versions=("android15-6.1",),
+            )
+            service = BootPatchService(base.rooting_service, (first, second), hash_chunk_size=2)
+
+            compilation = service.compile(
+                self.command("kernelsu", app.id, root / "selected.img"),
+                self.make_snapshot(
+                    boot,
+                    architecture="arm64",
+                    kmi="android15-6.1",
+                ),
+            )
+
+            self.assertEqual(str(second_runner.resolve()), compilation.plan.requests[2].argv[4])
+            self.assertNotEqual(str(first_runner.resolve()), compilation.plan.requests[2].argv[4])
+            self.assertEqual("arm64", compilation.plan.expected_architecture)
+            self.assertEqual("android15-6.1", compilation.plan.expected_kmi)
+
+            cases = (
+                ("", "android15-6.1", "device_architecture_unknown"),
+                ("x86_64", "android15-6.1", "patch_architecture_incompatible"),
+                ("arm64", "", "device_kmi_unknown"),
+                ("arm64", "android13-5.10", "patch_kmi_incompatible"),
+            )
+            for architecture, kmi, code in cases:
+                with self.subTest(code=code), self.assertRaises(BootPatchPlanningError) as raised:
+                    service.compile(
+                        self.command("kernelsu", app.id, root / f"{code}.img"),
+                        self.make_snapshot(boot, architecture=architecture, kmi=kmi),
+                    )
+                self.assertEqual(code, raised.exception.code)
+
+    def test_overlapping_runner_compatibility_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            service, app, _apk, _runner = self.make_service(root, "magisk")
+            runner = service.tool_bundles["magisk"][0].runner
+            exact = PatchToolBundle(
+                "magisk",
+                app.id,
+                runner,
+                architectures=("arm64",),
+                kmi_versions=("android14-5.15",),
+            )
+            wildcard = PatchToolBundle(
+                "magisk",
+                app.id,
+                runner,
+                architectures=("arm64",),
+                kmi_versions=("*",),
+            )
+            with self.assertRaisesRegex(ValueError, "overlapping"):
+                BootPatchService(service.rooting_service, (exact, wildcard))
+
+    def test_root_app_architecture_is_revalidated_against_the_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            boot = root / "boot.img"
+            boot.write_bytes(b"stock boot")
+            service, app, _apk, _runner = self.make_service(
+                root,
+                "magisk",
+                app_architecture="arm64-v8a",
+            )
+            with self.assertRaises(BootPatchPlanningError) as raised:
+                service.compile(
+                    self.command("magisk", app.id, root / "incompatible.img"),
+                    self.make_snapshot(boot, architecture="x86_64"),
+                )
+            self.assertEqual("patch_app_architecture_incompatible", raised.exception.code)
+
+            compilation = service.compile(
+                self.command("magisk", app.id, root / "compatible.img"),
+                self.make_snapshot(boot, architecture="arm64"),
+            )
+            self.assertEqual("arm64", compilation.plan.expected_architecture)
+
     def test_missing_unverified_or_wrong_provider_apps_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -264,7 +370,7 @@ class BootPatchServiceTests(unittest.TestCase):
             wrong_bundle = PatchToolBundle(
                 "magisk",
                 apatch_app.id,
-                apatch_service.tool_bundles["apatch"].runner,
+                apatch_service.tool_bundles["apatch"][0].runner,
             )
             mismatch = BootPatchService(apatch_service.rooting_service, (wrong_bundle,))
             with self.assertRaises(BootPatchPlanningError) as raised:

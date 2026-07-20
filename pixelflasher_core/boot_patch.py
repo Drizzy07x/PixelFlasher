@@ -71,6 +71,20 @@ _APP_PROVIDER_FOR_FLAVOR = {
 _BOOT_PARTITIONS = frozenset({"boot", "init_boot"})
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _OUTPUT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.img$")
+_PATCH_ARCHITECTURES = frozenset({"*", "arm64", "arm", "x86_64", "x86"})
+_APP_ARCHITECTURE_ALIASES = {
+    "universal": "*",
+    "all": "*",
+    "arm64-v8a": "arm64",
+    "aarch64": "arm64",
+    "arm64": "arm64",
+    "armeabi-v7a": "arm",
+    "armeabi": "arm",
+    "arm": "arm",
+    "x86_64": "x86_64",
+    "x86": "x86",
+}
+_KMI_PATTERN = re.compile(r"^android[0-9]{2}-[1-9][0-9]*\.[0-9]+$")
 
 
 class CancellationProbe(Protocol):
@@ -94,6 +108,8 @@ class PatchToolBundle:
     app_id: str
     runner: FileArtifact
     support_artifacts: tuple[FileArtifact, ...] = ()
+    architectures: tuple[str, ...] = ("*",)
+    kmi_versions: tuple[str, ...] = ("*",)
 
     def __post_init__(self) -> None:
         if not isinstance(self.flavor, str):
@@ -105,10 +121,39 @@ class PatchToolBundle:
         if not self.app_id.strip():
             raise ValueError("app_id must not be empty")
         object.__setattr__(self, "support_artifacts", tuple(self.support_artifacts))
+        architectures = tuple(
+            item.strip().casefold() if isinstance(item, str) else ""
+            for item in self.architectures
+        )
+        kmi_versions = tuple(
+            item.strip().casefold() if isinstance(item, str) else ""
+            for item in self.kmi_versions
+        )
+        if (
+            not architectures
+            or len(architectures) != len(set(architectures))
+            or any(item not in _PATCH_ARCHITECTURES for item in architectures)
+            or ("*" in architectures and len(architectures) != 1)
+        ):
+            raise ValueError("architectures must be unique canonical device architectures or *")
+        if (
+            not kmi_versions
+            or len(kmi_versions) != len(set(kmi_versions))
+            or any(item != "*" and _KMI_PATTERN.fullmatch(item) is None for item in kmi_versions)
+            or ("*" in kmi_versions and len(kmi_versions) != 1)
+        ):
+            raise ValueError("kmi_versions must be unique canonical Android KMI values or *")
+        object.__setattr__(self, "architectures", architectures)
+        object.__setattr__(self, "kmi_versions", kmi_versions)
         if not isinstance(self.runner, FileArtifact):
             raise TypeError("runner must be a FileArtifact")
         if any(not isinstance(item, FileArtifact) for item in self.support_artifacts):
             raise TypeError("support_artifacts must contain only FileArtifact values")
+
+    def matches(self, architecture: str, kmi: str) -> bool:
+        architecture_match = "*" in self.architectures or architecture in self.architectures
+        kmi_match = "*" in self.kmi_versions or kmi in self.kmi_versions
+        return architecture_match and kmi_match
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,13 +227,18 @@ class BootPatchService:
             raise ValueError("hash_chunk_size must be positive")
         self.rooting_service = rooting_service or RootingService()
         self.hash_chunk_size = hash_chunk_size
-        bundles: dict[str, PatchToolBundle] = {}
+        bundles: dict[str, list[PatchToolBundle]] = {}
         for bundle in tool_bundles:
             flavor = self._flavor(bundle.flavor)
-            if flavor in bundles:
-                raise ValueError(f"duplicate patch tool bundle for flavor: {flavor}")
-            bundles[flavor] = bundle
-        self.tool_bundles = bundles
+            normalized = replace(bundle, flavor=flavor)
+            existing = bundles.setdefault(flavor, [])
+            if any(self._bundle_compatibility_overlaps(item, normalized) for item in existing):
+                raise ValueError(f"overlapping patch tool bundle compatibility for flavor: {flavor}")
+            existing.append(normalized)
+        self.tool_bundles = {
+            flavor: tuple(items)
+            for flavor, items in bundles.items()
+        }
 
     def compile(
         self,
@@ -213,12 +263,8 @@ class BootPatchService:
         uses_super_key = self._validate_super_key(command, flavor)
         partition, boot_artifact = self._boot_artifact(snapshot, flavor, cancellation)
         app = self._verified_app(command.payload.get("appId"), flavor, cancellation)
-        bundle = self.tool_bundles.get(flavor)
-        if bundle is None:
-            raise BootPatchPlanningError(
-                "patch_runner_unavailable",
-                f"no backend-verified patch runner is registered for {flavor}",
-            )
+        bundle = self._compatible_bundle(flavor, device)
+        app_architecture = self._validate_app_architecture(app, device)
         if not _SHA256_PATTERN.fullmatch(bundle.app_id.casefold()):
             raise BootPatchPlanningError(
                 "patch_bundle_app_id_invalid",
@@ -360,6 +406,12 @@ class BootPatchService:
             target_serial=device.serial,
             expected_codename=device.codename,
             expected_device_state=device.mode,
+            expected_architecture=(
+                device.architecture
+                if "*" not in bundle.architectures or app_architecture != "*"
+                else ""
+            ),
+            expected_kmi=device.kmi if "*" not in bundle.kmi_versions else "",
             firmware_hash=snapshot.firmware.hash,
             boot_hash=boot_artifact.sha256,
             partitions=(partition,),
@@ -375,6 +427,92 @@ class BootPatchService:
             str(destination),
             partition,
         )
+
+    def _compatible_bundle(self, flavor: str, device: DeviceInfo) -> PatchToolBundle:
+        bundles = self.tool_bundles.get(flavor, ())
+        if not bundles:
+            raise BootPatchPlanningError(
+                "patch_runner_unavailable",
+                f"no backend-verified patch runner is registered for {flavor}",
+            )
+        if any("*" not in bundle.architectures for bundle in bundles) and not device.architecture:
+            raise BootPatchPlanningError(
+                "device_architecture_unknown",
+                "device architecture must be observed before selecting a patch runner",
+            )
+        architecture_candidates = tuple(
+            bundle
+            for bundle in bundles
+            if "*" in bundle.architectures or device.architecture in bundle.architectures
+        )
+        if not architecture_candidates:
+            raise BootPatchPlanningError(
+                "patch_architecture_incompatible",
+                f"no {flavor} patch runner supports device architecture {device.architecture!r}",
+            )
+        if (
+            any("*" not in bundle.kmi_versions for bundle in architecture_candidates)
+            and not device.kmi
+        ):
+            raise BootPatchPlanningError(
+                "device_kmi_unknown",
+                "device KMI must be observed before selecting a patch runner",
+            )
+        candidates = tuple(
+            bundle
+            for bundle in architecture_candidates
+            if "*" in bundle.kmi_versions or device.kmi in bundle.kmi_versions
+        )
+        if not candidates:
+            raise BootPatchPlanningError(
+                "patch_kmi_incompatible",
+                f"no {flavor} patch runner supports device KMI {device.kmi!r}",
+            )
+        if len(candidates) != 1:
+            raise BootPatchPlanningError(
+                "patch_runner_ambiguous",
+                "multiple patch runners match the selected device",
+            )
+        return candidates[0]
+
+    @staticmethod
+    def _validate_app_architecture(app: RootAppInfo, device: DeviceInfo) -> str:
+        architecture = _APP_ARCHITECTURE_ALIASES.get(app.architecture.strip().casefold())
+        if architecture is None:
+            raise BootPatchPlanningError(
+                "patch_app_architecture_unsupported",
+                "selected root app has an unsupported architecture declaration",
+            )
+        if architecture == "*":
+            return architecture
+        if not device.architecture:
+            raise BootPatchPlanningError(
+                "device_architecture_unknown",
+                "device architecture must be observed before selecting a root app",
+            )
+        if architecture != device.architecture:
+            raise BootPatchPlanningError(
+                "patch_app_architecture_incompatible",
+                f"selected root app does not support device architecture {device.architecture!r}",
+            )
+        return architecture
+
+    @staticmethod
+    def _bundle_compatibility_overlaps(
+        left: PatchToolBundle,
+        right: PatchToolBundle,
+    ) -> bool:
+        architecture_overlap = (
+            "*" in left.architectures
+            or "*" in right.architectures
+            or bool(set(left.architectures) & set(right.architectures))
+        )
+        kmi_overlap = (
+            "*" in left.kmi_versions
+            or "*" in right.kmi_versions
+            or bool(set(left.kmi_versions) & set(right.kmi_versions))
+        )
+        return architecture_overlap and kmi_overlap
 
     def finalize(
         self,

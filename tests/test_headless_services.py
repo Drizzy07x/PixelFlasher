@@ -25,8 +25,10 @@ from pixelflasher_core import (
     ToolchainInfo,
     ToolchainService,
     TransportOutcome,
+    derive_android_kmi,
     merge_device_history,
     merge_device_inventories,
+    normalize_device_architecture,
     parse_adb_devices,
     parse_battery_level,
     parse_fastboot_devices,
@@ -115,6 +117,14 @@ malformed
         self.assertIsNone(parse_fastboot_getvar("unlocked: yes\n", "is-userspace"))
         self.assertEqual(87, parse_battery_level("status: 2\n  level: 87\n"))
         self.assertIsNone(parse_battery_level("level: 101\n"))
+        self.assertEqual("arm64", normalize_device_architecture("arm64-v8a"))
+        self.assertEqual("x86_64", normalize_device_architecture("x86_64,x86"))
+        self.assertEqual("", normalize_device_architecture("mips"))
+        self.assertEqual(
+            "android14-5.15",
+            derive_android_kmi("5.15.148-android14-11-gabcdef"),
+        )
+        self.assertEqual("", derive_android_kmi("5.15.148-custom-kernel"))
 
     def test_device_serialization_exposes_react_and_snake_case_aliases(self):
         device = DeviceInfo(
@@ -288,10 +298,13 @@ class DeviceServiceTests(unittest.TestCase):
                     "[ro.build.version.release]: [16]\n"
                     "[ro.build.id]: [BP2A.260101.001]\n"
                     "[ro.build.version.security_patch]: [2026-01-05]\n"
+                    "[ro.product.cpu.abi]: [arm64-v8a]\n"
                     "[ro.boot.flash.locked]: [0]\n",
                 ),
+                TransportOutcome(0, "5.15.148-android14-11-gabcdef\n"),
                 TransportOutcome(0, "AC powered: false\n  level: 87\n"),
                 TransportOutcome(0, "[ro.product.device]: [recovery]\n"),
+                TransportOutcome(0, "5.10.218-android13-4-gabcdef\n"),
             ]
         )
 
@@ -318,6 +331,10 @@ class DeviceServiceTests(unittest.TestCase):
         self.assertEqual("b", selected["F"].slot)
         self.assertEqual("unlocked", selected["F"].bootloader)
         self.assertEqual(
+            ("arm64", "5.15.148-android14-11-gabcdef", "android14-5.15"),
+            (selected["A"].architecture, selected["A"].kernel_release, selected["A"].kmi),
+        )
+        self.assertEqual(
             [
                 ProcessRequest(("ADB", "devices", "-l"), timeout_seconds=8.0),
                 ProcessRequest(("FASTBOOT", "devices", "-l"), timeout_seconds=8.0),
@@ -335,10 +352,18 @@ class DeviceServiceTests(unittest.TestCase):
                 ),
                 ProcessRequest(("ADB", "-s", "A", "shell", "getprop"), timeout_seconds=4.0),
                 ProcessRequest(
+                    ("ADB", "-s", "A", "shell", "uname", "-r"),
+                    timeout_seconds=4.0,
+                ),
+                ProcessRequest(
                     ("ADB", "-s", "A", "shell", "dumpsys", "battery"),
                     timeout_seconds=3.0,
                 ),
                 ProcessRequest(("ADB", "-s", "R", "shell", "getprop"), timeout_seconds=4.0),
+                ProcessRequest(
+                    ("ADB", "-s", "R", "shell", "uname", "-r"),
+                    timeout_seconds=4.0,
+                ),
             ],
             transport.calls,
         )

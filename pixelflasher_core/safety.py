@@ -300,6 +300,32 @@ class SafetyPolicy:
                         "device_codename_changed",
                         "device codename no longer matches the operation plan",
                     )
+            if plan.expected_architecture:
+                if target_device is None or not target_device.architecture:
+                    return SafetyDecision(
+                        False,
+                        "device_architecture_unavailable",
+                        f"current architecture for device {plan_target!r} is unavailable",
+                    )
+                if target_device.architecture != plan.expected_architecture:
+                    return SafetyDecision(
+                        False,
+                        "device_architecture_changed",
+                        "device architecture no longer matches the operation plan",
+                    )
+            if plan.expected_kmi:
+                if target_device is None or not target_device.kmi:
+                    return SafetyDecision(
+                        False,
+                        "device_kmi_unavailable",
+                        f"current KMI for device {plan_target!r} is unavailable",
+                    )
+                if target_device.kmi != plan.expected_kmi:
+                    return SafetyDecision(
+                        False,
+                        "device_kmi_changed",
+                        "device KMI no longer matches the operation plan",
+                    )
             if plan.plan_revision != snapshot.plan.revision:
                 return SafetyDecision(
                     False,

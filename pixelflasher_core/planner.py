@@ -551,7 +551,12 @@ class OperationPlanner:
                 (item for item in snapshot.devices if item.serial == plan.target_serial),
                 None,
             )
-            if plan.expected_device_state or plan.expected_codename:
+            if (
+                plan.expected_device_state
+                or plan.expected_codename
+                or plan.expected_architecture
+                or plan.expected_kmi
+            ):
                 if device is None:
                     return "device_disconnected", "planned target is no longer connected"
                 if not device.online or device.mode in {"offline", "unauthorized"}:
@@ -564,6 +569,16 @@ class OperationPlanner:
             if plan.expected_device_state and device is not None:
                 if device.mode != plan.expected_device_state:
                     return "device_state_changed", "device mode changed after planning"
+            if plan.expected_architecture and device is not None:
+                if not device.architecture:
+                    return "device_architecture_unavailable", "device architecture is unavailable"
+                if device.architecture != plan.expected_architecture:
+                    return "device_architecture_changed", "device architecture changed after planning"
+            if plan.expected_kmi and device is not None:
+                if not device.kmi:
+                    return "device_kmi_unavailable", "device KMI is unavailable"
+                if device.kmi != plan.expected_kmi:
+                    return "device_kmi_changed", "device KMI changed after planning"
         if plan.plan_revision != snapshot.plan.revision:
             return "plan_revision_changed", "canonical plan revision changed after planning"
         if plan.fingerprint != snapshot.plan.fingerprint:

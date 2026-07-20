@@ -427,7 +427,14 @@ class SafetyPolicyTests(unittest.TestCase):
     def setUp(self):
         self.snapshot = AppSnapshot(
             revision=7,
-            devices=(DeviceInfo("SERIAL-A", mode="fastboot"),),
+            devices=(
+                DeviceInfo(
+                    "SERIAL-A",
+                    mode="fastboot",
+                    architecture="arm64",
+                    kmi="android14-5.15",
+                ),
+            ),
             selected_serial="SERIAL-A",
             firmware=FirmwareInfo(hash="F1"),
             boot=BootInfo(hash="B1"),
@@ -456,6 +463,14 @@ class SafetyPolicyTests(unittest.TestCase):
     def test_golden_safety_mismatch_codes(self):
         branches = {
             "device_state_changed": replace(self.base_plan, expected_device_state="adb"),
+            "device_architecture_changed": replace(
+                self.base_plan,
+                expected_architecture="x86_64",
+            ),
+            "device_kmi_changed": replace(
+                self.base_plan,
+                expected_kmi="android15-6.1",
+            ),
             "firmware_hash_changed": replace(self.base_plan, firmware_hash="F2"),
             "boot_hash_changed": replace(self.base_plan, boot_hash="B2"),
             "plan_revision_changed": replace(self.base_plan, plan_revision=2),
