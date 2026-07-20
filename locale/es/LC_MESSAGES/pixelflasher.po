@@ -6930,3 +6930,55 @@ msgstr "Este comando puede cambiar o eliminar datos del host. PixelFlasher bloqu
 msgctxt "web.tools.myToolsLegacyConfirm"
 msgid "Type the exact confirmation"
 msgstr "Escribe la confirmación exacta"
+
+msgctxt "web.tools.catalogOwner"
+msgid "Owner: {owner}"
+msgstr "Responsable: {owner}"
+
+msgctxt "web.tools.catalogAvailable"
+msgid "Available"
+msgstr "Disponible"
+
+msgctxt "web.tools.catalogBusy"
+msgid "Another operation is running"
+msgstr "Hay otra operación en curso"
+
+msgctxt "web.tools.catalogNeedsDevice"
+msgid "Select one device"
+msgstr "Selecciona un dispositivo"
+
+msgctxt "web.tools.catalogNeedsToolchain"
+msgid "Set up Platform Tools"
+msgstr "Configura Platform Tools"
+
+msgctxt "web.tools.catalogNeedsAdb"
+msgid "Requires ADB mode"
+msgstr "Requiere el modo ADB"
+
+msgctxt "web.tools.catalogNeedsFastboot"
+msgid "Requires Fastboot mode"
+msgstr "Requiere el modo Fastboot"
+
+msgctxt "web.tools.catalogNeedsFirmware"
+msgid "Requires factory firmware"
+msgstr "Requiere firmware de fábrica"
+
+msgctxt "web.tools.ownerDevice"
+msgid "Device"
+msgstr "Dispositivo"
+
+msgctxt "web.tools.ownerDeviceTools"
+msgid "Device tools"
+msgstr "Herramientas del dispositivo"
+
+msgctxt "web.tools.ownerPartitions"
+msgid "Partitions"
+msgstr "Particiones"
+
+msgctxt "web.tools.ownerSupport"
+msgid "Support"
+msgstr "Soporte"
+
+msgctxt "web.tools.ownerDeveloperTools"
+msgid "Developer tools"
+msgstr "Herramientas de desarrollo"

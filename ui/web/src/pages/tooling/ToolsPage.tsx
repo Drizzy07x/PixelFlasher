@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AssetName } from '../../assets';
 import { normalizeOperationStatus, validTargetSerial } from '../../bridge';
-import { commands, type BridgeCommand } from '../../commands';
+import { bridgeCommandMetadata, commands, type BridgeCommand } from '../../commands';
 import { useI18n } from '../../i18n';
 import type { ActiveOperation } from '../../types';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
@@ -23,6 +23,30 @@ const AdbShellPanel = lazy(async () => {
 });
 
 type ToolPanel = 'scrcpy' | 'wifi' | 'shell' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | 'mytools' | null;
+type ToolRequirement = 'none' | 'device' | 'toolchain' | 'adb' | 'fastboot' | 'firmware';
+export type ToolAvailability = 'available' | 'busy' | 'needs_device' | 'needs_toolchain' | 'needs_adb' | 'needs_fastboot' | 'needs_firmware';
+export type ToolAvailabilityContext = {
+  busy: boolean;
+  hasDevice: boolean;
+  toolchainReady: boolean;
+  adbReady: boolean;
+  fastbootReady: boolean;
+  firmwareReady: boolean;
+};
+
+export function resolveToolAvailability(
+  requirement: ToolRequirement,
+  context: ToolAvailabilityContext,
+): ToolAvailability {
+  if (context.busy) return 'busy';
+  if (requirement === 'none') return 'available';
+  if (requirement === 'firmware') return context.firmwareReady ? 'available' : 'needs_firmware';
+  if (!context.hasDevice && ['device', 'adb', 'fastboot'].includes(requirement)) return 'needs_device';
+  if (!context.toolchainReady) return 'needs_toolchain';
+  if (requirement === 'adb' && !context.adbReady) return 'needs_adb';
+  if (requirement === 'fastboot' && !context.fastbootReady) return 'needs_fastboot';
+  return 'available';
+}
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type PartitionAction = 'read' | 'write' | 'erase';
 type PartitionReceipt = {
@@ -1155,39 +1179,72 @@ export function ToolsPage({
       noAudio: scrcpyNoAudio,
     });
   };
-  type ToolCard = { id: string; icon: AssetName; title: string; detail: string; disabled: boolean; run: () => void };
+  type ToolCard = {
+    id: Exclude<ToolPanel, null> | 'recovery' | 'support' | 'bootloader';
+    icon: AssetName;
+    title: string;
+    detail: string;
+    command: BridgeCommand;
+    requirement: ToolRequirement;
+    run: () => void;
+  };
   const cards: ToolCard[] = [
     {
       id: 'recovery', icon: 'reboot', title: t('tools.recovery'), detail: t('tools.recoveryDetail'),
-      disabled: !primary || !isToolchainReady(snapshot), run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'recovery' }); },
+      command: commands.deviceReboot, requirement: 'device',
+      run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'recovery' }); },
     },
     {
       id: 'scrcpy', icon: 'devices', title: t('tools.scrcpy'), detail: t('tools.scrcpyDetail'),
-      disabled: !adbReady, run: () => openPanel('scrcpy'),
+      command: commands.toolsScrcpy, requirement: 'adb', run: () => openPanel('scrcpy'),
     },
     {
       id: 'wifi', icon: 'adb', title: t('tools.wifi'), detail: t('tools.wifiDetail'),
-      disabled: !toolchainReady, run: () => openPanel('wifi'),
+      command: commands.toolsWifi, requirement: 'toolchain', run: () => openPanel('wifi'),
     },
     {
       id: 'push', icon: 'folder', title: t('tools.push'), detail: t('tools.pushDetail'),
-      disabled: !adbReady, run: () => openPanel('push'),
+      command: commands.toolsPushFiles, requirement: 'adb', run: () => openPanel('push'),
     },
     {
       id: 'support', icon: 'shield', title: t('tools.support'), detail: t('tools.supportDetail'),
-      disabled: false, run: () => void createSupportPackage(),
+      command: commands.supportCreate, requirement: 'none', run: () => void createSupportPackage(),
     },
     ...(expertMode ? [
-      { id: 'shell', icon: 'shell', title: t('tools.shell'), detail: t('tools.shellDetail'), disabled: !adbReady, run: () => openPanel('shell') },
-      { id: 'logcat', icon: 'logs', title: t('tools.logs'), detail: t('tools.logcatDetail'), disabled: !adbReady, run: () => openPanel('logcat') },
-      { id: 'partition', icon: 'slot', title: t('tools.partition'), detail: t('tools.partitionDetail'), disabled: !fastbootReady, run: () => openPanel('partitions') },
-      { id: 'bootloader', icon: 'bootloader', title: t('tools.bootloader'), detail: t('tools.bootloaderDetail'), disabled: !primary || !isToolchainReady(snapshot), run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'bootloader' }); } },
-      { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), disabled: !avbFirmwareReady, run: () => openPanel('avb') },
-      { id: 'xml', icon: 'processFile', title: t('tools.xmlDecode'), detail: t('tools.xmlDecodeDetail'), disabled: false, run: () => openPanel('xml') },
-      { id: 'keybox', icon: 'shield', title: t('tools.keyboxValidate'), detail: t('tools.keyboxValidateDetail'), disabled: false, run: () => openPanel('keybox') },
-      { id: 'mytools', icon: 'wrench', title: t('tools.myTools'), detail: t('tools.myToolsDetail'), disabled: false, run: openMyTools },
+      { id: 'shell', icon: 'shell', title: t('tools.shell'), detail: t('tools.shellDetail'), command: commands.toolsAdbShell, requirement: 'adb', run: () => openPanel('shell') },
+      { id: 'logcat', icon: 'logs', title: t('tools.logs'), detail: t('tools.logcatDetail'), command: commands.toolsLogcat, requirement: 'adb', run: () => openPanel('logcat') },
+      { id: 'partitions', icon: 'slot', title: t('tools.partition'), detail: t('tools.partitionDetail'), command: commands.partitionsList, requirement: 'fastboot', run: () => openPanel('partitions') },
+      { id: 'bootloader', icon: 'bootloader', title: t('tools.bootloader'), detail: t('tools.bootloaderDetail'), command: commands.deviceReboot, requirement: 'device', run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'bootloader' }); } },
+      { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), command: commands.toolsAvb, requirement: 'firmware', run: () => openPanel('avb') },
+      { id: 'xml', icon: 'processFile', title: t('tools.xmlDecode'), detail: t('tools.xmlDecodeDetail'), command: commands.toolsXml, requirement: 'none', run: () => openPanel('xml') },
+      { id: 'keybox', icon: 'shield', title: t('tools.keyboxValidate'), detail: t('tools.keyboxValidateDetail'), command: commands.toolsKeybox, requirement: 'none', run: () => openPanel('keybox') },
+      { id: 'mytools', icon: 'wrench', title: t('tools.myTools'), detail: t('tools.myToolsDetail'), command: commands.toolsMyTools, requirement: 'none', run: openMyTools },
     ] satisfies ToolCard[] : []),
   ];
+  const availabilityContext: ToolAvailabilityContext = {
+    busy: Boolean(busy || snapshot.activeOperation),
+    hasDevice: Boolean(primary),
+    toolchainReady,
+    adbReady: Boolean(adbReady),
+    fastbootReady: Boolean(fastbootReady),
+    firmwareReady: avbFirmwareReady,
+  };
+  const availabilityLabels: Record<ToolAvailability, string> = {
+    available: t('tools.catalogAvailable'),
+    busy: t('tools.catalogBusy'),
+    needs_device: t('tools.catalogNeedsDevice'),
+    needs_toolchain: t('tools.catalogNeedsToolchain'),
+    needs_adb: t('tools.catalogNeedsAdb'),
+    needs_fastboot: t('tools.catalogNeedsFastboot'),
+    needs_firmware: t('tools.catalogNeedsFirmware'),
+  };
+  const ownerLabels: Readonly<Record<string, string>> = {
+    device: t('tools.ownerDevice'),
+    device_tools: t('tools.ownerDeviceTools'),
+    partitions: t('tools.ownerPartitions'),
+    support: t('tools.ownerSupport'),
+    developer_tools: t('tools.ownerDeveloperTools'),
+  };
   const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
     ? Math.max(0, Math.min(100, activePush.progress))
     : null;
@@ -1234,14 +1291,34 @@ export function ToolsPage({
       <PageHeader title={t('tools.title')} subtitle={t('tools.subtitle')} />
       {!primary ? <div className="inline-alert inline-alert--warning"><Icon name="warningPng" size={18} /><span>{t('device.singleActionGuard')}</span></div> : null}
       <div className="tool-grid">
-        {cards.map((tool) => (
-          <button type="button" className={`tool-card ${panel === tool.id ? 'is-active' : ''}`} key={tool.id} onClick={tool.run} disabled={Boolean(busy) || tool.disabled}>
-            <span className="tool-card__icon"><Icon name={tool.icon} size={28} /></span>
-            <span><strong>{tool.title}</strong><small>{tool.detail}</small></span>
-            {tool.disabled ? <Badge tone="neutral">{t('common.disabled')}</Badge> : null}
-            <Icon name="right" size={18} />
-          </button>
-        ))}
+        {cards.map((tool) => {
+          const availability = resolveToolAvailability(tool.requirement, availabilityContext);
+          const owner = bridgeCommandMetadata[tool.command].owner;
+          const available = availability === 'available';
+          return (
+            <button
+              type="button"
+              className={`tool-card ${panel === tool.id ? 'is-active' : ''}`}
+              key={tool.id}
+              onClick={tool.run}
+              disabled={!available}
+              data-command={tool.command}
+              data-owner={owner}
+              data-availability={availability}
+            >
+              <span className="tool-card__icon"><Icon name={tool.icon} size={28} /></span>
+              <span className="tool-card__copy">
+                <strong>{tool.title}</strong>
+                <small>{tool.detail}</small>
+                <span className="tool-card__meta">
+                  <Badge tone="neutral">{t('tools.catalogOwner', { owner: ownerLabels[owner] ?? owner })}</Badge>
+                  <Badge tone={available ? 'success' : availability === 'busy' ? 'accent' : 'warning'}>{availabilityLabels[availability]}</Badge>
+                </span>
+              </span>
+              <Icon name="right" size={18} />
+            </button>
+          );
+        })}
       </div>
 
       {panel ? (

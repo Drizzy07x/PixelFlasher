@@ -6929,3 +6929,55 @@ msgstr "Cette commande peut modifier ou supprimer des données de l’hôte. Pix
 msgctxt "web.tools.myToolsLegacyConfirm"
 msgid "Type the exact confirmation"
 msgstr "Saisissez la confirmation exacte"
+
+msgctxt "web.tools.catalogOwner"
+msgid "Owner: {owner}"
+msgstr "Responsable : {owner}"
+
+msgctxt "web.tools.catalogAvailable"
+msgid "Available"
+msgstr "Disponible"
+
+msgctxt "web.tools.catalogBusy"
+msgid "Another operation is running"
+msgstr "Une autre opération est en cours"
+
+msgctxt "web.tools.catalogNeedsDevice"
+msgid "Select one device"
+msgstr "Sélectionnez un appareil"
+
+msgctxt "web.tools.catalogNeedsToolchain"
+msgid "Set up Platform Tools"
+msgstr "Configurez Platform Tools"
+
+msgctxt "web.tools.catalogNeedsAdb"
+msgid "Requires ADB mode"
+msgstr "Nécessite le mode ADB"
+
+msgctxt "web.tools.catalogNeedsFastboot"
+msgid "Requires Fastboot mode"
+msgstr "Nécessite le mode Fastboot"
+
+msgctxt "web.tools.catalogNeedsFirmware"
+msgid "Requires factory firmware"
+msgstr "Nécessite un firmware d’usine"
+
+msgctxt "web.tools.ownerDevice"
+msgid "Device"
+msgstr "Appareil"
+
+msgctxt "web.tools.ownerDeviceTools"
+msgid "Device tools"
+msgstr "Outils de l’appareil"
+
+msgctxt "web.tools.ownerPartitions"
+msgid "Partitions"
+msgstr "Partitions"
+
+msgctxt "web.tools.ownerSupport"
+msgid "Support"
+msgstr "Assistance"
+
+msgctxt "web.tools.ownerDeveloperTools"
+msgid "Developer tools"
+msgstr "Outils de développement"

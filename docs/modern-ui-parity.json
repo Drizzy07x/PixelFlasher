@@ -296,12 +296,14 @@
       "owner": "navigation",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:registered command catalog with explicit owner and availability",
+        "ui/web/src/commands.ts:bridgeCommandMetadata",
         "pixelflasher_core/device_tools.py:DeviceToolsService",
         "pixelflasher_core/partitions.py:PartitionService",
-        "pixelflasher_core/support.py:SupportPackageService"
+        "pixelflasher_core/support.py:SupportPackageService",
+        "ui/web/src/test/tools-catalog.test.tsx"
       ],
-      "gap": "Advanced utilities and the documented packaging, progress, retry and postcondition work for individual tools remain incomplete.",
+      "gap": "The React catalog contract is complete; release promotion still depends on the remaining partial tool capabilities and packaged WebView E2E across the platform matrix.",
       "exitCriteria": [
         "Every supported Tools workspace action has a typed bridge contract, bounded result and explicit capability owner."
       ],
@@ -323,7 +325,8 @@
         "tests/test_device_tools_service.py",
         "tests/test_partition_service.py",
         "tests/test_support_package_service.py",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
+        "ui/web/src/test/App.test.tsx:Tools workspace",
+        "ui/web/src/test/tools-catalog.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,

@@ -3238,7 +3238,7 @@ code {
 
 .tool-card {
   display: grid;
-  grid-template-columns: 3.1rem minmax(0, 1fr) auto 1.2rem;
+  grid-template-columns: 3.1rem minmax(0, 1fr) 1.2rem;
   align-items: center;
   gap: 0.8rem;
   min-height: 7rem;
@@ -3258,7 +3258,7 @@ code {
 }
 
 .tool-card > .icon:last-child {
-  grid-column: 4;
+  grid-column: 3;
 }
 
 .tool-card__icon {
@@ -3268,6 +3268,17 @@ code {
 
 .tool-card strong {
   font-size: 0.78rem;
+}
+
+.tool-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.tool-card__meta .badge {
+  width: fit-content;
 }
 
 .tool-workspace {

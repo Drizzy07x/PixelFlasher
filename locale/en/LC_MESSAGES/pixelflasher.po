@@ -6885,3 +6885,55 @@ msgstr ""
 msgctxt "web.tools.myToolsLegacyConfirm"
 msgid "Type the exact confirmation"
 msgstr ""
+
+msgctxt "web.tools.catalogOwner"
+msgid "Owner: {owner}"
+msgstr ""
+
+msgctxt "web.tools.catalogAvailable"
+msgid "Available"
+msgstr ""
+
+msgctxt "web.tools.catalogBusy"
+msgid "Another operation is running"
+msgstr ""
+
+msgctxt "web.tools.catalogNeedsDevice"
+msgid "Select one device"
+msgstr ""
+
+msgctxt "web.tools.catalogNeedsToolchain"
+msgid "Set up Platform Tools"
+msgstr ""
+
+msgctxt "web.tools.catalogNeedsAdb"
+msgid "Requires ADB mode"
+msgstr ""
+
+msgctxt "web.tools.catalogNeedsFastboot"
+msgid "Requires Fastboot mode"
+msgstr ""
+
+msgctxt "web.tools.catalogNeedsFirmware"
+msgid "Requires factory firmware"
+msgstr ""
+
+msgctxt "web.tools.ownerDevice"
+msgid "Device"
+msgstr ""
+
+msgctxt "web.tools.ownerDeviceTools"
+msgid "Device tools"
+msgstr ""
+
+msgctxt "web.tools.ownerPartitions"
+msgid "Partitions"
+msgstr ""
+
+msgctxt "web.tools.ownerSupport"
+msgid "Support"
+msgstr ""
+
+msgctxt "web.tools.ownerDeveloperTools"
+msgid "Developer tools"
+msgstr ""

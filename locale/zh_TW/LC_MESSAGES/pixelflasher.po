@@ -6918,3 +6918,55 @@ msgstr "此命令可能變更或刪除主機資料。PixelFlasher 會阻止權�
 msgctxt "web.tools.myToolsLegacyConfirm"
 msgid "Type the exact confirmation"
 msgstr "輸入完全相符的確認文字"
+
+msgctxt "web.tools.catalogOwner"
+msgid "Owner: {owner}"
+msgstr "負責人：{owner}"
+
+msgctxt "web.tools.catalogAvailable"
+msgid "Available"
+msgstr "可用"
+
+msgctxt "web.tools.catalogBusy"
+msgid "Another operation is running"
+msgstr "另一項操作正在執行"
+
+msgctxt "web.tools.catalogNeedsDevice"
+msgid "Select one device"
+msgstr "請選取一台裝置"
+
+msgctxt "web.tools.catalogNeedsToolchain"
+msgid "Set up Platform Tools"
+msgstr "請設定 Platform Tools"
+
+msgctxt "web.tools.catalogNeedsAdb"
+msgid "Requires ADB mode"
+msgstr "需要 ADB 模式"
+
+msgctxt "web.tools.catalogNeedsFastboot"
+msgid "Requires Fastboot mode"
+msgstr "需要 Fastboot 模式"
+
+msgctxt "web.tools.catalogNeedsFirmware"
+msgid "Requires factory firmware"
+msgstr "需要原廠韌體"
+
+msgctxt "web.tools.ownerDevice"
+msgid "Device"
+msgstr "裝置"
+
+msgctxt "web.tools.ownerDeviceTools"
+msgid "Device tools"
+msgstr "裝置工具"
+
+msgctxt "web.tools.ownerPartitions"
+msgid "Partitions"
+msgstr "分割區"
+
+msgctxt "web.tools.ownerSupport"
+msgid "Support"
+msgstr "支援"
+
+msgctxt "web.tools.ownerDeveloperTools"
+msgid "Developer tools"
+msgstr "開發者工具"
