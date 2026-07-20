@@ -89,6 +89,7 @@ from .operation_runner import (
 from .ota_diagnostics import OtaDiagnosticsService
 from .packages import PackageService
 from .partitions import PartitionService
+from .patch_resources import PatchResourceRegistry
 from .payload_extractor import BuiltinPayloadExtractor
 from .persistent_artifacts import PersistentProcessedArtifactRepository
 from .pif_profiles import (
@@ -182,6 +183,7 @@ class ApplicationRuntime:
         firmware_downloader: ArtifactDownloader | None = None,
         root_app_catalog: RootAppManifestCatalog | None = None,
         root_app_downloader: ArtifactDownloader | None = None,
+        patch_resource_registry: PatchResourceRegistry | None = None,
         android_device_catalog_path: str | Path | None = None,
         update_manifest_source: UpdateManifestSource | None = None,
         update_manifest_verifier: UpdateManifestVerifier | None = None,
@@ -312,7 +314,22 @@ class ApplicationRuntime:
                 ),
             )
         apk_inspector = ApkInspector()
-        rooting_service = RootingService(apk_inspector=apk_inspector)
+        if (
+            patch_resource_registry is not None
+            and not isinstance(patch_resource_registry, PatchResourceRegistry)
+        ):
+            raise TypeError("patch_resource_registry must be a PatchResourceRegistry")
+        self.patch_resource_registry = patch_resource_registry
+        rooting_service = (
+            patch_resource_registry.rooting_service
+            if patch_resource_registry is not None
+            else RootingService(apk_inspector=apk_inspector)
+        )
+        patch_tool_bundles = (
+            patch_resource_registry.tool_bundles
+            if patch_resource_registry is not None
+            else ()
+        )
         self.root_module_update_service = RootModuleUpdateService(
             self._root_module_update_cache_path(config_store.path),
             rooting_service.inspect_module_zip,
@@ -382,7 +399,7 @@ class ApplicationRuntime:
             backup_repository=self.backup_repository,
             data_adb_service=DataAdbService(),
             rooting_service=rooting_service,
-            boot_patch_service=BootPatchService(rooting_service, ()),
+            boot_patch_service=BootPatchService(rooting_service, patch_tool_bundles),
             support_package_service=support_package_service,
             operation_runner=operation_runner,
             snapshot_provider=snapshot_provider,
@@ -463,6 +480,7 @@ class ApplicationRuntime:
         firmware_downloader: ArtifactDownloader | None = None,
         root_app_catalog: RootAppManifestCatalog | None = None,
         root_app_downloader: ArtifactDownloader | None = None,
+        patch_resource_registry: PatchResourceRegistry | None = None,
         android_device_catalog_path: str | Path | None = None,
         legacy_devices_path: str | Path | None = None,
     ) -> ApplicationRuntime:
@@ -510,6 +528,7 @@ class ApplicationRuntime:
             firmware_downloader=firmware_downloader,
             root_app_catalog=root_app_catalog,
             root_app_downloader=root_app_downloader,
+            patch_resource_registry=patch_resource_registry,
             android_device_catalog_path=android_device_catalog_path,
         )
 

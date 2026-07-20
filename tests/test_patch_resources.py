@@ -12,6 +12,7 @@ from pixelflasher_core.patch_resources import (
     PatchResourceError,
     load_patch_resource_registry,
 )
+from pixelflasher_core.runtime import ApplicationRuntime
 from tests.apk_test_helpers import FakeVerifiedApkInspector
 
 
@@ -112,6 +113,32 @@ class PatchResourceRegistryTests(unittest.TestCase):
                 registry.tool_bundles,
             )
             self.assertIs(registry.rooting_service, service.rooting_service)
+
+    def test_runtime_composes_the_verified_registry_for_catalog_and_patching(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document, _apk, runner, _support = self.resources(root)
+            registry = self.load(root, document)
+
+            runtime = ApplicationRuntime.open(
+                root / "config.json",
+                patch_resource_registry=registry,
+            )
+            try:
+                self.assertIs(runtime.patch_resource_registry, registry)
+                self.assertIs(
+                    runtime.command_engine.rooting_service,
+                    registry.rooting_service,
+                )
+                self.assertIs(
+                    runtime.root_app_catalog_service.rooting_service,
+                    registry.rooting_service,
+                )
+                bundle = runtime.command_engine.boot_patch_service.tool_bundles["magisk"]
+                self.assertEqual(str(runner.resolve()), bundle.runner.path)
+                self.assertEqual(registry.tool_bundles[0].app_id, bundle.app_id)
+            finally:
+                runtime.shutdown()
 
     def test_one_pinned_generic_runner_can_cover_all_seven_flavors(self):
         providers = {
