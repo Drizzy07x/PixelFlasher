@@ -285,6 +285,36 @@ def _validate_payload_values(
     if command == "tools.keybox" and payload.get("action") != "analyze":
         _payload_error("tools.keybox action is invalid", request_id)
 
+    if command == "backups.restore":
+        has_grant = "grant" in payload
+        has_backup_id = "backupId" in payload
+        if has_grant == has_backup_id:
+            _payload_error(
+                "backups.restore requires exactly one grant or backupId",
+                request_id,
+            )
+        backup_id = payload.get("backupId")
+        if has_backup_id and (
+            not isinstance(backup_id, str)
+            or re.fullmatch(r"[0-9a-f]{32}", backup_id) is None
+        ):
+            _payload_error("backups.restore backupId is invalid", request_id)
+    elif command == "backups.list":
+        serial = payload.get("serial")
+        if serial is not None and not _nonempty_string(serial, limit=256):
+            _payload_error("backups.list serial is invalid", request_id)
+    elif command == "backups.delete":
+        backup_id = payload.get("backupId")
+        confirmation = payload.get("confirmationText")
+        if (
+            not isinstance(backup_id, str)
+            or re.fullmatch(r"[0-9a-f]{32}", backup_id) is None
+        ):
+            _payload_error("backups.delete backupId is invalid", request_id)
+        required = f"DELETE {backup_id[-8:].upper()}"
+        if confirmation != required:
+            _payload_error("backups.delete confirmationText is invalid", request_id)
+
     if command == "interaction.respond":
         if not _nonempty_string(payload.get("operationId"), limit=128):
             _payload_error("interaction.respond operationId is required", request_id)

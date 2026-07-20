@@ -29,6 +29,10 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "device.openUrl",
         "device.inspect",
         "boot.delete",
+        "backups.create",
+        "backups.delete",
+        "backups.list",
+        "backups.restore",
         "firmware.catalog.refresh",
         "firmware.download",
         "firmware.process",
@@ -2173,6 +2177,243 @@ def _project_binary_xml(value: object) -> JSONValue:
     )
 
 
+_BACKUP_PARTITIONS = frozenset(
+    {
+        "boot",
+        "dtbo",
+        "init_boot",
+        "recovery",
+        "vbmeta",
+        "vbmeta_system",
+        "vbmeta_vendor",
+        "vendor_boot",
+        "vendor_kernel_boot",
+    }
+)
+_BACKUP_INVENTORY_ISSUES = frozenset(
+    {
+        "backup_cancelled",
+        "backup_empty",
+        "backup_hash_mismatch",
+        "backup_import_failed",
+        "backup_import_cancelled",
+        "backup_repository_corrupt",
+        "backup_source_invalid",
+        "backup_source_changed",
+        "backup_source_unavailable",
+        "backup_too_large",
+    }
+)
+
+
+def _project_backup_record(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "id",
+                "sha256",
+                "sizeBytes",
+                "createdAt",
+                "targetSerial",
+                "deviceCodename",
+                "partition",
+                "slot",
+                "targetPartition",
+                "provenance",
+                "available",
+                "integrity",
+            }
+        ),
+    )
+    backup_id = source["id"]
+    digest = source["sha256"]
+    size = source["sizeBytes"]
+    created = source["createdAt"]
+    serial = source["targetSerial"]
+    codename = source["deviceCodename"]
+    partition = source["partition"]
+    slot = source["slot"]
+    available = source["available"]
+    if (
+        not isinstance(backup_id, str)
+        or re.fullmatch(r"[0-9a-f]{32}", backup_id) is None
+        or not isinstance(digest, str)
+        or _LOWERCASE_SHA256.fullmatch(digest) is None
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 0 < size <= 1024 * 1024 * 1024
+        or not isinstance(created, int)
+        or isinstance(created, bool)
+        or not 0 <= created <= MAX_MANAGED_DEVICE_TIMESTAMP
+        or not isinstance(serial, str)
+        or not is_valid_target_serial(serial)
+        or not isinstance(codename, str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", codename) is None
+        or partition not in _BACKUP_PARTITIONS
+        or slot not in {"a", "b"}
+        or source["targetPartition"] != f"{partition}_{slot}"
+        or source["provenance"] not in {"created", "user_supplied"}
+        or not isinstance(available, bool)
+        or source["integrity"] != ("stored" if available else "missing")
+    ):
+        raise PublicProjectionError("backup record is invalid")
+    return cast(dict[str, JSONValue], ensure_public_json(dict(source)))
+
+
+def _project_backup_inventory(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "backups",
+                "count",
+                "totalCount",
+                "filteredSerial",
+                "revision",
+                "bounded",
+                "truncated",
+            }
+        ),
+    )
+    raw_backups = source["backups"]
+    count = source["count"]
+    total = source["totalCount"]
+    filtered = source["filteredSerial"]
+    if (
+        source["bounded"] is not True
+        or not isinstance(raw_backups, list)
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or not 0 <= count <= 1000
+        or len(raw_backups) != count
+        or not isinstance(total, int)
+        or isinstance(total, bool)
+        or total < count
+        or source["truncated"] is not (total > count)
+        or (
+            filtered is not None
+            and (not isinstance(filtered, str) or not is_valid_target_serial(filtered))
+        )
+        or not isinstance(source["revision"], int)
+        or isinstance(source["revision"], bool)
+        or source["revision"] < 0
+    ):
+        raise PublicProjectionError("backup inventory is invalid")
+    backups = [
+        _project_backup_record(item)
+        for item in cast("list[object]", raw_backups)
+    ]
+    if filtered is not None and any(
+        backup["targetSerial"] != filtered for backup in backups
+    ):
+        raise PublicProjectionError("filtered backup inventory is invalid")
+    return ensure_public_json(
+        {
+            "backups": backups,
+            "count": count,
+            "totalCount": total,
+            "filteredSerial": filtered,
+            "revision": source["revision"],
+            "bounded": True,
+            "truncated": total > count,
+        }
+    )
+
+
+def _project_backup_result(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "action",
+                "targetSerial",
+                "partition",
+                "slot",
+                "backup",
+                "inventoryRegistered",
+            }
+            | ({"inventoryIssue"} if _record(value).get("action") == "restore" else set())
+        ),
+    )
+    action = source["action"]
+    serial = source["targetSerial"]
+    partition = source["partition"]
+    slot = source["slot"]
+    registered = source["inventoryRegistered"]
+    if (
+        action not in {"create", "restore"}
+        or not isinstance(serial, str)
+        or not is_valid_target_serial(serial)
+        or not isinstance(partition, str)
+        or re.fullmatch(r"[a-z0-9_]+_[ab]", partition) is None
+        or slot not in {"a", "b"}
+        or not partition.endswith(f"_{slot}")
+        or not isinstance(registered, bool)
+    ):
+        raise PublicProjectionError("backup operation receipt is invalid")
+    backup_value = source["backup"]
+    backup = _project_backup_record(backup_value) if backup_value is not None else None
+    if action == "create" and (not registered or backup is None):
+        raise PublicProjectionError("created backup must enter managed inventory")
+    issue = source.get("inventoryIssue")
+    if action == "restore" and (
+        (registered and (backup is None or issue is not None))
+        or (
+            not registered
+            and (backup is not None or issue not in _BACKUP_INVENTORY_ISSUES)
+        )
+    ):
+        raise PublicProjectionError("restored backup inventory receipt is invalid")
+    result: dict[str, JSONValue] = {
+        "action": cast(str, action),
+        "targetSerial": serial,
+        "partition": partition,
+        "slot": cast(str, slot),
+        "backup": backup,
+        "inventoryRegistered": registered,
+    }
+    if action == "restore":
+        result["inventoryIssue"] = cast(str | None, issue)
+    return result
+
+
+def _project_backup_delete(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "backupId",
+                "deleted",
+                "objectRemoved",
+                "sharedObjectRetained",
+                "objectMissing",
+                "cleanupDeferred",
+                "revision",
+            }
+        ),
+    )
+    backup_id = source["backupId"]
+    flags = (
+        source["objectRemoved"],
+        source["sharedObjectRetained"],
+        source["objectMissing"],
+        source["cleanupDeferred"],
+    )
+    if (
+        not isinstance(backup_id, str)
+        or re.fullmatch(r"[0-9a-f]{32}", backup_id) is None
+        or source["deleted"] is not True
+        or any(not isinstance(flag, bool) for flag in flags)
+        or sum(flags) != 1
+        or not isinstance(source["revision"], int)
+        or isinstance(source["revision"], bool)
+        or source["revision"] < 0
+    ):
+        raise PublicProjectionError("backup deletion receipt is invalid")
+    return ensure_public_json(dict(source))
+
+
 _KEYBOX_STATUSES = frozenset(
     {"valid", "unverified", "revoked", "expired", "software_attestation", "invalid"}
 )
@@ -2391,8 +2632,10 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "app.ready": _project_none,
     "apps.action": _project_apps_action,
     "apps.list": _project_apps_list,
-    "backups.create": _project_none,
-    "backups.restore": _project_none,
+    "backups.create": _project_backup_result,
+    "backups.delete": _project_backup_delete,
+    "backups.list": _project_backup_inventory,
+    "backups.restore": _project_backup_result,
     "boot.flash": _project_confirmation,
     "boot.delete": _project_boot_delete,
     "boot.inventory": _project_boot_inventory,

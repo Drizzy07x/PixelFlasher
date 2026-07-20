@@ -73,6 +73,7 @@ class BackupCompilation:
     action: str
     partition: str
     output_path: str | None = None
+    backup_id: str | None = None
     device_write: bool = False
     destructive: bool = False
     requires_confirmation: bool = False
@@ -82,6 +83,7 @@ class BackupCompilation:
             "action": self.action,
             "partition": self.partition,
             "output_path": self.output_path,
+            "backup_id": self.backup_id,
             "device_write": self.device_write,
             "destructive": self.destructive,
             "requires_confirmation": self.requires_confirmation,

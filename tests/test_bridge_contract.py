@@ -112,6 +112,75 @@ class BridgeContractTests(unittest.TestCase):
                 )
             self.assertEqual("invalid_payload", rejected.exception.code)
 
+    def test_backup_inventory_uses_opaque_ids_and_exact_delete_confirmation(self):
+        backup_id = "a" * 24 + "1234abcd"
+        listed = BridgeRequest.from_json(
+            message(
+                command="backups.list",
+                payload={"serial": "SERIAL"},
+                expectedRevision=7,
+            )
+        )
+        restored = BridgeRequest.from_json(
+            message(
+                command="backups.restore",
+                payload={
+                    "serial": "SERIAL",
+                    "partition": "boot",
+                    "slot": "a",
+                    "backupId": backup_id,
+                },
+                expectedRevision=7,
+            )
+        )
+        deleted = BridgeRequest.from_json(
+            message(
+                command="backups.delete",
+                payload={
+                    "backupId": backup_id,
+                    "confirmationText": "DELETE 1234ABCD",
+                },
+                expectedRevision=7,
+            )
+        )
+
+        self.assertEqual({"serial": "SERIAL"}, listed.payload)
+        self.assertEqual(backup_id, restored.payload["backupId"])
+        self.assertEqual("DELETE 1234ABCD", deleted.payload["confirmationText"])
+
+        invalid = (
+            ("backups.list", {"serial": ""}),
+            (
+                "backups.restore",
+                {"partition": "boot", "slot": "a", "backupId": "A" * 32},
+            ),
+            (
+                "backups.restore",
+                {
+                    "partition": "boot",
+                    "slot": "a",
+                    "backupId": backup_id,
+                    "grant": "g" * 64,
+                },
+            ),
+            (
+                "backups.delete",
+                {"backupId": backup_id, "confirmationText": "DELETE wrong"},
+            ),
+        )
+        for command_name, payload in invalid:
+            with self.subTest(command=command_name, payload=payload), self.assertRaises(
+                BridgeProtocolError
+            ) as rejected:
+                BridgeRequest.from_json(
+                    message(
+                        command=command_name,
+                        payload=payload,
+                        expectedRevision=7,
+                    )
+                )
+            self.assertEqual("invalid_payload", rejected.exception.code)
+
     def test_root_app_catalog_accepts_only_channels_and_opaque_artifact_ids(self):
         refresh = BridgeRequest.from_json(
             message(

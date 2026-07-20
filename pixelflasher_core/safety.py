@@ -83,6 +83,8 @@ class SafetyPolicy:
             "device.openUrl",
             "backups.create",
             "backups.restore",
+            "backups.list",
+            "backups.delete",
             "root.apps.list",
             "root.apps.install",
             "root.apps.catalog.refresh",
@@ -175,6 +177,19 @@ class SafetyPolicy:
                     False,
                     "keybox_target_not_allowed",
                     "keybox analysis is a local operation",
+                )
+        if command.kind in {"backups.list", "backups.delete"}:
+            if command.operation_plan is not None:
+                return SafetyDecision(
+                    False,
+                    "untrusted_operation_plan",
+                    "backup inventory operations do not accept a process plan",
+                )
+            if command.target_serial is not None:
+                return SafetyDecision(
+                    False,
+                    "backup_inventory_target_not_allowed",
+                    "backup inventory operations are local application operations",
                 )
         if (
             command.kind == CommandKind.FLASH_EXECUTE.value

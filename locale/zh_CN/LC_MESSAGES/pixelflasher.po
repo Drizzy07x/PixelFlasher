@@ -5631,3 +5631,67 @@ msgstr "软件认证"
 msgctxt "web.tools.keyboxInvalid"
 msgid "Invalid"
 msgstr "无效"
+
+msgctxt "web.backups.externalRestore"
+msgid "Restore external image"
+msgstr "恢复外部镜像"
+
+msgctxt "web.backups.managedTitle"
+msgid "Managed backup inventory"
+msgstr "托管备份清单"
+
+msgctxt "web.backups.managedDetail"
+msgid "Verified content-addressed images available for this device."
+msgstr "可用于此设备的已验证内容寻址镜像。"
+
+msgctxt "web.backups.loading"
+msgid "Loading managed backups..."
+msgstr "正在加载托管备份..."
+
+msgctxt "web.backups.loadFailed"
+msgid "The managed backup inventory could not be loaded."
+msgstr "无法加载托管备份清单。"
+
+msgctxt "web.backups.empty"
+msgid "No managed backups are registered for this device."
+msgstr "此设备没有已登记的托管备份。"
+
+msgctxt "web.backups.available"
+msgid "Available"
+msgstr "可用"
+
+msgctxt "web.backups.missing"
+msgid "Missing"
+msgstr "缺失"
+
+msgctxt "web.backups.provenance"
+msgid "Provenance"
+msgstr "来源"
+
+msgctxt "web.backups.provenance.created"
+msgid "Created by PixelFlasher"
+msgstr "由 PixelFlasher 创建"
+
+msgctxt "web.backups.provenance.user_supplied"
+msgid "Imported by user"
+msgstr "由用户导入"
+
+msgctxt "web.backups.hash"
+msgid "SHA-256"
+msgstr "SHA-256"
+
+msgctxt "web.backups.delete"
+msgid "Delete backup"
+msgstr "删除备份"
+
+msgctxt "web.backups.deletePrompt"
+msgid "Type {confirmation} to delete this managed backup."
+msgstr "输入 {confirmation} 以删除此托管备份。"
+
+msgctxt "web.backups.confirmationLabel"
+msgid "Backup deletion confirmation"
+msgstr "备份删除确认"
+
+msgctxt "web.backups.confirmDelete"
+msgid "Delete permanently"
+msgstr "永久删除"

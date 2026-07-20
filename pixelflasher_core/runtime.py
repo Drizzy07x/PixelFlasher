@@ -19,6 +19,7 @@ from .avb_downgrade import (
     BundledAvbDowngradeTool,
     DowngradePatchService,
 )
+from .backup_repository import BackupRepository
 from .backups import BackupService
 from .binary_xml import BinaryXmlService
 from .boot_inventory import BootInventoryService
@@ -184,6 +185,10 @@ class ApplicationRuntime:
         self.content_artifact_repository = self.artifact_repository
         self.firmware_repository = FirmwareRepository(self.artifact_repository)
         self.boot_repository = BootRepository(self.artifact_repository)
+        self.backup_repository = BackupRepository(
+            self._backup_repository_path(config_store.path)
+        )
+        self.backup_cleanup_report = self.backup_repository.collect_orphaned_objects()
         self.processed_artifact_repository = PersistentProcessedArtifactRepository(
             self.firmware_repository,
             metadata_provider=self._processed_firmware_metadata,
@@ -201,7 +206,10 @@ class ApplicationRuntime:
                 initial_snapshot,
             )
         except Exception:
-            self.artifact_repository.close()
+            try:
+                self.backup_repository.close()
+            finally:
+                self.artifact_repository.close()
             raise
         self.store = AppStateStore(initial_snapshot)
         self._listeners: dict[str, RuntimeListener] = {}
@@ -326,6 +334,7 @@ class ApplicationRuntime:
             device_tools_service=device_tools_service,
             ota_diagnostics_service=OtaDiagnosticsService(),
             backup_service=BackupService(),
+            backup_repository=self.backup_repository,
             rooting_service=rooting_service,
             boot_patch_service=BootPatchService(rooting_service, ()),
             support_package_service=support_package_service,
@@ -1208,7 +1217,10 @@ class ApplicationRuntime:
             try:
                 self._state_subscription.cancel()
             finally:
-                self.artifact_repository.close()
+                try:
+                    self.backup_repository.close()
+                finally:
+                    self.artifact_repository.close()
 
     def __enter__(self) -> ApplicationRuntime:
         return self
@@ -1544,6 +1556,11 @@ class ApplicationRuntime:
     def _content_artifact_repository_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "artifact-repository"
+
+    @staticmethod
+    def _backup_repository_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "backup-repository"
 
     @staticmethod
     def _legacy_v9_database_path(config_path: str | Path) -> Path:

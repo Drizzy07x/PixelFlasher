@@ -5628,3 +5628,67 @@ msgstr "Attestazione software"
 msgctxt "web.tools.keyboxInvalid"
 msgid "Invalid"
 msgstr "Non valido"
+
+msgctxt "web.backups.externalRestore"
+msgid "Restore external image"
+msgstr "Ripristina immagine esterna"
+
+msgctxt "web.backups.managedTitle"
+msgid "Managed backup inventory"
+msgstr "Inventario dei backup gestiti"
+
+msgctxt "web.backups.managedDetail"
+msgid "Verified content-addressed images available for this device."
+msgstr "Immagini verificate indirizzate per contenuto disponibili per questo dispositivo."
+
+msgctxt "web.backups.loading"
+msgid "Loading managed backups..."
+msgstr "Caricamento dei backup gestiti..."
+
+msgctxt "web.backups.loadFailed"
+msgid "The managed backup inventory could not be loaded."
+msgstr "Impossibile caricare l’inventario dei backup gestiti."
+
+msgctxt "web.backups.empty"
+msgid "No managed backups are registered for this device."
+msgstr "Nessun backup gestito è registrato per questo dispositivo."
+
+msgctxt "web.backups.available"
+msgid "Available"
+msgstr "Disponibile"
+
+msgctxt "web.backups.missing"
+msgid "Missing"
+msgstr "Mancante"
+
+msgctxt "web.backups.provenance"
+msgid "Provenance"
+msgstr "Provenienza"
+
+msgctxt "web.backups.provenance.created"
+msgid "Created by PixelFlasher"
+msgstr "Creato da PixelFlasher"
+
+msgctxt "web.backups.provenance.user_supplied"
+msgid "Imported by user"
+msgstr "Importato dall’utente"
+
+msgctxt "web.backups.hash"
+msgid "SHA-256"
+msgstr "SHA-256"
+
+msgctxt "web.backups.delete"
+msgid "Delete backup"
+msgstr "Elimina backup"
+
+msgctxt "web.backups.deletePrompt"
+msgid "Type {confirmation} to delete this managed backup."
+msgstr "Digita {confirmation} per eliminare questo backup gestito."
+
+msgctxt "web.backups.confirmationLabel"
+msgid "Backup deletion confirmation"
+msgstr "Conferma eliminazione backup"
+
+msgctxt "web.backups.confirmDelete"
+msgid "Delete permanently"
+msgstr "Elimina definitivamente"

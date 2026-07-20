@@ -40,6 +40,21 @@ const mockDownloadedRootApp = {
   architecture: 'arm64-v8a',
 } as const;
 
+type MockBackupRecord = {
+  id: string;
+  sha256: string;
+  sizeBytes: number;
+  createdAt: number;
+  targetSerial: string;
+  deviceCodename: string;
+  partition: string;
+  slot: 'a' | 'b';
+  targetPartition: string;
+  provenance: 'created' | 'user_supplied';
+  available: boolean;
+  integrity: 'stored' | 'missing';
+};
+
 const defaultPreferences: ModernPreferences = {
   schemaVersion: 1,
   theme: 'dark',
@@ -144,6 +159,25 @@ export function installDevelopmentBridge() {
     patched: boolean;
     verified: boolean;
   }> = [];
+  let backupSequence = 1;
+  let mockBackups: MockBackupRecord[] = snapshot.devices.slice(0, 2).map((device, index) => {
+    const partition = index ? 'init_boot' : 'boot';
+    const slot = device.slot === 'b' ? 'b' : 'a';
+    return {
+      id: String(index + 1).repeat(32),
+      sha256: String(index + 3).repeat(64),
+      sizeBytes: 64 * 1024 * 1024,
+      createdAt: 1_752_816_600 - index * 86_400,
+      targetSerial: device.serial,
+      deviceCodename: device.codename,
+      partition,
+      slot,
+      targetPartition: `${partition}_${slot}`,
+      provenance: index ? 'user_supplied' : 'created',
+      available: true,
+      integrity: 'stored',
+    };
+  });
 
   const publishSnapshot = () => {
     emit({ version: 2, event: 'snapshot', revision: snapshot.revision, payload: structuredClone(snapshot) });
@@ -1364,10 +1398,78 @@ export function installDevelopmentBridge() {
             }));
             break;
           case 'platformTools.setup':
-          case 'backups.create':
-          case 'backups.restore':
             respond(request, success('Command accepted.'));
             break;
+          case 'backups.list': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : '';
+            const backups = mockBackups.filter((backup) => !serial || backup.targetSerial === serial);
+            respond(request, success('Managed backups listed.', {
+              backups,
+              count: backups.length,
+              totalCount: backups.length,
+              filteredSerial: serial || null,
+              revision: snapshot.revision,
+              bounded: true,
+              truncated: false,
+            }));
+            break;
+          }
+          case 'backups.create': {
+            const serial = String(request.payload.serial ?? snapshot.selectedSerial ?? 'MOCK-SERIAL');
+            const partition = String(request.payload.partition ?? 'boot');
+            const slot = request.payload.slot === 'b' ? 'b' : 'a';
+            const device = snapshot.devices.find((candidate) => candidate.serial === serial);
+            const id = (backupSequence++).toString(16).padStart(32, 'a').slice(-32);
+            const backup: MockBackupRecord = {
+              id,
+              sha256: id.padEnd(64, 'b'),
+              sizeBytes: 64 * 1024 * 1024,
+              createdAt: Math.floor(Date.now() / 1000),
+              targetSerial: serial,
+              deviceCodename: device?.codename ?? 'mock',
+              partition,
+              slot,
+              targetPartition: `${partition}_${slot}`,
+              provenance: 'created',
+              available: true,
+              integrity: 'stored',
+            };
+            mockBackups = [backup, ...mockBackups];
+            respond(request, success('Backup created.', {
+              action: 'create', targetSerial: serial, partition: backup.targetPartition,
+              slot, backup, inventoryRegistered: true,
+            }));
+            break;
+          }
+          case 'backups.restore': {
+            const existing = typeof request.payload.backupId === 'string'
+              ? mockBackups.find((backup) => backup.id === request.payload.backupId)
+              : undefined;
+            respond(request, success('Backup restored.', {
+              action: 'restore',
+              targetSerial: String(request.payload.serial ?? ''),
+              partition: `${String(request.payload.partition ?? 'boot')}_${request.payload.slot === 'b' ? 'b' : 'a'}`,
+              slot: request.payload.slot === 'b' ? 'b' : 'a',
+              backup: existing ?? null,
+              inventoryRegistered: Boolean(existing),
+              inventoryIssue: existing ? null : 'backup_import_failed',
+            }));
+            break;
+          }
+          case 'backups.delete': {
+            const backupId = String(request.payload.backupId ?? '');
+            mockBackups = mockBackups.filter((backup) => backup.id !== backupId);
+            respond(request, success('Managed backup deleted.', {
+              backupId,
+              deleted: true,
+              objectRemoved: true,
+              sharedObjectRetained: false,
+              objectMissing: false,
+              cleanupDeferred: false,
+              revision: snapshot.revision,
+            }));
+            break;
+          }
           case 'apps.action': {
             if (request.payload.action === 'install') {
               respond(request, success('APK installed.', {

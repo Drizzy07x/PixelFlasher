@@ -181,6 +181,30 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertIsNone(inventory.target_serial)
         self.assertEqual({"theme": "light"}, updated.payload)
 
+    def test_backup_inventory_restore_keeps_only_the_opaque_repository_id(self):
+        factory = create_command_factory(
+            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3")
+        )
+        backup_id = "a" * 32
+
+        restored = factory(
+            request(
+                "backups.restore",
+                payload={
+                    "partition": "boot",
+                    "slot": "a",
+                    "backupId": backup_id,
+                },
+            )
+        )
+
+        self.assertEqual("SERIAL-3", restored.target_serial)
+        self.assertEqual(
+            {"partition": "boot", "slot": "a", "backupId": backup_id},
+            restored.payload,
+        )
+        self.assertNotIn("path", restored.payload)
+
     def test_native_file_grant_becomes_a_backend_path_for_the_exact_purpose(self):
         with tempfile.TemporaryDirectory() as directory:
             firmware = Path(directory) / "firmware.zip"

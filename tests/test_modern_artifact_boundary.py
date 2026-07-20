@@ -354,6 +354,10 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         },
                     )
                     if command in {
+                        "backups.create",
+                        "backups.delete",
+                        "backups.list",
+                        "backups.restore",
                         "boot.delete",
                         "device.inspect",
                         "device.openUrl",

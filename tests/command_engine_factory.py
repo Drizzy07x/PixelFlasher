@@ -7,7 +7,9 @@ builds the rest of the same headless graph explicitly.
 
 from __future__ import annotations
 
+import shutil
 import tempfile
+import weakref
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from pixelflasher_core.avb_downgrade import (
     BundledAvbDowngradeTool,
     DowngradePatchService,
 )
+from pixelflasher_core.backup_repository import BackupRepository
 from pixelflasher_core.backups import BackupService
 from pixelflasher_core.binary_xml import BinaryXmlService
 from pixelflasher_core.boot_inventory import BootInventoryService
@@ -61,6 +64,11 @@ from pixelflasher_core.toolchain import ToolchainService
 ToolchainStateUpdater = Callable[[AppCommand, ToolchainInfo], OperationResult]
 
 
+def _cleanup_backup_repository(repository: BackupRepository, root: Path) -> None:
+    repository.close()
+    shutil.rmtree(root, ignore_errors=True)
+
+
 def make_test_command_engine(
     *,
     store: AppStateStore | None = None,
@@ -79,6 +87,7 @@ def make_test_command_engine(
     device_tools_service: DeviceToolsService | None = None,
     ota_diagnostics_service: OtaDiagnosticsService | None = None,
     backup_service: BackupService | None = None,
+    backup_repository: BackupRepository | None = None,
     rooting_service: RootingService | None = None,
     apk_inspector: RootApkInspector | None = None,
     boot_patch_bundles: Sequence[PatchToolBundle] = (),
@@ -141,6 +150,12 @@ def make_test_command_engine(
     device_tools_service = device_tools_service or DeviceToolsService()
     ota_diagnostics_service = ota_diagnostics_service or OtaDiagnosticsService()
     backup_service = backup_service or BackupService()
+    owned_backup_root: Path | None = None
+    if backup_repository is None:
+        owned_backup_root = Path(
+            tempfile.mkdtemp(prefix="pixelflasher-backup-repository-tests-")
+        )
+        backup_repository = BackupRepository(owned_backup_root)
     rooting_service = rooting_service or RootingService(apk_inspector=apk_inspector)
     boot_patch_service = BootPatchService(rooting_service, boot_patch_bundles)
     support_package_service = support_package_service or UnavailableSupportPackageV2Service()
@@ -181,7 +196,7 @@ def make_test_command_engine(
             Path(tempfile.gettempdir()) / "pixelflasher-tests" / "avb-downgrade",
             BundledAvbDowngradeTool(signing_key),
         )
-    return CommandEngine(
+    engine = CommandEngine(
         store=store,
         executor=executor,
         safety_policy=safety_policy,
@@ -197,6 +212,7 @@ def make_test_command_engine(
         device_tools_service=device_tools_service,
         ota_diagnostics_service=ota_diagnostics_service,
         backup_service=backup_service,
+        backup_repository=backup_repository,
         rooting_service=rooting_service,
         boot_patch_service=boot_patch_service,
         firmware_artifact_service=firmware_artifact_service,
@@ -215,3 +231,11 @@ def make_test_command_engine(
         binary_xml_service=binary_xml_service or BinaryXmlService(),
         keybox_validation_service=keybox_validation_service or KeyboxValidationService(),
     )
+    if owned_backup_root is not None:
+        weakref.finalize(
+            engine,
+            _cleanup_backup_repository,
+            backup_repository,
+            owned_backup_root,
+        )
+    return engine

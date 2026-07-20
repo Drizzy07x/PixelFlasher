@@ -135,8 +135,11 @@ atomic-operation boundaries:
   success only from bounded `am start -W` completion evidence without returning
   the URL itself.
   Arbitrary ADB shell is explicitly rejected without execution.
-- `BackupService` creates and restores bounded boot-chain partition images,
-  finalizing created files into verified artifacts and confirming restore.
+- `BackupService` creates and restores bounded boot-chain partition images.
+  `BackupRepository` atomically imports them into a persistent content-addressed
+  SQLite inventory, exposes only opaque IDs and provenance, rehashes a managed
+  object immediately before restore, and deletes metadata before best-effort
+  object cleanup under an exact reinforced confirmation.
 - `RootingService` inventories backend-owned verified rooting APKs, installs by
   opaque identifier and manages validated Magisk modules with action-specific
   confirmation metadata.
@@ -164,8 +167,9 @@ installs verified APKs without revealing host paths; Play Store ownership and
 the remaining manager actions stay open. The Tools page now owns the bounded logcat viewer, scrcpy,
 wireless ADB, file-push, partition and support-package flows, but each row stays
 partial until its documented packaging, postcondition, progress or legacy-data
-gap is closed. Backups collects path, partition and slot but does not maintain a
-persisted inventory/result view.
+gap is closed. Backups now renders the canonical persisted raw-image inventory,
+provenance and typed create/restore/delete results without exposing host paths;
+the distinct on-device Magisk backup-manager semantics remain open.
 
 `ModernPreferences` and `ApplicationRuntime` implement strict
 `settings.get`/`settings.update` contracts for theme, locale, high contrast,
@@ -190,7 +194,7 @@ becomes implicit success.
 | Device tools | The explicit expert ADB shell decision, production Scrcpy manifests/smokes and a reproducibly sourced OTA cancel/reset runner. Scrcpy's authenticated installer, typed options and managed lifecycle are implemented. Safe HTTP(S) URL opening, independently verified per-slot bootloader inspection, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing, filtered logs, closed update_engine status/preflight and an independent bounded OTA-idle observer are now native. The opaque legacy OTA binaries are not admitted to the modern core. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, custom `payload.bin`, remaining runtime recovery/fastbootd validation, real patch APK/runner resources and KMI/architecture-based kernel selection. Stock-flash relock evidence and a firmware-bound AVB downgrade flow now exist; their packaged/hardware validation remains. |
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
-| Backups | Persisted raw-backup inventory/results and complete Magisk list/import/delete behavior. |
+| Backups | Raw-backup inventory/results are persistent and route-free; complete the distinct Magisk list/import/delete behavior. |
 | Root and integrity | `/data/adb` backup/restore/clear, PIF/TargetedFix, PI analysis, Shizuku and SOS. |
 | Developer/personal tools | Production signed keybox revocation evidence, packaged validation of the native AVB downgrade, bounded binary-XML and local keybox flows, and arbitrary My Tools commands. |
 | Application shell | About/help, remaining 9.x/expert preferences, toolbar customization, folders, update/link actions and console controls. |

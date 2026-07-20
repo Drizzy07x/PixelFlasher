@@ -13,6 +13,8 @@ from pixelflasher_core import (
     AppCommand,
     AppSnapshot,
     AppStateStore,
+    BackupProvenance,
+    BackupRepository,
     BackupService,
     CancellationToken,
     CommandExecutor,
@@ -281,6 +283,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         root=False,
         rooting_service=None,
         device_tools_service=None,
+        backup_repository=None,
     ):
         transport = FakeProcessTransport(outcomes)
         engine = CommandEngine(
@@ -289,6 +292,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             postcondition_observer=StatefulPostconditionObserver(transport),
             rooting_service=rooting_service,
             device_tools_service=device_tools_service,
+            backup_repository=backup_repository,
             interaction_handler=(
                 interaction_handler
                 if interaction_handler is not None
@@ -1520,7 +1524,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("artifact_hash_mismatch", result.code)
         self.assertEqual([], transport.calls)
 
-    def test_backup_create_finalizes_output_and_returns_verified_artifact(self):
+    def test_backup_create_finalizes_output_and_registers_route_free_inventory(self):
         contents = b"backend-created boot partition backup"
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "boot_a.img"
@@ -1545,11 +1549,14 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             self.assertEqual("backup_created", result.code)
             self.assertEqual("boot_a", result.value["partition"])
             self.assertEqual("a", result.value["slot"])
-            self.assertEqual(str(destination.resolve()), result.value["artifact"]["path"])
+            self.assertTrue(result.value["inventoryRegistered"])
+            self.assertNotIn("path", result.value["backup"])
             self.assertEqual(
                 hashlib.sha256(contents).hexdigest(),
-                result.value["artifact"]["sha256"],
+                result.value["backup"]["sha256"],
             )
+            self.assertEqual("created", result.value["backup"]["provenance"])
+            self.assertEqual(1, engine.backup_repository.count())
             self.assertEqual(
                 (
                     "FASTBOOT",
@@ -1638,9 +1645,11 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertEqual("backup_restored", result.code)
             self.assertEqual("vendor_boot_b", result.value["partition"])
+            self.assertTrue(result.value["inventoryRegistered"])
+            self.assertNotIn("path", result.value["backup"])
             self.assertEqual(
                 hashlib.sha256(contents).hexdigest(),
-                result.value["artifact"]["sha256"],
+                result.value["backup"]["sha256"],
             )
             self.assertEqual(1, len(interactions))
             self.assertTrue(interactions[0].destructive)
@@ -1657,6 +1666,133 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                 )],
                 transport.calls,
             )
+
+    def test_backup_inventory_restore_rehashes_managed_object_before_transport(self):
+        contents = b"managed restore image"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "boot_a.img"
+            source.write_bytes(contents)
+            repository = BackupRepository(root / "repository")
+            record = repository.import_file(
+                source,
+                expected_sha256=hashlib.sha256(contents).hexdigest(),
+                target_serial="SERIAL",
+                device_codename="akita",
+                partition="boot",
+                slot="a",
+                provenance=BackupProvenance.USER_SUPPLIED,
+            )
+            engine, transport = self.engine_for(
+                "fastboot",
+                [TransportOutcome(0, "finished\n")],
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+                backup_repository=repository,
+            )
+
+            restored = engine.execute(
+                command(
+                    "backups.restore",
+                    {"partition": "boot", "slot": "a", "backupId": record.backup_id},
+                )
+            )
+
+            self.assertTrue(restored.ok, restored)
+            self.assertEqual(record.backup_id, restored.value["backup"]["id"])
+            self.assertEqual("user_supplied", restored.value["backup"]["provenance"])
+            assert_exact_or_staged_argv(
+                self,
+                [
+                    (
+                        "FASTBOOT",
+                        "-s",
+                        "SERIAL",
+                        "flash",
+                        "boot_a",
+                        str(record.path),
+                    )
+                ],
+                transport.calls,
+            )
+
+            record.path.write_bytes(b"tampered")
+            failed = engine.execute(
+                AppCommand(
+                    "backups.restore",
+                    expected_revision=engine.store.snapshot().revision,
+                    target_serial="SERIAL",
+                    payload={
+                        "partition": "boot",
+                        "slot": "a",
+                        "backupId": record.backup_id,
+                    },
+                )
+            )
+            repository.close()
+            self.assertEqual(OperationStatus.FAILED, failed.status)
+            self.assertEqual("backup_integrity_mismatch", failed.code)
+            self.assertEqual(1, len(transport.calls))
+
+    def test_backup_inventory_lists_and_deletes_only_after_exact_confirmation(self):
+        contents = b"inventory backup"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "vendor_boot_b.img"
+            source.write_bytes(contents)
+            repository = BackupRepository(root / "repository")
+            record = repository.import_file(
+                source,
+                expected_sha256=hashlib.sha256(contents).hexdigest(),
+                target_serial="SERIAL",
+                device_codename="akita",
+                partition="vendor_boot",
+                slot="b",
+                provenance=BackupProvenance.CREATED,
+            )
+            engine = CommandEngine(
+                store=AppStateStore(snapshot_for("fastboot")),
+                backup_repository=repository,
+            )
+            listed = engine.execute(
+                AppCommand(
+                    "backups.list",
+                    expected_revision=4,
+                    payload={"serial": "SERIAL"},
+                )
+            )
+            self.assertTrue(listed.ok)
+            self.assertEqual(1, listed.value["count"])
+            self.assertEqual(record.backup_id, listed.value["backups"][0]["id"])
+            self.assertNotIn("path", listed.value["backups"][0])
+
+            rejected = engine.execute(
+                AppCommand(
+                    "backups.delete",
+                    expected_revision=4,
+                    payload={
+                        "backupId": record.backup_id,
+                        "confirmationText": "DELETE wrong",
+                    },
+                )
+            )
+            self.assertEqual("backup_delete_confirmation_required", rejected.code)
+            self.assertEqual(1, repository.count())
+
+            deleted = engine.execute(
+                AppCommand(
+                    "backups.delete",
+                    expected_revision=4,
+                    payload={
+                        "backupId": record.backup_id,
+                        "confirmationText": f"DELETE {record.backup_id[-8:].upper()}",
+                    },
+                )
+            )
+            self.assertTrue(deleted.ok)
+            self.assertEqual(5, deleted.value["revision"])
+            self.assertTrue(deleted.value["objectRemoved"])
+            self.assertEqual(0, repository.count())
+            repository.close()
 
     def test_backup_restore_is_revalidated_after_confirmation(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -32,6 +32,15 @@ from .avb_downgrade import (
     DowngradePatchService,
     DowngradePatchStatus,
 )
+from .backup_repository import (
+    BACKUP_REPOSITORY_SCHEMA_VERSION,
+    BackupCleanupReport,
+    BackupDeletionReceipt,
+    BackupProvenance,
+    BackupRecord,
+    BackupRepository,
+    BackupRepositoryError,
+)
 from .backups import (
     BACKUP_COMMANDS,
     SUPPORTED_BACKUP_PARTITIONS,
@@ -454,10 +463,17 @@ __all__ = [
     "canonical_manifest_bytes",
     "canonicalize_device_inventory",
     "BACKUP_COMMANDS",
+    "BACKUP_REPOSITORY_SCHEMA_VERSION",
     "SUPPORTED_BACKUP_PARTITIONS",
     "BackupCompilation",
+    "BackupCleanupReport",
     "BackupPlanningError",
     "BackupService",
+    "BackupDeletionReceipt",
+    "BackupProvenance",
+    "BackupRecord",
+    "BackupRepository",
+    "BackupRepositoryError",
     "BinaryXmlCode",
     "BinaryXmlLimits",
     "BinaryXmlResult",

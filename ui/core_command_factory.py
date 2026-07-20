@@ -406,7 +406,8 @@ class CoreCommandFactory:
         elif command == "backups.create":
             self._resolve_one(payload, "backups.create.destination", "destination")
         elif command == "backups.restore":
-            self._resolve_one(payload, "backups.restore.source", "path")
+            if "backupId" not in payload:
+                self._resolve_one(payload, "backups.restore.source", "path")
         elif command == "partitions.read":
             self._resolve_one(payload, "partitions.read.destination", "destination")
         elif command == "partitions.write":

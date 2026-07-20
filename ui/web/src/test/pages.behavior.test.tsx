@@ -288,32 +288,63 @@ describe('apps, backups and settings workflows', () => {
     });
   });
 
-  it('creates and restores boot-chain backups only through picker grants', async () => {
+  it('creates, restores and deletes route-free managed backups', async () => {
     const user = userEvent.setup();
     const snapshot = freshSnapshot();
     const fastboot = snapshot.devices[1];
-    (snapshot as HostSnapshot & { backups: unknown[] }).backups = [{
-      id: 'backup-1', device: fastboot.name, serial: fastboot.serial,
-      date: '2026-07-18', size: '64 MiB', contents: 'init_boot',
-    }];
+    const backupId = `${'a'.repeat(24)}12345678`;
+    const managedBackup = {
+      id: backupId,
+      sha256: 'b'.repeat(64),
+      sizeBytes: 64 * 1024 * 1024,
+      createdAt: 1_752_816_600,
+      targetSerial: fastboot.serial,
+      deviceCodename: fastboot.codename,
+      partition: 'init_boot',
+      slot: 'a',
+      targetPartition: 'init_boot_a',
+      provenance: 'created',
+      available: true,
+      integrity: 'stored',
+    };
     const onCommand = commandHost((command) => {
       if (command === 'native.saveFile') return { result: { value: { data: { grant: 'write-once' } } } };
       if (command === 'native.pickFile') return { result: { value: { data: { grant: 'read-session' } } } };
+      if (command === 'backups.list') return { result: {
+        status: 'SUCCESS',
+        value: {
+          backups: [managedBackup], count: 1, totalCount: 1,
+          filteredSerial: fastboot.serial, revision: snapshot.revision,
+          bounded: true, truncated: false,
+        },
+      } };
       return { result: { status: 'SUCCESS' } };
     });
     page(
       <BackupsPage snapshot={snapshot} selectedSerials={[fastboot.serial]} onSelectionChange={selection} onCommand={onCommand} />,
     );
+    expect(await screen.findByText('init_boot_a')).toBeVisible();
     await user.selectOptions(screen.getByLabelText('Partition manager'), 'init_boot');
     await user.selectOptions(screen.getByLabelText('Target slot'), 'a');
     await user.click(screen.getByRole('button', { name: 'Create backup' }));
-    await user.click(screen.getAllByRole('button', { name: 'Restore backup' })[0]);
+    await user.click(screen.getByRole('button', { name: 'Restore external image' }));
+    await user.click(screen.getByRole('button', { name: 'Restore backup' }));
+    await user.click(screen.getByRole('button', { name: 'Delete backup' }));
+    await user.type(screen.getByLabelText('Backup deletion confirmation'), 'DELETE 12345678');
+    await user.click(screen.getByRole('button', { name: 'Delete permanently' }));
     await waitFor(() => {
+      expect(onCommand).toHaveBeenCalledWith('backups.list', { serial: fastboot.serial }, undefined);
       expect(onCommand).toHaveBeenCalledWith('backups.create', {
         serial: fastboot.serial, partition: 'init_boot', slot: 'a', grant: 'write-once',
       });
       expect(onCommand).toHaveBeenCalledWith('backups.restore', {
         serial: fastboot.serial, partition: 'init_boot', slot: 'a', grant: 'read-session',
+      });
+      expect(onCommand).toHaveBeenCalledWith('backups.restore', {
+        serial: fastboot.serial, partition: 'init_boot', slot: 'a', backupId,
+      });
+      expect(onCommand).toHaveBeenCalledWith('backups.delete', {
+        backupId, confirmationText: 'DELETE 12345678',
       });
     });
     expect(JSON.stringify(onCommand.mock.calls)).not.toContain('/safe/');

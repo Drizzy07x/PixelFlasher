@@ -19,6 +19,12 @@ from .avb_downgrade import (
     DowngradePatchService,
     DowngradePatchStatus,
 )
+from .backup_repository import (
+    BackupDeletionReceipt,
+    BackupProvenance,
+    BackupRepository,
+    BackupRepositoryError,
+)
 from .backups import (
     BACKUP_COMMANDS,
     BackupCompilation,
@@ -236,6 +242,7 @@ class CommandEngine:
         device_tools_service: DeviceToolsService,
         ota_diagnostics_service: OtaDiagnosticsService,
         backup_service: BackupService,
+        backup_repository: BackupRepository,
         rooting_service: RootingService,
         boot_patch_service: BootPatchService,
         firmware_artifact_service: FirmwareArtifactService,
@@ -299,6 +306,7 @@ class CommandEngine:
         self.device_tools_service = device_tools_service
         self.ota_diagnostics_service = ota_diagnostics_service
         self.backup_service = backup_service
+        self.backup_repository = backup_repository
         self.rooting_service = rooting_service
         self.boot_patch_service = boot_patch_service
         self.boot_inventory_service = boot_inventory_service
@@ -371,6 +379,10 @@ class CommandEngine:
             return self._select_boot(command)
         if command.kind == BOOT_DELETE_COMMAND:
             return self._delete_boot(command)
+        if command.kind == "backups.list":
+            return self._list_backups(command)
+        if command.kind == "backups.delete":
+            return self._delete_backup(command)
         if command.kind == "firmware.process":
             return self._process_firmware(command)
         if command.kind == SUPPORT_COMMAND:
@@ -999,11 +1011,35 @@ class CommandEngine:
                     planning_token,
                 )
             elif command.kind in BACKUP_COMMANDS:
+                backup_command = command
+                inventory_id = command.payload.get("backupId")
+                inventory_backup_id: str | None = None
+                if command.kind == "backups.restore" and inventory_id is not None:
+                    if not isinstance(inventory_id, str):
+                        raise BackupRepositoryError(
+                            "backup_id_invalid", "backup ID must be a string"
+                        )
+                    record, artifact = self.backup_repository.resolve_verified(
+                        inventory_id,
+                        cancellation=planning_token,
+                    )
+                    inventory_backup_id = record.backup_id
+                    backup_command = replace(
+                        command,
+                        payload={
+                            key: value
+                            for key, value in command.payload.items()
+                            if key != "backupId"
+                        }
+                        | {"path": artifact.path},
+                    )
                 compilation = self.backup_service.compile(
-                    command,
+                    backup_command,
                     snapshot,
                     planning_token,
                 )
+                if command.kind == "backups.restore" and inventory_id is not None:
+                    compilation = replace(compilation, backup_id=inventory_backup_id)
             elif command.kind in ROOTING_COMMANDS:
                 compilation = self.rooting_service.compile(
                     command,
@@ -1056,12 +1092,14 @@ class CommandEngine:
             DeviceToolPlanningError,
             OtaDiagnosticPlanningError,
             BackupPlanningError,
+            BackupRepositoryError,
             RootingPlanningError,
         ) as error:
             if planning_token is not None:
                 self._unregister_cancellation(command.operation_id)
             if error.code in {
                 "backup_cancelled",
+                "backup_import_cancelled",
                 "device_tool_cancelled",
                 "package_cancelled",
                 "partition_cancelled",
@@ -1495,6 +1533,25 @@ class CommandEngine:
                     stdout=result.stdout,
                     stderr=result.stderr,
                 )
+            try:
+                backup = self.backup_repository.import_file(
+                    artifact.path,
+                    expected_sha256=artifact.sha256,
+                    target_serial=plan.target_serial or "",
+                    device_codename=plan.expected_codename or "unknown",
+                    partition=compilation.partition,
+                    slot=plan.slots[0],
+                    provenance=BackupProvenance.CREATED,
+                )
+            except BackupRepositoryError as error:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="backup_created_inventory_failed",
+                    message=(
+                        "the raw backup was created, but its managed inventory "
+                        f"registration failed: {error.code}"
+                    ),
+                )
             return replace(
                 result,
                 code="backup_created",
@@ -1504,8 +1561,11 @@ class CommandEngine:
                     "targetSerial": plan.target_serial,
                     "partition": plan.partitions[0],
                     "slot": plan.slots[0],
-                    "artifact": artifact.to_dict(),
+                    "backup": backup.to_public_dict(available=True),
+                    "inventoryRegistered": True,
                 },
+                stdout="",
+                stderr="",
             )
         if kind == "backups.restore":
             if not isinstance(compilation, BackupCompilation) or not plan.artifacts:
@@ -1518,6 +1578,31 @@ class CommandEngine:
                     stderr=result.stderr,
                 )
             artifact = plan.artifacts[0]
+            inventory_registered = True
+            inventory_issue: str | None = None
+            if compilation.backup_id is not None:
+                backup = self.backup_repository.get(compilation.backup_id)
+                if backup is None:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="backup_inventory_changed",
+                        message="managed backup disappeared during restore",
+                    )
+            else:
+                try:
+                    backup = self.backup_repository.import_file(
+                        artifact.path,
+                        expected_sha256=artifact.sha256,
+                        target_serial=plan.target_serial or "",
+                        device_codename=plan.expected_codename or "unknown",
+                        partition=compilation.partition,
+                        slot=plan.slots[0],
+                        provenance=BackupProvenance.USER_SUPPLIED,
+                    )
+                except BackupRepositoryError as error:
+                    backup = None
+                    inventory_registered = False
+                    inventory_issue = error.code
             return replace(
                 result,
                 code="backup_restored",
@@ -1527,8 +1612,18 @@ class CommandEngine:
                     "targetSerial": plan.target_serial,
                     "partition": plan.partitions[0],
                     "slot": plan.slots[0],
-                    "artifact": artifact.to_dict(),
+                    "backup": (
+                        backup.to_public_dict(
+                            available=self.backup_repository.is_available(backup)
+                        )
+                        if backup is not None
+                        else None
+                    ),
+                    "inventoryRegistered": inventory_registered,
+                    "inventoryIssue": inventory_issue,
                 },
+                stdout="",
+                stderr="",
             )
         if kind == "root.apps.install":
             if not isinstance(compilation, RootingCompilation) or not compilation.root_apps:
@@ -2252,6 +2347,166 @@ class CommandEngine:
                 "revision": snapshot.revision,
             },
         )
+
+    def _list_backups(self, command: AppCommand) -> OperationResult:
+        if set(command.payload) - {"serial"}:
+            return self._invalid(command, "backups.list accepts only an optional serial")
+        serial = command.payload.get("serial")
+        if serial is not None and (not isinstance(serial, str) or not serial):
+            return self._invalid(command, "backups.list serial must be a non-empty string")
+        snapshot = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="backup_inventory_cancelled",
+                        cancelled_message="backup inventory was cancelled",
+                        timeout_message="backup inventory timed out",
+                    )
+                try:
+                    records = self.backup_repository.list(target_serial=serial)
+                    total = self.backup_repository.count(target_serial=serial)
+                except BackupRepositoryError as error:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="backup_inventory_cancelled",
+                        cancelled_message="backup inventory was cancelled",
+                        timeout_message="backup inventory timed out",
+                    )
+                current = self.store.snapshot()
+                if current.revision != snapshot.revision:
+                    return self._denied(
+                        command,
+                        "stale_revision",
+                        "application state changed while listing backups",
+                    )
+                public = [
+                    record.to_public_dict(
+                        available=self.backup_repository.is_available(record)
+                    )
+                    for record in records
+                ]
+                return OperationResult.success(
+                    command.operation_id,
+                    code="backup_inventory_listed",
+                    message=f"found {len(public)} managed backup(s)",
+                    value={
+                        "backups": public,
+                        "count": len(public),
+                        "totalCount": total,
+                        "filteredSerial": serial,
+                        "revision": current.revision,
+                        "bounded": True,
+                        "truncated": total > len(public),
+                    },
+                )
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _delete_backup(self, command: AppCommand) -> OperationResult:
+        if set(command.payload) != {"backupId", "confirmationText"}:
+            return self._invalid(
+                command,
+                "backups.delete requires backupId and confirmationText",
+            )
+        backup_id = command.payload.get("backupId")
+        confirmation = command.payload.get("confirmationText")
+        if not isinstance(backup_id, str) or not isinstance(confirmation, str):
+            return self._invalid(command, "backupId and confirmationText must be strings")
+        try:
+            required = self.backup_repository.required_delete_confirmation(backup_id)
+        except BackupRepositoryError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        if confirmation != required:
+            return OperationResult.failed(
+                command.operation_id,
+                code="backup_delete_confirmation_required",
+                message=f"type {required} to delete this managed backup",
+            )
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="backup_delete_cancelled",
+                        cancelled_message="backup deletion was cancelled",
+                        timeout_message="backup deletion timed out",
+                    )
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                try:
+                    existing = self.backup_repository.get(backup_id)
+                except BackupRepositoryError as error:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                if existing is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="backup_not_found",
+                        message="backup record was not found",
+                    )
+                receipt: BackupDeletionReceipt | None = None
+
+                def remove(_current: AppSnapshot, _updated: AppSnapshot) -> None:
+                    nonlocal receipt
+                    receipt = self.backup_repository.delete(backup_id)
+
+                try:
+                    updated = self.store.transactional_update(
+                        expected_revision=command.expected_revision,
+                        prepare=lambda _current: {},
+                        side_effect=remove,
+                    )
+                except StaleRevisionError as error:
+                    return self._denied(command, "stale_revision", str(error))
+                except BackupRepositoryError as error:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                if receipt is None or not receipt.deleted:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="backup_delete_failed",
+                        message="backup deletion produced no verified receipt",
+                    )
+                return OperationResult.success(
+                    command.operation_id,
+                    code="backup_deleted",
+                    message="managed backup record deleted",
+                    value={**receipt.to_public_dict(), "revision": updated.revision},
+                )
+        finally:
+            self._unregister_cancellation(command.operation_id)
 
     def _select_boot(self, command: AppCommand) -> OperationResult:
         unknown = set(command.payload) - {"bootId", "path", "partition"}
