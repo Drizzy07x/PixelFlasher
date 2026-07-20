@@ -2521,9 +2521,9 @@
         "pixelflasher_core/engine.py:tools.myTools plus Legacy Raw permission/run owners with Expert Mode revalidation and explicit OperationResult",
         "ui/command_registry.py:closed tools.myTools, legacyPermission and legacyRun bridge-v2 contracts",
         "ui/web/src/pages/tooling/ToolsPage.tsx:Expert-only safe editor plus exact Legacy Raw preview, permission, revoke and per-run confirmation",
-        "legacy_raw_smoke_contract.py:closed packaged native-shell process receipt"
+        "legacy_raw_smoke_contract.py:schema-v2 packaged safe-argv and isolated native-shell process receipt"
       ],
-      "gap": "Technical parity is complete: safe argv profiles use pinned executables, while Legacy Raw is isolated behind Expert Mode, a content-bound persistent permission, exact per-run confirmation and a restricted shell with bounded cwd/environment/output/timeout plus elevation/redirection rejection. Packaged Windows, macOS and Linux process smokes remain open before promotion to native.",
+      "gap": "Technical parity and the dual packaged process smoke are complete: safe argv profiles use pinned executables and are proven through grant, persistence, reload and direct execution, while Legacy Raw is isolated behind Expert Mode, a content-bound persistent permission, exact per-run confirmation and a restricted shell with bounded cwd/environment/output/timeout plus elevation/redirection rejection. Windows x64 passes locally; remote Windows ARM64, macOS and Linux smoke results remain before promotion to native.",
       "exitCriteria": [
         "Create, edit, delete and launch My Tools entries is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every safe profile uses a purpose-bound native executable grant, pinned identity, typed argv and shell=False; the executable is revalidated immediately before execution.",

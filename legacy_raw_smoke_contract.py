@@ -22,10 +22,11 @@ from pixelflasher_core import (
     MyToolsError,
     MyToolsRepository,
     MyToolsService,
+    PathGrantStore,
 )
 from ui_smoke_contract import normalized_architecture, normalized_platform
 
-LEGACY_RAW_SMOKE_SCHEMA_VERSION = 1
+LEGACY_RAW_SMOKE_SCHEMA_VERSION = 2
 LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES = 64 * 1024
 
 
@@ -48,6 +49,8 @@ def create_legacy_raw_smoke_receipt(
     shell: str,
     probe_executable: str,
     output: bytes,
+    safe_output: bytes,
+    safe_profile_reloaded: bool,
 ) -> dict[str, Any]:
     if shell not in {"cmd", "zsh", "sh"}:
         raise LegacyRawSmokeError("Legacy Raw shell is invalid")
@@ -55,6 +58,11 @@ def create_legacy_raw_smoke_receipt(
         raise LegacyRawSmokeError("Legacy Raw probe executable is invalid")
     if not output or len(output) > LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES:
         raise LegacyRawSmokeError("Legacy Raw smoke output is invalid")
+    if not safe_output or len(safe_output) > LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES:
+        raise LegacyRawSmokeError("safe argv smoke output is invalid")
+    if safe_profile_reloaded is not True:
+        raise LegacyRawSmokeError("safe argv profile reload was not proven")
+    safe_probe = "whoami-user" if normalized_platform() == "windows" else "id-effective-user"
     return {
         "schemaVersion": LEGACY_RAW_SMOKE_SCHEMA_VERSION,
         "status": "passed",
@@ -66,6 +74,12 @@ def create_legacy_raw_smoke_receipt(
         "probeExecutable": probe_executable,
         "outputBytes": len(output),
         "outputSha256": hashlib.sha256(output).hexdigest(),
+        "safeArgvProbe": safe_probe,
+        "safeArgvOutputBytes": len(safe_output),
+        "safeArgvOutputSha256": hashlib.sha256(safe_output).hexdigest(),
+        "safeArgvProfileReloaded": safe_profile_reloaded,
+        "safeArgvNoShell": True,
+        "safeArgvCompleted": True,
         "persistentPermission": True,
         "incorrectPermissionRejected": True,
         "incorrectRunRejected": True,
@@ -91,6 +105,12 @@ def validate_legacy_raw_smoke_receipt(
         "probeExecutable",
         "outputBytes",
         "outputSha256",
+        "safeArgvProbe",
+        "safeArgvOutputBytes",
+        "safeArgvOutputSha256",
+        "safeArgvProfileReloaded",
+        "safeArgvNoShell",
+        "safeArgvCompleted",
         "persistentPermission",
         "incorrectPermissionRejected",
         "incorrectRunRejected",
@@ -110,11 +130,14 @@ def validate_legacy_raw_smoke_receipt(
     platform_name = receipt.get("platform")
     shell = receipt.get("shell")
     executable = receipt.get("probeExecutable")
+    safe_probe = receipt.get("safeArgvProbe")
     expected_shell = "cmd" if platform_name == "windows" else "zsh" if platform_name == "macos" else "sh"
     if platform_name not in {"windows", "macos", "linux"}:
         raise LegacyRawSmokeError("Legacy Raw receipt platform is invalid")
     if shell != expected_shell or executable != ("whoami.exe" if platform_name == "windows" else "id"):
         raise LegacyRawSmokeError("Legacy Raw receipt did not prove the native host shell")
+    if safe_probe != ("whoami-user" if platform_name == "windows" else "id-effective-user"):
+        raise LegacyRawSmokeError("personal tools receipt did not prove the native safe argv probe")
     size = receipt.get("outputBytes")
     digest = receipt.get("outputSha256")
     if (
@@ -126,7 +149,21 @@ def validate_legacy_raw_smoke_receipt(
         or any(character not in "0123456789abcdef" for character in digest)
     ):
         raise LegacyRawSmokeError("Legacy Raw receipt output evidence is invalid")
+    safe_size = receipt.get("safeArgvOutputBytes")
+    safe_digest = receipt.get("safeArgvOutputSha256")
+    if (
+        isinstance(safe_size, bool)
+        or not isinstance(safe_size, int)
+        or not 1 <= safe_size <= LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES
+        or not isinstance(safe_digest, str)
+        or len(safe_digest) != 64
+        or any(character not in "0123456789abcdef" for character in safe_digest)
+    ):
+        raise LegacyRawSmokeError("safe argv receipt output evidence is invalid")
     for field in (
+        "safeArgvProfileReloaded",
+        "safeArgvNoShell",
+        "safeArgvCompleted",
         "persistentPermission",
         "incorrectPermissionRejected",
         "incorrectRunRejected",
@@ -224,6 +261,36 @@ def run_packaged_legacy_raw_smoke(report: Path) -> dict[str, Any]:
             CommandExecutor(),
             allowed_legacy_cwd_roots=(root,),
         )
+        grants = PathGrantStore()
+        safe_grant = grants.issue_file(executable, purpose="tools.myTools.executable")
+        safe_spec = service.repository.save(
+            title="Packaged safe argv smoke",
+            executable=grants.resolve_bound_file(
+                safe_grant.token,
+                purpose="tools.myTools.executable",
+            ),
+            arguments=("/user", "/fo", "csv", "/nh") if os.name == "nt" else ("-u",),
+            enabled=True,
+        )
+        service = MyToolsService(
+            MyToolsRepository(store, legacy_path=legacy),
+            CommandExecutor(),
+            allowed_legacy_cwd_roots=(root,),
+        )
+        safe_spec = service.repository.get(safe_spec.tool_id)
+        safe_result = service.run(
+            AppCommand(
+                "tools.myTools",
+                expected_revision=0,
+                payload={"action": "run", "toolId": safe_spec.tool_id},
+                operation_id="packaged-safe-argv-smoke",
+            ),
+            safe_spec.tool_id,
+            CancellationToken(),
+        )
+        safe_output = safe_result.stdout.encode("utf-8", errors="replace")
+        if not safe_result.ok or safe_result.code != "my_tool_completed" or not safe_output.strip():
+            raise LegacyRawSmokeError("packaged safe argv personal tool did not complete successfully")
         spec = service.repository.get_legacy("legacy:smoke")
         _expect_error(
             lambda: service.set_legacy_permission(
@@ -275,6 +342,8 @@ def run_packaged_legacy_raw_smoke(report: Path) -> dict[str, Any]:
             shell=shell,
             probe_executable=executable.name,
             output=output,
+            safe_output=safe_output,
+            safe_profile_reloaded=True,
         )
     write_legacy_raw_smoke_receipt(report, receipt)
     return receipt

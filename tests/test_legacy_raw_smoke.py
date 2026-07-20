@@ -21,6 +21,8 @@ class LegacyRawSmokeTests(unittest.TestCase):
             shell="cmd" if platform_name == "windows" else "zsh" if platform_name == "macos" else "sh",
             probe_executable="whoami.exe" if platform_name == "windows" else "id",
             output=b"bounded identity\n",
+            safe_output=b"bounded safe argv identity\n",
+            safe_profile_reloaded=True,
         )
 
     def test_closed_receipt_round_trip_and_identity_validation(self):
@@ -35,6 +37,8 @@ class LegacyRawSmokeTests(unittest.TestCase):
             ("shell", "powershell"),
             ("outputSha256", "x" * 64),
             ("incorrectRunRejected", False),
+            ("safeArgvNoShell", False),
+            ("safeArgvOutputSha256", "x" * 64),
         ):
             with self.subTest(field=field), self.assertRaises(LegacyRawSmokeError):
                 validate_legacy_raw_smoke_receipt({**receipt, field: value})
@@ -61,6 +65,9 @@ class LegacyRawSmokeTests(unittest.TestCase):
             self.assertTrue(receipt["persistentPermission"])
             self.assertTrue(receipt["incorrectPermissionRejected"])
             self.assertTrue(receipt["incorrectRunRejected"])
+            self.assertTrue(receipt["safeArgvProfileReloaded"])
+            self.assertTrue(receipt["safeArgvNoShell"])
+            self.assertTrue(receipt["safeArgvCompleted"])
             self.assertEqual(receipt, load_legacy_raw_smoke_receipt(report))
             self.assertNotIn(str(Path.home()), json.dumps(receipt))
 
