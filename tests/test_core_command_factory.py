@@ -33,6 +33,22 @@ def request(command, *, payload=None, revision=4, request_id="factory-test"):
 
 
 class CoreCommandFactoryTests(unittest.TestCase):
+    def test_module_update_keeps_only_opaque_artifact_identity_and_confirmation(self):
+        factory = create_command_factory(lambda: AppSnapshot(revision=4))
+        payload = {
+            "serial": "SERIAL",
+            "action": "update",
+            "moduleId": "test_module",
+            "artifactId": "a" * 32,
+            "confirmationText": "UPDATE test_module SERIAL BBBBBBBB",
+        }
+
+        command = factory(request("root.modules.action", payload=payload))
+
+        self.assertEqual(payload, command.payload)
+        self.assertNotIn("path", command.payload)
+        self.assertNotIn("url", command.payload)
+
     def test_every_accepted_engine_command_receives_its_registry_deadline(self):
         factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1"))
 

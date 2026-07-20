@@ -150,7 +150,11 @@ atomic-operation boundaries:
   object cleanup under an exact reinforced confirmation.
 - `RootingService` inventories backend-owned verified rooting APKs, installs by
   opaque identifier and manages validated Magisk modules with action-specific
-  confirmation metadata.
+  confirmation metadata. Module updates are fetched only in the backend,
+  confined to bounded public HTTPS code-hosting origins, inspected into a
+  private content-addressed cache, addressed by a serial-bound opaque ID, and
+  guarded by the source versionCode immediately before Magisk mutates the
+  device. Identity, SHA-256, presence and resulting versionCode are verified.
 - `FirmwareArtifactService` validates complete archives without running their
   scripts, extracts only allow-listed images to backend-chosen paths, hashes and
   registers them in the planner repository, and persists only verified cache

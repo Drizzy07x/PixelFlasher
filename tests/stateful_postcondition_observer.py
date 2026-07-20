@@ -10,6 +10,7 @@ transport.  Unknown conditions fail closed instead of becoming a blanket
 from __future__ import annotations
 
 import hashlib
+import zipfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, cast
@@ -104,6 +105,8 @@ class StatefulPostconditionObserver:
             return self._result(self._adb_wifi_endpoint_state(calls, expected))
         if kind == "root_module_state":
             return self._result(self._root_module_state(plan, calls, expected))
+        if kind == "root_module_version":
+            return self._result(self._root_module_version(plan, expected))
         if kind == "pif_profile_state":
             return self._result(self._pif_profile_state(plan, calls, expected))
         if kind == "pif_profile_hash":
@@ -297,8 +300,8 @@ class StatefulPostconditionObserver:
         shell_text = "\n".join(" ".join(request.argv) for request in calls)
         module_root = f"/data/adb/modules/{module_id}"
         if state == "installed":
-            role = f"root-module-zip:{module_id}"
-            return any(artifact.role == role for artifact in plan.artifacts) and "magisk --install-module" in shell_text
+            roles = {f"root-module-zip:{module_id}", f"root-module-update:{module_id}"}
+            return any(artifact.role in roles for artifact in plan.artifacts) and "magisk --install-module" in shell_text
         if state == "enabled":
             return f"rm -f {module_root}/disable {module_root}/remove" in shell_text
         if state == "disabled":
@@ -306,6 +309,37 @@ class StatefulPostconditionObserver:
         if state == "pending_remove":
             return f"touch {module_root}/remove" in shell_text
         return False
+
+    @staticmethod
+    def _root_module_version(
+        plan: OperationPlan,
+        expected: Mapping[str, object],
+    ) -> bool:
+        module_id = expected.get("moduleId")
+        version_code = expected.get("versionCode")
+        if (
+            not isinstance(module_id, str)
+            or not isinstance(version_code, int)
+            or isinstance(version_code, bool)
+        ):
+            return False
+        artifact = next(
+            (item for item in plan.artifacts if item.role == f"root-module-update:{module_id}"),
+            None,
+        )
+        if artifact is None:
+            return False
+        try:
+            with zipfile.ZipFile(artifact.path) as archive:
+                metadata = archive.read("module.prop").decode("utf-8")
+        except (OSError, UnicodeDecodeError, zipfile.BadZipFile, KeyError):
+            return False
+        values = [
+            line.partition("=")[2].strip()
+            for line in metadata.splitlines()
+            if line.partition("=")[0].strip() == "versionCode"
+        ]
+        return len(values) == 1 and values[0].isascii() and values[0].isdecimal() and int(values[0]) == version_code
 
     @staticmethod
     def _pif_profile_state(

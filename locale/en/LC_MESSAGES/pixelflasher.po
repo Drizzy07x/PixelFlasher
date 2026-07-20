@@ -6824,3 +6824,34 @@ msgstr "Partition outcome unknown"
 msgctxt "web.tools.partitionRetry"
 msgid "Retry with a new plan"
 msgstr "Retry with a new plan"
+msgctxt "web.root.moduleCheckUpdates"
+msgid "Check updates"
+msgstr ""
+
+msgctxt "web.root.moduleUpdateVerified"
+msgid "Update ZIP verified"
+msgstr ""
+
+msgctxt "web.root.moduleUpdate"
+msgid "Update"
+msgstr ""
+
+msgctxt "web.root.moduleUpdatesNone"
+msgid "No newer verified module ZIPs were found."
+msgstr ""
+
+msgctxt "web.root.moduleUpdateIssues"
+msgid "{count} module update source(s) could not be verified."
+msgstr ""
+
+msgctxt "web.root.moduleUpdateDetail"
+msgid "Version {version} was downloaded privately and passed module identity checks. Its author signature is not independently verified."
+msgstr ""
+
+msgctxt "web.root.moduleUpdateConfirm"
+msgid "Confirm unverified-author update"
+msgstr ""
+
+msgctxt "web.root.moduleUpdateRun"
+msgid "Install verified ZIP"
+msgstr ""

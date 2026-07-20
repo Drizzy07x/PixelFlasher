@@ -77,6 +77,7 @@ from .firmware_catalog import (
 )
 from .interaction import InteractionBroker
 from .keybox_validation import KeyboxValidationService
+from .module_updates import RootModuleUpdateService
 from .my_tools import MyToolsRepository, MyToolsService
 from .observer import PostconditionObserver, ProcessDeviceObservationProbe
 from .operation_runner import (
@@ -311,6 +312,10 @@ class ApplicationRuntime:
             )
         apk_inspector = ApkInspector()
         rooting_service = RootingService(apk_inspector=apk_inspector)
+        self.root_module_update_service = RootModuleUpdateService(
+            self._root_module_update_cache_path(config_store.path),
+            rooting_service.inspect_module_zip,
+        )
         self.root_app_catalog_service = RootAppCatalogService(
             cache_directory=self._root_app_download_cache_path(config_store.path),
             rooting_service=rooting_service,
@@ -388,6 +393,7 @@ class ApplicationRuntime:
             device_scan_state_updater=self._activate_device_scan,
             firmware_catalog_service=self.firmware_catalog_service,
             root_app_catalog_service=self.root_app_catalog_service,
+            root_module_update_service=self.root_module_update_service,
             avb_downgrade_service=avb_downgrade_service,
             binary_xml_service=BinaryXmlService(),
             keybox_validation_service=KeyboxValidationService(),
@@ -1748,6 +1754,11 @@ class ApplicationRuntime:
     def _root_app_download_cache_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "root-app-downloads"
+
+    @staticmethod
+    def _root_module_update_cache_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "root-module-updates"
 
     @staticmethod
     def _platform_tools_cache_path(config_path: str | Path) -> Path:

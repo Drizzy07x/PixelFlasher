@@ -2121,6 +2121,7 @@ class OperationRunner:
         expected_package_installers: dict[str, str] = {}
         expected_adb_endpoints: dict[str, bool] = {}
         expected_root_modules: dict[str, str] = {}
+        expected_root_module_versions: dict[str, int] = {}
         expected_pif_profiles: dict[str, bool] = {}
         expected_pif_profile_hashes: dict[str, str] = {}
         expected_targeted_fix_targets: dict[str, bool] = {}
@@ -2436,6 +2437,23 @@ class OperationRunner:
                 if current_module is not None and current_module != module_state:
                     raise ValueError("conflicting root module postconditions")
                 expected_root_modules[module_id] = module_state
+            elif postcondition.kind == "root_module_version":
+                if set(expected) != {"moduleId", "versionCode"}:
+                    raise ValueError("root module version postcondition fields are invalid")
+                module_id = expected.get("moduleId")
+                version_code = expected.get("versionCode")
+                if not isinstance(module_id, str) or not module_id:
+                    raise ValueError("root module version postcondition ID is unavailable")
+                if (
+                    not isinstance(version_code, int)
+                    or isinstance(version_code, bool)
+                    or not 0 <= version_code <= 2_147_483_647
+                ):
+                    raise ValueError("root module version postcondition is invalid")
+                current_version = expected_root_module_versions.get(module_id)
+                if current_version is not None and current_version != version_code:
+                    raise ValueError("conflicting root module version postconditions")
+                expected_root_module_versions[module_id] = version_code
             elif postcondition.kind == "pif_profile_state":
                 if set(expected) != {"profileId", "present"}:
                     raise ValueError("PIF profile postcondition fields are invalid")
@@ -2540,6 +2558,7 @@ class OperationRunner:
             remote_hashes=remote_hashes,
             expected_adb_endpoints=expected_adb_endpoints,
             expected_root_modules=expected_root_modules,
+            expected_root_module_versions=expected_root_module_versions,
             expected_pif_profiles=expected_pif_profiles,
             expected_pif_profile_hashes=expected_pif_profile_hashes,
             expected_targeted_fix_targets=expected_targeted_fix_targets,

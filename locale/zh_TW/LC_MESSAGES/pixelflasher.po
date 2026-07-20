@@ -6857,3 +6857,34 @@ msgstr "分割區結果未知"
 msgctxt "web.tools.partitionRetry"
 msgid "Retry with a new plan"
 msgstr "使用新計畫重試"
+msgctxt "web.root.moduleCheckUpdates"
+msgid "Check updates"
+msgstr "檢查更新"
+
+msgctxt "web.root.moduleUpdateVerified"
+msgid "Update ZIP verified"
+msgstr "更新 ZIP 已驗證"
+
+msgctxt "web.root.moduleUpdate"
+msgid "Update"
+msgstr "更新"
+
+msgctxt "web.root.moduleUpdatesNone"
+msgid "No newer verified module ZIPs were found."
+msgstr "找不到更新且已驗證的模組 ZIP。"
+
+msgctxt "web.root.moduleUpdateIssues"
+msgid "{count} module update source(s) could not be verified."
+msgstr "有 {count} 個模組更新來源無法驗證。"
+
+msgctxt "web.root.moduleUpdateDetail"
+msgid "Version {version} was downloaded privately and passed module identity checks. Its author signature is not independently verified."
+msgstr "版本 {version} 已在後端私密下載並通過模組身分檢查，但其作者簽章未經獨立驗證。"
+
+msgctxt "web.root.moduleUpdateConfirm"
+msgid "Confirm unverified-author update"
+msgstr "確認來自未驗證作者的更新"
+
+msgctxt "web.root.moduleUpdateRun"
+msgid "Install verified ZIP"
+msgstr "安裝已驗證的 ZIP"

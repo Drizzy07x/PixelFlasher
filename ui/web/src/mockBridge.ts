@@ -1191,8 +1191,39 @@ export function installDevelopmentBridge() {
                   author: 'PixelFlasher demo',
                   description: 'Verified demo module metadata.',
                   state: mockDisabledRootModules.has(id) ? 'disabled' : 'enabled',
-                  updateMetadata: 'absent',
+                  updateMetadata: id === 'play_integrity_fix' ? 'available' : 'absent',
                 })),
+              },
+            });
+            break;
+          }
+          case 'root.modules.updates': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            if (!target || target.mode !== 'adb' || !target.rooted) {
+              emit(errorMessage('Magisk module updates require one rooted ADB device.', request));
+              break;
+            }
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'root_module_updates_prepared',
+              message: 'Prepared 1 module update.',
+              value: {
+                count: 1,
+                updates: [{
+                  artifactId: 'a'.repeat(32),
+                  moduleId: 'play_integrity_fix',
+                  installedVersion: '1.0.0',
+                  installedVersionCode: 100,
+                  version: '1.1.0',
+                  versionCode: 110,
+                  sha256: '5'.repeat(64),
+                  size: 4096,
+                  provenance: 'module-update-json',
+                  trust: 'unverified-author',
+                }],
+                issueCount: 0,
+                issues: [],
               },
             });
             break;
@@ -1201,7 +1232,7 @@ export function installDevelopmentBridge() {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);
             const action = request.payload.action;
-            if (!target || target.mode !== 'adb' || !target.rooted || !['install', 'enable', 'disable', 'remove'].includes(String(action))) {
+            if (!target || target.mode !== 'adb' || !target.rooted || !['install', 'update', 'enable', 'disable', 'remove'].includes(String(action))) {
               emit(errorMessage('Invalid Magisk module action.', request));
               break;
             }
@@ -1214,7 +1245,14 @@ export function installDevelopmentBridge() {
               emit(errorMessage('A module ZIP is required.', request));
               break;
             }
-            const destructive = action === 'install' || action === 'remove';
+            if (action === 'update') {
+              const required = `UPDATE ${moduleId} ${serial.slice(-6).toUpperCase()} ${'5'.repeat(8)}`;
+              if (request.payload.artifactId !== 'a'.repeat(32) || request.payload.confirmationText !== required) {
+                emit(errorMessage('Exact module update confirmation is required.', request));
+                break;
+              }
+            }
+            const destructive = action === 'install' || action === 'update' || action === 'remove';
             requestGuardedConfirmation(
               request,
               `${String(action)} Magisk module ${moduleId} on device ${serial}?`,
@@ -1229,15 +1267,14 @@ export function installDevelopmentBridge() {
                 if (action === 'disable') mockDisabledRootModules.add(moduleId);
                 finishGuarded(request, {
                   status: 'SUCCESS',
-                  code: `root_module_${action === 'install' ? 'installed' : action === 'enable' ? 'enabled' : action === 'disable' ? 'disabled' : 'removed'}`,
+                  code: `root_module_${action === 'install' ? 'installed' : action === 'update' ? 'updated' : action === 'enable' ? 'enabled' : action === 'disable' ? 'disabled' : 'removed'}`,
                   message: `${String(action)} Magisk module ${moduleId}`,
                   value: {
                     action,
                     targetSerial: serial,
                     moduleId,
-                    artifact: action === 'install'
-                      ? { path: 'C:\\mock\\magisk-module.zip', sha256: '5'.repeat(64), role: `root-module-zip:${moduleId}` }
-                      : null,
+                    sha256: action === 'install' || action === 'update' ? '5'.repeat(64) : null,
+                    verified: true,
                   },
                 });
               },

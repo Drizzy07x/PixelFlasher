@@ -41,13 +41,22 @@ from pixelflasher_core import (
     ToolchainInfo,
     TransportOutcome,
 )
+from pixelflasher_core.module_updates import RootModuleUpdateService
 from tests.apk_test_helpers import FakeVerifiedApkInspector
 from tests.artifact_stage_assertions import assert_exact_or_staged_argv
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
 from tests.stateful_postcondition_observer import StatefulPostconditionObserver
+from tests.test_module_updates import FakeResponse, FakeSession, metadata, module_zip
 
 
-def root_module_record(module_id: str, name: str, state: str = "enabled") -> str:
+def root_module_record(
+    module_id: str,
+    name: str,
+    state: str = "enabled",
+    *,
+    version_code: int = 1,
+    update_url: str = "",
+) -> str:
     def encode(value: str) -> str:
         return base64.b64encode(value.encode()).decode()
 
@@ -58,10 +67,10 @@ def root_module_record(module_id: str, name: str, state: str = "enabled") -> str
             state,
             encode(name),
             encode("1.0"),
-            "1",
+            str(version_code),
             encode("PixelFlasher"),
             encode("Test module"),
-            "",
+            encode(update_url),
         )
     )
 
@@ -382,6 +391,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         rooting_service=None,
         device_tools_service=None,
         backup_repository=None,
+        root_module_update_service=None,
     ):
         transport = FakeProcessTransport(outcomes)
         engine = CommandEngine(
@@ -391,6 +401,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             rooting_service=rooting_service,
             device_tools_service=device_tools_service,
             backup_repository=backup_repository,
+            root_module_update_service=root_module_update_service,
             interaction_handler=(
                 interaction_handler
                 if interaction_handler is not None
@@ -2125,6 +2136,94 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertNotEqual("root_modules_list_succeeded", result.code)
+
+    def test_root_module_updates_prepare_private_identity_checked_artifacts(self):
+        update_url = "https://updates.example.test/update.json"
+        zip_url = "https://downloads.example.test/module.zip"
+        archive = module_zip("test_module", version_code=200)
+        session = FakeSession(
+            {
+                update_url: [FakeResponse(metadata(zip_url, version_code=200))],
+                zip_url: [FakeResponse(archive)],
+            }
+        )
+        rooting = RootingService()
+        interactions = []
+        with tempfile.TemporaryDirectory() as temporary:
+            updates = RootModuleUpdateService(
+                temporary,
+                rooting.inspect_module_zip,
+                session=session,
+                allowed_hosts=("example.test",),
+                host_validator=lambda _host: True,
+            )
+            engine, transport = self.engine_for(
+                "adb",
+                [
+                    TransportOutcome(
+                        0,
+                        root_module_record(
+                            "test_module",
+                            "Test module",
+                            version_code=100,
+                            update_url=update_url,
+                        ),
+                    ),
+                    TransportOutcome(0),
+                    TransportOutcome(0),
+                    TransportOutcome(0),
+                ],
+                root=True,
+                rooting_service=rooting,
+                root_module_update_service=updates,
+                interaction_handler=(lambda request: interactions.append(request) or InteractionDecision.ACCEPTED),
+            )
+
+            result = engine.execute(command("root.modules.updates"))
+
+            self.assertTrue(result.ok, result)
+            self.assertEqual("root_module_updates_prepared", result.code)
+            self.assertEqual(1, result.value["count"])
+            self.assertEqual("test_module", result.value["updates"][0]["moduleId"])
+            self.assertNotIn("https://", repr(result.value))
+            self.assertNotIn(str(Path(temporary)), repr(result.value))
+            self.assertEqual(
+                ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
+                transport.calls[0].argv[:6],
+            )
+            update = result.value["updates"][0]
+            confirmation = rooting.required_module_update_confirmation(
+                "test_module",
+                "SERIAL",
+                update["sha256"],
+            )
+            installed = engine.execute(
+                AppCommand(
+                    "root.modules.action",
+                    expected_revision=engine.store.snapshot().revision,
+                    target_serial="SERIAL",
+                    payload={
+                        "serial": "SERIAL",
+                        "action": "update",
+                        "moduleId": "test_module",
+                        "artifactId": update["artifactId"],
+                        "confirmationText": confirmation,
+                    },
+                )
+            )
+
+            self.assertTrue(installed.ok)
+            self.assertEqual("root_module_updated", installed.code)
+            self.assertEqual(update["sha256"], installed.value["artifact"]["sha256"])
+            self.assertTrue(installed.value["verified"])
+            self.assertEqual(1, len(interactions))
+            self.assertTrue(interactions[0].destructive)
+            self.assertEqual(
+                ("ADB", "-s", "SERIAL", "push"),
+                transport.calls[1].argv[:4],
+            )
+            self.assertIn("magisk --install-module", transport.calls[2].argv[-1])
+            self.assertIn('[ "$current" = "100" ] || exit 42', transport.calls[2].argv[-1])
 
     def test_pi_analysis_returns_only_closed_redacted_evidence(self):
         engine, transport = self.engine_for(

@@ -24,6 +24,7 @@ from pixelflasher_core.executor import (
 )
 from pixelflasher_core.rooting import (
     CancellationProbe,
+    PreparedRootModuleUpdate,
     RootAppSource,
     RootingPlanningError,
     RootingService,
@@ -192,6 +193,78 @@ class RootingServiceTests(unittest.TestCase):
             target_serial=target,
             payload=payload or {},
         )
+
+    def test_module_update_requires_backend_prepared_artifact_and_exact_confirmation(self):
+        service = RootingService()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "update.zip"
+            data = write_module_zip(path)
+            digest = hashlib.sha256(data).hexdigest()
+            prepared = PreparedRootModuleUpdate(
+                "a" * 32,
+                "test_module",
+                path,
+                "2.0",
+                100,
+                200,
+                digest,
+                len(data),
+            )
+            required = service.required_module_update_confirmation(
+                "test_module",
+                "SERIAL",
+                digest,
+            )
+            compilation = service.compile(
+                self.command(
+                    "root.modules.action",
+                    {
+                        "serial": "SERIAL",
+                        "action": "update",
+                        "moduleId": "test_module",
+                        "preparedUpdate": prepared,
+                        "confirmationText": required,
+                    },
+                ),
+                self.snapshot,
+            )
+
+            self.assertEqual("modules.update", compilation.action)
+            self.assertTrue(compilation.destructive)
+            self.assertTrue(compilation.requires_confirmation)
+            assert compilation.plan is not None
+            self.assertEqual(digest, compilation.plan.artifacts[0].sha256)
+            self.assertEqual("root_module_state", compilation.plan.postconditions[0].kind)
+            self.assertEqual("root_module_version", compilation.plan.postconditions[1].kind)
+            self.assertEqual(200, compilation.plan.postconditions[1].expected["versionCode"])
+            self.assertEqual(
+                ("ADB", "-s", "SERIAL", "push", str(path.resolve())),
+                compilation.plan.requests[0].argv[:5],
+            )
+            self.assertIn(
+                '[ "$current" = "100" ] || exit 42',
+                compilation.plan.requests[1].argv[-1],
+            )
+
+            for payload in (
+                {
+                    "serial": "SERIAL",
+                    "action": "update",
+                    "moduleId": "test_module",
+                    "artifactId": "a" * 32,
+                    "confirmationText": required,
+                },
+                {
+                    "serial": "SERIAL",
+                    "action": "update",
+                    "moduleId": "test_module",
+                    "preparedUpdate": prepared,
+                    "confirmationText": "UPDATE test_module WRONG",
+                },
+            ):
+                with self.subTest(payload=payload):
+                    with self.assertRaises(RootingPlanningError):
+                        service.compile(self.command("root.modules.action", payload), self.snapshot)
 
     def test_shizuku_start_uses_only_backend_owned_paths_and_requires_observation(self):
         compilation = RootingService().compile(
@@ -1172,6 +1245,10 @@ class RootingServiceTests(unittest.TestCase):
             ),
             (
                 {"action": "remove", "moduleId": "good", "path": "module.zip"},
+                "root_module_target_ambiguous",
+            ),
+            (
+                {"action": "disable", "moduleId": "good", "confirmationText": "ignored"},
                 "root_module_target_ambiguous",
             ),
         )

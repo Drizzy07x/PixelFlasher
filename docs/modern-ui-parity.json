@@ -1309,10 +1309,13 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/rooting.py:RootingService",
+        "pixelflasher_core/module_updates.py:RootModuleUpdateService",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._root_module_versions",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "ui/public_bridge.py:_project_root_module_updates/_project_root_module_action",
         "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "The bounded inventory now exposes validated name, version, versionCode, author, description, state and update-metadata presence without leaking its URL; hostile module.prop output fails closed. Mutations refresh canonical state only after SUCCESS. Backend update download/verification and the remaining legacy root-settings workflow are absent.",
+      "gap": "Technical parity is complete: bounded inventory and install/update/enable/disable/remove are native. updateJson URLs remain backend-only; metadata, redirects and ZIPs are bounded, host-restricted, cached privately, identity/hash checked and addressed by a serial-bound opaque ID. Update execution requires exact reinforced text, rejects a changed source versionCode before mutation and verifies the resulting device-reported versionCode. Packaged three-platform and real rooted-hardware validation remain before promotion to native.",
       "exitCriteria": [
         "React lists, installs, updates, enables, disables and removes validated modules with action-specific confirmation and refreshed state."
       ],
@@ -1329,8 +1332,10 @@
       ],
       "tests": [
         "tests/test_rooting_service.py",
+        "tests/test_module_updates.py",
         "tests/test_service_engine_integration.py",
         "tests/test_root_module_public_contract.py",
+        "tests/test_production_postcondition_observer.py:root module version",
         "ui/web/src/test/App.test.tsx:root workflow",
         "ui/web/src/test/root-modules.test.tsx"
       ],
@@ -1344,6 +1349,7 @@
       ],
       "modernCommandIds": [
         "root.modules.list",
+        "root.modules.updates",
         "root.modules.action"
       ]
     },

@@ -42,6 +42,7 @@ from pixelflasher_core.firmware import FirmwareInspector
 from pixelflasher_core.firmware_artifacts import FirmwareArtifactService
 from pixelflasher_core.firmware_catalog import FirmwareCatalogService
 from pixelflasher_core.keybox_validation import KeyboxValidationService
+from pixelflasher_core.module_updates import RootModuleUpdateService
 from pixelflasher_core.my_tools import MyToolsRepository, MyToolsService
 from pixelflasher_core.observer import PostconditionObserver, ProcessDeviceObservationProbe
 from pixelflasher_core.operation_runner import (
@@ -105,6 +106,7 @@ def make_test_command_engine(
     postcondition_observer: PostconditionObserverLike | None = None,
     firmware_catalog_service: FirmwareCatalogService | None = None,
     root_app_catalog_service: RootAppCatalogService | None = None,
+    root_module_update_service: RootModuleUpdateService | None = None,
     avb_downgrade_service: DowngradePatchService | None = None,
     binary_xml_service: BinaryXmlService | None = None,
     keybox_validation_service: KeyboxValidationService | None = None,
@@ -191,6 +193,13 @@ def make_test_command_engine(
         / "root-app-downloads",
         rooting_service=rooting_service,
     )
+    owned_module_update_root: Path | None = None
+    if root_module_update_service is None:
+        owned_module_update_root = Path(tempfile.mkdtemp(prefix="pixelflasher-module-updates-tests-"))
+        root_module_update_service = RootModuleUpdateService(
+            owned_module_update_root,
+            rooting_service.inspect_module_zip,
+        )
     if avb_downgrade_service is None:
         key = Path(__file__).resolve().parents[1] / "testkey_rsa4096.pem"
         signing_key = FileArtifact(
@@ -242,6 +251,7 @@ def make_test_command_engine(
         device_scan_state_updater=None,
         firmware_catalog_service=firmware_catalog_service,
         root_app_catalog_service=root_app_catalog_service,
+        root_module_update_service=root_module_update_service,
         avb_downgrade_service=avb_downgrade_service,
         binary_xml_service=binary_xml_service or BinaryXmlService(),
         keybox_validation_service=keybox_validation_service or KeyboxValidationService(),
@@ -257,4 +267,6 @@ def make_test_command_engine(
         )
     if owned_my_tools_root is not None:
         weakref.finalize(engine, shutil.rmtree, owned_my_tools_root, True)
+    if owned_module_update_root is not None:
+        weakref.finalize(engine, shutil.rmtree, owned_module_update_root, True)
     return engine

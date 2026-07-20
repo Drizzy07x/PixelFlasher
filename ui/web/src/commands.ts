@@ -66,6 +66,7 @@ export const commands = {
   rootDataAdbRestore: "root.dataAdb.restore",
   rootModulesAction: "root.modules.action",
   rootModulesList: "root.modules.list",
+  rootModulesUpdates: "root.modules.updates",
   rootPifDocument: "root.pif.document",
   rootPifFavoritesDelete: "root.pif.favorites.delete",
   rootPifFavoritesGet: "root.pif.favorites.get",
@@ -349,11 +350,16 @@ export interface BridgePayloadByCommand {
   };
   "root.modules.action": {
     "action": string;
+    "artifactId"?: string;
+    "confirmationText"?: string;
     "grant"?: string;
     "moduleId"?: string;
     "serial"?: string;
   };
   "root.modules.list": {
+    "serial"?: string;
+  };
+  "root.modules.updates": {
     "serial"?: string;
   };
   "root.pif.document": {
@@ -611,6 +617,7 @@ export const allowedCommands = [
   commands.rootDataAdbRestore,
   commands.rootModulesAction,
   commands.rootModulesList,
+  commands.rootModulesUpdates,
   commands.rootPifDocument,
   commands.rootPifFavoritesDelete,
   commands.rootPifFavoritesGet,
@@ -715,6 +722,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.rootDataAdbRestore]: 3600000,
   [commands.rootModulesAction]: 1800000,
   [commands.rootModulesList]: 300000,
+  [commands.rootModulesUpdates]: 1800000,
   [commands.rootPifDocument]: 120000,
   [commands.rootPifFavoritesDelete]: 30000,
   [commands.rootPifFavoritesGet]: 30000,
@@ -813,6 +821,7 @@ export const bridgeCommandMetadata = {
   [commands.rootDataAdbRestore]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.data_adb.restore","confirmation":"standard","postconditions":["data_adb_restore_verified"]},
   [commands.rootModulesAction]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.module_action","confirmation":"standard","postconditions":["root_module_state_verified"]},
   [commands.rootModulesList]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.modules_inventory","confirmation":"none","postconditions":["root_modules_returned"]},
+  [commands.rootModulesUpdates]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.modules_updates","confirmation":"none","postconditions":["module_update_artifacts_inspected"]},
   [commands.rootPifDocument]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.document","confirmation":"none","postconditions":["bounded_pif_document_returned"]},
   [commands.rootPifFavoritesDelete]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.favorites.delete","confirmation":"none","postconditions":["pif_favorite_deleted"]},
   [commands.rootPifFavoritesGet]: {"owner":"root","mutability":"read_only","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.favorites.get","confirmation":"none","postconditions":["bounded_pif_favorite_returned"]},
@@ -940,8 +949,9 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.rootDataAdbBackup]: {"grant":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
   [commands.rootDataAdbClear]: {"confirmationText":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
   [commands.rootDataAdbRestore]: {"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
-  [commands.rootModulesAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"moduleId":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
+  [commands.rootModulesAction]: {"action":{"kind":"string","required":true},"artifactId":{"kind":"string","required":false},"confirmationText":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"moduleId":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.rootModulesList]: {"serial":{"kind":"string","required":false}},
+  [commands.rootModulesUpdates]: {"serial":{"kind":"string","required":false}},
   [commands.rootPifDocument]: {"profileId":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
   [commands.rootPifFavoritesDelete]: {"favoriteId":{"kind":"string","required":true}},
   [commands.rootPifFavoritesGet]: {"favoriteId":{"kind":"string","required":true}},

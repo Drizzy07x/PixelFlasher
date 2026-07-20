@@ -106,6 +106,10 @@ from .keybox_validation import (
     KeyboxStatus,
     KeyboxValidationService,
 )
+from .module_updates import (
+    ModuleUpdateStatus,
+    RootModuleUpdateService,
+)
 from .my_tools import MyToolsError, MyToolsService
 from .operation_runner import (
     CancellationCleanup,
@@ -149,6 +153,7 @@ from .root_app_catalog import (
 )
 from .rooting import (
     ROOTING_COMMANDS,
+    PreparedRootModuleUpdate,
     RootingCompilation,
     RootingPlanningError,
     RootingService,
@@ -279,6 +284,7 @@ class CommandEngine:
         device_scan_state_updater: DeviceScanStateUpdater | None,
         firmware_catalog_service: FirmwareCatalogService,
         root_app_catalog_service: RootAppCatalogService,
+        root_module_update_service: RootModuleUpdateService,
         avb_downgrade_service: DowngradePatchService,
         binary_xml_service: BinaryXmlService,
         keybox_validation_service: KeyboxValidationService,
@@ -334,6 +340,7 @@ class CommandEngine:
         self.firmware_repository = firmware_repository
         self.firmware_catalog_service = firmware_catalog_service
         self.root_app_catalog_service = root_app_catalog_service
+        self.root_module_update_service = root_module_update_service
         self.avb_downgrade_service = avb_downgrade_service
         self.binary_xml_service = binary_xml_service
         self.keybox_validation_service = keybox_validation_service
@@ -1204,6 +1211,35 @@ class CommandEngine:
                     planning_token,
                 )
             elif command.kind in ROOTING_COMMANDS:
+                if command.kind == "root.modules.action" and command.payload.get("action") == "update":
+                    artifact_id = command.payload.get("artifactId")
+                    module_id = command.payload.get("moduleId")
+                    resolved = self.root_module_update_service.resolve(
+                        artifact_id,
+                        module_id,
+                        target_serial=command.target_serial,
+                    )
+                    entry = resolved.entry
+                    command = replace(
+                        command,
+                        payload={
+                            key: value
+                            for key, value in command.payload.items()
+                            if key != "artifactId"
+                        }
+                        | {
+                            "preparedUpdate": PreparedRootModuleUpdate(
+                                entry.artifact_id,
+                                entry.module_id,
+                                resolved.path,
+                                entry.version,
+                                entry.installed_version_code,
+                                entry.version_code,
+                                entry.sha256,
+                                entry.size,
+                            )
+                        },
+                    )
                 compilation = self.rooting_service.compile(
                     command,
                     snapshot,
@@ -1404,6 +1440,16 @@ class CommandEngine:
                     )
                 ),
                 completion_boot=self._boot_info_from_patch_result,
+                cancellation=planning_token,
+            )
+        if isinstance(compilation, RootingCompilation) and compilation.action == "modules.updates":
+            return self._execute_process(
+                planned,
+                lambda result: self._prepare_root_module_updates(
+                    command,
+                    result,
+                    planning_token,
+                ),
                 cancellation=planning_token,
             )
         if isinstance(compilation, PartitionCompilation) and compilation.action == "read":
@@ -2333,6 +2379,7 @@ class CommandEngine:
             action = compilation.action.removeprefix("modules.")
             result_codes = {
                 "install": "root_module_installed",
+                "update": "root_module_updated",
                 "enable": "root_module_enabled",
                 "disable": "root_module_disabled",
                 "remove": "root_module_removed",
@@ -2357,6 +2404,7 @@ class CommandEngine:
                     "targetSerial": plan.target_serial,
                     "moduleId": compilation.module_id,
                     "artifact": artifact,
+                    "verified": True,
                 },
             )
         if kind in {"tools.shizuku", "tools.sos"}:
@@ -4613,6 +4661,56 @@ class CommandEngine:
         if result.ok:
             self._promote_stock_lock_evidence((compilation.plan,), result)
         return result
+
+    def _prepare_root_module_updates(
+        self,
+        command: AppCommand,
+        result: OperationResult,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        """Turn private device metadata into inspected opaque update artifacts."""
+
+        if not result.ok:
+            return result
+        try:
+            modules = parse_root_module_list(result.stdout)
+        except RootingPlanningError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        prepared = self.root_module_update_service.prepare(
+            modules,
+            cancellation,
+            target_serial=cast(str, command.target_serial),
+            progress=lambda phase, message, percent: self._publish_progress(
+                command,
+                phase,
+                message,
+                percent,
+            ),
+        )
+        if prepared.status is ModuleUpdateStatus.CANCELLED:
+            return self._stopped_result(
+                command,
+                cancellation,
+                cancelled_code=prepared.code,
+                cancelled_message=prepared.message,
+                timeout_message="Module update check timed out.",
+            )
+        if not prepared.ok:
+            return OperationResult.failed(
+                command.operation_id,
+                code=prepared.code,
+                message=prepared.message,
+            )
+        return OperationResult.success(
+            command.operation_id,
+            code=prepared.code,
+            message=prepared.message,
+            value=prepared.to_public_dict(),
+        )
 
     def _promote_stock_lock_evidence(
         self,

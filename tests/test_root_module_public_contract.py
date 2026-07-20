@@ -43,6 +43,89 @@ class RootModulePublicContractTests(unittest.TestCase):
                 with self.assertRaises(PublicProjectionError):
                     self.project(value)
 
+    def test_projects_verified_update_artifacts_without_backend_routes(self):
+        value = {
+            "count": 1,
+            "updates": [
+                {
+                    "artifactId": "a" * 32,
+                    "moduleId": "play_integrity_fix",
+                    "installedVersion": "",
+                    "installedVersionCode": 19100,
+                    "version": "19.2",
+                    "versionCode": 19200,
+                    "sha256": "b" * 64,
+                    "size": 4096,
+                    "provenance": "module-update-json",
+                    "trust": "unverified-author",
+                }
+            ],
+            "issueCount": 1,
+            "issues": [
+                {
+                    "moduleId": "other_module",
+                    "code": "root_module_update_url_untrusted",
+                }
+            ],
+        }
+
+        projected = project_operation_result(
+            "root.modules.updates",
+            OperationResult.success("updates", value=value),
+        )["value"]
+
+        self.assertEqual(value, projected)
+        self.assertNotIn("path", repr(projected))
+        self.assertNotIn("https://", repr(projected).casefold())
+
+    def test_rejects_expanded_update_and_mutation_receipts(self):
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "root.modules.updates",
+                OperationResult.success(
+                    "updates",
+                    value={
+                        "count": 1,
+                        "updates": [
+                            {
+                                "artifactId": "a" * 32,
+                                "moduleId": "play_integrity_fix",
+                                "installedVersion": "",
+                                "installedVersionCode": 19100,
+                                "version": "19.2",
+                                "versionCode": 19200,
+                                "sha256": "b" * 64,
+                                "size": 4096,
+                                "provenance": "module-update-json",
+                                "trust": "unverified-author",
+                                "path": "C:/private/update.zip",
+                            }
+                        ],
+                        "issueCount": 0,
+                        "issues": [],
+                    },
+                ),
+            )
+        projected = project_operation_result(
+            "root.modules.action",
+            OperationResult.success(
+                "updated",
+                value={
+                    "action": "update",
+                    "targetSerial": "SERIAL",
+                    "moduleId": "play_integrity_fix",
+                    "artifact": {
+                        "path": "C:/private/update.zip",
+                        "sha256": "b" * 64,
+                        "role": "root-module-update:play_integrity_fix",
+                    },
+                    "verified": True,
+                },
+            ),
+        )["value"]
+        self.assertEqual("update", projected["action"])
+        self.assertNotIn("path", projected)
+
 
 if __name__ == "__main__":
     unittest.main()

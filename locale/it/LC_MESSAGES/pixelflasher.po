@@ -6870,3 +6870,34 @@ msgstr "Esito della partizione sconosciuto"
 msgctxt "web.tools.partitionRetry"
 msgid "Retry with a new plan"
 msgstr "Riprova con un nuovo piano"
+msgctxt "web.root.moduleCheckUpdates"
+msgid "Check updates"
+msgstr "Controlla aggiornamenti"
+
+msgctxt "web.root.moduleUpdateVerified"
+msgid "Update ZIP verified"
+msgstr "ZIP di aggiornamento verificato"
+
+msgctxt "web.root.moduleUpdate"
+msgid "Update"
+msgstr "Aggiorna"
+
+msgctxt "web.root.moduleUpdatesNone"
+msgid "No newer verified module ZIPs were found."
+msgstr "Non sono stati trovati ZIP di moduli verificati più recenti."
+
+msgctxt "web.root.moduleUpdateIssues"
+msgid "{count} module update source(s) could not be verified."
+msgstr "Impossibile verificare {count} fonte/i di aggiornamento dei moduli."
+
+msgctxt "web.root.moduleUpdateDetail"
+msgid "Version {version} was downloaded privately and passed module identity checks. Its author signature is not independently verified."
+msgstr "La versione {version} è stata scaricata privatamente e ha superato i controlli di identità del modulo. La firma dell'autore non è verificata in modo indipendente."
+
+msgctxt "web.root.moduleUpdateConfirm"
+msgid "Confirm unverified-author update"
+msgstr "Conferma aggiornamento da autore non verificato"
+
+msgctxt "web.root.moduleUpdateRun"
+msgid "Install verified ZIP"
+msgstr "Installa ZIP verificato"

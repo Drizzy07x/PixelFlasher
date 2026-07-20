@@ -36,6 +36,80 @@ function renderRoot(onCommand: (
 }
 
 describe('Magisk module state refresh', () => {
+  it('checks, confirms, and installs only an opaque identity-checked update', async () => {
+    const user = userEvent.setup();
+    const update = {
+      artifactId: 'a'.repeat(32),
+      moduleId: 'zygisk_next',
+      installedVersion: '1.0.0',
+      installedVersionCode: 100,
+      version: '1.1.0',
+      versionCode: 110,
+      sha256: 'b'.repeat(64),
+      size: 4096,
+      provenance: 'module-update-json',
+      trust: 'unverified-author',
+    };
+    const onCommand = vi.fn(async (command: BridgeCommand) => {
+      if (command === 'root.modules.list') {
+        return { result: { status: 'SUCCESS', value: { modules: [zygiskModule] } }, revision: 12 };
+      }
+      if (command === 'root.modules.updates') {
+        return {
+          result: {
+            status: 'SUCCESS',
+            value: { count: 1, updates: [update], issueCount: 0, issues: [] },
+          },
+          revision: 11,
+        };
+      }
+      return {
+        result: {
+          status: 'SUCCESS',
+          value: {
+            action: 'update',
+            targetSerial: demoSnapshot.devices[0].serial,
+            moduleId: 'zygisk_next',
+            sha256: update.sha256,
+            verified: true,
+          },
+        },
+        revision: 12,
+      };
+    });
+    renderRoot(onCommand);
+
+    const card = screen.getByText('Magisk Modules').closest('.card');
+    if (!card) throw new Error('Magisk modules card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Check updates' }));
+    const row = (await within(card as HTMLElement).findByText('Zygisk Next')).closest('[role="listitem"]');
+    if (!row) throw new Error('module row missing');
+    expect(within(row as HTMLElement).getByText('Update ZIP verified')).toBeVisible();
+    await user.click(within(row as HTMLElement).getByRole('button', { name: 'Update' }));
+
+    const confirmation = `UPDATE zygisk_next ${demoSnapshot.devices[0].serial.slice(-6).toUpperCase()} ${update.sha256.slice(0, 8).toUpperCase()}`;
+    const input = within(card as HTMLElement).getByRole('textbox', { name: 'Confirm unverified-author update' });
+    const install = within(card as HTMLElement).getByRole('button', { name: 'Install verified ZIP' });
+    expect(install).toBeDisabled();
+    await user.type(input, confirmation);
+    expect(install).toBeEnabled();
+    await user.click(install);
+
+    expect(onCommand).toHaveBeenCalledWith('root.modules.action', {
+      serial: demoSnapshot.devices[0].serial,
+      action: 'update',
+      moduleId: 'zygisk_next',
+      artifactId: update.artifactId,
+      confirmationText: confirmation,
+    });
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith(
+      'root.modules.list',
+      { serial: demoSnapshot.devices[0].serial },
+      { expectedRevision: 12, suppressNotice: true },
+    ));
+  });
+
   it('re-reads canonical device state after a successful mutation', async () => {
     const user = userEvent.setup();
     const onCommand = vi.fn(async (command: BridgeCommand) => {

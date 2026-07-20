@@ -90,6 +90,10 @@ def _empty_int_strings() -> Mapping[int, str]:
     return {}
 
 
+def _empty_counts() -> Mapping[str, int]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class DeviceObservation:
     serial: str
@@ -106,6 +110,7 @@ class DeviceObservation:
     package_installers: Mapping[str, str] = field(default_factory=_empty_hashes)
     adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
+    root_module_versions: Mapping[str, int] = field(default_factory=_empty_counts)
     pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     targeted_fix_targets: Mapping[str, bool] = field(default_factory=_empty_booleans)
@@ -156,6 +161,15 @@ class DeviceObservation:
             raise TypeError("observed ADB endpoint states must be booleans")
         if any(not isinstance(value, str) for value in self.root_modules.values()):
             raise TypeError("observed root module states must be strings")
+        if any(
+            not isinstance(module_id, str)
+            or _MODULE_PATTERN.fullmatch(module_id) is None
+            or not isinstance(version_code, int)
+            or isinstance(version_code, bool)
+            or not 0 <= version_code <= 2_147_483_647
+            for module_id, version_code in self.root_module_versions.items()
+        ):
+            raise TypeError("observed root module versions are invalid")
         if any(
             profile_id not in _PIF_PROFILE_PATHS or not isinstance(value, bool)
             for profile_id, value in self.pif_profiles.items()
@@ -226,6 +240,11 @@ class DeviceObservation:
             MappingProxyType(dict(self.adb_endpoints)),
         )
         object.__setattr__(self, "root_modules", MappingProxyType(dict(self.root_modules)))
+        object.__setattr__(
+            self,
+            "root_module_versions",
+            MappingProxyType(dict(self.root_module_versions)),
+        )
         object.__setattr__(self, "pif_profiles", MappingProxyType(dict(self.pif_profiles)))
         object.__setattr__(self, "pif_profile_hashes", MappingProxyType(dict(self.pif_profile_hashes)))
         object.__setattr__(
@@ -321,6 +340,7 @@ class PostconditionSpec:
     expected_package_installers: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
+    expected_root_module_versions: Mapping[str, int] = field(default_factory=_empty_counts)
     expected_pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_targeted_fix_targets: Mapping[str, bool] = field(default_factory=_empty_booleans)
@@ -416,6 +436,15 @@ class PostconditionSpec:
         ):
             raise ValueError("expected root module state is invalid")
         if any(
+            not isinstance(module_id, str)
+            or _MODULE_PATTERN.fullmatch(module_id) is None
+            or not isinstance(version_code, int)
+            or isinstance(version_code, bool)
+            or not 0 <= version_code <= 2_147_483_647
+            for module_id, version_code in self.expected_root_module_versions.items()
+        ):
+            raise ValueError("expected root module version is invalid")
+        if any(
             profile_id not in _PIF_PROFILE_PATHS or not isinstance(value, bool)
             for profile_id, value in self.expected_pif_profiles.items()
         ):
@@ -495,6 +524,11 @@ class PostconditionSpec:
             self,
             "expected_root_modules",
             MappingProxyType(dict(self.expected_root_modules)),
+        )
+        object.__setattr__(
+            self,
+            "expected_root_module_versions",
+            MappingProxyType(dict(self.expected_root_module_versions)),
         )
         object.__setattr__(
             self,
@@ -840,6 +874,13 @@ class ProcessDeviceObservationProbe:
                     timeout,
                 ),
                 root_modules=self._root_modules(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                root_module_versions=self._root_module_versions(
                     spec,
                     toolchain,
                     mode,
@@ -1265,6 +1306,42 @@ class ProcessDeviceObservationProbe:
             if disabled is None or pending_remove is None:
                 continue
             observed[module_id] = "pending_remove" if pending_remove else "disabled" if disabled else "enabled"
+        return observed
+
+    def _root_module_versions(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, int]:
+        modules = tuple(spec.expected_root_module_versions)
+        if mode != "adb" or len(modules) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        observed: dict[str, int] = {}
+        for module_id in modules:
+            if token.cancelled or _MODULE_PATTERN.fullmatch(module_id) is None:
+                continue
+            command = (
+                "sed -n 's/^versionCode=//p' "
+                f"/data/adb/modules/{module_id}/module.prop 2>/dev/null | head -n 1 | head -c 16"
+            )
+            outcome = self._run(
+                (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", command),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+            )
+            if not self._successful(outcome, _MAX_PROPERTY_OUTPUT_BYTES) or outcome is None:
+                continue
+            value = outcome.stdout.strip()
+            if value.isascii() and value.isdecimal():
+                parsed = int(value, 10)
+                if 0 <= parsed <= 2_147_483_647:
+                    observed[module_id] = parsed
         return observed
 
     def _shizuku_running(
@@ -2580,6 +2657,14 @@ class PostconditionObserver:
         for module_id, expected in spec.expected_root_modules.items():
             actual = observation.root_modules.get(module_id)
             key = f"root_module:{module_id}"
+            if actual is None:
+                missing.append(key)
+            elif actual != expected:
+                mismatches[key] = (expected, actual)
+
+        for module_id, expected in spec.expected_root_module_versions.items():
+            actual = observation.root_module_versions.get(module_id)
+            key = f"root_module_version:{module_id}"
             if actual is None:
                 missing.append(key)
             elif actual != expected:

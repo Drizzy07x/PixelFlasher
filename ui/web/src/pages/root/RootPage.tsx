@@ -100,6 +100,40 @@ interface RootModuleEntry {
   updateMetadata: 'available' | 'absent';
 }
 
+interface RootModuleUpdateEntry {
+  artifactId: string;
+  moduleId: string;
+  installedVersion: string;
+  installedVersionCode: number;
+  version: string;
+  versionCode: number;
+  sha256: string;
+  size: number;
+  provenance: 'module-update-json';
+  trust: 'unverified-author';
+}
+
+function parseRootModuleUpdate(value: unknown): RootModuleUpdateEntry | null {
+  const update = record(value);
+  if (
+    !exactKeys(update, [
+      'artifactId', 'moduleId', 'installedVersion', 'installedVersionCode',
+      'version', 'versionCode', 'sha256', 'size', 'provenance', 'trust',
+    ])
+    || typeof update.artifactId !== 'string' || !/^[0-9a-f]{32}$/.test(update.artifactId)
+    || typeof update.moduleId !== 'string' || !/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(update.moduleId)
+    || typeof update.installedVersion !== 'string' || update.installedVersion.length > 128
+    || typeof update.version !== 'string' || !update.version || update.version.length > 128
+    || typeof update.installedVersionCode !== 'number' || !Number.isSafeInteger(update.installedVersionCode)
+    || typeof update.versionCode !== 'number' || !Number.isSafeInteger(update.versionCode)
+    || update.installedVersionCode < 0 || update.versionCode <= update.installedVersionCode
+    || typeof update.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(update.sha256)
+    || typeof update.size !== 'number' || !Number.isSafeInteger(update.size) || update.size < 1 || update.size > 256 * 1024 * 1024
+    || update.provenance !== 'module-update-json' || update.trust !== 'unverified-author'
+  ) return null;
+  return update as unknown as RootModuleUpdateEntry;
+}
+
 interface PiAnalysisReport {
   schemaVersion: 1;
   redacted: true;
@@ -528,6 +562,11 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [rootChannel, setRootChannel] = useState<RootAppCatalogEntry['channel']>('stable');
   const [modules, setModules] = useState<RootModuleEntry[]>([]);
   const [modulesLoaded, setModulesLoaded] = useState(false);
+  const [moduleUpdates, setModuleUpdates] = useState<RootModuleUpdateEntry[]>([]);
+  const [moduleUpdatesLoaded, setModuleUpdatesLoaded] = useState(false);
+  const [moduleUpdateIssueCount, setModuleUpdateIssueCount] = useState(0);
+  const [pendingModuleUpdate, setPendingModuleUpdate] = useState<RootModuleUpdateEntry | null>(null);
+  const [moduleUpdateConfirmation, setModuleUpdateConfirmation] = useState('');
   const [bootImages, setBootImages] = useState<BootInventoryEntry[]>([]);
   const [bootImagesLoaded, setBootImagesLoaded] = useState(false);
   const [bootPartition, setBootPartition] = useState<BootInventoryEntry['partition']>('boot');
@@ -609,6 +648,11 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     setPifEditorConfirmation('');
     setPifEditorInvalid(false);
     setPifTransformPreview(null);
+    setModuleUpdates([]);
+    setModuleUpdatesLoaded(false);
+    setModuleUpdateIssueCount(0);
+    setPendingModuleUpdate(null);
+    setModuleUpdateConfirmation('');
   }, [primary?.serial]);
 
   useEffect(() => () => {
@@ -748,6 +792,56 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       if (!grant) return;
       const response = await onCommand(commands.rootModulesAction, { serial: primary.serial, action: 'install', grant });
       if (operationSucceeded(response)) {
+        await refreshModules(response?.revision);
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const checkModuleUpdates = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    setBusy('module:updates');
+    try {
+      const response = await onCommand(commands.rootModulesUpdates, { serial: primary.serial });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      const parsed = (Array.isArray(value.updates) ? value.updates : []).flatMap((entry) => {
+        const update = parseRootModuleUpdate(entry);
+        return update ? [update] : [];
+      });
+      if (
+        typeof value.count !== 'number' || !Number.isSafeInteger(value.count) || parsed.length !== value.count
+        || typeof value.issueCount !== 'number' || !Number.isSafeInteger(value.issueCount) || value.issueCount < 0
+      ) return;
+      setModuleUpdates(parsed);
+      setModuleUpdatesLoaded(true);
+      setModuleUpdateIssueCount(value.issueCount);
+      setPendingModuleUpdate(null);
+      setModuleUpdateConfirmation('');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const runModuleUpdate = async () => {
+    if (!rootedAdb || !primary || !pendingModuleUpdate || busy) return;
+    const required = `UPDATE ${pendingModuleUpdate.moduleId} ${primary.serial.slice(-6).toUpperCase()} ${pendingModuleUpdate.sha256.slice(0, 8).toUpperCase()}`;
+    if (moduleUpdateConfirmation !== required) return;
+    setBusy(`module:update:${pendingModuleUpdate.moduleId}`);
+    try {
+      const response = await onCommand(commands.rootModulesAction, {
+        serial: primary.serial,
+        action: 'update',
+        moduleId: pendingModuleUpdate.moduleId,
+        artifactId: pendingModuleUpdate.artifactId,
+        confirmationText: moduleUpdateConfirmation,
+      });
+      if (operationSucceeded(response)) {
+        const updatedModuleId = pendingModuleUpdate.moduleId;
+        setPendingModuleUpdate(null);
+        setModuleUpdateConfirmation('');
+        setModuleUpdates((current) => current.filter((entry) => entry.moduleId !== updatedModuleId));
         await refreshModules(response?.revision);
       }
     } finally {
@@ -1549,6 +1643,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           <CardTitle icon="packages" after={(
             <div className="button-row">
               <Button icon="scan" onClick={() => void refreshModules()} disabled={Boolean(busy) || !rootedAdb}>{t('common.refresh')}</Button>
+              <Button icon="download" onClick={() => void checkModuleUpdates()} disabled={Boolean(busy) || !rootedAdb}>{t('root.moduleCheckUpdates')}</Button>
               <Button variant="primary" icon="folderPng" onClick={() => void installModule()} disabled={Boolean(busy) || !rootedAdb}>{t('root.moduleInstall')}</Button>
             </div>
           )}>{t('root.modulesTitle')}</CardTitle>
@@ -1564,11 +1659,15 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                     <Badge tone={module.state === 'enabled' ? 'success' : module.state === 'corrupt' ? 'danger' : 'warning'}>{t(`root.moduleState.${module.state}`)}</Badge>
                     {module.version ? <Badge tone="neutral">{module.version}</Badge> : null}
                     {module.updateMetadata === 'available' ? <Badge tone="accent">{t('root.moduleUpdateAvailable')}</Badge> : null}
+                    {moduleUpdates.some((entry) => entry.moduleId === module.id) ? <Badge tone="success">{t('root.moduleUpdateVerified')}</Badge> : null}
                   </span>
                   <small>{module.id}{module.author ? ` · ${module.author}` : ''}</small>
                   {module.description ? <small>{module.description}</small> : null}
                 </span>
                 <span className="root-inventory__actions">
+                  {moduleUpdates.find((entry) => entry.moduleId === module.id) ? (
+                    <Button variant="secondary" onClick={() => { setPendingModuleUpdate(moduleUpdates.find((entry) => entry.moduleId === module.id) ?? null); setModuleUpdateConfirmation(''); }} disabled={Boolean(busy)}>{t('root.moduleUpdate')}</Button>
+                  ) : null}
                   <Button variant="ghost" onClick={() => void runModuleAction('enable', module.id)} disabled={Boolean(busy)}>{t('root.moduleEnable')}</Button>
                   <Button variant="ghost" onClick={() => void runModuleAction('disable', module.id)} disabled={Boolean(busy)}>{t('root.moduleDisable')}</Button>
                   <Button variant="danger" onClick={() => void runModuleAction('remove', module.id)} disabled={Boolean(busy)}>{t('root.moduleRemove')}</Button>
@@ -1577,6 +1676,29 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             ))}
             {!modules.length ? <EmptyState icon="packages" title={t('common.none')} detail={rootedAdb && !modulesLoaded ? t('root.modulesEmpty') : rootedAdb ? t('common.none') : t('root.moduleDeviceRequired')} /> : null}
           </div>
+          {moduleUpdatesLoaded && !moduleUpdates.length ? <p className="root-manager__detail" role="status">{t('root.moduleUpdatesNone')}</p> : null}
+          {moduleUpdateIssueCount ? <p className="root-manager__guard" role="status"><Icon name="warningPng" size={16} />{t('root.moduleUpdateIssues', { count: moduleUpdateIssueCount })}</p> : null}
+          {pendingModuleUpdate && primary ? (
+            <div className="root-footer root-footer--wrap">
+              <p className="root-manager__detail">
+                {t('root.moduleUpdateDetail', { version: pendingModuleUpdate.version })}
+                {' '}<code title={pendingModuleUpdate.sha256}>{pendingModuleUpdate.sha256.slice(0, 12)}…</code>
+              </p>
+              <label className="select-field">
+                <span>{t('root.moduleUpdateConfirm')}</span>
+                <input
+                  value={moduleUpdateConfirmation}
+                  onChange={(event) => setModuleUpdateConfirmation(event.currentTarget.value.slice(0, 256))}
+                  placeholder={`UPDATE ${pendingModuleUpdate.moduleId} ${primary.serial.slice(-6).toUpperCase()} ${pendingModuleUpdate.sha256.slice(0, 8).toUpperCase()}`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={Boolean(busy)}
+                />
+              </label>
+              <Button variant="primary" onClick={() => void runModuleUpdate()} disabled={Boolean(busy) || moduleUpdateConfirmation !== `UPDATE ${pendingModuleUpdate.moduleId} ${primary.serial.slice(-6).toUpperCase()} ${pendingModuleUpdate.sha256.slice(0, 8).toUpperCase()}`}>{t('root.moduleUpdateRun')}</Button>
+              <Button variant="ghost" onClick={() => { setPendingModuleUpdate(null); setModuleUpdateConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </div>
+          ) : null}
         </Card>
       </div>
       <Card className="root-manager" aria-busy={busy === 'pif-inventory'}>

@@ -98,6 +98,7 @@ class SafetyPolicy:
             "root.apps.catalog.refresh",
             "root.apps.download",
             "root.modules.list",
+            "root.modules.updates",
             "root.modules.action",
             "root.pif.inventory",
         }

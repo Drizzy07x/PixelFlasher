@@ -505,6 +505,10 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                     "root_module_state",
                     {"moduleId": "play_integrity_fix", "state": "enabled"},
                 ),
+                OperationPostcondition(
+                    "root_module_version",
+                    {"moduleId": "play_integrity_fix", "versionCode": 200},
+                ),
                 OperationPostcondition("safe_mode_active", {"active": True}),
                 OperationPostcondition("ota_idle_state", {"idle": True}),
                 OperationPostcondition(
@@ -559,6 +563,10 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(
             {"play_integrity_fix": "enabled"},
             dict(spec.expected_root_modules),
+        )
+        self.assertEqual(
+            {"play_integrity_fix": 200},
+            dict(spec.expected_root_module_versions),
         )
         self.assertEqual(
             {"com.example.app": True},

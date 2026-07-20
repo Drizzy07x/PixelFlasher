@@ -45,6 +45,7 @@ class StatefulDeviceTransport:
         package_installers: dict[str, str] | None = None,
         adb_endpoints: dict[str, str] | None = None,
         root_modules: dict[str, str] | None = None,
+        root_module_versions: dict[str, int] | None = None,
         pif_profiles: set[str] | None = None,
         pif_profile_hashes: dict[str, str] | None = None,
         targeted_fix_targets: set[str] | None = None,
@@ -72,6 +73,7 @@ class StatefulDeviceTransport:
         self.package_installers = package_installers or {}
         self.adb_endpoints = adb_endpoints or {}
         self.root_modules = root_modules or {}
+        self.root_module_versions = root_module_versions or {}
         self.pif_profiles = pif_profiles or set()
         self.pif_profile_hashes = pif_profile_hashes or {}
         self.targeted_fix_targets = targeted_fix_targets or set()
@@ -293,6 +295,14 @@ class StatefulDeviceTransport:
                     return TransportOutcome(0 if state == "disabled" else 1)
                 if command == f"test -e {root}/remove":
                     return TransportOutcome(0 if state == "pending_remove" else 1)
+            version_match = re.fullmatch(
+                r"sed -n 's/\^versionCode=//p' /data/adb/modules/([A-Za-z][A-Za-z0-9._-]{0,63})/module\.prop "
+                r"2>/dev/null \| head -n 1 \| head -c 16",
+                command,
+            )
+            if version_match is not None:
+                version_code = self.root_module_versions.get(version_match.group(1))
+                return TransportOutcome(0, f"{version_code}\n") if version_code is not None else TransportOutcome(1)
             if command.startswith("test -d /data/adb/modules/"):
                 return TransportOutcome(1)
             return TransportOutcome(1, stderr="unsupported root test")
@@ -752,6 +762,42 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             ),
             argv,
         )
+
+    def test_root_module_update_version_is_observed_and_mismatch_is_explicit(self) -> None:
+        module_id = "playintegrityfix"
+        verified = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                root_modules={module_id: "enabled"},
+                root_module_versions={module_id: 200},
+            )
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_root_modules={module_id: "installed"},
+                expected_root_module_versions={module_id: 200},
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        timer = FakeTime()
+        mismatch = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                root_modules={module_id: "enabled"},
+                root_module_versions={module_id: 199},
+            ),
+            timer=timer,
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_root_module_versions={module_id: 200},
+            )
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
+        self.assertEqual((200, 199), mismatch.mismatches[f"root_module_version:{module_id}"])
 
     def test_pif_profile_state_uses_only_canonical_backend_path(self) -> None:
         profile_id = "pif.custom_json"

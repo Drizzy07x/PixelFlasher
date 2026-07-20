@@ -48,6 +48,7 @@ ROOTING_COMMANDS = frozenset(
         "root.apps.list",
         "root.apps.install",
         "root.modules.list",
+        "root.modules.updates",
         "root.modules.action",
         "root.pif.inventory",
         "root.pif.document",
@@ -65,7 +66,7 @@ _MODULE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 _PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _ARCHITECTURE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-_MODULE_ACTIONS = frozenset({"install", "enable", "disable", "remove"})
+_MODULE_ACTIONS = frozenset({"install", "update", "enable", "disable", "remove"})
 _MODULE_REMOTE_ROOT = "/data/local/tmp/"
 _MAX_ZIP_ENTRIES = 4096
 _MAX_ZIP_UNCOMPRESSED = 512 * 1024 * 1024
@@ -251,6 +252,20 @@ class RootModuleInfo:
                 "available" if self.update_url else "absent"
             ),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRootModuleUpdate:
+    """Private, backend-created module artifact accepted by the planner."""
+
+    artifact_id: str
+    module_id: str
+    path: Path
+    version: str
+    installed_version_code: int
+    version_code: int
+    sha256: str
+    size: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,7 +490,7 @@ class RootingService:
                 "root_access_required",
                 "Magisk module operations require a device reporting root access",
             )
-        if command.kind == "root.modules.list":
+        if command.kind in {"root.modules.list", "root.modules.updates"}:
             return self._compile_module_list(command, snapshot, device, adb)
         return self._compile_module_action(
             command,
@@ -1678,7 +1693,7 @@ class RootingService:
             output_limit_bytes=_MAX_MODULE_LIST_BYTES,
         )
         return RootingCompilation(
-            "modules.list",
+            "modules.updates" if command.kind == "root.modules.updates" else "modules.list",
             self._base_plan(
                 snapshot,
                 device,
@@ -1695,16 +1710,19 @@ class RootingService:
         adb: str,
         cancellation: CancellationProbe | None,
     ) -> RootingCompilation:
-        self._validate_payload(command, {"serial", "action", "moduleId", "path"})
+        self._validate_payload(
+            command,
+            {"serial", "action", "moduleId", "path", "preparedUpdate", "confirmationText"},
+        )
         raw_action = command.payload.get("action")
         if not isinstance(raw_action, str) or raw_action not in _MODULE_ACTIONS:
             raise RootingPlanningError(
                 "root_module_action_invalid",
-                "action must be install, enable, disable or remove",
+                "action must be install, update, enable, disable or remove",
             )
         action = raw_action
         if action == "install":
-            if "moduleId" in command.payload:
+            if any(key in command.payload for key in {"moduleId", "preparedUpdate", "confirmationText"}):
                 raise RootingPlanningError(
                     "root_module_target_ambiguous",
                     "module install accepts a ZIP path, not a module ID",
@@ -1716,10 +1734,40 @@ class RootingService:
                 adb,
                 cancellation,
             )
-        if "path" in command.payload:
+        if action == "update":
+            if "path" in command.payload:
+                raise RootingPlanningError(
+                    "root_module_target_ambiguous",
+                    "module update accepts only a backend-prepared artifact",
+                )
+            module_id = self._module_id(command.payload.get("moduleId"))
+            prepared = command.payload.get("preparedUpdate")
+            if not isinstance(prepared, PreparedRootModuleUpdate) or prepared.module_id != module_id:
+                raise RootingPlanningError(
+                    "root_module_update_artifact_invalid",
+                    "module update requires a matching backend-prepared artifact",
+                )
+            required = self.required_module_update_confirmation(
+                module_id,
+                device.serial,
+                prepared.sha256,
+            )
+            if command.payload.get("confirmationText") != required:
+                raise RootingPlanningError(
+                    "root_module_update_confirmation_required",
+                    f"confirmationText must be exactly {required}",
+                )
+            return self._compile_module_update(
+                snapshot,
+                device,
+                adb,
+                prepared,
+                cancellation,
+            )
+        if any(key in command.payload for key in {"path", "preparedUpdate", "confirmationText"}):
             raise RootingPlanningError(
                 "root_module_target_ambiguous",
-                f"module {action} accepts a module ID, not a ZIP path",
+                f"module {action} accepts only a module ID",
             )
         module_id = self._module_id(command.payload.get("moduleId"))
         module_root = f"/data/adb/modules/{module_id}"
@@ -1764,6 +1812,99 @@ class RootingService:
             requires_confirmation=True,
         )
 
+    @staticmethod
+    def required_module_update_confirmation(module_id: str, serial: str, sha256: str) -> str:
+        if _MODULE_ID_PATTERN.fullmatch(module_id) is None or _SHA256_PATTERN.fullmatch(sha256) is None:
+            raise RootingPlanningError(
+                "root_module_update_artifact_invalid",
+                "module update confirmation identity is invalid",
+            )
+        if not isinstance(serial, str) or not serial.strip():
+            raise RootingPlanningError(
+                "target_serial_invalid",
+                "target serial is required for module update confirmation",
+            )
+        return f"UPDATE {module_id} {serial.strip()[-6:].upper()} {sha256[:8].upper()}"
+
+    def _compile_module_update(
+        self,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+        prepared: PreparedRootModuleUpdate,
+        cancellation: CancellationProbe | None,
+    ) -> RootingCompilation:
+        path = self._input_file(
+            str(prepared.path),
+            suffix=".zip",
+            missing_code="root_module_update_artifact_missing",
+        )
+        if path.stat().st_size != prepared.size:
+            raise RootingPlanningError(
+                "root_module_update_artifact_changed",
+                "prepared module update size changed before planning",
+            )
+        if (
+            not isinstance(prepared.installed_version_code, int)
+            or isinstance(prepared.installed_version_code, bool)
+            or not 0 <= prepared.installed_version_code < prepared.version_code <= 2_147_483_647
+        ):
+            raise RootingPlanningError(
+                "root_module_update_artifact_invalid",
+                "prepared module update version binding is invalid",
+            )
+        module_id = self._validate_module_zip(path, cancellation)
+        digest = self._sha256(path, cancellation)
+        if module_id != prepared.module_id or digest != prepared.sha256:
+            raise RootingPlanningError(
+                "root_module_update_artifact_changed",
+                "prepared module update changed before planning",
+            )
+        artifact = FileArtifact(str(path), digest, f"root-module-update:{module_id}")
+        remote_path = f"{_MODULE_REMOTE_ROOT}pixelflasher-module-{digest[:16]}.zip"
+        requests = self._module_update_requests(
+            adb,
+            device.serial,
+            path,
+            remote_path,
+            module_id,
+            prepared.installed_version_code,
+        )
+        return RootingCompilation(
+            "modules.update",
+            self._base_plan(
+                snapshot,
+                device,
+                requests,
+                label=f"Update Magisk module {module_id} on {device.serial}",
+                data_behavior="root_module_update",
+                artifacts=(artifact,),
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "root_module_state",
+                        {
+                            "moduleId": module_id,
+                            "state": "installed",
+                            "zipSha256": artifact.sha256,
+                        },
+                        "the prepared Magisk module update is installed",
+                    ),
+                    OperationPostcondition(
+                        "root_module_version",
+                        {
+                            "moduleId": module_id,
+                            "versionCode": prepared.version_code,
+                        },
+                        "the installed module reports the prepared version code",
+                    ),
+                ),
+            ),
+            module_id=module_id,
+            device_write=True,
+            destructive=True,
+            requires_confirmation=True,
+        )
     def _compile_module_install(
         self,
         command: AppCommand,
@@ -1781,28 +1922,7 @@ class RootingService:
         digest = self._sha256(path, cancellation)
         artifact = FileArtifact(str(path), digest, f"root-module-zip:{module_id}")
         remote_path = f"{_MODULE_REMOTE_ROOT}pixelflasher-module-{digest[:16]}.zip"
-        requests = (
-            ProcessRequest(
-                (adb, "-s", device.serial, "push", str(path), remote_path),
-                timeout_seconds=600.0,
-            ),
-            ProcessRequest(
-                (
-                    adb,
-                    "-s",
-                    device.serial,
-                    "shell",
-                    "su",
-                    "-c",
-                    f"magisk --install-module {remote_path}",
-                ),
-                timeout_seconds=600.0,
-            ),
-            ProcessRequest(
-                (adb, "-s", device.serial, "shell", "rm", "-f", remote_path),
-                timeout_seconds=30.0,
-            ),
-        )
+        requests = self._module_install_requests(adb, device.serial, path, remote_path)
         return RootingCompilation(
             "modules.install",
             self._base_plan(
@@ -1830,6 +1950,75 @@ class RootingService:
             destructive=True,
             requires_confirmation=True,
         )
+
+    @staticmethod
+    def _module_install_requests(
+        adb: str,
+        serial: str,
+        path: Path,
+        remote_path: str,
+    ) -> tuple[ProcessRequest, ...]:
+        return (
+            ProcessRequest(
+                (adb, "-s", serial, "push", str(path), remote_path),
+                timeout_seconds=600.0,
+            ),
+            ProcessRequest(
+                (
+                    adb,
+                    "-s",
+                    serial,
+                    "shell",
+                    "su",
+                    "-c",
+                    f"magisk --install-module {remote_path}",
+                ),
+                timeout_seconds=600.0,
+            ),
+            ProcessRequest(
+                (adb, "-s", serial, "shell", "rm", "-f", remote_path),
+                timeout_seconds=30.0,
+            ),
+        )
+
+    @staticmethod
+    def _module_update_requests(
+        adb: str,
+        serial: str,
+        path: Path,
+        remote_path: str,
+        module_id: str,
+        installed_version_code: int,
+    ) -> tuple[ProcessRequest, ...]:
+        guarded_install = (
+            "current=$(sed -n 's/^versionCode=//p' "
+            f"/data/adb/modules/{module_id}/module.prop 2>/dev/null | head -n 1); "
+            f'[ "$current" = "{installed_version_code}" ] || exit 42; '
+            f"magisk --install-module {remote_path}"
+        )
+        return (
+            ProcessRequest(
+                (adb, "-s", serial, "push", str(path), remote_path),
+                timeout_seconds=600.0,
+            ),
+            ProcessRequest(
+                (adb, "-s", serial, "shell", "su", "-c", guarded_install),
+                timeout_seconds=600.0,
+            ),
+            ProcessRequest(
+                (adb, "-s", serial, "shell", "rm", "-f", remote_path),
+                timeout_seconds=30.0,
+            ),
+        )
+
+    def inspect_module_zip(
+        self,
+        path: Path,
+        cancellation: CancellationProbe | None = None,
+    ) -> str:
+        """Expose the bounded archive inspection used by the update cache."""
+
+        return self._validate_module_zip(path, cancellation)
 
     def _validate_module_zip(
         self,

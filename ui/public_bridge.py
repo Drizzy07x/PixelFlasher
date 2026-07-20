@@ -52,6 +52,8 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.catalog.refresh",
         "root.apps.download",
         "root.modules.list",
+        "root.modules.updates",
+        "root.modules.action",
         "root.pif.document",
         "root.pif.transform",
         "root.pif.favorites.list",
@@ -1599,12 +1601,155 @@ def _project_root_modules(value: object) -> JSONValue:
 
 
 def _project_root_module_action(value: object) -> JSONValue:
-    source = _record(value)
+    confirmation = _project_confirmation(value)
+    if confirmation is not None:
+        return confirmation
+    source = _closed_record(
+        value,
+        fields=frozenset({"action", "targetSerial", "moduleId", "artifact", "verified"}),
+    )
+    action = source["action"]
+    serial = source["targetSerial"]
+    module_id = source["moduleId"]
+    artifact = source["artifact"]
+    digest: object = None
+    if artifact is not None:
+        artifact_record = _closed_record(
+            artifact,
+            fields=frozenset({"path", "sha256", "role"}),
+        )
+        digest = artifact_record["sha256"]
+        if (
+            not isinstance(artifact_record["path"], str)
+            or not artifact_record["path"]
+            or not isinstance(artifact_record["role"], str)
+            or not artifact_record["role"].startswith("root-module-")
+        ):
+            raise PublicProjectionError("root module artifact evidence is invalid")
+    if (
+        action not in {"install", "update", "enable", "disable", "remove"}
+        or not isinstance(serial, str)
+        or not is_valid_target_serial(serial)
+        or not isinstance(module_id, str)
+        or re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", module_id) is None
+        or source["verified"] is not True
+        or (
+            action in {"install", "update"}
+            and (not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None)
+        )
+        or (action not in {"install", "update"} and digest is not None)
+    ):
+        raise PublicProjectionError("root module mutation receipt is invalid")
     return ensure_public_json(
         {
-            "action": _string(source.get("action")),
-            "targetSerial": _optional_string(source.get("targetSerial")),
-            "moduleId": _string(source.get("moduleId")),
+            "action": action,
+            "targetSerial": serial,
+            "moduleId": module_id,
+            "sha256": digest,
+            "verified": True,
+        }
+    )
+
+
+def _project_root_module_updates(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"count", "updates", "issueCount", "issues"}),
+    )
+    raw_updates = source["updates"]
+    raw_issues = source["issues"]
+    if (
+        not isinstance(source["count"], int)
+        or isinstance(source["count"], bool)
+        or not 0 <= source["count"] <= 64
+        or not isinstance(raw_updates, list)
+        or len(raw_updates) != source["count"]
+        or not isinstance(source["issueCount"], int)
+        or isinstance(source["issueCount"], bool)
+        or not 0 <= source["issueCount"] <= 64
+        or not isinstance(raw_issues, list)
+        or len(raw_issues) != source["issueCount"]
+    ):
+        raise PublicProjectionError("root module update counts are invalid")
+    fields = frozenset(
+        {
+            "artifactId",
+            "moduleId",
+            "installedVersion",
+            "installedVersionCode",
+            "version",
+            "versionCode",
+            "sha256",
+            "size",
+            "provenance",
+            "trust",
+        }
+    )
+    updates: list[dict[str, JSONValue]] = []
+    update_ids: list[str] = []
+    module_ids: list[str] = []
+    for raw in cast("list[object]", raw_updates):
+        update = _closed_record(raw, fields=fields)
+        artifact_id = update["artifactId"]
+        module_id = update["moduleId"]
+        installed_version = update["installedVersion"]
+        version = update["version"]
+        installed_code = update["installedVersionCode"]
+        version_code = update["versionCode"]
+        size = update["size"]
+        if (
+            not isinstance(artifact_id, str)
+            or re.fullmatch(r"[0-9a-f]{32}", artifact_id) is None
+            or not isinstance(module_id, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", module_id) is None
+            or not isinstance(installed_version, str)
+            or not isinstance(version, str)
+            or not version
+            or len(installed_version) > 128
+            or len(version) > 128
+            or any(ord(character) < 32 or ord(character) == 127 for character in installed_version + version)
+            or not isinstance(installed_code, int)
+            or isinstance(installed_code, bool)
+            or not isinstance(version_code, int)
+            or isinstance(version_code, bool)
+            or not 0 <= installed_code < version_code <= 2_147_483_647
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or not 1 <= size <= 256 * 1024 * 1024
+            or not isinstance(update["sha256"], str)
+            or _LOWERCASE_SHA256.fullmatch(cast(str, update["sha256"])) is None
+            or update["provenance"] != "module-update-json"
+            or update["trust"] != "unverified-author"
+        ):
+            raise PublicProjectionError("root module update record is invalid")
+        update_ids.append(artifact_id)
+        module_ids.append(module_id.casefold())
+        updates.append(cast(dict[str, JSONValue], ensure_public_json(dict(update))))
+    if len(update_ids) != len(set(update_ids)) or module_ids != sorted(set(module_ids)):
+        raise PublicProjectionError("root module update identities are invalid")
+    issues: list[dict[str, JSONValue]] = []
+    issue_ids: list[str] = []
+    for raw in cast("list[object]", raw_issues):
+        issue = _closed_record(raw, fields=frozenset({"moduleId", "code"}))
+        module_id = issue["moduleId"]
+        code = issue["code"]
+        if (
+            not isinstance(module_id, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", module_id) is None
+            or not isinstance(code, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]{0,95}", code) is None
+        ):
+            raise PublicProjectionError("root module update issue is invalid")
+        issue_ids.append(module_id.casefold())
+        issues.append(cast(dict[str, JSONValue], ensure_public_json(dict(issue))))
+    if issue_ids != sorted(set(issue_ids)):
+        raise PublicProjectionError("root module update issue identities are invalid")
+    return ensure_public_json(
+        {
+            "count": source["count"],
+            "updates": updates,
+            "issueCount": source["issueCount"],
+            "issues": issues,
         }
     )
 
@@ -3804,6 +3949,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "root.dataAdb.clear": _project_data_adb_clear,
     "root.modules.action": _project_root_module_action,
     "root.modules.list": _project_root_modules,
+    "root.modules.updates": _project_root_module_updates,
     "root.pif.document": _project_pif_document,
     "root.pif.transform": _project_pif_transformation,
     "root.pif.favorites.list": _project_pif_favorites,
