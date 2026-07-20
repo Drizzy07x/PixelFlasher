@@ -231,4 +231,30 @@ describe('PIF and TargetedFix inventory', () => {
       confirmationText: phrase,
     });
   });
+
+  it('opens only an allow-listed integrity checker after serial-bound confirmation', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn(async () => ({
+      result: { status: 'SUCCESS', value: { action: 'launchIntegrityCheck', checker: 'spic', verified: true } },
+    }));
+    const { snapshot } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Open integrity checker' }));
+    await user.selectOptions(within(card as HTMLElement).getByLabelText('Integrity checker'), 'spic');
+    const phrase = `OPEN PI spic ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    const run = within(card as HTMLElement).getByRole('button', { name: 'Open and verify checker' });
+    expect(run).toBeDisabled();
+    await user.type(within(card as HTMLElement).getByLabelText('Confirm integrity checker launch'), phrase);
+    expect(run).toBeEnabled();
+    await user.click(run);
+
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'launchIntegrityCheck',
+      checker: 'spic',
+      confirmationText: phrase,
+    });
+  });
 });

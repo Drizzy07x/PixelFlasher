@@ -1805,6 +1805,7 @@ class CommandEngine:
                     "pif.delete_target",
                     "pif.import_target_profile",
                     "pif.cleanup_droidguard",
+                    "pif.launch_integrity_check",
                 }
             ):
                 return OperationResult.failed(
@@ -1818,6 +1819,25 @@ class CommandEngine:
                     code="droidguard_cache_cleaned",
                     message="DroidGuard cache absence was independently verified",
                     value={"action": "cleanupDroidGuard", "verified": True},
+                    stdout="",
+                    stderr="",
+                )
+            if compilation.action == "pif.launch_integrity_check":
+                if compilation.pi_checker_id is None:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="pif_action_compilation_invalid",
+                        message="integrity checker launch is missing its identity",
+                    )
+                return replace(
+                    result,
+                    code="integrity_checker_opened",
+                    message="integrity checker process launch was verified",
+                    value={
+                        "action": "launchIntegrityCheck",
+                        "checker": compilation.pi_checker_id,
+                        "verified": True,
+                    },
                     stdout="",
                     stderr="",
                 )

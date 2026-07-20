@@ -129,6 +129,12 @@ _PIF_PROFILE_PATHS = {
 }
 _MAX_PIF_IMPORT_BYTES = 1024 * 1024
 _PIF_PROPERTY_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
+_PI_CHECKERS = {
+    "piac": "gr.nikolasspyr.integritycheck",
+    "spic": "com.henrikherzig.playintegritychecker",
+    "aic": "com.thend.integritychecker",
+    "playStore": "com.android.vending",
+}
 
 
 class RootApkInspector(Protocol):
@@ -306,6 +312,7 @@ class RootingCompilation:
     pif_target_format: str | None = None
     pif_sha256: str | None = None
     pif_size: int | None = None
+    pi_checker_id: str | None = None
     device_build: str | None = None
     device_write: bool = False
     destructive: bool = False
@@ -322,6 +329,7 @@ class RootingCompilation:
             "pif_target_format": self.pif_target_format,
             "pif_sha256": self.pif_sha256,
             "pif_size": self.pif_size,
+            "pi_checker_id": self.pi_checker_id,
             "device_build": self.device_build,
             "device_write": self.device_write,
             "destructive": self.destructive,
@@ -518,6 +526,7 @@ class RootingService:
                 "profileId",
                 "targetPackage",
                 "targetFormat",
+                "checker",
                 "confirmationText",
                 "path",
             },
@@ -530,14 +539,22 @@ class RootingService:
             "deleteTarget",
             "importTargetProfile",
             "cleanupDroidGuard",
+            "launchIntegrityCheck",
         }:
             raise RootingPlanningError(
                 "pif_action_invalid",
                 "PIF action is not supported",
             )
         assert isinstance(action, str)
+        if action != "launchIntegrityCheck" and "checker" in command.payload:
+            raise RootingPlanningError(
+                "pif_action_payload_ambiguous",
+                "checker is only valid for launchIntegrityCheck",
+            )
         if action == "cleanupDroidGuard":
             return self._compile_droidguard_cleanup(command, snapshot, device, adb)
+        if action == "launchIntegrityCheck":
+            return self._compile_integrity_check_launch(command, snapshot, device, adb)
         if action == "importTargetProfile":
             return self._compile_targeted_fix_profile_import(command, snapshot, device, adb)
         if action in {"addTarget", "deleteTarget"}:
@@ -685,6 +702,72 @@ class RootingService:
             ),
             device_write=True,
             destructive=True,
+            requires_confirmation=True,
+        )
+
+    def _compile_integrity_check_launch(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        unexpected = {"profileId", "targetPackage", "targetFormat", "path"}.intersection(
+            command.payload
+        )
+        if unexpected:
+            raise RootingPlanningError(
+                "integrity_check_payload_ambiguous",
+                "integrity checker launch does not accept profile, target, format, or path fields",
+            )
+        checker = command.payload.get("checker")
+        if not isinstance(checker, str) or checker not in _PI_CHECKERS:
+            raise RootingPlanningError(
+                "integrity_checker_invalid",
+                "integrity checker is not allow-listed",
+            )
+        package = _PI_CHECKERS[checker]
+        required = f"OPEN PI {checker} {device.serial[-6:].upper()}"
+        if command.payload.get("confirmationText") != required:
+            raise RootingPlanningError(
+                "integrity_check_confirmation_required",
+                f"confirmationText must be exactly {required}",
+            )
+        request = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "shell",
+                "monkey",
+                "-p",
+                package,
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "1",
+            ),
+            timeout_seconds=30.0,
+            output_limit_bytes=64 * 1024,
+        )
+        return RootingCompilation(
+            "pif.launch_integrity_check",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Open integrity checker {checker} on {device.serial}",
+                data_behavior="integrity_checker_launch",
+                risk=OperationRisk.MUTATING,
+                postconditions=(
+                    OperationPostcondition(
+                        "package_state",
+                        {"packages": [package], "state": "running"},
+                        "the selected integrity checker process is running",
+                    ),
+                ),
+            ),
+            pi_checker_id=checker,
+            device_write=True,
             requires_confirmation=True,
         )
 

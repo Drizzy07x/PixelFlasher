@@ -2342,6 +2342,32 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual({"action": "cleanupDroidGuard", "verified": True}, result.value)
         self.assertIn("app_dg_cache", transport.calls[0].argv[6])
 
+    def test_integrity_checker_launch_returns_only_allow_listed_verified_identity(self):
+        engine, transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0)],
+            root=True,
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+        )
+        result = engine.execute(
+            command(
+                "tools.pif",
+                {
+                    "serial": "SERIAL",
+                    "action": "launchIntegrityCheck",
+                    "checker": "piac",
+                    "confirmationText": "OPEN PI piac SERIAL",
+                },
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual("integrity_checker_opened", result.code)
+        self.assertEqual(
+            {"action": "launchIntegrityCheck", "checker": "piac", "verified": True},
+            result.value,
+        )
+        self.assertIn("gr.nikolasspyr.integritycheck", transport.calls[0].argv)
+
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (
             (

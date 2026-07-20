@@ -6175,3 +6175,39 @@ msgstr "確認刪除 DroidGuard 快取"
 msgctxt "web.root.droidGuardCleanupRun"
 msgid "Clean and verify cache"
 msgstr "清理並驗證快取"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.integrityCheckOpen"
+msgid "Open integrity checker"
+msgstr "開啟完整性檢查器"
+
+msgctxt "web.root.integrityChecker"
+msgid "Integrity checker"
+msgstr "完整性檢查器"
+
+msgctxt "web.root.integrityChecker.piac"
+msgid "Play Integrity API Checker"
+msgstr "Play Integrity API 檢查器"
+
+msgctxt "web.root.integrityChecker.spic"
+msgid "Simple Play Integrity Checker"
+msgstr "簡易 Play Integrity 檢查器"
+
+msgctxt "web.root.integrityChecker.aic"
+msgid "Android Integrity Checker"
+msgstr "Android 完整性檢查器"
+
+msgctxt "web.root.integrityChecker.playStore"
+msgid "Play Store"
+msgstr "Play 商店"
+
+msgctxt "web.root.integrityCheckConfirm"
+msgid "Confirm integrity checker launch"
+msgstr "確認啟動完整性檢查器"
+
+msgctxt "web.root.integrityCheckRun"
+msgid "Open and verify checker"
+msgstr "開啟並驗證檢查器"

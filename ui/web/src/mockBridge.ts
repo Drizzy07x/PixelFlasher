@@ -1155,9 +1155,13 @@ export function installDevelopmentBridge() {
             const importing = action === 'importProfile';
             const targetAction = action === 'addTarget' || action === 'deleteTarget' || action === 'importTargetProfile';
             const cleaningDroidGuard = action === 'cleanupDroidGuard';
+            const launchingIntegrityCheck = action === 'launchIntegrityCheck';
+            const checker = typeof request.payload.checker === 'string' ? request.payload.checker : '';
             const targetPackage = typeof request.payload.targetPackage === 'string' ? request.payload.targetPackage : '';
             const targetFormat = request.payload.targetFormat === 'prop' ? 'prop' : 'json';
-            const required = cleaningDroidGuard
+            const required = launchingIntegrityCheck
+              ? `OPEN PI ${checker} ${serial.slice(-6).toUpperCase()}`
+              : cleaningDroidGuard
               ? `CLEANUP DG ${serial.slice(-6).toUpperCase()}`
               : targetAction
               ? action === 'importTargetProfile'
@@ -1166,7 +1170,8 @@ export function installDevelopmentBridge() {
               : `${importing ? 'IMPORT' : 'DELETE'} PIF ${profileId} ${serial.slice(-6).toUpperCase()}`;
             if (
               !target || target.mode !== 'adb' || !target.rooted
-              || !['deleteProfile', 'importProfile', 'addTarget', 'deleteTarget', 'importTargetProfile', 'cleanupDroidGuard'].includes(action)
+              || !['deleteProfile', 'importProfile', 'addTarget', 'deleteTarget', 'importTargetProfile', 'cleanupDroidGuard', 'launchIntegrityCheck'].includes(action)
+              || (launchingIntegrityCheck && !['piac', 'spic', 'aic', 'playStore'].includes(checker))
               || request.payload.confirmationText !== required
             ) {
               emit(errorMessage('PIF or TargetedFix request is invalid.', request));
@@ -1174,7 +1179,9 @@ export function installDevelopmentBridge() {
             }
             requestGuardedConfirmation(
               request,
-              cleaningDroidGuard
+              launchingIntegrityCheck
+                ? `Open integrity checker ${checker} on ${serial}?`
+                : cleaningDroidGuard
                 ? `Clean DroidGuard cache on ${serial}?`
                 : targetAction
                 ? `${action === 'addTarget' ? 'Add' : action === 'deleteTarget' ? 'Delete' : 'Import'} TargetedFix target ${targetPackage} on ${serial}?`
@@ -1182,7 +1189,9 @@ export function installDevelopmentBridge() {
               true,
               () => finishGuarded(request, {
                 status: 'SUCCESS',
-                code: cleaningDroidGuard
+                code: launchingIntegrityCheck
+                  ? 'integrity_checker_opened'
+                  : cleaningDroidGuard
                   ? 'droidguard_cache_cleaned'
                   : targetAction
                   ? action === 'addTarget'
@@ -1191,12 +1200,16 @@ export function installDevelopmentBridge() {
                       ? 'targeted_fix_target_deleted'
                       : 'targeted_fix_profile_imported'
                   : importing ? 'pif_profile_imported' : 'pif_profile_deleted',
-                message: cleaningDroidGuard
+                message: launchingIntegrityCheck
+                  ? `Integrity checker ${checker} was opened and its process was independently verified`
+                  : cleaningDroidGuard
                   ? 'DroidGuard cache absence was independently verified'
                   : targetAction
                   ? 'TargetedFix target state was independently verified'
                   : `PIF profile ${importing ? 'import hash' : 'deletion'} was independently verified`,
-                value: cleaningDroidGuard
+                value: launchingIntegrityCheck
+                  ? { action, checker, verified: true }
+                  : cleaningDroidGuard
                   ? { action, verified: true }
                   : targetAction
                   ? action === 'importTargetProfile'

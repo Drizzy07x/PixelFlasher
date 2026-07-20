@@ -359,10 +359,19 @@ def _validate_payload_values(
         if not _nonempty_string(serial, limit=256):
             _payload_error("tools.pif serial is invalid", request_id)
         action = payload.get("action")
-        if action == "cleanupDroidGuard":
-            if any(
+        if action == "launchIntegrityCheck":
+            checker = payload.get("checker")
+            if checker not in {"piac", "spic", "aic", "playStore"} or any(
                 field in payload
                 for field in ("profileId", "targetPackage", "targetFormat", "grant")
+            ):
+                _payload_error("tools.pif integrity checker payload is invalid", request_id)
+            assert isinstance(serial, str)
+            required = f"OPEN PI {checker} {serial[-6:].upper()}"
+        elif action == "cleanupDroidGuard":
+            if any(
+                field in payload
+                for field in ("profileId", "targetPackage", "targetFormat", "checker", "grant")
             ):
                 _payload_error("tools.pif DroidGuard cleanup payload is invalid", request_id)
             assert isinstance(serial, str)
@@ -372,6 +381,7 @@ def _validate_payload_values(
                 profile_id not in canonical_profiles
                 or "targetPackage" in payload
                 or "targetFormat" in payload
+                or "checker" in payload
             ):
                 _payload_error("tools.pif profile action payload is invalid", request_id)
             assert isinstance(serial, str) and isinstance(profile_id, str)
@@ -391,6 +401,7 @@ def _validate_payload_values(
                 is None
                 or len(target_package) > 255
                 or "profileId" in payload
+                or "checker" in payload
             ):
                 _payload_error("tools.pif TargetedFix payload is invalid", request_id)
             assert isinstance(serial, str)

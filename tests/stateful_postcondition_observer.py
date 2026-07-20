@@ -456,7 +456,8 @@ class StatefulPostconditionObserver:
             return all(
                 any(
                     "monkey" in request.argv
-                    and request.argv[-1] == package
+                    and "-p" in request.argv
+                    and request.argv[request.argv.index("-p") + 1] == package
                     and "android.intent.category.LAUNCHER" in request.argv
                     for request in calls
                 )

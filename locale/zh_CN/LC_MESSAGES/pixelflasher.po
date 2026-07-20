@@ -6184,3 +6184,39 @@ msgstr "确认删除 DroidGuard 缓存"
 msgctxt "web.root.droidGuardCleanupRun"
 msgid "Clean and verify cache"
 msgstr "清理并验证缓存"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.integrityCheckOpen"
+msgid "Open integrity checker"
+msgstr "打开完整性检查器"
+
+msgctxt "web.root.integrityChecker"
+msgid "Integrity checker"
+msgstr "完整性检查器"
+
+msgctxt "web.root.integrityChecker.piac"
+msgid "Play Integrity API Checker"
+msgstr "Play Integrity API 检查器"
+
+msgctxt "web.root.integrityChecker.spic"
+msgid "Simple Play Integrity Checker"
+msgstr "简易 Play Integrity 检查器"
+
+msgctxt "web.root.integrityChecker.aic"
+msgid "Android Integrity Checker"
+msgstr "Android 完整性检查器"
+
+msgctxt "web.root.integrityChecker.playStore"
+msgid "Play Store"
+msgstr "Play 商店"
+
+msgctxt "web.root.integrityCheckConfirm"
+msgid "Confirm integrity checker launch"
+msgstr "确认启动完整性检查器"
+
+msgctxt "web.root.integrityCheckRun"
+msgid "Open and verify checker"
+msgstr "打开并验证检查器"

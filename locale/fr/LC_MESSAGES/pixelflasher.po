@@ -6179,3 +6179,39 @@ msgstr "Confirmer la suppression du cache DroidGuard"
 msgctxt "web.root.droidGuardCleanupRun"
 msgid "Clean and verify cache"
 msgstr "Nettoyer et vérifier le cache"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.integrityCheckOpen"
+msgid "Open integrity checker"
+msgstr "Ouvrir le vérificateur d’intégrité"
+
+msgctxt "web.root.integrityChecker"
+msgid "Integrity checker"
+msgstr "Vérificateur d’intégrité"
+
+msgctxt "web.root.integrityChecker.piac"
+msgid "Play Integrity API Checker"
+msgstr "Vérificateur de l’API Play Integrity"
+
+msgctxt "web.root.integrityChecker.spic"
+msgid "Simple Play Integrity Checker"
+msgstr "Vérificateur simple de Play Integrity"
+
+msgctxt "web.root.integrityChecker.aic"
+msgid "Android Integrity Checker"
+msgstr "Vérificateur d’intégrité Android"
+
+msgctxt "web.root.integrityChecker.playStore"
+msgid "Play Store"
+msgstr "Play Store"
+
+msgctxt "web.root.integrityCheckConfirm"
+msgid "Confirm integrity checker launch"
+msgstr "Confirmer l’ouverture du vérificateur d’intégrité"
+
+msgctxt "web.root.integrityCheckRun"
+msgid "Open and verify checker"
+msgstr "Ouvrir et vérifier le vérificateur"

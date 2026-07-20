@@ -291,6 +291,35 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 7,
             ).validate()
 
+    def test_integrity_checker_launch_contract_is_allow_listed_and_verified(self):
+        payload = {
+            "serial": "SERIAL",
+            "action": "launchIntegrityCheck",
+            "checker": "piac",
+            "confirmationText": "OPEN PI piac SERIAL",
+        }
+        request = BridgeRequest(2, "pi-open", "tools.pif", payload, 7)
+        self.assertIs(request, request.validate())
+        projected = project_operation_result(
+            "tools.pif",
+            OperationResult.success(
+                "pi-open",
+                value={"action": "launchIntegrityCheck", "checker": "piac", "verified": True},
+            ),
+        )["value"]
+        self.assertEqual(
+            {"action": "launchIntegrityCheck", "checker": "piac", "verified": True},
+            projected,
+        )
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest(
+                2,
+                "bad-pi-open",
+                "tools.pif",
+                {**payload, "checker": "host.package"},
+                7,
+            ).validate()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3063,7 +3063,9 @@ def _project_pif_action(value: object) -> JSONValue:
     if not isinstance(value, Mapping):
         raise PublicProjectionError("PIF action receipt is invalid")
     action = value.get("action")
-    if action == "cleanupDroidGuard":
+    if action == "launchIntegrityCheck":
+        fields = frozenset({"action", "checker", "verified"})
+    elif action == "cleanupDroidGuard":
         fields = frozenset({"action", "verified"})
     elif action == "importProfile":
         fields = frozenset({"action", "profileId", "sha256", "size"})
@@ -3078,6 +3080,11 @@ def _project_pif_action(value: object) -> JSONValue:
     else:
         raise PublicProjectionError("PIF action receipt is invalid")
     source = _closed_record(value, fields=fields)
+    if action == "launchIntegrityCheck" and (
+        source["checker"] not in {"piac", "spic", "aic", "playStore"}
+        or source["verified"] is not True
+    ):
+        raise PublicProjectionError("integrity checker launch receipt is invalid")
     if action == "cleanupDroidGuard" and source["verified"] is not True:
         raise PublicProjectionError("DroidGuard cleanup receipt is invalid")
     profile_ids = {

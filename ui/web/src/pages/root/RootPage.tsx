@@ -421,6 +421,9 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [targetedFixImportConfirmation, setTargetedFixImportConfirmation] = useState('');
   const [droidGuardConfirmation, setDroidGuardConfirmation] = useState('');
   const [droidGuardPending, setDroidGuardPending] = useState(false);
+  const [integrityChecker, setIntegrityChecker] = useState<'piac' | 'spic' | 'aic' | 'playStore'>('piac');
+  const [integrityCheckPending, setIntegrityCheckPending] = useState(false);
+  const [integrityCheckConfirmation, setIntegrityCheckConfirmation] = useState('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -857,6 +860,27 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     }
   };
 
+  const launchIntegrityCheck = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    const required = `OPEN PI ${integrityChecker} ${primary.serial.slice(-6).toUpperCase()}`;
+    if (integrityCheckConfirmation !== required) return;
+    setBusy('integrity-check-launch');
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: 'launchIntegrityCheck',
+        checker: integrityChecker,
+        confirmationText: integrityCheckConfirmation,
+      });
+      if (operationSucceeded(response)) {
+        setIntegrityCheckPending(false);
+        setIntegrityCheckConfirmation('');
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
   const refreshBootImages = async () => {
     if (busy) return;
     setBusy('boot:list');
@@ -1175,6 +1199,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             </label>
             <Button icon="folderPng" onClick={() => void preparePifImport()} disabled={Boolean(busy) || !rootedAdb}>{t('root.pifImport')}</Button>
             <Button variant="danger" onClick={() => { setDroidGuardPending(true); setDroidGuardConfirmation(''); }} disabled={Boolean(busy) || !rootedAdb}>{t('root.droidGuardCleanup')}</Button>
+            <Button onClick={() => { setIntegrityCheckPending(true); setIntegrityCheckConfirmation(''); }} disabled={Boolean(busy) || !rootedAdb}>{t('root.integrityCheckOpen')}</Button>
             <Button icon="scan" onClick={() => void refreshPifInventory()} disabled={Boolean(busy) || !rootedAdb}>{t('common.refresh')}</Button>
           </div>
         )}>{t('root.pifInventoryTitle')}</CardTitle>
@@ -1317,6 +1342,25 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             <span className="button-row">
               <Button variant="danger" onClick={() => void cleanupDroidGuard()} disabled={Boolean(busy) || droidGuardConfirmation !== `CLEANUP DG ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.droidGuardCleanupRun')}</Button>
               <Button variant="ghost" onClick={() => { setDroidGuardPending(false); setDroidGuardConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </span>
+          </div>
+        ) : null}
+        {integrityCheckPending && primary ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.integrityChecker')}</span>
+              <select aria-label={t('root.integrityChecker')} value={integrityChecker} onChange={(event) => { setIntegrityChecker(event.currentTarget.value as typeof integrityChecker); setIntegrityCheckConfirmation(''); }} disabled={Boolean(busy)}>
+                <option value="piac">{t('root.integrityChecker.piac')}</option>
+                <option value="spic">{t('root.integrityChecker.spic')}</option>
+                <option value="aic">{t('root.integrityChecker.aic')}</option>
+                <option value="playStore">{t('root.integrityChecker.playStore')}</option>
+              </select>
+              <small><code>{`OPEN PI ${integrityChecker} ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+              <input aria-label={t('root.integrityCheckConfirm')} value={integrityCheckConfirmation} onChange={(event) => setIntegrityCheckConfirmation(event.currentTarget.value.slice(0, 128))} autoComplete="off" spellCheck={false} disabled={Boolean(busy)} />
+            </label>
+            <span className="button-row">
+              <Button variant="primary" onClick={() => void launchIntegrityCheck()} disabled={Boolean(busy) || integrityCheckConfirmation !== `OPEN PI ${integrityChecker} ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.integrityCheckRun')}</Button>
+              <Button variant="ghost" onClick={() => { setIntegrityCheckPending(false); setIntegrityCheckConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
             </span>
           </div>
         ) : null}

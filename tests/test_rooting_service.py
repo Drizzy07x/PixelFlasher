@@ -575,6 +575,56 @@ class RootingServiceTests(unittest.TestCase):
             )
         self.assertEqual("droidguard_cleanup_confirmation_required", raised.exception.code)
 
+    def test_integrity_checker_launch_is_allow_listed_and_running_observed(self):
+        cases = {
+            "piac": "gr.nikolasspyr.integritycheck",
+            "spic": "com.henrikherzig.playintegritychecker",
+            "aic": "com.thend.integritychecker",
+            "playStore": "com.android.vending",
+        }
+        for checker, package in cases.items():
+            with self.subTest(checker=checker):
+                compilation = RootingService().compile(
+                    self.command(
+                        "tools.pif",
+                        {
+                            "serial": "SERIAL",
+                            "action": "launchIntegrityCheck",
+                            "checker": checker,
+                            "confirmationText": f"OPEN PI {checker} SERIAL",
+                        },
+                    ),
+                    self.snapshot,
+                )
+                self.assertEqual("pif.launch_integrity_check", compilation.action)
+                assert compilation.plan is not None
+                self.assertEqual(
+                    (
+                        "ADB", "-s", "SERIAL", "shell", "monkey", "-p", package,
+                        "-c", "android.intent.category.LAUNCHER", "1",
+                    ),
+                    compilation.plan.request.argv,
+                )
+                self.assertEqual(
+                    {"packages": (package,), "state": "running"},
+                    compilation.plan.postconditions[0].expected,
+                )
+
+        with self.assertRaises(RootingPlanningError) as raised:
+            RootingService().compile(
+                self.command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "launchIntegrityCheck",
+                        "checker": "host.package",
+                        "confirmationText": "OPEN PI host.package SERIAL",
+                    },
+                ),
+                self.snapshot,
+            )
+        self.assertEqual("integrity_checker_invalid", raised.exception.code)
+
     def test_pif_inventory_accepts_one_targeted_fix_prop_profile_but_rejects_ambiguity(self):
         encoded = base64.b64encode(b"com.google.android.gms").decode("ascii")
         output = pif_inventory_output().replace(
