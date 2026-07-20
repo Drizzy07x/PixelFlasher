@@ -1676,15 +1676,18 @@
       "area": "device_tools",
       "capability": "Interactive ADB shell",
       "owner": "device_tools",
-      "modernStatus": "blocked",
+      "modernStatus": "partial",
       "currentEvidence": [
-        "pixelflasher_core/device_tools.py:DeviceToolsService.compile"
+        "pixelflasher_core/adb_terminal.py:AdbTerminalService",
+        "ui/pages/modern_webview_host.py:ModernWebViewFrame._handle_adb_terminal_request",
+        "ui/web/src/pages/tooling/AdbShellPanel.tsx:AdbShellPanel",
+        "ui/command_registry.py:tools.adbShell"
       ],
-      "gap": "No approved expert-only arbitrary-shell product contract exists.",
+      "gap": "The fixed expert-only PTY contract, SafetyPolicy entry, React terminal and Windows ConPTY proof exist; packaged PTY smokes on Windows, macOS and Linux plus terminal-focused axe/manual screen-reader validation remain.",
       "exitCriteria": [
         "Interactive ADB shell is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
-        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
-        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+        "The host launches only adb -s SERIAL shell with shell disabled, binds the PTY to the selected serial and current revision, and closes it on selection, mode, connectivity, toolchain or revision changes.",
+        "Input, output, resize, exit and shutdown are bounded and explicit; cancellation or loss of state can never be reported as success."
       ],
       "dependsOn": [
         "device.discovery",
@@ -1697,17 +1700,24 @@
         "linux"
       ],
       "tests": [
+        "tests/test_adb_terminal.py",
+        "tests/test_modern_webview_host_contract.py:test_adb_terminal_requests_are_exactly_projected_to_the_native_service",
+        "tests/test_modern_webview_host_contract.py:test_adb_terminal_event_uses_the_bounded_terminal_channel",
+        "ui/web/src/test/adb-shell.test.tsx",
         "tests/test_device_tools_service.py:test_arbitrary_adb_shell_has_an_explicit_unsupported_contract",
         "tests/test_service_engine_integration.py:test_arbitrary_adb_shell_is_explicitly_disabled_without_execution"
       ],
-      "blockReason": "Arbitrary shell execution has no approved expert-mode safety boundary, so tools.adbShell returns adb_shell_unsupported without launching a process.",
+      "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
         "README.md:133"
       ],
       "modernActionIds": [],
       "modernCommandIds": [
-        "tools.adbShell"
+        "tools.adbShell",
+        "tools.adbShell.write",
+        "tools.adbShell.resize",
+        "tools.adbShell.close"
       ]
     },
     {

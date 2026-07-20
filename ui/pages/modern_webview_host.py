@@ -42,6 +42,8 @@ from pixelflasher_core import (
     OperationResult,
     ProgressEvent,
     SnapshotChanged,
+    TerminalCommandResult,
+    TerminalEvent,
 )
 from platform_utils import open_path
 from ui.bridge_contract import (
@@ -103,6 +105,43 @@ class SupportDestinationRegistrar(Protocol):
         *,
         allow_overwrite: bool = False,
     ) -> str: ...
+
+
+class AdbTerminalProtocol(Protocol):
+    def subscribe(self, listener: Callable[[TerminalEvent], None]) -> Callable[[], None]: ...
+
+    def open(
+        self,
+        *,
+        serial: str,
+        expected_revision: int,
+        columns: int,
+        rows: int,
+    ) -> TerminalCommandResult: ...
+
+    def write(
+        self,
+        session_id: str,
+        data: bytes,
+        *,
+        expected_revision: int,
+    ) -> TerminalCommandResult: ...
+
+    def resize(
+        self,
+        session_id: str,
+        *,
+        expected_revision: int,
+        columns: int,
+        rows: int,
+    ) -> TerminalCommandResult: ...
+
+    def close(
+        self,
+        session_id: str,
+        *,
+        expected_revision: int,
+    ) -> TerminalCommandResult: ...
 
 
 class ReplayAction(StrEnum):
@@ -644,6 +683,7 @@ def frontend_index_path() -> Path:
 def create_modern_webview_frame(
     engine: EngineProtocol,
     *,
+    adb_terminal_service: AdbTerminalProtocol,
     command_factory: CoreCommandFactory,
     support_destination_registrar: SupportDestinationRegistrar,
     application_directories: Mapping[str, str | Path] | None = None,
@@ -655,6 +695,7 @@ def create_modern_webview_frame(
         raise RuntimeError("wx WebView is unavailable. Install the platform WebView runtime first.")
     return ModernWebViewFrame(
         engine=engine,
+        adb_terminal_service=adb_terminal_service,
         command_factory=command_factory,
         support_destination_registrar=support_destination_registrar,
         application_directories=application_directories,
@@ -671,6 +712,7 @@ class ModernWebViewFrame(wx.Frame):
         self,
         *,
         engine: EngineProtocol,
+        adb_terminal_service: AdbTerminalProtocol,
         command_factory: CoreCommandFactory,
         support_destination_registrar: SupportDestinationRegistrar,
         application_directories: Mapping[str, str | Path] | None = None,
@@ -689,6 +731,7 @@ class ModernWebViewFrame(wx.Frame):
         _apply_frame_icon(self)
 
         self._engine = engine
+        self._adb_terminal_service = adb_terminal_service
         self._command_factory = command_factory
         self._index_path = (index_path or frontend_index_path()).resolve()
         self._asset_root = self._index_path.parent
@@ -706,10 +749,15 @@ class ModernWebViewFrame(wx.Frame):
             self._emit_batch,
             _schedule_wx_callback,
         )
+        self._terminal_event_batcher = _LogcatProgressBatcher(
+            self._emit_batch,
+            _schedule_wx_callback,
+        )
         self._replay_ledger = _RequestReplayLedger()
         self._operation_commands: dict[str, str] = {}
         self._operation_commands_lock = threading.RLock()
         self._subscription: Callable[[], None] | None = None
+        self._terminal_subscription: Callable[[], None] | None = None
         self._command_factory.bind_support_destination_registrar(support_destination_registrar)
         self._command_worker = _SerialCommandWorker(self._engine, self._command_finished)
 
@@ -732,6 +780,9 @@ class ModernWebViewFrame(wx.Frame):
         self.Centre()
 
         self._subscription = self._engine.subscribe(self._on_engine_event)
+        self._terminal_subscription = self._adb_terminal_service.subscribe(
+            self._on_terminal_event
+        )
         self._view.LoadURL(self._index_path.as_uri())
 
     def _on_loaded(self, event: object) -> None:
@@ -825,6 +876,11 @@ class ModernWebViewFrame(wx.Frame):
             return
         if request.command.startswith("native."):
             self._handle_native_request(request)
+            return
+        if request.command == "tools.adbShell" or request.command.startswith(
+            "tools.adbShell."
+        ):
+            self._handle_adb_terminal_request(request)
             return
         if request.command == "app.ready":
             revision = _revision(self._engine.snapshot())
@@ -1097,6 +1153,97 @@ class ModernWebViewFrame(wx.Frame):
                     "code": str(result.get("code", "operation_cancelled")),
                     "message": str(result.get("message", "Selection cancelled.")),
                     "details": result,
+                },
+            ),
+        )
+
+    def _handle_adb_terminal_request(self, request: BridgeRequest) -> None:
+        result: TerminalCommandResult
+        revision = request.expected_revision
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            result = TerminalCommandResult(
+                False,
+                "revision_required",
+                "Expected revision is required for ADB Shell.",
+            )
+        else:
+            payload = request.payload
+            try:
+                if request.command == "tools.adbShell":
+                    serial = payload["serial"]
+                    columns = payload["columns"]
+                    rows = payload["rows"]
+                    if (
+                        not isinstance(serial, str)
+                        or not isinstance(columns, int)
+                        or isinstance(columns, bool)
+                        or not isinstance(rows, int)
+                        or isinstance(rows, bool)
+                    ):
+                        raise TypeError
+                    result = self._adb_terminal_service.open(
+                        serial=serial,
+                        expected_revision=revision,
+                        columns=columns,
+                        rows=rows,
+                    )
+                else:
+                    session_id = payload["sessionId"]
+                    if not isinstance(session_id, str):
+                        raise TypeError
+                    if request.command == "tools.adbShell.write":
+                        data = payload["data"]
+                        if not isinstance(data, str):
+                            raise TypeError
+                        result = self._adb_terminal_service.write(
+                            session_id,
+                            data.encode("utf-8", errors="strict"),
+                            expected_revision=revision,
+                        )
+                    elif request.command == "tools.adbShell.resize":
+                        columns = payload["columns"]
+                        rows = payload["rows"]
+                        if (
+                            not isinstance(columns, int)
+                            or isinstance(columns, bool)
+                            or not isinstance(rows, int)
+                            or isinstance(rows, bool)
+                        ):
+                            raise TypeError
+                        result = self._adb_terminal_service.resize(
+                            session_id,
+                            expected_revision=revision,
+                            columns=columns,
+                            rows=rows,
+                        )
+                    elif request.command == "tools.adbShell.close":
+                        result = self._adb_terminal_service.close(
+                            session_id,
+                            expected_revision=revision,
+                        )
+                    else:  # pragma: no cover - registry and dispatcher are closed
+                        raise TypeError
+            except (KeyError, TypeError, UnicodeError):
+                result = TerminalCommandResult(
+                    False,
+                    "terminal_payload_invalid",
+                    "ADB Shell request payload is invalid.",
+                )
+        public_result: dict[str, object] = result.to_public_dict()
+        public_result["status"] = "SUCCESS" if result.accepted else "FAILED"
+        public_result["revision"] = _revision(self._engine.snapshot())
+        self._complete_request(
+            request,
+            response_envelope(
+                request.request_id,
+                ok=result.accepted,
+                result=public_result,
+                error={}
+                if result.accepted
+                else {
+                    "code": result.code,
+                    "message": result.message,
+                    "details": public_result,
                 },
             ),
         )
@@ -1411,6 +1558,14 @@ class ModernWebViewFrame(wx.Frame):
         else:
             wx.CallAfter(self._emit, message)
 
+    def _on_terminal_event(self, event: TerminalEvent) -> None:
+        message = event_envelope(
+            "terminal",
+            event.to_public_dict(),
+            revision=_revision(self._engine.snapshot()),
+        )
+        self._terminal_event_batcher.enqueue(message)
+
     def _emit_snapshot(self) -> None:
         snapshot = self._engine.snapshot()
         self._emit(
@@ -1494,8 +1649,11 @@ class ModernWebViewFrame(wx.Frame):
         # shutdown waits for the worker.  Pending UI-only events are discarded
         # at this explicit session boundary.
         self._logcat_progress_batcher.close()
+        self._terminal_event_batcher.close()
         if self._subscription is not None:
             self._subscription()
+        if self._terminal_subscription is not None:
+            self._terminal_subscription()
         try:
             self._engine.shutdown()
         finally:

@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from constants import VERSION
 
+from .adb_terminal import AdbTerminalService, native_terminal_backend
 from .apk_inspection import ApkInspector
 from .artifact_downloads import ArtifactDownloader
 from .avb_downgrade import (
@@ -248,7 +249,16 @@ class ApplicationRuntime:
             interaction_timeout_seconds,
             self._publish,
         )
+        safety_policy = SafetyPolicy()
         self._state_subscription = self.store.subscribe(self._publish_snapshot)
+        self.adb_terminal_service = AdbTerminalService(
+            self.store.snapshot,
+            native_terminal_backend(),
+            safety_policy=safety_policy,
+        )
+        self._adb_terminal_state_subscription = self.store.subscribe(
+            self.adb_terminal_service.observe_snapshot
+        )
         self.executor = CommandExecutor(transport, self._on_progress)
         self.device_service = DeviceService(self.executor.transport)
         configured_toolchain = self._configured_toolchain_path(config_document)
@@ -288,7 +298,6 @@ class ApplicationRuntime:
             update_manifest_verifier,
             UpdateSequenceStore(config_store.path.parent / "updates-state-v1.json"),
         )
-        safety_policy = SafetyPolicy()
         snapshot_provider = snapshot_provider or (lambda _serial: self.store.snapshot())
         if postcondition_observer is None:
             postcondition_observer = cast(
@@ -1373,6 +1382,7 @@ class ApplicationRuntime:
                 return
             self._is_shutdown = True
         try:
+            self.adb_terminal_service.shutdown()
             self.device_poller.stop()
             self.interaction_broker.shutdown()
             self.command_engine.shutdown()
@@ -1419,12 +1429,15 @@ class ApplicationRuntime:
                 self.config_store.save(self.config_document)
         finally:
             try:
-                self._state_subscription.cancel()
+                self._adb_terminal_state_subscription.cancel()
             finally:
                 try:
-                    self.backup_repository.close()
+                    self._state_subscription.cancel()
                 finally:
-                    self.artifact_repository.close()
+                    try:
+                        self.backup_repository.close()
+                    finally:
+                        self.artifact_repository.close()
 
     def __enter__(self) -> ApplicationRuntime:
         return self

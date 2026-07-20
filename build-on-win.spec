@@ -2,10 +2,13 @@
 from pathlib import Path
 
 import wx
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 from build_artifact_policy import RETIRED_UI_MODULES
 
 wx_dir = Path(wx.__file__).resolve().parent
+winpty_binaries = collect_dynamic_libs('winpty')
+winpty_datas = collect_data_files('winpty', includes=['*.exe'])
 
 block_cipher = None
 
@@ -15,7 +18,7 @@ a = Analysis(['PixelFlasher.py'],
                 ('bin/7z.exe', 'bin'),
                 ('bin/7z.dll', 'bin'),
                 (str(wx_dir / 'WebView2Loader.dll'), 'wx'),
-            ],
+            ] + winpty_binaries,
             datas=[
                 ("images/icon-64.png", "images"),
                 ("images/icon-dark-64.png", "images"),
@@ -41,8 +44,15 @@ a = Analysis(['PixelFlasher.py'],
                 ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
                 ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
+            ] + winpty_datas,
+            hiddenimports=[
+                '_cffi_backend',
+                'winpty',
+                'winpty._winpty',
+                'winpty.enums',
+                'winpty.ptyprocess',
+                'wx.html2',
             ],
-            hiddenimports=['_cffi_backend', 'wx.html2'],
             hookspath=[],
             runtime_hooks=[],
             excludes=[

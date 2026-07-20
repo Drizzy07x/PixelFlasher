@@ -104,6 +104,8 @@ jobs:
           $archive = ((python -m PyInstaller.utils.cliutils.archive_viewer -b -l "dist/PixelFlasher_Win_2019.exe") -join "`n").Replace('\', '/')
           $required = @(
             "ui/web/dist/index.html",
+            "ui/web/dist/assets/adb-terminal.js",
+            "ui/web/dist/assets/adb-terminal.css",
             "ui/web/dist/i18n/manifest.json",
             "ui/web/dist/i18n/en.json",
             "ui/web/dist/i18n/es.json",

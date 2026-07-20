@@ -137,6 +137,8 @@ jobs:
           $archive = ((& $viewer -b -l "dist/PixelFlasher-arm64.exe") -join "`n").Replace('\', '/')
           $required = @(
             "ui/web/dist/index.html",
+            "ui/web/dist/assets/adb-terminal.js",
+            "ui/web/dist/assets/adb-terminal.css",
             "ui/web/dist/i18n/manifest.json",
             "ui/web/dist/i18n/en.json",
             "ui/web/dist/i18n/es.json",

@@ -4114,9 +4114,61 @@ msgctxt "web.tools.recoveryDetail"
 msgid "Reboot, sideload, and inspect recovery state."
 msgstr "重新啟動、側載並檢查復原模式狀態。"
 
-msgctxt "web.tools.shellBlocked"
-msgid "Arbitrary shell input stays unavailable until a bounded command policy exists."
-msgstr "在實作受限命令政策之前，任意 shell 輸入維持停用。"
+msgctxt "web.tools.shellDetail"
+msgid "Interactive expert terminal bound to the selected device and current state."
+msgstr "綁定至所選裝置與目前狀態的互動式專家終端。"
+
+msgctxt "web.tools.shellReady"
+msgid "Ready to open a protected ADB shell session."
+msgstr "已準備好開啟受保護的 ADB shell 工作階段。"
+
+msgctxt "web.tools.shellClosed"
+msgid "ADB shell session closed."
+msgstr "ADB shell 工作階段已關閉。"
+
+msgctxt "web.tools.shellCloseFailed"
+msgid "The ADB shell session could not be closed cleanly."
+msgstr "無法正常關閉 ADB shell 工作階段。"
+
+msgctxt "web.tools.shellWriteFailed"
+msgid "Input delivery failed; the session was closed."
+msgstr "輸入傳送失敗；工作階段已關閉。"
+
+msgctxt "web.tools.shellResizeFailed"
+msgid "Terminal resize failed; reconnect to continue safely."
+msgstr "終端大小調整失敗；請重新連線後安全地繼續。"
+
+msgctxt "web.tools.shellStateChanged"
+msgid "Application state changed; reconnect before continuing."
+msgstr "應用程式狀態已變更；請重新連線後再繼續。"
+
+msgctxt "web.tools.shellOpening"
+msgid "Opening ADB shell…"
+msgstr "正在開啟 ADB shell…"
+
+msgctxt "web.tools.shellOpenFailed"
+msgid "The ADB shell session could not be opened."
+msgstr "無法開啟 ADB shell 工作階段。"
+
+msgctxt "web.tools.shellOpen"
+msgid "ADB shell connected to the selected device."
+msgstr "ADB shell 已連線至所選裝置。"
+
+msgctxt "web.tools.shellReconnect"
+msgid "Reconnect"
+msgstr "重新連線"
+
+msgctxt "web.tools.shellStart"
+msgid "Open shell"
+msgstr "開啟 shell"
+
+msgctxt "web.tools.shellClose"
+msgid "Close shell"
+msgstr "關閉 shell"
+
+msgctxt "web.tools.shellTerminalLabel"
+msgid "ADB shell terminal for {serial}"
+msgstr "{serial} 的 ADB shell 終端"
 
 msgctxt "web.tools.logcatDetail"
 msgid "Collect or stream bounded, redacted Android system logs."

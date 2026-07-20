@@ -4116,9 +4116,61 @@ msgctxt "web.tools.recoveryDetail"
 msgid "Reboot, sideload, and inspect recovery state."
 msgstr "Redémarrez, utilisez sideload et inspectez l’état du mode recovery."
 
-msgctxt "web.tools.shellBlocked"
-msgid "Arbitrary shell input stays unavailable until a bounded command policy exists."
-msgstr "Les commandes arbitraires restent indisponibles tant qu’une politique de commandes bornées n’est pas définie."
+msgctxt "web.tools.shellDetail"
+msgid "Interactive expert terminal bound to the selected device and current state."
+msgstr "Terminal expert interactif lié à l’appareil sélectionné et à l’état actuel."
+
+msgctxt "web.tools.shellReady"
+msgid "Ready to open a protected ADB shell session."
+msgstr "Prêt à ouvrir une session ADB shell protégée."
+
+msgctxt "web.tools.shellClosed"
+msgid "ADB shell session closed."
+msgstr "Session ADB shell fermée."
+
+msgctxt "web.tools.shellCloseFailed"
+msgid "The ADB shell session could not be closed cleanly."
+msgstr "La session ADB shell n’a pas pu être fermée proprement."
+
+msgctxt "web.tools.shellWriteFailed"
+msgid "Input delivery failed; the session was closed."
+msgstr "L’envoi de la saisie a échoué ; la session a été fermée."
+
+msgctxt "web.tools.shellResizeFailed"
+msgid "Terminal resize failed; reconnect to continue safely."
+msgstr "Le redimensionnement du terminal a échoué ; reconnectez-vous pour continuer en toute sécurité."
+
+msgctxt "web.tools.shellStateChanged"
+msgid "Application state changed; reconnect before continuing."
+msgstr "L’état de l’application a changé ; reconnectez-vous avant de continuer."
+
+msgctxt "web.tools.shellOpening"
+msgid "Opening ADB shell…"
+msgstr "Ouverture d’ADB shell…"
+
+msgctxt "web.tools.shellOpenFailed"
+msgid "The ADB shell session could not be opened."
+msgstr "La session ADB shell n’a pas pu être ouverte."
+
+msgctxt "web.tools.shellOpen"
+msgid "ADB shell connected to the selected device."
+msgstr "ADB shell connecté à l’appareil sélectionné."
+
+msgctxt "web.tools.shellReconnect"
+msgid "Reconnect"
+msgstr "Reconnecter"
+
+msgctxt "web.tools.shellStart"
+msgid "Open shell"
+msgstr "Ouvrir le shell"
+
+msgctxt "web.tools.shellClose"
+msgid "Close shell"
+msgstr "Fermer le shell"
+
+msgctxt "web.tools.shellTerminalLabel"
+msgid "ADB shell terminal for {serial}"
+msgstr "Terminal ADB shell pour {serial}"
 
 msgctxt "web.tools.logcatDetail"
 msgid "Collect or stream bounded, redacted Android system logs."

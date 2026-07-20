@@ -70,10 +70,13 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
             bridge_revision = revision
             if frame is not None:
                 # Queue closure after the bridge response and snapshot scripts.
-                wx.CallAfter(frame.Close)
+                # Smoke mode owns this isolated process, so background device
+                # discovery must not veto the proof after React is ready.
+                wx.CallAfter(frame.Close, True)
 
         frame = create_modern_webview_frame(
             runtime.engine,
+            adb_terminal_service=runtime.adb_terminal_service,
             command_factory=create_command_factory(runtime.engine.snapshot),
             support_destination_registrar=runtime.register_support_destination,
             application_directories=_application_directories_for_config(config_path),
@@ -90,7 +93,7 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
                 nonlocal smoke_timed_out
                 smoke_timed_out = True
                 if frame is not None:
-                    frame.Close()
+                    frame.Close(True)
 
             smoke_timer = wx.CallLater(smoke_options.timeout_seconds * 1000, smoke_timeout)
         app.MainLoop()

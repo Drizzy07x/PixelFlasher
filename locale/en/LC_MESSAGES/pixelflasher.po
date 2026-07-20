@@ -4081,8 +4081,60 @@ msgctxt "web.tools.recoveryDetail"
 msgid "Reboot, sideload, and inspect recovery state."
 msgstr ""
 
-msgctxt "web.tools.shellBlocked"
-msgid "Arbitrary shell input stays unavailable until a bounded command policy exists."
+msgctxt "web.tools.shellDetail"
+msgid "Interactive expert terminal bound to the selected device and current state."
+msgstr ""
+
+msgctxt "web.tools.shellReady"
+msgid "Ready to open a protected ADB shell session."
+msgstr ""
+
+msgctxt "web.tools.shellClosed"
+msgid "ADB shell session closed."
+msgstr ""
+
+msgctxt "web.tools.shellCloseFailed"
+msgid "The ADB shell session could not be closed cleanly."
+msgstr ""
+
+msgctxt "web.tools.shellWriteFailed"
+msgid "Input delivery failed; the session was closed."
+msgstr ""
+
+msgctxt "web.tools.shellResizeFailed"
+msgid "Terminal resize failed; reconnect to continue safely."
+msgstr ""
+
+msgctxt "web.tools.shellStateChanged"
+msgid "Application state changed; reconnect before continuing."
+msgstr ""
+
+msgctxt "web.tools.shellOpening"
+msgid "Opening ADB shell…"
+msgstr ""
+
+msgctxt "web.tools.shellOpenFailed"
+msgid "The ADB shell session could not be opened."
+msgstr ""
+
+msgctxt "web.tools.shellOpen"
+msgid "ADB shell connected to the selected device."
+msgstr ""
+
+msgctxt "web.tools.shellReconnect"
+msgid "Reconnect"
+msgstr ""
+
+msgctxt "web.tools.shellStart"
+msgid "Open shell"
+msgstr ""
+
+msgctxt "web.tools.shellClose"
+msgid "Close shell"
+msgstr ""
+
+msgctxt "web.tools.shellTerminalLabel"
+msgid "ADB shell terminal for {serial}"
 msgstr ""
 
 msgctxt "web.tools.logcatDetail"

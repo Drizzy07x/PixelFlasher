@@ -11,7 +11,7 @@
     "dev": "vite",
     "i18n:export": "node scripts/export-i18n.mjs",
     "i18n:check": "node scripts/verify-i18n.mjs",
-    "build": "node scripts/export-i18n.mjs && node scripts/verify-i18n.mjs && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build && node scripts/verify-dist.mjs",
+    "build": "node scripts/export-i18n.mjs && node scripts/verify-i18n.mjs && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build && vite build --config vite.terminal.config.ts && node scripts/verify-dist.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node scripts/export-i18n.mjs && vitest run",
     "test:coverage": "node scripts/export-i18n.mjs && vitest run --coverage",
@@ -19,6 +19,8 @@
     "test:a11y": "vitest run -t accessibility"
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
@@ -26,9 +28,9 @@
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
+    "@types/node": "24.13.3",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@types/node": "24.13.3",
     "@vitejs/plugin-react": "6.0.3",
     "@vitest/coverage-v8": "4.1.10",
     "axe-core": "4.12.1",

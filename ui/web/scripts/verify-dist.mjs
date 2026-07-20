@@ -6,13 +6,18 @@ const root = process.cwd();
 const htmlPath = resolve(root, 'dist', 'index.html');
 const scriptPath = resolve(root, 'dist', 'assets', 'pixelflasher.js');
 const cssPath = resolve(root, 'dist', 'assets', 'pixelflasher.css');
+const terminalScriptPath = resolve(root, 'dist', 'assets', 'adb-terminal.js');
+const terminalCssPath = resolve(root, 'dist', 'assets', 'adb-terminal.css');
 
-for (const path of [htmlPath, scriptPath, cssPath]) {
+for (const path of [htmlPath, scriptPath, cssPath, terminalScriptPath, terminalCssPath]) {
   if (!existsSync(path)) throw new Error(`Static WebView artifact missing: ${path}`);
 }
 
 const html = readFileSync(htmlPath, 'utf8');
 const script = readFileSync(scriptPath, 'utf8');
+if (script.includes('PixelFlasherTerminalRuntime=')) {
+  throw new Error('The initial WebView bundle must not inline the on-demand ADB terminal runtime.');
+}
 
 const forbiddenDevelopmentBridgeMarkers = [
   'MOCK_COMMAND_ERROR',

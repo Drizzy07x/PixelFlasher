@@ -21,6 +21,8 @@ from pixelflasher_core import (
     ProgressEvent,
     ProgressPhase,
     SnapshotChanged,
+    TerminalCommandResult,
+    TerminalOutputEvent,
 )
 from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest
 from ui.core_command_factory import create_command_factory
@@ -130,6 +132,83 @@ class ModernWebViewHostContractTests(unittest.TestCase):
             request("application-ready-second", command="app.ready"),
         )
         self.assertEqual([3], ready_revisions)
+
+    def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):
+        calls: list[tuple] = []
+        responses: list[dict] = []
+        service = SimpleNamespace(
+            open=lambda **values: calls.append(("open", values))
+            or TerminalCommandResult(True, "terminal_opened", "opened", "session-1"),
+            write=lambda session_id, data, **values: calls.append(("write", session_id, data, values))
+            or TerminalCommandResult(True, "terminal_input_written", "written", session_id),
+            resize=lambda session_id, **values: calls.append(("resize", session_id, values))
+            or TerminalCommandResult(True, "terminal_resized", "resized", session_id),
+            close=lambda session_id, **values: calls.append(("close", session_id, values))
+            or TerminalCommandResult(True, "terminal_closed", "closed", session_id),
+        )
+        host = SimpleNamespace(
+            _adb_terminal_service=service,
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _complete_request=lambda _request, message: responses.append(message),
+        )
+
+        requests = (
+            request(
+                "terminal-open",
+                command="tools.adbShell",
+                payload={"serial": "SERIAL", "columns": 100, "rows": 30},
+            ),
+            request(
+                "terminal-write",
+                command="tools.adbShell.write",
+                payload={"sessionId": "session-1", "data": "id\r"},
+            ),
+            request(
+                "terminal-resize",
+                command="tools.adbShell.resize",
+                payload={"sessionId": "session-1", "columns": 120, "rows": 40},
+            ),
+            request(
+                "terminal-close",
+                command="tools.adbShell.close",
+                payload={"sessionId": "session-1"},
+            ),
+        )
+        for terminal_request in requests:
+            ModernWebViewFrame._handle_adb_terminal_request(host, terminal_request)
+
+        self.assertEqual(
+            [
+                ("open", {"serial": "SERIAL", "expected_revision": 3, "columns": 100, "rows": 30}),
+                ("write", "session-1", b"id\r", {"expected_revision": 3}),
+                ("resize", "session-1", {"expected_revision": 3, "columns": 120, "rows": 40}),
+                ("close", "session-1", {"expected_revision": 3}),
+            ],
+            calls,
+        )
+        self.assertTrue(all(response["ok"] for response in responses))
+        self.assertEqual(
+            ["terminal_opened", "terminal_input_written", "terminal_resized", "terminal_closed"],
+            [response["result"]["code"] for response in responses],
+        )
+
+    def test_adb_terminal_event_uses_the_bounded_terminal_channel(self):
+        messages: list[dict] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=9)),
+            _terminal_event_batcher=SimpleNamespace(enqueue=messages.append),
+        )
+
+        ModernWebViewFrame._on_terminal_event(
+            host,
+            TerminalOutputEvent("session-1", 4, b"id=1000\r\n"),
+        )
+
+        self.assertEqual("terminal", messages[0]["event"])
+        self.assertEqual(9, messages[0]["revision"])
+        self.assertEqual("output", messages[0]["payload"]["type"])
+        self.assertEqual("base64", messages[0]["payload"]["encoding"])
+        self.assertNotIn("id=1000", json.dumps(messages[0]))
 
     def test_application_folders_are_backend_owned_and_never_disclose_paths(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -126,7 +126,7 @@ class CommandRegistryTests(unittest.TestCase):
         self.assertEqual(set(COMMAND_REGISTRY), set(REGISTERED_COMMANDS))
         self.assertEqual(set(REGISTERED_PAYLOAD_FIELDS), set(REGISTERED_COMMANDS))
         self.assertEqual(set(PAYLOAD_FIELDS), set(ALLOWED_COMMANDS))
-        self.assertTrue(FUTURE_COMMANDS)
+        self.assertFalse(FUTURE_COMMANDS)
         self.assertEqual(set(REGISTERED_COMMANDS) - set(FUTURE_COMMANDS), set(ALLOWED_COMMANDS))
 
         for command in ALLOWED_COMMANDS:

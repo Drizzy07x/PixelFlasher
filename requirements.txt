@@ -20,6 +20,7 @@ cryptography>=42.0.5,<49; platform_system == "Darwin"
 cryptography>=42.0.5; platform_system != "Darwin"
 rsa>=4.9
 polib>=1.1.1
+pywinpty==3.0.5; sys_platform == "win32"
 # # Use pre-built wheels for wxPython
 # --find-links https://wxpython.org/Phoenix/snapshot-builds/
 # --find-links https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-20.04/

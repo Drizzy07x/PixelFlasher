@@ -60,7 +60,7 @@ parity belongs to `flash.execute`. Downloads has one owner,
 |---|---:|---:|---|
 | Default React/WebView host and dashboard | native | none | Continue packaged cross-platform smoke coverage; no hidden legacy frame is used by this path. |
 | Device, Flash and Safety navigation shells | native | none | Navigation is native; operational Flash parity is tracked independently by `flash.execute`. |
-| About/help surface | missing | none | Add a live React surface for packaged version, license, updates, support and project information. |
+| About/help surface | partial | none | The accessible React surface and native allow-listed links are live; signed update status and packaged dev/RC version derivation remain open. |
 | Backup, settings and tools workspaces | partial | none | Tools now has native flows for scrcpy, wireless ADB, bounded logcat, file push, partitions and support export; advanced utilities and the documented postconditions remain open. |
 | Scan/select/manage devices | native | device read/host write | Typed adb/fastboot discovery reads serial-bound `current-slot`, `unlocked` and `is-userspace`, distinguishes fastbootd and preserves stable identity without reusing stale operational state. A versioned manager persists aliases and enabled state, pauses/resumes hotplug, switches between enabled/all scope, repairs selection and migrates the bounded 9.x roster with an automatic backup. |
 | Platform Tools setup | partial | host write | Signed official downloads and opaque-grant directories now use pinned manifests, versioned atomic installation, binary/version probes and transactional activation. Production key/catalog provisioning and packaged cross-platform smokes remain. |
@@ -78,6 +78,7 @@ parity belongs to `flash.execute`. Downloads has one owner,
 | Logcat and file push | native | destructive device write and host write | Logcat provides bounded snapshot and incremental stream modes, serial/revision binding, cancellation, all legacy format verbs/modifiers, typed tag/priority plus Expert regex/UID filters, configurable redaction and atomic export through a one-use native grant. Remote clearing is serialized and success-gated: backend command completion is combined with a differential sentinel in the main buffer, without claiming that every buffer remains empty. File push uses opaque superseding grants, private verified staging, closed destinations, bounded per-file progress, explicit cancellation/manual retry and batched remote SHA-256 verification with a bounded `toybox` fallback. |
 | Reboot and slot switch | native | device write | Reboot to system, bootloader, fastbootd, recovery, safe mode and sideload uses serial/revision-bound plans and observed mode, boot-completion or safe-mode postconditions. Vendor download mode is explicitly policy-absent and fails closed as `reboot_download_unverifiable` without starting a process. Slot switching verifies `fastboot getvar current-slot` after reconnection. |
 | Scrcpy and wireless ADB | partial | device write | Scrcpy now has typed React options, serial-bound argv, managed cancellation, a signed-manifest ZIP/TAR installer, confined extraction, architecture/version/hash verification, atomic activation and a route-free receipt. Production Ed25519 manifests plus packaged window/process smokes remain; wireless disconnected-device handoff is still open. |
+| Interactive ADB shell | partial | destructive | Expert Mode now opens a revision- and serial-bound xterm.js terminal through fixed `adb -s SERIAL shell` argv, ConPTY on Windows and PTY on macOS/Linux. Input/output/resize are bounded, binary output crosses the bridge as base64, and state/toolchain/device changes close the session. Packaged PTY smokes on all three platforms plus terminal-specific axe and NVDA/VoiceOver/Orca validation remain. |
 | Sanitized support package | partial | host write | Native destination grants, strict allow-listed collection, mandatory redaction, a sanitized SQLite copy, an inclusion/omission manifest and atomic AES-256-GCM output with RSA-OAEP key wrapping are tested. Production recipient-key injection and packaged interoperability validation remain open. |
 | Modern presentation preferences | partial | host write | Five visible fields are host-backed end to end and Expert Mode controls advanced disclosure; broader 9.x settings and host persistence for Expert Mode remain open. |
 | Standalone wipe | `policy_absent` | destructive | This is intentionally not a parity target: wipe is allowed only inside a reviewed immutable flash plan. |
@@ -106,7 +107,7 @@ boot state. This row remains `partial` because custom `payload.bin` processing,
 runtime recovery/fastbootd transitions and multi-device batch execution remain
 open.
 
-Ten bounded service groups now use reviewed planner/policy/executor or local
+Eleven bounded service groups now use reviewed planner/policy/executor or local
 atomic-operation boundaries:
 
 - Device management uses a strict versioned codec and transactional runtime
@@ -134,7 +135,11 @@ atomic-operation boundaries:
   quotes the Android remote shell boundary, requires confirmation and reports
   success only from bounded `am start -W` completion evidence without returning
   the URL itself.
-  Arbitrary ADB shell is explicitly rejected without execution.
+- `AdbTerminalService` is a separate expert-only lifecycle boundary. It passes
+  open through `SafetyPolicy`, launches only fixed `adb -s SERIAL shell` argv
+  without a host shell, bounds terminal dimensions and I/O chunks, and closes
+  the PTY when revision, selected serial, device mode/connectivity or toolchain
+  changes. React receives only versioned terminal events, never a host command.
 - `BackupService` creates and restores bounded boot-chain partition images.
   `BackupRepository` atomically imports them into a persistent content-addressed
   SQLite inventory, exposes only opaque IDs and provenance, rehashes a managed
@@ -167,8 +172,8 @@ uninstall, clear-data, force-stop, launch, bounded permission reports, Magisk
 denylist, verified SU policy controls and route-free verified APK export, and
 installs verified APKs without revealing host paths, including typed Play Store
 ownership with independent installer-source observation. Packaged smokes stay
-open. The Tools page now owns the bounded logcat viewer, scrcpy,
-wireless ADB, file-push, partition and support-package flows, but each row stays
+open. The Tools page now owns the bounded logcat viewer, expert ADB terminal,
+scrcpy, wireless ADB, file-push, partition and support-package flows, but each row stays
 partial until its documented packaging, postcondition, progress or legacy-data
 gap is closed. Backups now renders the canonical persisted raw-image inventory,
 provenance and typed create/restore/delete results without exposing host paths;
@@ -194,13 +199,13 @@ becomes implicit success.
 |---|---|
 | Device connection | Bounded mDNS discovery is native without a selected device, and versioned scan/hotplug management is complete. Pair/connect without a selected ADB target and disconnected-device handoff remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | Packaged cross-platform smokes remain; listing, install with verified Play Store ownership, verified export, denylist, SU and the other package actions are connected to React. |
-| Device tools | The explicit expert ADB shell decision, production Scrcpy manifests/smokes and a reproducibly sourced OTA cancel/reset runner. Scrcpy's authenticated installer, typed options and managed lifecycle are implemented. Safe HTTP(S) URL opening, independently verified per-slot bootloader inspection, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing, filtered logs, closed update_engine status/preflight and an independent bounded OTA-idle observer are now native. The opaque legacy OTA binaries are not admitted to the modern core. |
+| Device tools | Packaged ADB PTY smokes on Windows/macOS/Linux, production Scrcpy manifests/smokes and a reproducibly sourced OTA cancel/reset runner. The expert terminal contract, Scrcpy's authenticated installer, typed options and managed lifecycle are implemented. Safe HTTP(S) URL opening, independently verified per-slot bootloader inspection, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing, filtered logs, closed update_engine status/preflight and an independent bounded OTA-idle observer are now native. The opaque legacy OTA binaries are not admitted to the modern core. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, custom `payload.bin`, remaining runtime recovery/fastbootd validation, real patch APK/runner resources and KMI/architecture-based kernel selection. Stock-flash relock evidence and a firmware-bound AVB downgrade flow now exist; their packaged/hardware validation remains. |
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
 | Backups | Raw-backup inventory/results are persistent and route-free; complete the distinct Magisk list/import/delete behavior. |
 | Root and integrity | `/data/adb` backup/restore/clear, PIF/TargetedFix, PI analysis, Shizuku and SOS. |
 | Developer/personal tools | Production signed keybox revocation evidence, packaged validation of the native AVB downgrade, bounded binary-XML and local keybox flows, and arbitrary My Tools commands. |
-| Application shell | About/help, remaining 9.x/expert preferences and update/link actions. Backend-owned Configuration, Logs and Cache folders, safe revisioned exit, persistent top/right/bottom/left toolbar layout and a bounded redacted console with clear plus atomic one-use-grant export are implemented without exposing paths or opening classic dialogs. |
+| Application shell | Production signed update manifests, packaged dev/RC version derivation and remaining 9.x/expert preferences. About/help and allow-listed native links are implemented. Backend-owned Configuration, Logs and Cache folders, safe revisioned exit, persistent top/right/bottom/left toolbar layout and a bounded redacted console with clear plus atomic one-use-grant export are implemented without exposing paths or opening classic dialogs. |
 
 The JSON inventory maps each individual menu/context-menu and primary-control
 handler into one of these capability groups, including selection-only actions

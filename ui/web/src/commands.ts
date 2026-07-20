@@ -77,6 +77,10 @@ export const commands = {
   settingsUpdate: "settings.update",
   snapshotGet: "snapshot.get",
   supportCreate: "support.create",
+  toolsAdbShell: "tools.adbShell",
+  toolsAdbShellClose: "tools.adbShell.close",
+  toolsAdbShellResize: "tools.adbShell.resize",
+  toolsAdbShellWrite: "tools.adbShell.write",
   toolsAvb: "tools.avb",
   toolsKeybox: "tools.keybox",
   toolsLogcat: "tools.logcat",
@@ -418,6 +422,23 @@ export interface BridgePayloadByCommand {
     "includeState"?: boolean;
     "includeSystemInfo"?: boolean;
   };
+  "tools.adbShell": {
+    "columns": number;
+    "rows": number;
+    "serial": string;
+  };
+  "tools.adbShell.close": {
+    "sessionId": string;
+  };
+  "tools.adbShell.resize": {
+    "columns": number;
+    "rows": number;
+    "sessionId": string;
+  };
+  "tools.adbShell.write": {
+    "data": string;
+    "sessionId": string;
+  };
   "tools.avb": {
     "action": string;
     "currentSecurityPatch"?: string;
@@ -597,6 +618,10 @@ export const allowedCommands = [
   commands.settingsUpdate,
   commands.snapshotGet,
   commands.supportCreate,
+  commands.toolsAdbShell,
+  commands.toolsAdbShellClose,
+  commands.toolsAdbShellResize,
+  commands.toolsAdbShellWrite,
   commands.toolsAvb,
   commands.toolsKeybox,
   commands.toolsLogcat,
@@ -696,6 +721,10 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.settingsUpdate]: 60000,
   [commands.snapshotGet]: 60000,
   [commands.supportCreate]: 1800000,
+  [commands.toolsAdbShell]: 30000,
+  [commands.toolsAdbShellClose]: 30000,
+  [commands.toolsAdbShellResize]: 30000,
+  [commands.toolsAdbShellWrite]: 30000,
   [commands.toolsAvb]: 1800000,
   [commands.toolsKeybox]: 300000,
   [commands.toolsLogcat]: 180000,
@@ -789,6 +818,10 @@ export const bridgeCommandMetadata = {
   [commands.settingsUpdate]: {"owner":"settings","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"runtime.settings_update","confirmation":"none","postconditions":["preferences_persisted"]},
   [commands.snapshotGet]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"engine.snapshot","confirmation":"none","postconditions":["snapshot_returned"]},
   [commands.supportCreate]: {"owner":"support","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"support.package_v2","confirmation":"none","postconditions":["encrypted_container_verified"]},
+  [commands.toolsAdbShell]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"native_host.adb_terminal.open","confirmation":"none","postconditions":["pty_bound_to_serial_revision_and_adb_state"]},
+  [commands.toolsAdbShellClose]: {"owner":"device_tools","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.adb_terminal.close","confirmation":"none","postconditions":["pty_session_closed"]},
+  [commands.toolsAdbShellResize]: {"owner":"device_tools","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["adb"],"planner":"native_host.adb_terminal.resize","confirmation":"none","postconditions":["pty_size_updated_for_bound_session"]},
+  [commands.toolsAdbShellWrite]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"native_host.adb_terminal.write","confirmation":"none","postconditions":["pty_input_accepted_for_bound_session"]},
   [commands.toolsAvb]: {"owner":"developer_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"avb_downgrade.patch_service","confirmation":"none","postconditions":["downgrade_artifact_registered"]},
   [commands.toolsKeybox]: {"owner":"developer_tools","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"keybox.analyze","confirmation":"none","postconditions":["bounded_keybox_reports_returned"]},
   [commands.toolsLogcat]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
@@ -913,6 +946,10 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.settingsUpdate]: {"automaticUpdateCheck":{"kind":"boolean","required":false},"checkBootloaderUnlocked":{"kind":"boolean","required":false},"checkDiskSpace":{"kind":"boolean","required":false},"checkFirmwareHash":{"kind":"boolean","required":false},"checkModuleUpdates":{"kind":"boolean","required":false},"customizeFont":{"kind":"boolean","required":false},"expertMode":{"kind":"boolean","required":false},"extraImageExtracts":{"kind":"boolean","required":false},"fontFace":{"kind":"string","required":false},"fontSize":{"kind":"integer","required":false},"highContrast":{"kind":"boolean","required":false},"keepPatchTemporaryFiles":{"kind":"boolean","required":false},"keyboxIndex":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"lowMemoryMode":{"kind":"boolean","required":false},"offerPatchMethods":{"kind":"boolean","required":false},"rebootTimeoutSeconds":{"kind":"integer","required":false},"reducedMotion":{"kind":"boolean","required":false},"showCustomRomOptions":{"kind":"boolean","required":false},"showNotifications":{"kind":"boolean","required":false},"showRecoveryPatching":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"toolbarPosition":{"kind":"string","required":false},"toolbarShowDevice":{"kind":"boolean","required":false},"toolbarShowLanguage":{"kind":"boolean","required":false},"toolbarShowTheme":{"kind":"boolean","required":false},"useBusyboxShell":{"kind":"boolean","required":false},"zoom":{"kind":"integer","required":false}},
   [commands.snapshotGet]: {},
   [commands.supportCreate]: {"grant":{"kind":"string","required":true},"includeConfig":{"kind":"boolean","required":false},"includeLogs":{"kind":"boolean","required":false},"includeState":{"kind":"boolean","required":false},"includeSystemInfo":{"kind":"boolean","required":false}},
+  [commands.toolsAdbShell]: {"columns":{"kind":"integer","required":true},"rows":{"kind":"integer","required":true},"serial":{"kind":"string","required":true}},
+  [commands.toolsAdbShellClose]: {"sessionId":{"kind":"string","required":true}},
+  [commands.toolsAdbShellResize]: {"columns":{"kind":"integer","required":true},"rows":{"kind":"integer","required":true},"sessionId":{"kind":"string","required":true}},
+  [commands.toolsAdbShellWrite]: {"data":{"kind":"string","required":true},"sessionId":{"kind":"string","required":true}},
   [commands.toolsAvb]: {"action":{"kind":"string","required":true},"currentSecurityPatch":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"patchFingerprint":{"kind":"boolean","required":false}},
   [commands.toolsKeybox]: {"action":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32}},
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"logcat_filter_array","required":false,"minItems":0,"maxItems":32},"formatEnabled":{"kind":"boolean","required":false},"formatModifiers":{"kind":"string_array","required":false,"minItems":0,"maxItems":7},"formatVerb":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"regex":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false},"uids":{"kind":"integer_array","required":false,"minItems":0,"maxItems":32}},

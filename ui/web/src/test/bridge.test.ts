@@ -146,6 +146,24 @@ describe('PixelFlasher bridge protocol', () => {
     expect(parseBridgeMessage({ ...response, version: 1 })).toBeNull();
     expect(parseBridgeMessage({ ...response, responseId: 'strict-1' })).toBeNull();
     expect(parseBridgeMessage({ ...response, snapshot: {} })).toBeNull();
+    expect(parseBridgeMessage({
+      version: 2,
+      event: 'terminal',
+      revision: 4,
+      payload: {
+        type: 'output',
+        sessionId: 'terminal-1',
+        sequence: 1,
+        encoding: 'base64',
+        data: 'b2s=',
+      },
+    })).not.toBeNull();
+    expect(parseBridgeMessage({
+      version: 2,
+      event: 'terminal-alias',
+      revision: 4,
+      payload: {},
+    })).toBeNull();
   });
 
   it('loads and updates strictly validated host preferences', async () => {

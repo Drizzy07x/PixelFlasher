@@ -246,7 +246,7 @@ export function parseBridgeMessage(detail: unknown): BridgeMessage | null {
       }
       return parsed as unknown as BridgeResponse;
     }
-    if (typeof parsed.event !== 'string' || !['snapshot', 'progress', 'interaction', 'runtime'].includes(parsed.event)) return null;
+    if (typeof parsed.event !== 'string' || !['snapshot', 'progress', 'interaction', 'runtime', 'terminal'].includes(parsed.event)) return null;
     if (!hasExactFields(parsed, ['version', 'event', 'revision', 'payload'])) return null;
     if (!isRecord(parsed.payload) || !validRevision(parsed.revision)) return null;
     return parsed as unknown as BridgeEvent;

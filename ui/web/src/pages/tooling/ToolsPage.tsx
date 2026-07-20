@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AssetName } from '../../assets';
 import { normalizeOperationStatus, validTargetSerial } from '../../bridge';
 import { commands, type BridgeCommand } from '../../commands';
@@ -17,7 +17,12 @@ import {
   type LogcatUiState,
 } from './LogcatPanel';
 
-type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | 'mytools' | null;
+const AdbShellPanel = lazy(async () => {
+  const module = await import('./AdbShellPanel');
+  return { default: module.AdbShellPanel };
+});
+
+type ToolPanel = 'scrcpy' | 'wifi' | 'shell' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | 'mytools' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type WifiService = {
   id: string;
@@ -861,7 +866,7 @@ export function ToolsPage({
       disabled: false, run: () => void createSupportPackage(),
     },
     ...(expertMode ? [
-      { id: 'shell', icon: 'shell', title: t('tools.shell'), detail: t('tools.shellBlocked'), disabled: true, run: () => {} },
+      { id: 'shell', icon: 'shell', title: t('tools.shell'), detail: t('tools.shellDetail'), disabled: !adbReady, run: () => openPanel('shell') },
       { id: 'logcat', icon: 'logs', title: t('tools.logs'), detail: t('tools.logcatDetail'), disabled: !adbReady, run: () => openPanel('logcat') },
       { id: 'partition', icon: 'slot', title: t('tools.partition'), detail: t('tools.partitionDetail'), disabled: !fastbootReady, run: () => openPanel('partitions') },
       { id: 'bootloader', icon: 'bootloader', title: t('tools.bootloader'), detail: t('tools.bootloaderDetail'), disabled: !primary || !isToolchainReady(snapshot), run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'bootloader' }); } },
@@ -912,8 +917,8 @@ export function ToolsPage({
 
       {panel ? (
         <Card className="tool-workspace" aria-busy={Boolean(busy)}>
-          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' || panel === 'keybox' ? 'shield' : panel === 'xml' ? 'processFile' : panel === 'mytools' ? 'wrench' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
-            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : panel === 'keybox' ? t('tools.keyboxValidate') : panel === 'mytools' ? t('tools.myTools') : t('tools.wifi')}
+          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'shell' ? 'shell' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' || panel === 'keybox' ? 'shield' : panel === 'xml' ? 'processFile' : panel === 'mytools' ? 'wrench' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
+            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'shell' ? t('tools.shell') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : panel === 'keybox' ? t('tools.keyboxValidate') : panel === 'mytools' ? t('tools.myTools') : t('tools.wifi')}
           </CardTitle>
           {panel === 'scrcpy' ? (
             <div className="tool-panel-body scrcpy-panel">
@@ -967,6 +972,11 @@ export function ToolsPage({
                 <Button variant="primary" icon="adb" onClick={() => void runWifi()} disabled={Boolean(busy) || !toolchainReady || (wifiAction === 'status' ? !adbReady : (!wifiHost || wifiPort < 1 || wifiPort > 65535))}>{t('common.apply')}</Button>
               </div>
             </div>
+          ) : null}
+          {panel === 'shell' && expertMode && primary ? (
+            <Suspense fallback={<p className="tool-help" role="status">{t('tools.shellOpening')}</p>}>
+              <AdbShellPanel serial={primary.serial} revision={snapshot.revision} />
+            </Suspense>
           ) : null}
           {panel === 'logcat' ? (
             <LogcatPanel

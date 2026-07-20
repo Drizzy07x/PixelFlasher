@@ -3281,6 +3281,45 @@ code {
   padding: 0.85rem;
 }
 
+.adb-shell-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+}
+
+.adb-shell-panel__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.adb-shell-panel__toolbar [role="status"] {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.adb-shell-panel__terminal {
+  min-height: 18rem;
+  height: clamp(18rem, 48vh, 34rem);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.65rem;
+  background: #07111f;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
+}
+
+.adb-shell-panel__terminal:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.adb-shell-panel__terminal .xterm {
+  height: 100%;
+  padding: 0.55rem;
+}
+
 .wifi-discovery-toolbar {
   display: flex;
   flex-wrap: wrap;

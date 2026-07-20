@@ -927,7 +927,7 @@ def event_envelope(
     *,
     revision: int,
 ) -> dict[str, Any]:
-    if event_type not in {"snapshot", "progress", "interaction", "runtime"}:
+    if event_type not in {"snapshot", "progress", "interaction", "runtime", "terminal"}:
         raise ValueError(f"Unsupported bridge event type: {event_type}")
     if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
         raise ValueError("event revision must be a non-negative integer")

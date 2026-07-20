@@ -199,7 +199,7 @@ export type BridgeResponse = BridgeSuccessResponse | BridgeFailureResponse;
 
 export interface BridgeEvent {
   version: 2;
-  event: 'snapshot' | 'progress' | 'interaction' | 'runtime';
+  event: 'snapshot' | 'progress' | 'interaction' | 'runtime' | 'terminal';
   revision: number;
   payload: Record<string, unknown>;
 }

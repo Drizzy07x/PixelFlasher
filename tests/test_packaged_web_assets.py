@@ -30,6 +30,10 @@ LOCALE_ASSETS = (
     "zh_CN.json",
     "zh_TW.json",
 )
+TERMINAL_ASSETS = (
+    "ui/web/dist/assets/adb-terminal.js",
+    "ui/web/dist/assets/adb-terminal.css",
+)
 
 
 class PackagedWebAssetTests(unittest.TestCase):
@@ -75,6 +79,8 @@ class PackagedWebAssetTests(unittest.TestCase):
                     "archive_viewer" in source or "pyi-archive-viewer" in source
                 )
                 self.assertIn("ui/web/dist/index.html", source)
+                for terminal_asset in TERMINAL_ASSETS:
+                    self.assertIn(terminal_asset, source)
                 for locale_asset in LOCALE_ASSETS:
                     self.assertIn(f"ui/web/dist/i18n/{locale_asset}", source)
 

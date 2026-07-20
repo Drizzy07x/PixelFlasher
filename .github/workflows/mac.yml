@@ -94,6 +94,8 @@ jobs:
           archive_listing="$(myenv/bin/pyi-archive-viewer -b -l "${binary}" | tr '\\' '/')"
           for asset in \
             ui/web/dist/index.html \
+            ui/web/dist/assets/adb-terminal.js \
+            ui/web/dist/assets/adb-terminal.css \
             ui/web/dist/i18n/manifest.json \
             ui/web/dist/i18n/en.json \
             ui/web/dist/i18n/es.json \

@@ -1,12 +1,16 @@
 # -*- mode: python -*-
 
 from build_artifact_policy import RETIRED_UI_MODULES
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+winpty_binaries = collect_dynamic_libs('winpty')
+winpty_datas = collect_data_files('winpty', includes=['*.exe'])
 
 block_cipher = None
 
 a = Analysis(['PixelFlasher.py'],
             pathex=['.'],
-            binaries=[('bin/7z.exe', 'bin'), ('bin/7z.dll', 'bin')],
+            binaries=[('bin/7z.exe', 'bin'), ('bin/7z.dll', 'bin')] + winpty_binaries,
             datas=[
                 ("images/icon-64.png", "images"),
                 ("images/icon-dark-64.png", "images"),
@@ -28,9 +32,13 @@ a = Analysis(['PixelFlasher.py'],
                 ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
                 ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
-            ],
+            ] + winpty_datas,
             hiddenimports=[
                 '_cffi_backend',
+                'winpty',
+                'winpty._winpty',
+                'winpty.enums',
+                'winpty.ptyprocess',
                 'wx',
                 'wx.adv',
                 'wx.lib',

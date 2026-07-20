@@ -265,6 +265,13 @@ function emit(detail: unknown) {
   window.dispatchEvent(new CustomEvent('pixelflasher:message', { detail }));
 }
 
+function base64Text(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function errorMessage(message: string, request: BridgeRequest): BridgeResponse {
   return {
     version: 2,
@@ -290,6 +297,7 @@ export function installDevelopmentBridge() {
   let mockPifFavorites: Array<{
     favoriteId: string; label: string; createdAt: string; sha256: string; size: number; content: string;
   }> = [];
+  let mockTerminalSession: { id: string; sequence: number } | null = null;
   let mockBootImages: Array<{
     bootId: string;
     sha256: string;
@@ -473,6 +481,7 @@ export function installDevelopmentBridge() {
       mockRootModules = ['play_integrity_fix', 'zygisk_next'];
       mockDisabledRootModules = new Set<string>();
       mockBootImages = [];
+      mockTerminalSession = null;
     },
     postMessage(rawMessage: string) {
       window.setTimeout(() => {
@@ -1798,6 +1807,104 @@ export function installDevelopmentBridge() {
                 },
               } : {}),
             }));
+            break;
+          }
+          case 'tools.adbShell': {
+            if (mockTerminalSession) {
+              emit(errorMessage('A mock ADB shell session is already active.', request));
+              break;
+            }
+            mockTerminalSession = { id: `mock-terminal-${Date.now()}`, sequence: 0 };
+            respond(request, {
+              accepted: true,
+              code: 'terminal_opened',
+              message: 'Mock ADB shell opened.',
+              sessionId: mockTerminalSession.id,
+            });
+            const opened = mockTerminalSession;
+            window.setTimeout(() => {
+              if (mockTerminalSession?.id !== opened.id) return;
+              mockTerminalSession.sequence += 1;
+              emit({
+                version: 2,
+                event: 'terminal',
+                revision: snapshot.revision,
+                payload: {
+                  type: 'output',
+                  sessionId: mockTerminalSession.id,
+                  sequence: mockTerminalSession.sequence,
+                  encoding: 'base64',
+                  data: base64Text('PixelFlasher development ADB shell\r\n$ '),
+                },
+              });
+            }, 0);
+            break;
+          }
+          case 'tools.adbShell.write': {
+            if (!mockTerminalSession || request.payload.sessionId !== mockTerminalSession.id) {
+              emit(errorMessage('The mock ADB shell session is unavailable.', request));
+              break;
+            }
+            mockTerminalSession.sequence += 1;
+            emit({
+              version: 2,
+              event: 'terminal',
+              revision: snapshot.revision,
+              payload: {
+                type: 'output',
+                sessionId: mockTerminalSession.id,
+                sequence: mockTerminalSession.sequence,
+                encoding: 'base64',
+                data: base64Text(String(request.payload.data ?? '')),
+              },
+            });
+            respond(request, {
+              accepted: true,
+              code: 'terminal_input_written',
+              message: 'Mock terminal input accepted.',
+              sessionId: mockTerminalSession.id,
+            });
+            break;
+          }
+          case 'tools.adbShell.resize': {
+            if (!mockTerminalSession || request.payload.sessionId !== mockTerminalSession.id) {
+              emit(errorMessage('The mock ADB shell session is unavailable.', request));
+              break;
+            }
+            respond(request, {
+              accepted: true,
+              code: 'terminal_resized',
+              message: 'Mock terminal resized.',
+              sessionId: mockTerminalSession.id,
+            });
+            break;
+          }
+          case 'tools.adbShell.close': {
+            if (!mockTerminalSession || request.payload.sessionId !== mockTerminalSession.id) {
+              emit(errorMessage('The mock ADB shell session is unavailable.', request));
+              break;
+            }
+            const closed = { ...mockTerminalSession, sequence: mockTerminalSession.sequence + 1 };
+            mockTerminalSession = null;
+            respond(request, {
+              accepted: true,
+              code: 'terminal_closed',
+              message: 'Mock ADB shell closed.',
+              sessionId: closed.id,
+            });
+            emit({
+              version: 2,
+              event: 'terminal',
+              revision: snapshot.revision,
+              payload: {
+                type: 'closed',
+                sessionId: closed.id,
+                sequence: closed.sequence,
+                code: 'terminal_closed',
+                message: 'Mock ADB shell closed.',
+                exitCode: 0,
+              },
+            });
             break;
           }
           case 'tools.scrcpy.setup':

@@ -440,7 +440,7 @@ describe('PixelFlasher web workspace', () => {
     expect(await screen.findByRole('button', { name: /Logcat/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Partition manager/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Bootloader console/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /ADB Shell/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /ADB Shell/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /AVB downgrade patch/i })).toBeDisabled();
   });
 
