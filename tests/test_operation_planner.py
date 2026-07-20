@@ -1831,6 +1831,45 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 transport.calls,
             )
 
+    def test_temporary_root_rejects_noncanonical_and_nonboot_artifacts(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "boot.img"
+            patched = root / "patched.img"
+            original.write_bytes(b"original")
+            patched.write_bytes(b"patched")
+            plan = FlashPlan(
+                "images",
+                {"temporaryRoot": True, "noReboot": False},
+                fingerprint="temporary-root-prerequisites",
+                dry_run=False,
+            )
+            repository = ProcessedArtifactRepository()
+            repository.register(
+                (FileArtifact(str(original), digest(original), "partition:boot"),),
+                plan_fingerprint=plan.fingerprint,
+            )
+            planner = OperationPlanner(artifact_repository=repository)
+
+            for boot, expected_code in (
+                (
+                    BootInfo("", str(patched), digest(patched), "boot", True),
+                    "temporary_root_image_required",
+                ),
+                (
+                    BootInfo("patched", str(patched), digest(patched), "init_boot", True),
+                    "temporary_root_partition_unsupported",
+                ),
+            ):
+                with self.subTest(expected_code=expected_code):
+                    compilation = planner.compile(
+                        command("flash.execute"),
+                        snapshot_for("fastboot", plan=plan, boot=boot),
+                        preview=True,
+                    )
+                    self.assertEqual(expected_code, compilation.code)
+                    self.assertIsNone(compilation.plan)
+
     def test_wipe_preview_issues_nonce_and_exact_text_before_execution(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

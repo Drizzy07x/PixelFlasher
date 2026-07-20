@@ -1321,10 +1321,15 @@ class OperationPlanner:
             )
         temporary_root = options.get("temporaryRoot") is True
         if temporary_root:
-            if not snapshot.boot.patched:
+            if not snapshot.boot.patched or not snapshot.boot.id or not snapshot.boot.hash:
                 raise PlanningError(
                     "temporary_root_image_required",
                     "temporaryRoot requires a canonical patched boot image",
+                )
+            if snapshot.boot.flavor.strip().casefold() != "boot":
+                raise PlanningError(
+                    "temporary_root_partition_unsupported",
+                    "temporaryRoot requires a patched boot image that fastboot can boot",
                 )
             boot_artifact = self._boot_artifact(snapshot)
             artifacts.append(boot_artifact)

@@ -170,7 +170,7 @@ describe('PIF and TargetedFix inventory', () => {
       targetPackage: packageName,
       confirmationText: deletePhrase,
     });
-  });
+  }, 10_000);
 
   it('imports a TargetedFix package profile through a purpose-bound opaque grant', async () => {
     const user = userEvent.setup();

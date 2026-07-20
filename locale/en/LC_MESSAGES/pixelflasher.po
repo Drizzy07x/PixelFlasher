@@ -7017,3 +7017,19 @@ msgstr "Release channel"
 msgctxt "web.settings.latestVerifiedRelease"
 msgid "Latest verified release"
 msgstr "Latest verified release"
+
+msgctxt "web.flash.slot.requiresObserved"
+msgid "Requires an observed A/B slot on every selected device."
+msgstr "Requires an observed A/B slot on every selected device."
+
+msgctxt "web.flash.option.downgradeFactoryOnly"
+msgid "Requires a verified factory firmware package."
+msgstr "Requires a verified factory firmware package."
+
+msgctxt "web.flash.option.temporaryRootPatchedOnly"
+msgid "Requires a verified patched boot image."
+msgstr "Requires a verified patched boot image."
+
+msgctxt "web.flash.option.keepDataOnly"
+msgid "Available only when keeping user data."
+msgstr "Available only when keeping user data."

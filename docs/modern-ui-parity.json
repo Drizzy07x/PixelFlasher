@@ -764,7 +764,7 @@
         "pixelflasher_core/operation_runner.py:OperationRunner.execute_batch",
         "pixelflasher_core/engine.py:CommandEngine._plan_and_execute"
       ],
-      "gap": "Sequential fail-fast multi-device execution and bootloader/fastbootd transitions are connected end to end; remaining option interactions and packaged-platform validation remain incomplete.",
+      "gap": "Sequential fail-fast multi-device execution, bootloader/fastbootd transitions and prerequisite-aware option interlocks are connected end to end; packaged-platform and hardware validation remain open.",
       "exitCriteria": [
         "Factory flash while keeping user data is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -784,6 +784,8 @@
         "tests/test_operation_planner.py:test_processed_factory_images_compile_deterministic_exact_sequence",
         "tests/test_operation_planner.py:test_dynamic_partitions_transition_through_fastbootd_in_exact_order",
         "tests/test_operation_planner.py:test_multi_device_keep_data_executes_sequentially_through_engine",
+        "tests/test_operation_planner.py:test_temporary_root_rejects_noncanonical_and_nonboot_artifacts",
+        "ui/web/src/test/flash-wizard.behavior.test.tsx",
         "tests/test_operation_runner_v2.py"
       ],
       "blockReason": null,

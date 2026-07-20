@@ -1031,6 +1031,7 @@ function PixelFlasherApp({
             selectedSerials={selectedSerials}
             onSelectionChange={changeSelection}
             activeFirmware={snapshot.firmware}
+            activeBoot={snapshot.boot}
             operation={snapshot.activeOperation}
             expertMode={expertMode}
             onFirmwareChange={changeFirmware}

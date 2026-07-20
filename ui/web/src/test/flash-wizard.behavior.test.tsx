@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FlashWizard, type FlashPlan, type FlashPreview } from '../components/FlashWizard';
 import { demoSnapshot } from '../demoData';
@@ -26,6 +27,7 @@ function wizard(
     devices: demoSnapshot.devices,
     selectedSerials: [demoSnapshot.devices[1].serial],
     activeFirmware: demoSnapshot.firmware,
+    activeBoot: demoSnapshot.boot,
     expertMode: true,
     operation: null,
     onSelectionChange: vi.fn(async () => undefined),
@@ -147,5 +149,37 @@ describe('five-step flash planning edge behavior', () => {
     expect(screen.getByRole('heading', { name: 'Plan' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Prepare review' }));
     expect(await screen.findByRole('heading', { name: 'Review' })).toBeVisible();
+  });
+
+  it('disables keep-data options whose backend prerequisites are not observed', async () => {
+    const user = userEvent.setup();
+    const unknownSlotDevice = { ...demoSnapshot.devices[1], slot: 'unknown' as const };
+    const { container } = wizard({
+      devices: [unknownSlotDevice],
+      selectedSerials: [unknownSlotDevice.serial],
+      activeFirmware: {
+        ...demoSnapshot.firmware!,
+        id: 'custom-firmware',
+        kind: 'custom',
+      },
+      activeBoot: {
+        ...demoSnapshot.boot,
+        flavor: 'init_boot',
+        patched: true,
+        verified: true,
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(screen.getByRole('radio', { name: /Inactive slot/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Both slots/ })).toBeDisabled();
+    expect(screen.getAllByText('Requires an observed A/B slot on every selected device.')).toHaveLength(2);
+    expect(screen.getByRole('checkbox', { name: /^Allow firmware downgrade/ })).toBeDisabled();
+    expect(screen.getByText('Requires a verified factory firmware package.')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: /^Boot a patched image/ })).toBeDisabled();
+    expect(screen.getByText('Requires a verified patched boot image.')).toBeVisible();
+    expect((await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
   });
 });

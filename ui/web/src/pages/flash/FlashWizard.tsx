@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { AssetName } from '../../assets';
 import { demoFirmwares } from '../../demoData';
 import { useI18n } from '../../i18n';
-import type { Device, Firmware, OperationStatus } from '../../types';
+import type { BootArtifact, Device, Firmware, OperationStatus } from '../../types';
 import { DeviceSelector } from '../../components/DeviceSelector';
 import { Badge, Button, Card, CardTitle, Icon, Meter, Toggle } from '../../components/ui';
 
@@ -50,6 +50,7 @@ export function FlashWizard({
   selectedSerials,
   onSelectionChange,
   activeFirmware,
+  activeBoot,
   operation,
   expertMode = false,
   onFirmwareChange,
@@ -60,6 +61,7 @@ export function FlashWizard({
   selectedSerials: string[];
   onSelectionChange: (serials: string[]) => void | Promise<void>;
   activeFirmware?: Firmware | null;
+  activeBoot?: BootArtifact | null;
   operation?: { status: OperationStatus | string; progress?: number; detail?: string } | null;
   expertMode?: boolean;
   onFirmwareChange: (firmware: Firmware) => Promise<void>;
@@ -92,6 +94,12 @@ export function FlashWizard({
   const firmware = firmwareOptions.find((entry) => entry.id === firmwareId) ?? firmwareOptions[0];
   const targetSerial = selectedSerials[0] ?? '';
   const targets = devices.filter((device) => selectedSerials.includes(device.serial));
+  const slotsObserved = targets.length > 0 && targets.every((device) => device.slot === 'a' || device.slot === 'b');
+  const downgradeEligible = mode === 'keep' && firmware?.kind === 'factory';
+  const temporaryRootEligible = mode !== 'ota'
+    && activeBoot?.patched === true
+    && activeBoot.verified === true
+    && activeBoot.flavor === 'boot';
   const operationStatus = String(operation?.status ?? 'idle').toLowerCase();
   const isRunning = operationStatus === 'running' || operationStatus === 'pending';
   const canContinue = !selectionBusy && (step === 0 ? Boolean(targetSerial) : step === 1 ? Boolean(firmware) : true);
@@ -111,6 +119,18 @@ export function FlashWizard({
       setTemporaryRoot(false);
     }
   }, [mode]);
+
+  useEffect(() => {
+    if (!downgradeEligible) setDowngrade(false);
+  }, [downgradeEligible]);
+
+  useEffect(() => {
+    if (!temporaryRootEligible) setTemporaryRoot(false);
+  }, [temporaryRootEligible]);
+
+  useEffect(() => {
+    if (!slotsObserved) setSlotTarget('default');
+  }, [slotsObserved]);
 
   useEffect(() => {
     if (expertMode) return;
@@ -291,9 +311,9 @@ export function FlashWizard({
                 <legend>{t('flash.slot.title')}</legend>
                 {(['default', 'inactive', 'both'] as SlotTarget[]).map((value) => (
                   <label className={`mode-option ${slotTarget === value ? 'is-selected' : ''}`} key={value}>
-                    <input type="radio" name="slot-target" value={value} checked={slotTarget === value} onChange={() => setSlotTarget(value)} />
+                    <input type="radio" name="slot-target" value={value} checked={slotTarget === value} onChange={() => setSlotTarget(value)} disabled={mode === 'ota' || (value !== 'default' && !slotsObserved)} />
                     <Icon name={value === 'both' ? 'switchSlot' : value === 'inactive' ? 'slotB' : 'slot'} size={25} />
-                    <span><strong>{t(`flash.slot.${value}`)}</strong><small>{mode === 'ota' ? t('flash.option.otaDisabled') : t(`flash.slot.${value}Detail`)}</small></span>
+                    <span><strong>{t(`flash.slot.${value}`)}</strong><small>{mode === 'ota' ? t('flash.option.otaDisabled') : value !== 'default' && !slotsObserved ? t('flash.slot.requiresObserved') : t(`flash.slot.${value}Detail`)}</small></span>
                   </label>
                 ))}
               </fieldset>
@@ -306,8 +326,8 @@ export function FlashWizard({
                   <Toggle checked={disableVerification} onChange={setDisableVerification} label={t('flash.option.disableVerification')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
                   <Toggle checked={force} onChange={setForce} label={t('flash.option.force')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
                   <Toggle checked={noReboot} onChange={(value) => { setNoReboot(value); if (value) setTemporaryRoot(false); }} label={t('flash.option.noReboot')} />
-                  <Toggle checked={downgrade} onChange={setDowngrade} label={t('flash.option.downgrade')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode !== 'keep'} />
-                  <Toggle checked={temporaryRoot} onChange={(value) => { setTemporaryRoot(value); if (value) setNoReboot(false); }} label={t('flash.option.temporaryRoot')} description={mode === 'ota' ? t('flash.option.otaDisabled') : undefined} disabled={mode === 'ota'} />
+                  <Toggle checked={downgrade} onChange={setDowngrade} label={t('flash.option.downgrade')} description={mode === 'ota' ? t('flash.option.otaDisabled') : mode !== 'keep' ? t('flash.option.keepDataOnly') : firmware?.kind !== 'factory' ? t('flash.option.downgradeFactoryOnly') : undefined} disabled={!downgradeEligible} />
+                  <Toggle checked={temporaryRoot} onChange={(value) => { setTemporaryRoot(value); if (value) setNoReboot(false); }} label={t('flash.option.temporaryRoot')} description={mode === 'ota' ? t('flash.option.otaDisabled') : !temporaryRootEligible ? t('flash.option.temporaryRootPatchedOnly') : undefined} disabled={!temporaryRootEligible} />
                 </>
               ) : null}
               <Toggle checked={dryRun} onChange={setDryRun} label={t('flash.option.dryRun')} />

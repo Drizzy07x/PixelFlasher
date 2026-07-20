@@ -7050,3 +7050,19 @@ msgstr "發行管道"
 msgctxt "web.settings.latestVerifiedRelease"
 msgid "Latest verified release"
 msgstr "最新驗證版本"
+
+msgctxt "web.flash.slot.requiresObserved"
+msgid "Requires an observed A/B slot on every selected device."
+msgstr "需要在每台所選裝置上偵測到 A/B 插槽。"
+
+msgctxt "web.flash.option.downgradeFactoryOnly"
+msgid "Requires a verified factory firmware package."
+msgstr "需要已驗證的原廠韌體套件。"
+
+msgctxt "web.flash.option.temporaryRootPatchedOnly"
+msgid "Requires a verified patched boot image."
+msgstr "需要已驗證的已修補開機映像。"
+
+msgctxt "web.flash.option.keepDataOnly"
+msgid "Available only when keeping user data."
+msgstr "僅在保留使用者資料時可用。"
