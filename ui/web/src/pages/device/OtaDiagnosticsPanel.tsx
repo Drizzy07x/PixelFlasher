@@ -6,7 +6,7 @@ import type { ActiveOperation, Device } from '../../types';
 import { Badge, Button, Card, CardTitle, Icon } from '../../components/ui';
 import { record, type SharedPageProps } from '../shared';
 
-export type OtaDiagnosticAction = 'status' | 'certificates' | 'logs';
+export type OtaDiagnosticAction = 'status' | 'certificates' | 'logs' | 'reset';
 
 type OtaStatusReport = {
   action: 'status';
@@ -34,7 +34,13 @@ type OtaLogsReport = {
   bounded: true;
 };
 
-export type OtaDiagnosticReport = OtaStatusReport | OtaCertificatesReport | OtaLogsReport;
+type OtaResetReport = {
+  action: 'reset';
+  idle: true;
+  bounded: true;
+};
+
+export type OtaDiagnosticReport = OtaStatusReport | OtaCertificatesReport | OtaLogsReport | OtaResetReport;
 
 type DiagnosticState =
   | { phase: 'idle' }
@@ -157,6 +163,15 @@ function parseStatus(value: Record<string, unknown>): OtaStatusReport | null {
   return value as OtaStatusReport;
 }
 
+function parseReset(value: Record<string, unknown>): OtaResetReport | null {
+  return hasExactKeys(value, ['action', 'idle', 'bounded'])
+    && value.action === 'reset'
+    && value.idle === true
+    && value.bounded === true
+    ? { action: 'reset', idle: true, bounded: true }
+    : null;
+}
+
 export function parseOtaDiagnosticReport(
   action: OtaDiagnosticAction,
   value: unknown,
@@ -164,17 +179,20 @@ export function parseOtaDiagnosticReport(
   const source = record(value);
   if (source.action !== action) return null;
   if (action === 'status') return parseStatus(source);
-  return action === 'certificates' ? parseCertificates(source) : parseLogs(source);
+  if (action === 'certificates') return parseCertificates(source);
+  return action === 'logs' ? parseLogs(source) : parseReset(source);
 }
 
 function actionLabel(action: OtaDiagnosticAction) {
   if (action === 'status') return 'device.otaStatus';
-  return action === 'certificates' ? 'device.otaCertificates' : 'device.otaLogs';
+  if (action === 'certificates') return 'device.otaCertificates';
+  return action === 'logs' ? 'device.otaLogs' : 'device.otaReset';
 }
 
 function actionCommand(action: OtaDiagnosticAction) {
   if (action === 'status') return commands.deviceOtaStatus;
-  return action === 'certificates' ? commands.deviceOtaCertificates : commands.deviceOtaLogs;
+  if (action === 'certificates') return commands.deviceOtaCertificates;
+  return action === 'logs' ? commands.deviceOtaLogs : commands.deviceOtaReset;
 }
 
 export function OtaDiagnosticsPanel({
@@ -225,7 +243,7 @@ export function OtaDiagnosticsPanel({
   }, [state.phase]);
 
   const run = async (action: OtaDiagnosticAction) => {
-    if (!ready || !device || busy || anotherOperationRunning) return;
+    if (!ready || !device || busy || anotherOperationRunning || (action === 'reset' && !device.rooted)) return;
     const epoch = requestEpoch.current + 1;
     requestEpoch.current = epoch;
     setState({ phase: 'running', action });
@@ -282,6 +300,7 @@ export function OtaDiagnosticsPanel({
     icon: AssetName;
     title: string;
     detail: string;
+    requiresRoot?: boolean;
   }> = [
     {
       action: 'status',
@@ -301,6 +320,13 @@ export function OtaDiagnosticsPanel({
       title: t('device.otaLogs'),
       detail: t('device.otaLogsDetail'),
     },
+    {
+      action: 'reset',
+      icon: 'reboot',
+      title: t('device.otaReset'),
+      detail: t('device.otaResetDetail'),
+      requiresRoot: true,
+    },
   ];
 
   return (
@@ -315,6 +341,12 @@ export function OtaDiagnosticsPanel({
           <span>{t('device.otaGuard')}</span>
         </div>
       ) : null}
+      {ready && device && !device.rooted ? (
+        <div className="inline-alert inline-alert--warning device-inspection-guard" role="status">
+          <Icon name="warningPng" size={18} />
+          <span>{t('device.otaResetRootGuard')}</span>
+        </div>
+      ) : null}
       <div className="device-inspection-actions">
         {actions.map((item) => {
           const descriptionId = `ota-${item.action}-description`;
@@ -325,7 +357,7 @@ export function OtaDiagnosticsPanel({
                 <Button
                   variant="ghost"
                   onClick={() => void run(item.action)}
-                  disabled={!ready || busy || anotherOperationRunning}
+                  disabled={!ready || busy || anotherOperationRunning || (item.requiresRoot && !device?.rooted)}
                   aria-describedby={descriptionId}
                 >
                   {item.title}
@@ -399,7 +431,7 @@ function OtaDiagnosticResult({
             {report.entries.map((entry, index) => <li key={`${index}-${entry}`}><code>{entry}</code></li>)}
           </ul>
         </>
-      ) : (
+      ) : report.action === 'logs' ? (
         <>
           <div className="device-inspection-meta">
             <Badge tone="accent">{t('device.otaLogLines', { count: report.lineCount })}</Badge>
@@ -412,6 +444,11 @@ function OtaDiagnosticResult({
             <p className="ota-diagnostics-empty" role="status">{t('device.otaNoLogs')}</p>
           )}
         </>
+      ) : (
+        <div className="device-inspection-feedback" role="status">
+          <Icon name="check" size={18} />
+          <span>{t('device.otaResetSucceeded')}</span>
+        </div>
       )}
     </section>
   );

@@ -367,6 +367,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "boot.delete",
                         "device.inspect",
                         "device.openUrl",
+                        "device.ota.reset",
                         "firmware.catalog.refresh",
                         "firmware.download",
                         "firmware.process",
@@ -471,6 +472,27 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 )
                 self.assertEqual(value, public["value"])
                 self.assert_route_free(public)
+
+        reset = project_operation_result(
+            "device.ota.reset",
+            OperationResult.success(
+                "ota-reset",
+                value={
+                    "action": "reset",
+                    "idle": True,
+                    "bounded": True,
+                    "planId": "plan-ota-reset",
+                    "postconditions": [
+                        {"kind": "ota_idle_state", "expected": {"idle": True}}
+                    ],
+                },
+            ),
+        )
+        self.assertEqual(
+            {"action": "reset", "idle": True, "bounded": True},
+            reset["value"],
+        )
+        self.assert_route_free(reset)
 
         invalid_certificates = (
             {**certificates, "signed": True},

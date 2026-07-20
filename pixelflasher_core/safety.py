@@ -85,6 +85,7 @@ class SafetyPolicy:
             "tools.pif",
             "device.inspect",
             "device.openUrl",
+            "device.ota.reset",
             "backups.create",
             "backups.restore",
             "backups.list",

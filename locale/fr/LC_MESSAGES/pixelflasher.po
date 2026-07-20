@@ -6813,3 +6813,18 @@ msgstr "Exécuter"
 msgctxt "web.tools.myToolsDelete"
 msgid "Delete"
 msgstr "Supprimer"
+msgctxt "web.device.otaReset"
+msgid "Cancel and reset OTA"
+msgstr "Annuler et réinitialiser l’OTA"
+
+msgctxt "web.device.otaResetDetail"
+msgid "Cancel the active Google OTA and reset update_engine state after a verified preflight."
+msgstr "Annulez l’OTA Google active et réinitialisez l’état de update_engine après une vérification préalable."
+
+msgctxt "web.device.otaResetRootGuard"
+msgid "Cancel/reset is available only for a currently rooted ADB device."
+msgstr "L’annulation/réinitialisation est disponible uniquement pour un appareil ADB actuellement rooté."
+
+msgctxt "web.device.otaResetSucceeded"
+msgid "update_engine is independently verified as idle."
+msgstr "L’état inactif de update_engine a été vérifié indépendamment."

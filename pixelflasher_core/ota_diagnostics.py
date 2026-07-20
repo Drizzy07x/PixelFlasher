@@ -1,10 +1,10 @@
-"""Typed, read-only diagnostics for Android OTA state.
+"""Typed diagnostics and verified reset planning for Android OTA state.
 
 The browser selects a semantic diagnostic only.  This module binds it to the
 canonical ADB device and revision, emits fixed argv, and converts process
-output into bounded public DTOs.  Cancelling or resetting an OTA is
-intentionally absent here: that mutation requires its own verified runner and
-postcondition contract.
+output into bounded public DTOs. OTA reset uses a fixed, root-only command
+sequence, an immediate read-only status preflight and an independently
+observed idle-state postcondition.
 """
 
 from __future__ import annotations
@@ -18,16 +18,24 @@ from .contracts import (
     AppSnapshot,
     DeviceInfo,
     OperationPlan,
+    OperationPostcondition,
     OperationResult,
     OperationRisk,
     ProcessRequest,
 )
+from .executor import TransportOutcome
 
 OTA_CERTIFICATES_COMMAND = "device.ota.certificates"
 OTA_LOGS_COMMAND = "device.ota.logs"
+OTA_RESET_COMMAND = "device.ota.reset"
 OTA_STATUS_COMMAND = "device.ota.status"
 OTA_DIAGNOSTIC_COMMANDS = frozenset(
-    {OTA_CERTIFICATES_COMMAND, OTA_LOGS_COMMAND, OTA_STATUS_COMMAND}
+    {
+        OTA_CERTIFICATES_COMMAND,
+        OTA_LOGS_COMMAND,
+        OTA_RESET_COMMAND,
+        OTA_STATUS_COMMAND,
+    }
 )
 
 _CERTIFICATE_ENTRY_LIMIT = 1_024
@@ -182,10 +190,25 @@ class OtaDiagnosticCompilation:
     plan: OperationPlan
     action: str
     maximum_lines: int
+    mutation_request_index: int | None = None
+    requires_confirmation: bool = False
+
+    @property
+    def mutating(self) -> bool:
+        return self.mutation_request_index is not None
+
+
+@dataclass(frozen=True, slots=True)
+class OtaResetPreflightDecision:
+    """Typed decision made before the first OTA mutation command."""
+
+    allowed: bool
+    code: str
+    message: str
 
 
 class OtaDiagnosticsService:
-    """Compile and finalize read-only OTA diagnostics below the WebView."""
+    """Compile and finalize OTA diagnostics below the WebView."""
 
     def compile(
         self,
@@ -204,6 +227,8 @@ class OtaDiagnosticsService:
             return self._compile_certificates(command, snapshot, device, adb)
         if command.kind == OTA_STATUS_COMMAND:
             return self._compile_status(command, snapshot, device, adb)
+        if command.kind == OTA_RESET_COMMAND:
+            return self._compile_reset(command, snapshot, device, adb)
         return self._compile_logs(command, snapshot, device, adb)
 
     def finalize(
@@ -235,6 +260,10 @@ class OtaDiagnosticsService:
                 value = self._parse_status(result.stdout)
                 code = "ota_update_engine_status_inspected"
                 message = f"update_engine state is {value['state']}"
+            elif compilation.action == "reset":
+                value = {"action": "reset", "idle": True, "bounded": True}
+                code = "ota_update_reset"
+                message = "OTA update state was cancelled and reset to idle"
             else:
                 raise OtaDiagnosticParseError(
                     "ota_diagnostic_action_invalid",
@@ -254,6 +283,70 @@ class OtaDiagnosticsService:
             stdout="",
             stderr="",
             value=value,
+        )
+
+    @staticmethod
+    def validate_reset_preflight(
+        compilation: OtaDiagnosticCompilation,
+        outcome: TransportOutcome,
+    ) -> OtaResetPreflightDecision:
+        """Validate the fixed status request before the first mutation."""
+
+        if (
+            compilation.action != "reset"
+            or compilation.mutation_request_index != 1
+            or len(compilation.plan.requests) != 3
+        ):
+            return OtaResetPreflightDecision(
+                False,
+                "ota_reset_plan_invalid",
+                "OTA reset did not produce the required preflight and mutation sequence",
+            )
+        if outcome.timed_out:
+            return OtaResetPreflightDecision(
+                False,
+                "ota_reset_preflight_timed_out",
+                "OTA reset status preflight timed out before mutation",
+            )
+        if outcome.cancelled:
+            return OtaResetPreflightDecision(
+                False,
+                "ota_reset_preflight_cancelled",
+                "OTA reset was cancelled before mutation",
+            )
+        if outcome.output_limited:
+            return OtaResetPreflightDecision(
+                False,
+                "ota_status_output_oversized",
+                "OTA reset status preflight exceeded its safety limit",
+            )
+        if outcome.returncode != 0:
+            return OtaResetPreflightDecision(
+                False,
+                "ota_reset_preflight_failed",
+                "OTA reset status could not be verified before mutation",
+            )
+        try:
+            status = parse_update_engine_status(outcome.stdout)
+        except OtaDiagnosticParseError as error:
+            return OtaResetPreflightDecision(False, error.code, str(error))
+        state = status["state"]
+        if status["idle"] is True:
+            return OtaResetPreflightDecision(
+                False,
+                "ota_already_idle",
+                "update_engine is already idle; no reset was performed",
+            )
+        if state == "disabled":
+            return OtaResetPreflightDecision(
+                False,
+                "ota_reset_state_incompatible",
+                "update_engine is disabled and cannot be reset safely",
+            )
+        return OtaResetPreflightDecision(
+            True,
+            "ota_reset_preflight_verified",
+            f"update_engine state {state} is eligible for cancel/reset",
         )
 
     def _compile_certificates(
@@ -369,6 +462,75 @@ class OtaDiagnosticsService:
             ),
             "status",
             _STATUS_LINE_LIMIT,
+        )
+
+    def _compile_reset(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> OtaDiagnosticCompilation:
+        self._validate_payload(command, {"serial"})
+        if not device.root:
+            raise OtaDiagnosticPlanningError(
+                "root_required",
+                "OTA cancel/reset requires a currently rooted ADB device",
+            )
+        preflight = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "shell",
+                "update_engine_client",
+                "--status",
+            ),
+            timeout_seconds=20.0,
+            output_limit_bytes=_STATUS_OUTPUT_LIMIT,
+        )
+        cancel = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "shell",
+                "su",
+                "-c",
+                "update_engine_client --cancel",
+            ),
+            timeout_seconds=30.0,
+            output_limit_bytes=_STATUS_OUTPUT_LIMIT,
+        )
+        reset = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "shell",
+                "su",
+                "-c",
+                "update_engine_client --reset_status",
+            ),
+            timeout_seconds=30.0,
+            output_limit_bytes=_STATUS_OUTPUT_LIMIT,
+        )
+        plan = self._base_plan(
+            snapshot,
+            device,
+            (preflight, cancel, reset),
+            label=f"Cancel and reset OTA state on {device.serial}",
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition("ota_idle_state", {"idle": True}),
+            ),
+        )
+        return OtaDiagnosticCompilation(
+            plan,
+            "reset",
+            _STATUS_LINE_LIMIT,
+            mutation_request_index=1,
+            requires_confirmation=True,
         )
 
     @staticmethod
@@ -585,14 +747,17 @@ class OtaDiagnosticsService:
     def _base_plan(
         snapshot: AppSnapshot,
         device: DeviceInfo,
-        request: ProcessRequest,
+        requests: ProcessRequest | tuple[ProcessRequest, ...],
         *,
         label: str,
+        risk: OperationRisk = OperationRisk.READ_ONLY,
+        postconditions: tuple[OperationPostcondition, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
-            requests=(request,),
+            requests=(requests,) if isinstance(requests, ProcessRequest) else requests,
             label=label,
-            risk=OperationRisk.READ_ONLY,
+            risk=risk,
+            postconditions=postconditions,
             snapshot_revision=snapshot.revision,
             target_serial=device.serial,
             expected_codename=device.codename,
@@ -637,10 +802,12 @@ __all__ = [
     "OTA_CERTIFICATES_COMMAND",
     "OTA_DIAGNOSTIC_COMMANDS",
     "OTA_LOGS_COMMAND",
+    "OTA_RESET_COMMAND",
     "OTA_STATUS_COMMAND",
     "OtaDiagnosticCompilation",
     "OtaDiagnosticParseError",
     "OtaDiagnosticPlanningError",
+    "OtaResetPreflightDecision",
     "OtaDiagnosticsService",
     "parse_update_engine_status",
 ]

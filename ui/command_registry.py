@@ -1545,6 +1545,22 @@ _COMMAND_SPECS = (
         postconditions=("bounded_certificate_inventory_returned",),
     ),
     _command(
+        "device.ota.reset",
+        "deviceOtaReset",
+        _payload(("serial", PayloadKind.STRING)),
+        owner=CommandOwner.DEVICE_TOOLS,
+        **_LIVE,
+        mutability=CommandMutability.MUTATING,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.DEVICE_WRITE,
+        valid_device_states=frozenset({"adb"}),
+        target_scope=TargetScope.SELECTED_DEVICE,
+        planner="device.ota.reset",
+        timeout_ms=2 * 60_000,
+        confirmation=ConfirmationPolicy.STANDARD,
+        postconditions=("ota_idle_state",),
+    ),
+    _command(
         "device.ota.logs",
         "deviceOtaLogs",
         _payload(

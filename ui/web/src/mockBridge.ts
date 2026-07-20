@@ -592,6 +592,21 @@ export function installDevelopmentBridge() {
               },
             });
             break;
+          case 'device.ota.reset': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            if (!target || target.mode !== 'adb' || !target.rooted) {
+              emit(errorMessage('OTA cancel/reset requires one rooted ADB device.', request));
+              break;
+            }
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'ota_update_reset',
+              message: 'OTA update state was cancelled and reset to idle.',
+              value: { action: 'reset', idle: true, bounded: true },
+            });
+            break;
+          }
           case 'device.inspect': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : '';
             const action = typeof request.payload.action === 'string' ? request.payload.action : '';

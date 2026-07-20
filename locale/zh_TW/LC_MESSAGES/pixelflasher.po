@@ -6802,3 +6802,18 @@ msgstr "執行"
 msgctxt "web.tools.myToolsDelete"
 msgid "Delete"
 msgstr "刪除"
+msgctxt "web.device.otaReset"
+msgid "Cancel and reset OTA"
+msgstr "取消並重設 OTA"
+
+msgctxt "web.device.otaResetDetail"
+msgid "Cancel the active Google OTA and reset update_engine state after a verified preflight."
+msgstr "通過預先驗證後取消進行中的 Google OTA，並重設 update_engine 狀態。"
+
+msgctxt "web.device.otaResetRootGuard"
+msgid "Cancel/reset is available only for a currently rooted ADB device."
+msgstr "取消/重設僅適用於目前已取得 root 權限的 ADB 裝置。"
+
+msgctxt "web.device.otaResetSucceeded"
+msgid "update_engine is independently verified as idle."
+msgstr "已獨立驗證 update_engine 處於閒置狀態。"

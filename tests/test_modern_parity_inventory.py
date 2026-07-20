@@ -319,17 +319,23 @@ class ModernParityInventoryTests(unittest.TestCase):
             )
         )
 
-    def test_ota_diagnostics_inventory_matches_the_read_only_slice(self):
+    def test_ota_diagnostics_inventory_tracks_reset_and_fallback_runner_gap(self):
         rows = {row["id"]: row for row in self.capabilities}
         diagnostics = rows["device.ota_diagnostics"]
         logs = rows["device.logs"]
 
         self.assertEqual("partial", diagnostics["modernStatus"])
         self.assertEqual(
-            {"device.ota.status", "device.ota.certificates", "device.ota.logs"},
+            {
+                "device.ota.status",
+                "device.ota.certificates",
+                "device.ota.logs",
+                "device.ota.reset",
+            },
             set(diagnostics["modernCommandIds"]),
         )
-        self.assertIn("OTA cancellation/reset remains open", diagnostics["gap"])
+        self.assertIn("Root-only cancel/reset", diagnostics["gap"])
+        self.assertIn("fallback runner", diagnostics["gap"])
         self.assertNotIn("No typed modern flow", diagnostics["gap"])
         self.assertIn(
             "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService",

@@ -162,6 +162,7 @@ class OperationRunner:
         result_transformer: OperationResultTransformer | None = None,
         cancellation_cleanup: CancellationCleanup | None = None,
         before_execution: ExecutionBoundary | None = None,
+        request_start_index: int = 0,
     ) -> OperationResult:
         """Execute one plan.  This method never returns ``None``."""
 
@@ -177,6 +178,23 @@ class OperationRunner:
                 command.operation_id,
                 code="operation_plan_required",
                 message="operation runner requires an immutable OperationPlan",
+            )
+        if (
+            isinstance(request_start_index, bool)
+            or not isinstance(request_start_index, int)
+            or request_start_index < 0
+            or request_start_index >= len(execution_plan.requests)
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="request_start_invalid",
+                message="operation runner request boundary is invalid",
+            )
+        if request_start_index and operation_executor is not None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="request_start_conflict",
+                message="a request boundary cannot be combined with a custom executor",
             )
         token = cancellation or CancellationToken()
         provider = snapshot_provider or self.snapshot_provider
@@ -300,6 +318,7 @@ class OperationRunner:
                 result_transformer,
                 cancellation_cleanup,
                 before_execution,
+                request_start_index,
             )
         except Exception as error:
             return OperationResult.failed(
@@ -638,6 +657,7 @@ class OperationRunner:
         result_transformer: OperationResultTransformer | None,
         cancellation_cleanup: CancellationCleanup | None,
         before_execution: ExecutionBoundary | None,
+        request_start_index: int,
     ) -> OperationResult:
         mutating = not plan.dry_run and (
             plan.risk is not OperationRisk.READ_ONLY
@@ -702,9 +722,17 @@ class OperationRunner:
                 command.operation_id,
                 "before the process boundary",
             )
+        process_plan = plan
+        process_command = command
+        if request_start_index:
+            process_plan = replace(
+                plan,
+                requests=plan.requests[request_start_index:],
+            )
+            process_command = replace(command, operation_plan=process_plan)
         execute = operation_executor or self.executor.execute
         try:
-            result = execute(command, plan, token)
+            result = execute(process_command, process_plan, token)
         except Exception:
             if mutating:
                 return self._unknown_after_mutation(

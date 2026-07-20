@@ -181,6 +181,10 @@ InteractionResponder = Callable[[str, InteractionResponse], CommandAck]
 ShutdownHandler = Callable[[], None]
 ResultParser = Callable[[OperationResult], OperationResult]
 ResultFinalizer = Callable[[OperationResult, CancellationToken], OperationResult]
+ExecutionPreflight = Callable[
+    [AppCommand, OperationPlan, AppSnapshot, CancellationToken],
+    ExecutionBoundaryAck,
+]
 CompletionBoot = Callable[[OperationResult], BootInfo | None]
 ToolchainStateUpdater = Callable[[AppCommand, ToolchainInfo], OperationResult]
 ScrcpyStateUpdater = Callable[[AppCommand, Path], OperationResult]
@@ -1394,7 +1398,7 @@ class CommandEngine:
 
         if isinstance(compilation, OtaDiagnosticCompilation):
             destructive = False
-            requires_confirmation = False
+            requires_confirmation = compilation.requires_confirmation
         else:
             destructive = compilation.destructive
             requires_confirmation = compilation.requires_confirmation
@@ -1425,6 +1429,71 @@ class CommandEngine:
                 cancellation=planning_token,
             )
         if isinstance(compilation, OtaDiagnosticCompilation):
+            if compilation.mutating:
+                mutation_index = compilation.mutation_request_index
+                assert mutation_index is not None
+
+                def ota_reset_preflight(
+                    _command: AppCommand,
+                    boundary_plan: OperationPlan,
+                    boundary_snapshot: AppSnapshot,
+                    boundary_token: CancellationToken,
+                ) -> ExecutionBoundaryAck:
+                    current_device = next(
+                        (
+                            device
+                            for device in boundary_snapshot.devices
+                            if device.serial == boundary_plan.target_serial
+                        ),
+                        None,
+                    )
+                    if current_device is None or not current_device.root:
+                        return ExecutionBoundaryAck.rejected(
+                            "root_state_changed",
+                            "OTA cancel/reset requires current root evidence at execution time",
+                        )
+                    try:
+                        outcome = self.executor.transport.run(
+                            boundary_plan.requests[0],
+                            boundary_token,
+                        )
+                    except Exception:
+                        return ExecutionBoundaryAck.rejected(
+                            "ota_reset_preflight_failed",
+                            "OTA reset status could not be verified before mutation",
+                        )
+                    decision = self.ota_diagnostics_service.validate_reset_preflight(
+                        compilation,
+                        outcome,
+                    )
+                    return (
+                        ExecutionBoundaryAck.accepted()
+                        if decision.allowed
+                        else ExecutionBoundaryAck.rejected(
+                            decision.code,
+                            decision.message,
+                        )
+                    )
+
+                result = self._execute_process(
+                    planned,
+                    result_finalizer=(
+                        lambda process_result, _cancellation: self.ota_diagnostics_service.finalize(
+                            compilation,
+                            process_result,
+                        )
+                    ),
+                    cancellation=planning_token,
+                    execution_preflight=ota_reset_preflight,
+                    request_start_index=mutation_index,
+                )
+                if result.code == "ota_reset_preflight_cancelled":
+                    return OperationResult.cancelled(
+                        command.operation_id,
+                        code=result.code,
+                        message=result.message,
+                    )
+                return result
             return self._execute_process(
                 planned,
                 result_finalizer=(
@@ -4642,6 +4711,8 @@ class CommandEngine:
         cancellation: CancellationToken | None = None,
         operation_executor: OperationExecutor | None = None,
         cancellation_cleanup: CancellationCleanup | None = None,
+        execution_preflight: ExecutionPreflight | None = None,
+        request_start_index: int = 0,
     ) -> OperationResult:
         assert command.operation_plan is not None
         token = cancellation
@@ -4697,6 +4768,26 @@ class CommandEngine:
             issue = self.operation_planner.revalidate(boundary_plan, snapshot)
             if issue is not None:
                 return ExecutionBoundaryAck.rejected(issue[0], issue[1])
+            if execution_preflight is not None:
+                try:
+                    preflight = execution_preflight(
+                        boundary_command,
+                        boundary_plan,
+                        snapshot,
+                        token,
+                    )
+                except Exception:
+                    return ExecutionBoundaryAck.rejected(
+                        "execution_preflight_failed",
+                        "execution preflight failed before mutation",
+                    )
+                if not isinstance(preflight, ExecutionBoundaryAck):
+                    return ExecutionBoundaryAck.rejected(
+                        "execution_preflight_invalid",
+                        "execution preflight returned an invalid acknowledgement",
+                    )
+                if not preflight.allowed:
+                    return preflight
             try:
                 self.store.begin_operation(
                     boundary_command.operation_id,
@@ -4805,6 +4896,7 @@ class CommandEngine:
                     result_transformer=result_finalizer,
                     cancellation_cleanup=cancellation_cleanup,
                     before_execution=begin_at_validated_boundary,
+                    request_start_index=request_start_index,
                 )
                 if result.ok and result_parser is not None:
                     try:

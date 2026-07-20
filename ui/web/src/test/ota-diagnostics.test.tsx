@@ -97,7 +97,43 @@ describe('OTA diagnostics', () => {
     expect(await screen.findByRole('heading', { name: 'Update status' })).toBeVisible();
     expect(screen.getByText('ErrorCode::kSuccess')).toBeVisible();
     expect(screen.getByText('0%')).toBeVisible();
-    expect(screen.queryByRole('button', { name: /reset|cancel update/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel and reset OTA' })).toBeEnabled();
+  });
+
+  it('runs cancel/reset only for a rooted device and renders closed idle evidence', async () => {
+    const user = userEvent.setup();
+    const device = adbDevice();
+    const onCommand: SharedPageProps['onCommand'] = vi.fn(async () => ({
+      result: {
+        status: 'SUCCESS',
+        code: 'ota_update_reset',
+        value: { action: 'reset', idle: true, bounded: true },
+      },
+    }));
+    const { container } = renderPanel({ device, onCommand });
+
+    await user.click(screen.getByRole('button', { name: 'Cancel and reset OTA' }));
+
+    expect(onCommand).toHaveBeenCalledWith(
+      'device.ota.reset',
+      { serial: device.serial },
+      { returnCancelled: true },
+    );
+    expect(await screen.findByText('update_engine is independently verified as idle.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Cancel and reset OTA' })).toBeVisible();
+    const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+
+  it('keeps cancel/reset disabled and explained when current root evidence is absent', () => {
+    const device = adbDevice();
+    device.rooted = false;
+    const onCommand: SharedPageProps['onCommand'] = vi.fn(async () => ({ result: {} }));
+
+    renderPanel({ device, onCommand });
+
+    expect(screen.getByRole('button', { name: 'Cancel and reset OTA' })).toBeDisabled();
+    expect(screen.getByText(/only for a currently rooted ADB device/i)).toBeVisible();
   });
 
   it('inspects a closed certificate archive DTO without claiming cryptographic verification', async () => {
@@ -121,10 +157,11 @@ describe('OTA diagnostics', () => {
     );
     const heading = await screen.findByRole('heading', { name: 'OTA certificates' });
     await waitFor(() => expect(heading.closest('section')).toHaveFocus());
+    const result = heading.closest('section') as HTMLElement;
     expect(screen.getByText('Certificate archive')).toBeVisible();
     expect(screen.getByText('Present')).toBeVisible();
     expect(screen.getByText('META-INF/com/android/otacert.x509.pem')).toBeVisible();
-    expect(screen.queryByText(/verified|cryptographic/i)).not.toBeInTheDocument();
+    expect(within(result).queryByText(/verified|cryptographic/i)).not.toBeInTheDocument();
     expect(screen.queryByText('RAW-PRIVATE-STDOUT')).not.toBeInTheDocument();
   });
 
@@ -258,6 +295,12 @@ describe('OTA diagnostics', () => {
       lines: Array.from({ length: MAX_LOG_LINES + 1 }, () => 'update_engine: bounded'),
       lineCount: MAX_LOG_LINES + 1,
     })).toBeNull();
+    expect(parseOtaDiagnosticReport('reset', {
+      action: 'reset', idle: true, bounded: true,
+    })).toEqual({ action: 'reset', idle: true, bounded: true });
+    expect(parseOtaDiagnosticReport('reset', {
+      action: 'reset', idle: false, bounded: true,
+    })).toBeNull();
     expect(parseOtaDiagnosticReport('logs', {
       ...logsValue(),
       lines: ['ActivityManager: not an OTA line'],
@@ -282,6 +325,7 @@ describe('OTA diagnostics', () => {
       'otaCancelled', 'otaFailed', 'otaProgress', 'otaArchive', 'otaPresent',
       'otaCertificateCount', 'otaBound', 'otaBounded', 'otaLogLines', 'otaRedacted',
       'otaNoLogs',
+      'otaReset', 'otaResetDetail', 'otaResetRootGuard', 'otaResetSucceeded',
     ];
     for (const locale of locales) {
       const catalog = readFileSync(

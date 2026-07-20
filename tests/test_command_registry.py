@@ -364,7 +364,7 @@ class CommandRegistryTests(unittest.TestCase):
         self.assertTrue(open_url.payload.fields["url"].required)
         self.assertEqual(("view_intent_accepted",), open_url.postconditions)
 
-    def test_ota_diagnostic_contracts_are_closed_read_only_device_reads(self):
+    def test_ota_diagnostic_contracts_are_closed_and_reset_is_confirmed(self):
         expected_payloads = {
             "device.ota.status": {"serial": PayloadKind.STRING},
             "device.ota.certificates": {"serial": PayloadKind.STRING},
@@ -391,6 +391,17 @@ class CommandRegistryTests(unittest.TestCase):
                 self.assertFalse(
                     any(field.required for field in spec.payload.fields.values())
                 )
+
+        reset = COMMAND_REGISTRY["device.ota.reset"]
+        self.assertEqual(CommandOwner.DEVICE_TOOLS, reset.owner)
+        self.assertEqual(CommandMutability.MUTATING, reset.mutability)
+        self.assertEqual(CommandRisk.DEVICE_WRITE, reset.risk)
+        self.assertEqual(ExpectedRevision.REQUIRED, reset.expected_revision)
+        self.assertEqual(TargetScope.SELECTED_DEVICE, reset.target_scope)
+        self.assertEqual(frozenset({"adb"}), reset.valid_device_states)
+        self.assertEqual(ConfirmationPolicy.STANDARD, reset.confirmation)
+        self.assertEqual(("ota_idle_state",), reset.postconditions)
+        self.assertEqual({"serial"}, set(reset.payload.fields))
 
     def test_expected_revision_policy_is_registry_owned(self):
         optional = {

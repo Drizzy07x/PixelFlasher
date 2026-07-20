@@ -6,6 +6,7 @@ from pathlib import Path
 from pixelflasher_core import (
     OTA_CERTIFICATES_COMMAND,
     OTA_LOGS_COMMAND,
+    OTA_RESET_COMMAND,
     OTA_STATUS_COMMAND,
     AppCommand,
     ApplicationRuntime,
@@ -23,6 +24,7 @@ from pixelflasher_core import (
     TransportOutcome,
 )
 from tests.command_engine_factory import make_test_command_engine
+from ui.public_bridge import project_operation_result
 
 
 def unzip_listing(*entries: str) -> str:
@@ -46,6 +48,7 @@ def ota_snapshot() -> AppSnapshot:
                 "SERIAL-OTA",
                 codename="akita",
                 mode="adb",
+                root=True,
                 online=True,
             ),
         ),
@@ -95,6 +98,8 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
         *,
         store: AppStateStore | None = None,
         service: OtaDiagnosticsService | None = None,
+        interaction_handler=None,
+        postcondition_observer=None,
     ):
         state = store or AppStateStore(ota_snapshot())
         transport = FakeProcessTransport(outcomes)
@@ -103,6 +108,8 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
             store=state,
             executor=CommandExecutor(transport),
             ota_diagnostics_service=diagnostics,
+            interaction_handler=interaction_handler,
+            postcondition_observer=postcondition_observer,
         )
         self.assertIs(diagnostics, engine.ota_diagnostics_service)
         return engine, transport
@@ -213,6 +220,190 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
             ),
             transport.calls[0].argv,
         )
+
+    def test_reset_preflights_then_mutates_and_requires_observed_idle_state(self) -> None:
+        observations: list[str] = []
+
+        def observe(_plan, postcondition, _snapshot):
+            observations.append(postcondition.kind)
+            return True
+
+        engine, transport = self.engine_for(
+            [
+                TransportOutcome(
+                    0,
+                    "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.25\n",
+                ),
+                TransportOutcome(0),
+                TransportOutcome(0),
+            ],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=observe,
+        )
+
+        result = engine.execute(ota_command(OTA_RESET_COMMAND))
+
+        self.assertIs(OperationStatus.SUCCESS, result.status)
+        self.assertEqual("ota_update_reset", result.code)
+        self.assertEqual("reset", result.value["action"])
+        self.assertTrue(result.value["idle"])
+        self.assertEqual(
+            {"action": "reset", "idle": True, "bounded": True},
+            project_operation_result(OTA_RESET_COMMAND, result)["value"],
+        )
+        self.assertEqual(["ota_idle_state"], observations)
+        self.assertEqual(
+            (
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-OTA",
+                    "shell",
+                    "update_engine_client",
+                    "--status",
+                ),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-OTA",
+                    "shell",
+                    "su",
+                    "-c",
+                    "update_engine_client --cancel",
+                ),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-OTA",
+                    "shell",
+                    "su",
+                    "-c",
+                    "update_engine_client --reset_status",
+                ),
+            ),
+            tuple(request.argv for request in transport.calls),
+        )
+
+    def test_reset_denial_or_incompatible_preflight_starts_no_mutation(self) -> None:
+        denied_engine, denied_transport = self.engine_for(
+            [],
+            interaction_handler=lambda _request: False,
+            postcondition_observer=lambda *_args: True,
+        )
+        denied = denied_engine.execute(ota_command(OTA_RESET_COMMAND))
+
+        self.assertIs(OperationStatus.CANCELLED, denied.status)
+        self.assertEqual([], denied_transport.calls)
+
+        idle_engine, idle_transport = self.engine_for(
+            [
+                TransportOutcome(
+                    0,
+                    "CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=0\n",
+                )
+            ],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=lambda *_args: True,
+        )
+        idle = idle_engine.execute(ota_command(OTA_RESET_COMMAND))
+
+        self.assertIs(OperationStatus.FAILED, idle.status)
+        self.assertEqual("ota_already_idle", idle.code)
+        self.assertEqual(1, len(idle_transport.calls))
+
+    def test_reset_cancellation_before_mutation_is_cancelled(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        engine, transport = self.engine_for(
+            [
+                FakeTransportStep(
+                    TransportOutcome(
+                        0,
+                        "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.4\n",
+                    ),
+                    started_event=started,
+                    release_event=release,
+                )
+            ],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=lambda *_args: True,
+        )
+        command = ota_command(OTA_RESET_COMMAND, operation_id="ota-reset-preflight")
+        results: list[OperationResult] = []
+        worker = threading.Thread(target=lambda: results.append(engine.execute(command)))
+
+        worker.start()
+        self.assertTrue(started.wait(2))
+        self.assertTrue(engine.cancel(command.operation_id))
+        worker.join(2)
+        release.set()
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(1, len(transport.calls))
+        self.assertIs(OperationStatus.CANCELLED, results[0].status)
+        self.assertEqual("ota_reset_preflight_cancelled", results[0].code)
+
+    def test_reset_cancellation_after_mutation_begins_is_outcome_unknown(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        engine, transport = self.engine_for(
+            [
+                TransportOutcome(
+                    0,
+                    "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.4\n",
+                ),
+                FakeTransportStep(
+                    TransportOutcome(0),
+                    started_event=started,
+                    release_event=release,
+                ),
+            ],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=lambda *_args: True,
+        )
+        command = ota_command(OTA_RESET_COMMAND, operation_id="ota-reset-mutating")
+        results: list[OperationResult] = []
+        worker = threading.Thread(target=lambda: results.append(engine.execute(command)))
+
+        worker.start()
+        self.assertTrue(started.wait(2))
+        self.assertTrue(engine.cancel(command.operation_id))
+        worker.join(2)
+        release.set()
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(2, len(transport.calls))
+        self.assertIs(OperationStatus.FAILED, results[0].status)
+        self.assertEqual("outcome_unknown", results[0].code)
+
+    def test_reset_timeout_after_mutation_is_unknown_and_mismatch_never_succeeds(self) -> None:
+        active_status = TransportOutcome(
+            0,
+            "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.4\n",
+        )
+        timeout_engine, timeout_transport = self.engine_for(
+            [active_status, TransportOutcome(None, timed_out=True)],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=lambda *_args: True,
+        )
+
+        timed_out = timeout_engine.execute(ota_command(OTA_RESET_COMMAND))
+
+        self.assertIs(OperationStatus.FAILED, timed_out.status)
+        self.assertEqual("outcome_unknown", timed_out.code)
+        self.assertEqual(2, len(timeout_transport.calls))
+
+        mismatch_engine, mismatch_transport = self.engine_for(
+            [active_status, TransportOutcome(0), TransportOutcome(0)],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=lambda *_args: False,
+        )
+
+        mismatch = mismatch_engine.execute(ota_command(OTA_RESET_COMMAND))
+
+        self.assertIs(OperationStatus.FAILED, mismatch.status)
+        self.assertEqual("postcondition_mismatch", mismatch.code)
+        self.assertEqual(3, len(mismatch_transport.calls))
 
     def test_stale_revision_and_safety_policy_revalidation_start_no_process(self) -> None:
         stale_engine, stale_transport = self.engine_for([])

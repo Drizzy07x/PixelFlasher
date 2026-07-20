@@ -32,6 +32,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "updates.check",
         "apps.action",
         "device.openUrl",
+        "device.ota.reset",
         "device.inspect",
         "boot.delete",
         "backups.create",
@@ -2093,6 +2094,27 @@ def _project_ota_status(value: object) -> JSONValue:
     })
 
 
+def _project_ota_reset(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"action", "idle", "bounded", "planId", "postconditions"}
+        ),
+    )
+    if (
+        source["action"] != "reset"
+        or source["idle"] is not True
+        or source["bounded"] is not True
+        or not isinstance(source["planId"], str)
+        or not source["planId"]
+        or not isinstance(source["postconditions"], list)
+    ):
+        raise PublicProjectionError("OTA reset evidence is invalid")
+    return ensure_public_json(
+        {"action": "reset", "idle": True, "bounded": True}
+    )
+
+
 def _project_firmware_catalog_entry(value: object) -> dict[str, JSONValue]:
     source = _closed_record(
         value,
@@ -3738,6 +3760,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "device.openUrl": _project_device_open_url,
     "device.ota.certificates": _project_ota_certificates,
     "device.ota.logs": _project_ota_logs,
+    "device.ota.reset": _project_ota_reset,
     "device.ota.status": _project_ota_status,
     "firmware.catalog.refresh": _project_firmware_catalog,
     "firmware.download": _project_firmware_download,

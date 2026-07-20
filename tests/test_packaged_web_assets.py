@@ -35,6 +35,10 @@ TERMINAL_ASSETS = (
     "ui/web/dist/assets/adb-terminal.js",
     "ui/web/dist/assets/adb-terminal.css",
 )
+RETIRED_OPAQUE_BINARIES = (
+    "update_engine_client_r28",
+    "update_engine_client_r72",
+)
 PACKAGED_PTY_WORKFLOWS = (
     Path(".github/workflows/windows.yml"),
     Path(".github/workflows/windows-arm64.yml"),
@@ -114,6 +118,13 @@ class PackagedWebAssetTests(unittest.TestCase):
                     "'resources/platform-tools', 'resources/platform-tools'",
                     source,
                 )
+
+    def test_modern_packages_exclude_opaque_legacy_ota_clients(self):
+        for path in PACKAGE_SPECS:
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                for binary in RETIRED_OPAQUE_BINARIES:
+                    self.assertNotIn(binary, source)
 
     def test_every_release_platform_executes_the_packaged_pty_smoke(self):
         for path in PACKAGED_PTY_WORKFLOWS:

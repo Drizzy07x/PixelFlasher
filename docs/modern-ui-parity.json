@@ -1849,9 +1849,10 @@
         "pixelflasher_core/engine.py:CommandEngine._compile_service_command",
         "ui/public_bridge.py:_project_ota_status",
         "ui/public_bridge.py:_project_ota_certificates",
+        "ui/public_bridge.py:_project_ota_reset",
         "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Read-only otacerts inspection, bounded redacted logs, closed update_engine status/preflight and an independent idle-state observer are native. OTA cancellation/reset remains open until a reproducibly sourced, hash-bound mutating runner is implemented and packaged.",
+      "gap": "Otacerts inspection, bounded redacted logs and closed update_engine status are native. Root-only cancel/reset now uses a confirmed revision-bound plan, immediate status preflight, fixed shell-free host argv and independent idle-state observation, with cancellation before mutation distinguished from outcome_unknown afterward. A reproducibly sourced, hash-bound fallback runner and packaged real-device smokes remain open for devices that do not expose a compatible system update_engine_client.",
       "exitCriteria": [
         "Cancel Google OTA, inspect otacerts and monitor update_engine is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1885,7 +1886,8 @@
       "modernCommandIds": [
         "device.ota.status",
         "device.ota.certificates",
-        "device.ota.logs"
+        "device.ota.logs",
+        "device.ota.reset"
       ]
     },
     {

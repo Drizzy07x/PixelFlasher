@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 from pixelflasher_core.contracts import (
     AppCommand,
@@ -8,9 +9,11 @@ from pixelflasher_core.contracts import (
     OperationRisk,
     ToolchainInfo,
 )
+from pixelflasher_core.executor import TransportOutcome
 from pixelflasher_core.ota_diagnostics import (
     OTA_CERTIFICATES_COMMAND,
     OTA_LOGS_COMMAND,
+    OTA_RESET_COMMAND,
     OTA_STATUS_COMMAND,
     OtaDiagnosticPlanningError,
     OtaDiagnosticsService,
@@ -156,6 +159,104 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
         self.assertEqual(64 * 1_024, compilation.plan.request.output_limit_bytes)
         with self.assertRaises(OtaDiagnosticPlanningError):
             self.compile(OTA_STATUS_COMMAND, {"raw": "--cancel"})
+
+    def test_reset_compiles_preflight_and_two_fixed_root_mutations(self) -> None:
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+
+        compilation = self.compile(OTA_RESET_COMMAND)
+
+        self.assertEqual(
+            (
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-OTA",
+                    "shell",
+                    "update_engine_client",
+                    "--status",
+                ),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-OTA",
+                    "shell",
+                    "su",
+                    "-c",
+                    "update_engine_client --cancel",
+                ),
+                (
+                    "ADB",
+                    "-s",
+                    "SERIAL-OTA",
+                    "shell",
+                    "su",
+                    "-c",
+                    "update_engine_client --reset_status",
+                ),
+            ),
+            tuple(request.argv for request in compilation.plan.requests),
+        )
+        self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
+        self.assertEqual(1, compilation.mutation_request_index)
+        self.assertTrue(compilation.mutating)
+        self.assertTrue(compilation.requires_confirmation)
+        self.assertEqual(
+            ("ota_idle_state",),
+            tuple(item.kind for item in compilation.plan.postconditions),
+        )
+        self.assertEqual({"idle": True}, compilation.plan.postconditions[0].expected)
+
+    def test_reset_requires_current_root_and_rejects_arbitrary_payload(self) -> None:
+        with self.assertRaisesRegex(OtaDiagnosticPlanningError, "rooted") as context:
+            self.compile(OTA_RESET_COMMAND)
+        self.assertEqual("root_required", context.exception.code)
+
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        with self.assertRaises(OtaDiagnosticPlanningError):
+            self.compile(OTA_RESET_COMMAND, {"raw": "--reset_status"})
+
+    def test_reset_preflight_allows_only_verified_non_idle_state(self) -> None:
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        compilation = self.compile(OTA_RESET_COMMAND)
+        active = self.service.validate_reset_preflight(
+            compilation,
+            TransportOutcome(
+                0,
+                "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.5\n",
+            ),
+        )
+        idle = self.service.validate_reset_preflight(
+            compilation,
+            TransportOutcome(
+                0,
+                "CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=0\n",
+            ),
+        )
+        disabled = self.service.validate_reset_preflight(
+            compilation,
+            TransportOutcome(
+                0,
+                "CURRENT_OP=UPDATE_STATUS_DISABLED\nCURRENT_PROGRESS=0\n",
+            ),
+        )
+        cancelled = self.service.validate_reset_preflight(
+            compilation,
+            TransportOutcome(None, cancelled=True),
+        )
+
+        self.assertTrue(active.allowed)
+        self.assertEqual("ota_already_idle", idle.code)
+        self.assertEqual("ota_reset_state_incompatible", disabled.code)
+        self.assertEqual("ota_reset_preflight_cancelled", cancelled.code)
 
     def test_target_revision_mode_and_toolchain_are_fail_closed(self) -> None:
         cases = (
