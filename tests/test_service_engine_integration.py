@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import sys
 import tempfile
@@ -44,6 +45,25 @@ from tests.apk_test_helpers import FakeVerifiedApkInspector
 from tests.artifact_stage_assertions import assert_exact_or_staged_argv
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
 from tests.stateful_postcondition_observer import StatefulPostconditionObserver
+
+
+def root_module_record(module_id: str, name: str, state: str = "enabled") -> str:
+    def encode(value: str) -> str:
+        return base64.b64encode(value.encode()).decode()
+
+    return "|".join(
+        (
+            "PF_RM",
+            module_id,
+            state,
+            encode(name),
+            encode("1.0"),
+            "1",
+            encode("PixelFlasher"),
+            encode("Test module"),
+            "",
+        )
+    )
 
 
 class RecordingLauncher:
@@ -1989,7 +2009,10 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             [
                 TransportOutcome(
                     0,
-                    "zygisk_next\nplay_integrity_fix\n../escape\nbad;reboot\nzygisk_next\n",
+                    root_module_record("zygisk_next", "Zygisk Next", "disabled")
+                    + "\n"
+                    + root_module_record("play_integrity_fix", "Play Integrity Fix")
+                    + "\n",
                 )
             ],
             root=True,
@@ -2003,18 +2026,27 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             ["play_integrity_fix", "zygisk_next"],
             [item["id"] for item in result.value["modules"]],
         )
+        self.assertEqual("Play Integrity Fix", result.value["modules"][0]["name"])
+        self.assertEqual("enabled", result.value["modules"][0]["state"])
+        self.assertEqual("disabled", result.value["modules"][1]["state"])
+        self.assertNotIn("updateUrl", result.value["modules"][0])
         self.assertEqual(
-            (
-                "ADB",
-                "-s",
-                "SERIAL",
-                "shell",
-                "su",
-                "-c",
-                "ls -1 /data/adb/modules",
-            ),
-            transport.calls[0].argv,
+            ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
+            transport.calls[0].argv[:6],
         )
+        self.assertIn("module.prop", transport.calls[0].argv[6])
+
+    def test_root_module_inventory_never_succeeds_with_forged_records(self):
+        engine, _transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0, "PF_RM|../escape|enabled||||||\n")],
+            root=True,
+        )
+
+        result = engine.execute(command("root.modules.list"))
+
+        self.assertFalse(result.ok)
+        self.assertNotEqual("root_modules_list_succeeded", result.code)
 
     def test_root_module_state_actions_use_backend_confirmation_metadata(self):
         expected = {

@@ -6,6 +6,17 @@ import { demoSnapshot } from '../demoData';
 import { I18nProvider } from '../i18n';
 import { RootPage } from '../pages/Pages';
 
+const zygiskModule = {
+  id: 'zygisk_next',
+  name: 'Zygisk Next',
+  version: '1.0.0',
+  versionCode: 100,
+  author: 'Test author',
+  description: 'Test module',
+  state: 'enabled',
+  updateMetadata: 'available',
+};
+
 function renderRoot(onCommand: (
   command: BridgeCommand,
   payload?: Record<string, unknown>,
@@ -29,7 +40,7 @@ describe('Magisk module state refresh', () => {
     const user = userEvent.setup();
     const onCommand = vi.fn(async (command: BridgeCommand) => {
       if (command === 'root.modules.list') {
-        return { result: { status: 'SUCCESS', value: { modules: [{ id: 'zygisk_next' }] } }, revision: 8 };
+        return { result: { status: 'SUCCESS', value: { modules: [zygiskModule] } }, revision: 8 };
       }
       return { result: { status: 'SUCCESS', value: { action: 'disable', moduleId: 'zygisk_next' } }, revision: 9 };
     });
@@ -38,7 +49,7 @@ describe('Magisk module state refresh', () => {
     const card = screen.getByText('Magisk Modules').closest('.card');
     if (!card) throw new Error('Magisk modules card missing');
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
-    const row = (await within(card as HTMLElement).findByText('zygisk_next')).closest('[role="listitem"]');
+    const row = (await within(card as HTMLElement).findByText('Zygisk Next')).closest('[role="listitem"]');
     if (!row) throw new Error('module row missing');
     await user.click(within(row as HTMLElement).getByRole('button', { name: 'Disable' }));
 
@@ -54,7 +65,7 @@ describe('Magisk module state refresh', () => {
     const user = userEvent.setup();
     const onCommand = vi.fn(async (command: BridgeCommand) => {
       if (command === 'root.modules.list') {
-        return { result: { status: 'SUCCESS', value: { modules: [{ id: 'zygisk_next' }] } }, revision: 8 };
+        return { result: { status: 'SUCCESS', value: { modules: [zygiskModule] } }, revision: 8 };
       }
       return { result: { status: 'FAILED', code: 'postcondition_mismatch' }, revision: 9 };
     });
@@ -63,7 +74,7 @@ describe('Magisk module state refresh', () => {
     const card = screen.getByText('Magisk Modules').closest('.card');
     if (!card) throw new Error('Magisk modules card missing');
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
-    const row = (await within(card as HTMLElement).findByText('zygisk_next')).closest('[role="listitem"]');
+    const row = (await within(card as HTMLElement).findByText('Zygisk Next')).closest('[role="listitem"]');
     if (!row) throw new Error('module row missing');
     await user.click(within(row as HTMLElement).getByRole('button', { name: 'Remove' }));
 
@@ -73,6 +84,6 @@ describe('Magisk module state refresh', () => {
       moduleId: 'zygisk_next',
     }));
     expect(onCommand.mock.calls.filter(([command]) => command === 'root.modules.list')).toHaveLength(1);
-    expect(within(card as HTMLElement).getByText('zygisk_next')).toBeVisible();
+    expect(within(card as HTMLElement).getByText('Zygisk Next')).toBeVisible();
   });
 });

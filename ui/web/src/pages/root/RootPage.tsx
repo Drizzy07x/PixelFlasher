@@ -91,6 +91,31 @@ function operationSucceeded(response: Awaited<ReturnType<SharedPageProps['onComm
 
 interface RootModuleEntry {
   id: string;
+  name: string;
+  version: string;
+  versionCode: number | null;
+  author: string;
+  description: string;
+  state: 'enabled' | 'disabled' | 'pending_remove' | 'corrupt';
+  updateMetadata: 'available' | 'absent';
+}
+
+function parseRootModule(value: unknown): RootModuleEntry | null {
+  const module = record(value);
+  const expected = ['author', 'description', 'id', 'name', 'state', 'updateMetadata', 'version', 'versionCode'];
+  const keys = Object.keys(module).sort();
+  if (
+    keys.length !== expected.length || !keys.every((key, index) => key === expected[index])
+    || typeof module.id !== 'string' || !/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(module.id)
+    || typeof module.name !== 'string' || module.name.length > 256
+    || typeof module.version !== 'string' || module.version.length > 128
+    || (module.versionCode !== null && (typeof module.versionCode !== 'number' || !Number.isSafeInteger(module.versionCode) || module.versionCode < 0))
+    || typeof module.author !== 'string' || module.author.length > 256
+    || typeof module.description !== 'string' || module.description.length > 1024
+    || !['enabled', 'disabled', 'pending_remove', 'corrupt'].includes(String(module.state))
+    || !['available', 'absent'].includes(String(module.updateMetadata))
+  ) return null;
+  return module as unknown as RootModuleEntry;
 }
 
 interface BootInventoryEntry {
@@ -334,10 +359,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       if (!response) return false;
       const value = record(record(response.result).value);
       const parsed = (Array.isArray(value.modules) ? value.modules : []).flatMap((entry) => {
-        const module = record(entry);
-        return typeof module.id === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(module.id)
-          ? [{ id: module.id }]
-          : [];
+        const module = parseRootModule(entry);
+        return module ? [module] : [];
       });
       setModules(parsed);
       setModulesLoaded(true);
@@ -666,7 +689,16 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             {modules.map((module) => (
               <article className="root-inventory__row root-inventory__row--module" role="listitem" key={module.id}>
                 <span className="root-inventory__icon"><Icon name="packages" size={24} /></span>
-                <span className="root-inventory__copy"><strong>{module.id}</strong><small>Magisk</small></span>
+                <span className="root-inventory__copy">
+                  <strong>{module.name || module.id}</strong>
+                  <span>
+                    <Badge tone={module.state === 'enabled' ? 'success' : module.state === 'corrupt' ? 'danger' : 'warning'}>{t(`root.moduleState.${module.state}`)}</Badge>
+                    {module.version ? <Badge tone="neutral">{module.version}</Badge> : null}
+                    {module.updateMetadata === 'available' ? <Badge tone="accent">{t('root.moduleUpdateAvailable')}</Badge> : null}
+                  </span>
+                  <small>{module.id}{module.author ? ` · ${module.author}` : ''}</small>
+                  {module.description ? <small>{module.description}</small> : null}
+                </span>
                 <span className="root-inventory__actions">
                   <Button variant="ghost" onClick={() => void runModuleAction('enable', module.id)} disabled={Boolean(busy)}>{t('root.moduleEnable')}</Button>
                   <Button variant="ghost" onClick={() => void runModuleAction('disable', module.id)} disabled={Boolean(busy)}>{t('root.moduleDisable')}</Button>

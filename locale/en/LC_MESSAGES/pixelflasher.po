@@ -5837,3 +5837,23 @@ msgstr ""
 msgctxt "web.backups.sha1"
 msgid "SHA-1"
 msgstr ""
+
+msgctxt "web.root.moduleState.enabled"
+msgid "Enabled"
+msgstr ""
+
+msgctxt "web.root.moduleState.disabled"
+msgid "Disabled"
+msgstr ""
+
+msgctxt "web.root.moduleState.pending_remove"
+msgid "Pending removal"
+msgstr ""
+
+msgctxt "web.root.moduleState.corrupt"
+msgid "Invalid metadata"
+msgstr ""
+
+msgctxt "web.root.moduleUpdateAvailable"
+msgid "Update metadata available"
+msgstr ""

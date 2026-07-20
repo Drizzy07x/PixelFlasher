@@ -9,6 +9,7 @@ cross the process boundary.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import os
@@ -20,6 +21,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from .apk_inspection import (
     ApkIdentity,
@@ -59,6 +61,9 @@ _MODULE_ACTIONS = frozenset({"install", "enable", "disable", "remove"})
 _MODULE_REMOTE_ROOT = "/data/local/tmp/"
 _MAX_ZIP_ENTRIES = 4096
 _MAX_ZIP_UNCOMPRESSED = 512 * 1024 * 1024
+_MODULE_LIST_PREFIX = "PF_RM"
+_MAX_MODULES = 256
+_MAX_MODULE_LIST_BYTES = 256 * 1024
 
 
 class RootApkInspector(Protocol):
@@ -138,9 +143,27 @@ class RootAppInfo:
 @dataclass(frozen=True, slots=True)
 class RootModuleInfo:
     id: str
+    name: str
+    version: str
+    version_code: int | None
+    author: str
+    description: str
+    state: str
+    update_url: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        return {"id": self.id}
+        return {
+            "id": self.id,
+            "name": self.name,
+            "version": self.version,
+            "versionCode": self.version_code,
+            "author": self.author,
+            "description": self.description,
+            "state": self.state,
+            "updateMetadata": (
+                "available" if self.update_url else "absent"
+            ),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -549,8 +572,27 @@ class RootingService:
         adb: str,
     ) -> RootingCompilation:
         self._validate_payload(command, {"serial"})
-        # Magisk exposes module directories at this documented fixed path.  The
-        # command text is backend-owned and contains no caller-controlled data.
+        # Magisk exposes module directories at this documented fixed path. The
+        # backend-owned script emits bounded base64 metadata, so module.prop
+        # text can never create records or cross the argv boundary.
+        script = (
+            "count=0; encode_prop() { key=$1; limit=$2; "
+            'sed -n "s/^${key}=//p" "$prop" 2>/dev/null | head -n 1 | '
+            'head -c "$limit" | base64 | tr -d "\\n"; }; '
+            "for dir in /data/adb/modules/*; do [ -d \"$dir\" ] || continue; "
+            'id=${dir##*/}; case "$id" in *[!A-Za-z0-9._-]*|\'\') continue;; esac; '
+            '[ "${#id}" -le 64 ] || continue; prop="$dir/module.prop"; '
+            'if [ -f "$dir/remove" ]; then state=pending_remove; '
+            'elif [ -f "$dir/disable" ]; then state=disabled; '
+            'elif [ -f "$prop" ]; then state=enabled; else state=corrupt; fi; '
+            'name=$(encode_prop name 512); version=$(encode_prop version 256); '
+            'version_code=$(sed -n "s/^versionCode=//p" "$prop" 2>/dev/null | head -n 1 | head -c 16); '
+            'author=$(encode_prop author 512); description=$(encode_prop description 2048); '
+            'update_json=$(encode_prop updateJson 4096); '
+            f'printf "{_MODULE_LIST_PREFIX}|%s|%s|%s|%s|%s|%s|%s|%s\\n" '
+            '"$id" "$state" "$name" "$version" "$version_code" "$author" "$description" "$update_json"; '
+            f'count=$((count + 1)); [ "$count" -lt {_MAX_MODULES} ] || break; done'
+        )
         request = ProcessRequest(
             (
                 adb,
@@ -559,9 +601,10 @@ class RootingService:
                 "shell",
                 "su",
                 "-c",
-                "ls -1 /data/adb/modules",
+                script,
             ),
             timeout_seconds=30.0,
+            output_limit_bytes=_MAX_MODULE_LIST_BYTES,
         )
         return RootingCompilation(
             "modules.list",
@@ -1017,10 +1060,83 @@ class RootingService:
 
 
 def parse_root_module_list(stdout: str) -> tuple[RootModuleInfo, ...]:
-    """Parse fixed ``ls`` output without promoting malformed names to IDs."""
+    """Parse bounded module records without exposing device-controlled URLs."""
 
-    modules = {line.strip() for line in stdout.splitlines() if _MODULE_ID_PATTERN.fullmatch(line.strip())}
-    return tuple(RootModuleInfo(module_id) for module_id in sorted(modules, key=str.casefold))
+    if not isinstance(stdout, str):
+        raise RootingPlanningError("root_module_list_invalid", "module inventory must be text")
+    if len(stdout.encode("utf-8", errors="replace")) > _MAX_MODULE_LIST_BYTES:
+        raise RootingPlanningError("root_module_list_oversized", "module inventory is oversized")
+    lines = tuple(line.strip() for line in stdout.splitlines() if line.strip())
+    if len(lines) > _MAX_MODULES:
+        raise RootingPlanningError("root_module_list_oversized", "too many modules were reported")
+    modules: list[RootModuleInfo] = []
+    seen: set[str] = set()
+    for line in lines:
+        fields = line.split("|")
+        if len(fields) != 9 or fields[0] != _MODULE_LIST_PREFIX:
+            raise RootingPlanningError("root_module_list_malformed", "module inventory record is invalid")
+        module_id, state = fields[1:3]
+        if (
+            _MODULE_ID_PATTERN.fullmatch(module_id) is None
+            or module_id.casefold() in seen
+            or state not in {"enabled", "disabled", "pending_remove", "corrupt"}
+        ):
+            raise RootingPlanningError("root_module_list_malformed", "module identity or state is invalid")
+        name = _module_property(fields[3], "name", 256)
+        version = _module_property(fields[4], "version", 128)
+        raw_version_code = fields[5]
+        if raw_version_code:
+            if not raw_version_code.isascii() or not raw_version_code.isdecimal():
+                raise RootingPlanningError("root_module_list_malformed", "module version code is invalid")
+            version_code: int | None = int(raw_version_code, 10)
+            if not 0 <= version_code <= 2_147_483_647:
+                raise RootingPlanningError("root_module_list_malformed", "module version code is out of bounds")
+        else:
+            version_code = None
+        author = _module_property(fields[6], "author", 256)
+        description = _module_property(fields[7], "description", 1024)
+        update_url = _module_property(fields[8], "updateJson", 2048)
+        if update_url:
+            parsed = urlsplit(update_url)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.fragment
+            ):
+                raise RootingPlanningError("root_module_list_malformed", "module update URL is unsafe")
+        modules.append(
+            RootModuleInfo(
+                module_id,
+                name or module_id,
+                version,
+                version_code,
+                author,
+                description,
+                state,
+                update_url,
+            )
+        )
+        seen.add(module_id.casefold())
+    return tuple(sorted(modules, key=lambda item: item.id.casefold()))
+
+
+def _module_property(encoded: str, label: str, maximum: int) -> str:
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        value = raw.decode("utf-8", errors="strict").strip()
+    except (ValueError, UnicodeDecodeError) as error:
+        raise RootingPlanningError(
+            "root_module_list_malformed",
+            f"module {label} metadata is invalid",
+        ) from error
+    if len(value) > maximum or any(ord(character) < 32 for character in value):
+        raise RootingPlanningError(
+            "root_module_list_malformed",
+            f"module {label} metadata is outside its bounds",
+        )
+    return value
 
 
 __all__ = [

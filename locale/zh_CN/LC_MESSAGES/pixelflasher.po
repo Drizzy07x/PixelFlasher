@@ -5879,3 +5879,23 @@ msgstr "此设备上未找到 Magisk 原厂启动备份。"
 msgctxt "web.backups.sha1"
 msgid "SHA-1"
 msgstr "SHA-1"
+
+msgctxt "web.root.moduleState.enabled"
+msgid "Enabled"
+msgstr "已启用"
+
+msgctxt "web.root.moduleState.disabled"
+msgid "Disabled"
+msgstr "已停用"
+
+msgctxt "web.root.moduleState.pending_remove"
+msgid "Pending removal"
+msgstr "等待移除"
+
+msgctxt "web.root.moduleState.corrupt"
+msgid "Invalid metadata"
+msgstr "元数据无效"
+
+msgctxt "web.root.moduleUpdateAvailable"
+msgid "Update metadata available"
+msgstr "有可用的更新元数据"

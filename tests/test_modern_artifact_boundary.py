@@ -371,6 +371,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "firmware.select",
                         "root.apps.catalog.refresh",
                         "root.apps.download",
+                        "root.modules.list",
                         "tools.logcat",
                         "tools.logcat.clear",
                         "tools.pushFiles",

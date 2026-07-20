@@ -5874,3 +5874,23 @@ msgstr "Aucune sauvegarde boot d’origine de Magisk n’a été trouvée sur ce
 msgctxt "web.backups.sha1"
 msgid "SHA-1"
 msgstr "SHA-1"
+
+msgctxt "web.root.moduleState.enabled"
+msgid "Enabled"
+msgstr "Activé"
+
+msgctxt "web.root.moduleState.disabled"
+msgid "Disabled"
+msgstr "Désactivé"
+
+msgctxt "web.root.moduleState.pending_remove"
+msgid "Pending removal"
+msgstr "Suppression en attente"
+
+msgctxt "web.root.moduleState.corrupt"
+msgid "Invalid metadata"
+msgstr "Métadonnées non valides"
+
+msgctxt "web.root.moduleUpdateAvailable"
+msgid "Update metadata available"
+msgstr "Métadonnées de mise à jour disponibles"

@@ -972,7 +972,19 @@ export function installDevelopmentBridge() {
               status: 'SUCCESS',
               code: 'root_modules_list_succeeded',
               message: `found ${mockRootModules.length} Magisk module(s)`,
-              value: { count: mockRootModules.length, modules: mockRootModules.map((id) => ({ id })) },
+              value: {
+                count: mockRootModules.length,
+                modules: mockRootModules.map((id) => ({
+                  id,
+                  name: id === 'play_integrity_fix' ? 'Play Integrity Fix' : id === 'zygisk_next' ? 'Zygisk Next' : id,
+                  version: '1.0.0',
+                  versionCode: 100,
+                  author: 'PixelFlasher demo',
+                  description: 'Verified demo module metadata.',
+                  state: 'enabled',
+                  updateMetadata: 'absent',
+                })),
+              },
             });
             break;
           }

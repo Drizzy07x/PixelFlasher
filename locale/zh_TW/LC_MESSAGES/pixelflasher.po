@@ -5870,3 +5870,23 @@ msgstr "此裝置上找不到 Magisk 原廠啟動備份。"
 msgctxt "web.backups.sha1"
 msgid "SHA-1"
 msgstr "SHA-1"
+
+msgctxt "web.root.moduleState.enabled"
+msgid "Enabled"
+msgstr "已啟用"
+
+msgctxt "web.root.moduleState.disabled"
+msgid "Disabled"
+msgstr "已停用"
+
+msgctxt "web.root.moduleState.pending_remove"
+msgid "Pending removal"
+msgstr "等待移除"
+
+msgctxt "web.root.moduleState.corrupt"
+msgid "Invalid metadata"
+msgstr "中繼資料無效"
+
+msgctxt "web.root.moduleUpdateAvailable"
+msgid "Update metadata available"
+msgstr "有可用的更新中繼資料"

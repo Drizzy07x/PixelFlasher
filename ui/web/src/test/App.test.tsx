@@ -290,7 +290,7 @@ describe('PixelFlasher web workspace', () => {
     const modulesCard = screen.getByText('Magisk Modules').closest('.card') as HTMLElement;
     const modulesRefresh = within(modulesCard).getByRole('button', { name: 'Refresh' });
     await user.click(modulesRefresh);
-    const moduleName = await within(modulesCard).findByText('play_integrity_fix');
+    const moduleName = await within(modulesCard).findByText('Play Integrity Fix');
     const moduleRow = moduleName.closest('[role="listitem"]') as HTMLElement;
 
     for (const action of ['Enable', 'Disable'] as const) {

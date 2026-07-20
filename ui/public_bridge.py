@@ -43,6 +43,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "firmware.select",
         "root.apps.catalog.refresh",
         "root.apps.download",
+        "root.modules.list",
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
@@ -1430,12 +1431,61 @@ def _project_root_app_download(value: object) -> JSONValue:
 
 
 def _project_root_modules(value: object) -> JSONValue:
-    source = _record(value)
-    modules = [
-        {"id": _string(_record(raw).get("id"))}
-        for raw in _array(source.get("modules", []))
-    ]
-    return ensure_public_json({"count": len(modules), "modules": modules})
+    source = _closed_record(value, fields=frozenset({"count", "modules"}))
+    count = source["count"]
+    raw_modules = source["modules"]
+    if (
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or not 0 <= count <= 256
+        or not isinstance(raw_modules, list)
+        or len(raw_modules) != count
+    ):
+        raise PublicProjectionError("root module inventory count is invalid")
+    fields = frozenset(
+        {
+            "id", "name", "version", "versionCode", "author", "description",
+            "state", "updateMetadata",
+        }
+    )
+    modules: list[dict[str, JSONValue]] = []
+    seen: set[str] = set()
+    for raw in cast("list[object]", raw_modules):
+        module = _closed_record(raw, fields=fields)
+        module_id = module["id"]
+        version_code = module["versionCode"]
+        strings = {
+            key: module[key]
+            for key in ("name", "version", "author", "description")
+        }
+        if (
+            not isinstance(module_id, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", module_id) is None
+            or module_id.casefold() in seen
+            or any(not isinstance(item, str) for item in strings.values())
+            or len(cast(str, strings["name"])) > 256
+            or len(cast(str, strings["version"])) > 128
+            or len(cast(str, strings["author"])) > 256
+            or len(cast(str, strings["description"])) > 1024
+            or any(
+                any(ord(character) < 32 for character in cast(str, item))
+                for item in strings.values()
+            )
+            or (
+                version_code is not None
+                and (
+                    not isinstance(version_code, int)
+                    or isinstance(version_code, bool)
+                    or not 0 <= version_code <= 2_147_483_647
+                )
+            )
+            or module["state"] not in {"enabled", "disabled", "pending_remove", "corrupt"}
+            or module["updateMetadata"] not in {"available", "absent"}
+        ):
+            raise PublicProjectionError("root module inventory record is invalid")
+        modules.append(cast(dict[str, JSONValue], ensure_public_json(dict(module))))
+        seen.add(module_id.casefold())
+    return ensure_public_json({"count": count, "modules": modules})
 
 
 def _project_root_module_action(value: object) -> JSONValue:

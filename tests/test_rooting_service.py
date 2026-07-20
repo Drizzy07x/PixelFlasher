@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import os
 import tempfile
@@ -28,6 +29,26 @@ from pixelflasher_core.rooting import (
     parse_root_module_list,
 )
 from tests.apk_test_helpers import FakeVerifiedApkInspector
+
+
+def module_record(
+    module_id: str,
+    *,
+    state: str = "enabled",
+    name: str = "Module",
+    version: str = "1.0",
+    version_code: str = "1",
+    author: str = "PixelFlasher",
+    description: str = "Test module",
+    update_url: str = "",
+) -> str:
+    encoded = [
+        base64.b64encode(value.encode("utf-8")).decode("ascii")
+        for value in (name, version, author, description, update_url)
+    ]
+    return "|".join(
+        ["PF_RM", module_id, state, encoded[0], encoded[1], version_code, *encoded[2:]]
+    )
 
 
 def write_apk(path: Path, payload: bytes = b"manifest") -> bytes:
@@ -360,17 +381,15 @@ class RootingServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            (
-                "ADB",
-                "-s",
-                "SERIAL",
-                "shell",
-                "su",
-                "-c",
-                "ls -1 /data/adb/modules",
-            ),
-            compilation.plan.request.argv,
+            ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
+            compilation.plan.request.argv[:6],
         )
+        script = compilation.plan.request.argv[6]
+        self.assertIn("for dir in /data/adb/modules/*", script)
+        self.assertIn("module.prop", script)
+        self.assertIn("base64", script)
+        self.assertIn("PF_RM|%s|%s", script)
+        self.assertEqual(256 * 1024, compilation.plan.request.output_limit_bytes)
         self.assertFalse(compilation.device_write)
         self.assertFalse(compilation.requires_confirmation)
 
@@ -666,15 +685,47 @@ class RootingServiceTests(unittest.TestCase):
 
 
 class RootModuleParserTests(unittest.TestCase):
-    def test_parser_sorts_deduplicates_and_drops_untrusted_rows(self):
+    def test_parser_returns_sorted_bounded_metadata_without_update_url(self):
         parsed = parse_root_module_list(
-            "zygisk_next\nplay_integrity_fix\n../escape\ngood;touch /tmp/pwn\nzygisk_next\n"
+            "\n".join(
+                (
+                    module_record("zygisk_next", state="disabled", name="Zygisk Next"),
+                    module_record(
+                        "play_integrity_fix",
+                        name="Play Integrity Fix",
+                        version="19.1",
+                        version_code="19100",
+                        update_url="https://example.test/update.json",
+                    ),
+                )
+            )
         )
 
         self.assertEqual(
             ["play_integrity_fix", "zygisk_next"],
             [module.id for module in parsed],
         )
+        self.assertEqual("Play Integrity Fix", parsed[0].name)
+        self.assertEqual(19100, parsed[0].version_code)
+        self.assertEqual("https://example.test/update.json", parsed[0].update_url)
+        self.assertEqual("available", parsed[0].to_dict()["updateMetadata"])
+
+    def test_parser_rejects_malformed_duplicate_and_unsafe_metadata(self):
+        cases = (
+            "../escape",
+            module_record("zygisk_next") + "\n" + module_record("ZYGISK_NEXT"),
+            module_record("zygisk_next", update_url="http://example.test/update.json"),
+            module_record("zygisk_next", version_code="1;reboot"),
+            "PF_RM|zygisk_next|enabled|not-base64|||||",
+        )
+        for output in cases:
+            with self.subTest(output=output):
+                with self.assertRaises(RootingPlanningError) as raised:
+                    parse_root_module_list(output)
+                self.assertIn(
+                    raised.exception.code,
+                    {"root_module_list_malformed"},
+                )
 
 
 if __name__ == "__main__":

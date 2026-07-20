@@ -1281,7 +1281,7 @@
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
         "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "Install, enable, disable and remove now refresh canonical device state at the returned revision only after SUCCESS; failures cannot invent local state. Module update discovery and the remaining legacy root-settings workflow are absent.",
+      "gap": "The bounded inventory now exposes validated name, version, versionCode, author, description, state and update-metadata presence without leaking its URL; hostile module.prop output fails closed. Mutations refresh canonical state only after SUCCESS. Backend update download/verification and the remaining legacy root-settings workflow are absent.",
       "exitCriteria": [
         "React lists, installs, updates, enables, disables and removes validated modules with action-specific confirmation and refreshed state."
       ],
@@ -1299,6 +1299,7 @@
       "tests": [
         "tests/test_rooting_service.py",
         "tests/test_service_engine_integration.py",
+        "tests/test_root_module_public_contract.py",
         "ui/web/src/test/App.test.tsx:root workflow",
         "ui/web/src/test/root-modules.test.tsx"
       ],

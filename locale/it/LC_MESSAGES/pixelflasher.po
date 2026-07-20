@@ -5876,3 +5876,23 @@ msgstr "Nessun backup boot originale di Magisk trovato su questo dispositivo."
 msgctxt "web.backups.sha1"
 msgid "SHA-1"
 msgstr "SHA-1"
+
+msgctxt "web.root.moduleState.enabled"
+msgid "Enabled"
+msgstr "Abilitato"
+
+msgctxt "web.root.moduleState.disabled"
+msgid "Disabled"
+msgstr "Disabilitato"
+
+msgctxt "web.root.moduleState.pending_remove"
+msgid "Pending removal"
+msgstr "Rimozione in sospeso"
+
+msgctxt "web.root.moduleState.corrupt"
+msgid "Invalid metadata"
+msgstr "Metadati non validi"
+
+msgctxt "web.root.moduleUpdateAvailable"
+msgid "Update metadata available"
+msgstr "Metadati di aggiornamento disponibili"
