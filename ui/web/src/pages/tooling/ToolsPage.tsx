@@ -17,7 +17,7 @@ import {
   type LogcatUiState,
 } from './LogcatPanel';
 
-type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | null;
+type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | 'mytools' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type WifiService = {
   id: string;
@@ -26,6 +26,16 @@ type WifiService = {
   host: string;
   port: number;
   endpoint: string;
+};
+type MyToolRow = {
+  id: string;
+  title: string;
+  mode: 'safeArgv' | 'legacyRaw';
+  displayName: string;
+  sha256: string;
+  arguments: string[];
+  enabled: boolean;
+  blockedReason?: string;
 };
 export type PushDestination = '/data/local/tmp/' | '/sdcard/Download/';
 export type PushPayload = { serial: string; grants: string[]; destination: PushDestination };
@@ -259,6 +269,15 @@ export function ToolsPage({
   const [wifiServices, setWifiServices] = useState<WifiService[]>([]);
   const [wifiDiscoveryRan, setWifiDiscoveryRan] = useState(false);
   const [selectedWifiServiceId, setSelectedWifiServiceId] = useState('');
+  const [myTools, setMyTools] = useState<MyToolRow[]>([]);
+  const [legacyMyTools, setLegacyMyTools] = useState<MyToolRow[]>([]);
+  const [myToolId, setMyToolId] = useState('');
+  const [myToolTitle, setMyToolTitle] = useState('');
+  const [myToolArguments, setMyToolArguments] = useState('');
+  const [myToolEnabled, setMyToolEnabled] = useState(true);
+  const [myToolGrant, setMyToolGrant] = useState('');
+  const [myToolGrantRevision, setMyToolGrantRevision] = useState<number | undefined>();
+  const [myToolExecutableName, setMyToolExecutableName] = useState('');
   const [secretPromptOpen, setSecretPromptOpen] = useState(false);
   const [secretValue, setSecretValue] = useState('');
   const secretResolverRef = useRef<((value: string | null) => void) | null>(null);
@@ -695,6 +714,111 @@ export function ToolsPage({
     }
   };
 
+  const parseMyTool = (value: unknown, mode: MyToolRow['mode']): MyToolRow | null => {
+    const item = record(value);
+    if (
+      typeof item.id !== 'string'
+      || typeof item.title !== 'string'
+      || item.mode !== mode
+      || typeof item.displayName !== 'string'
+      || typeof item.sha256 !== 'string'
+      || !Array.isArray(item.arguments)
+      || item.arguments.some((argument) => typeof argument !== 'string')
+      || typeof item.enabled !== 'boolean'
+    ) return null;
+    return {
+      id: item.id,
+      title: item.title,
+      mode,
+      displayName: item.displayName,
+      sha256: item.sha256,
+      arguments: item.arguments as string[],
+      enabled: item.enabled,
+      ...(typeof item.blockedReason === 'string' ? { blockedReason: item.blockedReason } : {}),
+    };
+  };
+  const loadMyTools = async () => {
+    const response = await runTool(commands.toolsMyTools, { action: 'list' }, { returnFailed: true });
+    const value = record(record(response?.result).value);
+    const safe = Array.isArray(value.tools)
+      ? value.tools.flatMap((item) => { const parsed = parseMyTool(item, 'safeArgv'); return parsed ? [parsed] : []; })
+      : [];
+    const legacy = Array.isArray(value.legacyRaw)
+      ? value.legacyRaw.flatMap((item) => { const parsed = parseMyTool(item, 'legacyRaw'); return parsed ? [parsed] : []; })
+      : [];
+    setMyTools(safe);
+    setLegacyMyTools(legacy);
+  };
+  const resetMyToolEditor = () => {
+    setMyToolId('');
+    setMyToolTitle('');
+    setMyToolArguments('');
+    setMyToolEnabled(true);
+    setMyToolGrant('');
+    setMyToolGrantRevision(undefined);
+    setMyToolExecutableName('');
+  };
+  const editMyTool = (tool: MyToolRow) => {
+    setMyToolId(tool.id);
+    setMyToolTitle(tool.title);
+    setMyToolArguments(tool.arguments.join('\n'));
+    setMyToolEnabled(tool.enabled);
+    setMyToolGrant('');
+    setMyToolGrantRevision(undefined);
+    setMyToolExecutableName(tool.displayName);
+  };
+  const chooseMyToolExecutable = async () => {
+    if (busy) return;
+    setBusy('my-tool-picker');
+    try {
+      const picked = await onCommand(commands.nativePickFile, {
+        purpose: 'tools.myTools.executable',
+        title: t('tools.myToolsChoose'),
+      });
+      const grant = selectedGrant(picked);
+      const resultValue = record(record(picked?.result).value);
+      const data = record(record(resultValue.data).grant ? resultValue.data : record(picked?.result).data);
+      if (!grant) return;
+      setMyToolGrant(grant);
+      setMyToolGrantRevision(picked?.revision);
+      setMyToolExecutableName(typeof data.displayName === 'string' ? data.displayName : t('tools.myToolsSelected'));
+    } finally {
+      setBusy('');
+    }
+  };
+  const saveMyTool = async () => {
+    if (busy || !myToolTitle.trim() || (!myToolId && !myToolGrant)) return;
+    const payload: Record<string, unknown> = {
+      action: 'save',
+      title: myToolTitle.trim(),
+      arguments: myToolArguments.split(/\r?\n/).filter((argument) => argument.length > 0),
+      enabled: myToolEnabled,
+      ...(myToolId ? { toolId: myToolId } : {}),
+      ...(myToolGrant ? { grant: myToolGrant } : {}),
+    };
+    const response = await runTool(
+      commands.toolsMyTools,
+      payload,
+      { expectedRevision: myToolGrantRevision, returnFailed: true },
+    );
+    if (normalizeOperationStatus(record(response?.result).status) !== 'success') return;
+    resetMyToolEditor();
+    await loadMyTools();
+  };
+  const runMyTool = async (toolId: string) => {
+    await runTool(commands.toolsMyTools, { action: 'run', toolId }, { returnCancelled: true, returnFailed: true });
+  };
+  const deleteMyTool = async (toolId: string) => {
+    const response = await runTool(commands.toolsMyTools, { action: 'delete', toolId }, { returnFailed: true });
+    if (normalizeOperationStatus(record(response?.result).status) !== 'success') return;
+    if (myToolId === toolId) resetMyToolEditor();
+    await loadMyTools();
+  };
+  const openMyTools = () => {
+    openPanel('mytools');
+    void loadMyTools();
+  };
+
   const openPanel = (next: ToolPanel) => {
     setPanel(next);
     setResult(null);
@@ -744,6 +868,7 @@ export function ToolsPage({
       { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), disabled: !avbFirmwareReady, run: () => openPanel('avb') },
       { id: 'xml', icon: 'processFile', title: t('tools.xmlDecode'), detail: t('tools.xmlDecodeDetail'), disabled: false, run: () => openPanel('xml') },
       { id: 'keybox', icon: 'shield', title: t('tools.keyboxValidate'), detail: t('tools.keyboxValidateDetail'), disabled: false, run: () => openPanel('keybox') },
+      { id: 'mytools', icon: 'wrench', title: t('tools.myTools'), detail: t('tools.myToolsDetail'), disabled: false, run: openMyTools },
     ] satisfies ToolCard[] : []),
   ];
   const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
@@ -787,8 +912,8 @@ export function ToolsPage({
 
       {panel ? (
         <Card className="tool-workspace" aria-busy={Boolean(busy)}>
-          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' || panel === 'keybox' ? 'shield' : panel === 'xml' ? 'processFile' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
-            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : panel === 'keybox' ? t('tools.keyboxValidate') : t('tools.wifi')}
+          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' || panel === 'keybox' ? 'shield' : panel === 'xml' ? 'processFile' : panel === 'mytools' ? 'wrench' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
+            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : panel === 'keybox' ? t('tools.keyboxValidate') : panel === 'mytools' ? t('tools.myTools') : t('tools.wifi')}
           </CardTitle>
           {panel === 'scrcpy' ? (
             <div className="tool-panel-body scrcpy-panel">
@@ -1055,6 +1180,53 @@ export function ToolsPage({
                   </ul>
                 </>
               ) : <EmptyState icon="shield" title={t('tools.keyboxReports')} detail={t('tools.keyboxValidateDetail')} />}
+            </div>
+          ) : null}
+          {panel === 'mytools' ? (
+            <div className="tool-panel-body my-tools-panel">
+              <div className="inline-alert inline-alert--warning" role="status">
+                <Icon name="shield" size={18} />
+                <span>{t('tools.myToolsSafety')}</span>
+              </div>
+              <div className="my-tools-layout">
+                <section className="my-tools-list" aria-label={t('tools.myToolsSaved')}>
+                  <div className="wifi-discovery-toolbar">
+                    <div><strong>{t('tools.myToolsSaved')}</strong><p>{t('tools.myToolsSavedDetail')}</p></div>
+                    <Button icon="scan" onClick={() => void loadMyTools()} disabled={Boolean(busy)}>{t('common.refresh')}</Button>
+                  </div>
+                  {myTools.length ? <ul>
+                    {myTools.map((tool) => <li key={tool.id}>
+                      <button type="button" className="my-tool-summary" onClick={() => editMyTool(tool)} disabled={Boolean(busy)}>
+                        <span><strong>{tool.title}</strong><small>{tool.displayName}</small></span>
+                        <Badge tone={tool.enabled ? 'success' : 'neutral'}>{tool.enabled ? t('common.enabled') : t('common.disabled')}</Badge>
+                      </button>
+                      <div className="my-tool-actions">
+                        <Button variant="ghost" onClick={() => void runMyTool(tool.id)} disabled={Boolean(busy) || !tool.enabled}>{t('tools.myToolsRun')}</Button>
+                        <Button variant="danger" onClick={() => void deleteMyTool(tool.id)} disabled={Boolean(busy)}>{t('tools.myToolsDelete')}</Button>
+                      </div>
+                    </li>)}
+                  </ul> : <EmptyState icon="wrench" title={t('common.none')} detail={t('tools.myToolsEmpty')} />}
+                  {legacyMyTools.length ? <div className="legacy-tools">
+                    <strong>{t('tools.myToolsLegacy')}</strong>
+                    <p>{t('tools.myToolsLegacyDetail')}</p>
+                    <ul>{legacyMyTools.map((tool) => <li key={tool.id}><span>{tool.title}</span><Badge tone="warning">{t('tools.myToolsBlocked')}</Badge></li>)}</ul>
+                  </div> : null}
+                </section>
+                <section className="my-tools-editor" aria-label={t('tools.myToolsEditor')}>
+                  <div className="wifi-discovery-toolbar">
+                    <div><strong>{myToolId ? t('tools.myToolsEdit') : t('tools.myToolsAdd')}</strong><p>{t('tools.myToolsArgumentsDetail')}</p></div>
+                    {myToolId ? <Button variant="ghost" onClick={resetMyToolEditor}>{t('tools.myToolsNew')}</Button> : null}
+                  </div>
+                  <div className="tool-form-grid my-tools-form">
+                    <label><span>{t('tools.myToolsTitle')}</span><input value={myToolTitle} maxLength={96} onChange={(event) => setMyToolTitle(event.currentTarget.value)} disabled={Boolean(busy)} /></label>
+                    <label><span>{t('tools.myToolsExecutable')}</span><input value={myToolExecutableName} readOnly placeholder={t('tools.myToolsNoExecutable')} /></label>
+                    <Button icon="folderPng" onClick={() => void chooseMyToolExecutable()} disabled={Boolean(busy)}>{t('tools.myToolsChoose')}</Button>
+                    <label className="my-tools-arguments"><span>{t('tools.myToolsArguments')}</span><textarea value={myToolArguments} onChange={(event) => setMyToolArguments(event.currentTarget.value)} rows={7} disabled={Boolean(busy)} /></label>
+                    <label className="tool-checkbox-row"><input type="checkbox" checked={myToolEnabled} onChange={(event) => setMyToolEnabled(event.currentTarget.checked)} disabled={Boolean(busy)} /><span>{t('common.enabled')}</span></label>
+                    <Button variant="primary" icon="wrench" onClick={() => void saveMyTool()} disabled={Boolean(busy) || !myToolTitle.trim() || (!myToolId && !myToolGrant)}>{t('tools.myToolsSave')}</Button>
+                  </div>
+                </section>
+              </div>
             </div>
           ) : null}
           {result && panel !== 'push' ? <div className={`tool-result tool-result--${toolResultStatus}`} role={toolResultFailed ? 'alert' : 'status'}><Icon name={toolResultSucceeded ? 'check' : 'warningPng'} size={18} /><span><strong>{t('tools.results')}</strong><small>{typeof result.message === 'string' ? result.message : t('status.ready')}</small></span></div> : null}

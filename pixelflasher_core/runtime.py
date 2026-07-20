@@ -76,6 +76,7 @@ from .firmware_catalog import (
 )
 from .interaction import InteractionBroker
 from .keybox_validation import KeyboxValidationService
+from .my_tools import MyToolsRepository, MyToolsService
 from .observer import PostconditionObserver, ProcessDeviceObservationProbe
 from .operation_runner import (
     OperationRunner,
@@ -208,6 +209,10 @@ class ApplicationRuntime:
             self._backup_repository_path(config_store.path)
         )
         self.backup_cleanup_report = self.backup_repository.collect_orphaned_objects()
+        self.my_tools_repository = MyToolsRepository(
+            self._my_tools_repository_path(config_store.path),
+            legacy_path=config_store.path.parent / "mytools.json",
+        )
         self.processed_artifact_repository = PersistentProcessedArtifactRepository(
             self.firmware_repository,
             metadata_provider=self._processed_firmware_metadata,
@@ -377,6 +382,7 @@ class ApplicationRuntime:
             avb_downgrade_service=avb_downgrade_service,
             binary_xml_service=BinaryXmlService(),
             keybox_validation_service=KeyboxValidationService(),
+            my_tools_service=MyToolsService(self.my_tools_repository, self.executor),
             update_service=self.update_service,
         )
         self.engine = PixelFlasherEngine(
@@ -1759,6 +1765,11 @@ class ApplicationRuntime:
     def _backup_repository_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "backup-repository"
+
+    @staticmethod
+    def _my_tools_repository_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / "my-tools-v1.json"
 
     @staticmethod
     def _pif_favorites_path(config_path: str | Path) -> Path:

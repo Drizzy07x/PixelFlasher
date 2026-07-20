@@ -282,6 +282,10 @@ export function installDevelopmentBridge() {
   let pendingGuarded: { request: BridgeRequest; operationId: string; complete: () => void } | null = null;
   let mockRootModules = ['play_integrity_fix', 'zygisk_next'];
   let mockDisabledRootModules = new Set<string>();
+  let mockMyTools: Array<{
+    id: string; title: string; mode: 'safeArgv'; displayName: string;
+    sha256: string; arguments: string[]; enabled: boolean;
+  }> = [];
   let mockPifFavoriteRevision = 0;
   let mockPifFavorites: Array<{
     favoriteId: string; label: string; createdAt: string; sha256: string; size: number; content: string;
@@ -1938,6 +1942,43 @@ export function installDevelopmentBridge() {
               },
             });
             break;
+          case 'tools.myTools': {
+            const action = request.payload.action;
+            if (action === 'list') {
+              respond(request, success('Personal tools listed.', {
+                schemaVersion: 1,
+                tools: mockMyTools,
+                legacyRaw: [],
+                revision: snapshot.revision,
+              }));
+              break;
+            }
+            if (action === 'save') {
+              const toolId = typeof request.payload.toolId === 'string' ? request.payload.toolId : 'a'.repeat(32);
+              const existing = mockMyTools.find((tool) => tool.id === toolId);
+              const tool = {
+                id: toolId,
+                title: String(request.payload.title),
+                mode: 'safeArgv' as const,
+                displayName: existing?.displayName ?? 'personal.exe',
+                sha256: existing?.sha256 ?? 'b'.repeat(64),
+                arguments: Array.isArray(request.payload.arguments) ? request.payload.arguments.map(String) : [],
+                enabled: request.payload.enabled === true,
+              };
+              mockMyTools = [tool, ...mockMyTools.filter((item) => item.id !== toolId)];
+              respond(request, success('Personal tool saved.', { tool, revision: snapshot.revision }));
+              break;
+            }
+            if (action === 'delete') {
+              const toolId = String(request.payload.toolId);
+              mockMyTools = mockMyTools.filter((tool) => tool.id !== toolId);
+              respond(request, success('Personal tool deleted.', { toolId, revision: snapshot.revision }));
+              break;
+            }
+            const tool = mockMyTools.find((item) => item.id === request.payload.toolId);
+            respond(request, success('Personal tool completed.', { tool, revision: snapshot.revision }));
+            break;
+          }
           case 'support.create':
             respond(request, success('Created redacted support package.', {
               displayName: 'PixelFlasher-support.zip',

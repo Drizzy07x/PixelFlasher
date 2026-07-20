@@ -42,6 +42,7 @@ from pixelflasher_core.firmware import FirmwareInspector
 from pixelflasher_core.firmware_artifacts import FirmwareArtifactService
 from pixelflasher_core.firmware_catalog import FirmwareCatalogService
 from pixelflasher_core.keybox_validation import KeyboxValidationService
+from pixelflasher_core.my_tools import MyToolsRepository, MyToolsService
 from pixelflasher_core.observer import PostconditionObserver, ProcessDeviceObservationProbe
 from pixelflasher_core.operation_runner import (
     OperationRunner,
@@ -107,6 +108,7 @@ def make_test_command_engine(
     avb_downgrade_service: DowngradePatchService | None = None,
     binary_xml_service: BinaryXmlService | None = None,
     keybox_validation_service: KeyboxValidationService | None = None,
+    my_tools_service: MyToolsService | None = None,
     update_service: UpdateService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
@@ -201,6 +203,13 @@ def make_test_command_engine(
             Path(tempfile.gettempdir()) / "pixelflasher-tests" / "avb-downgrade",
             BundledAvbDowngradeTool(signing_key),
         )
+    owned_my_tools_root: Path | None = None
+    if my_tools_service is None:
+        owned_my_tools_root = Path(tempfile.mkdtemp(prefix="pixelflasher-my-tools-tests-"))
+        my_tools_service = MyToolsService(
+            MyToolsRepository(owned_my_tools_root / "my-tools-v1.json"),
+            executor,
+        )
     engine = CommandEngine(
         store=store,
         executor=executor,
@@ -236,6 +245,7 @@ def make_test_command_engine(
         avb_downgrade_service=avb_downgrade_service,
         binary_xml_service=binary_xml_service or BinaryXmlService(),
         keybox_validation_service=keybox_validation_service or KeyboxValidationService(),
+        my_tools_service=my_tools_service,
         update_service=update_service,
     )
     if owned_backup_root is not None:
@@ -245,4 +255,6 @@ def make_test_command_engine(
             backup_repository,
             owned_backup_root,
         )
+    if owned_my_tools_root is not None:
+        weakref.finalize(engine, shutil.rmtree, owned_my_tools_root, True)
     return engine

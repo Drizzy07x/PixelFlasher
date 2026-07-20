@@ -6659,3 +6659,94 @@ msgstr "有較新的已驗證版本可用。"
 msgctxt "web.settings.updateCheckFailed"
 msgid "Verified update information is unavailable."
 msgstr "無法取得已驗證的更新資訊。"
+msgctxt "web.tools.myTools"
+msgid "My Tools"
+msgstr "我的工具"
+
+msgctxt "web.tools.myToolsDetail"
+msgid "Run personal executables with pinned identity and shell-free arguments."
+msgstr "使用固定身分與無 Shell 引數執行個人可執行檔。"
+
+msgctxt "web.tools.myToolsSafety"
+msgid "Safe profiles execute a verified file directly. Shell syntax, custom environment, working directory, redirection, and elevation are not interpreted."
+msgstr "安全設定檔會直接執行已驗證的檔案，不會解譯 Shell 語法、自訂環境、工作目錄、重新導向或權限提升。"
+
+msgctxt "web.tools.myToolsSaved"
+msgid "Saved profiles"
+msgstr "已儲存的設定檔"
+
+msgctxt "web.tools.myToolsSavedDetail"
+msgid "Each executable is revalidated against its approved SHA-256 before launch."
+msgstr "每個可執行檔在啟動前都會依據已核准的 SHA-256 重新驗證。"
+
+msgctxt "web.tools.myToolsEmpty"
+msgid "Choose an executable to create your first safe profile."
+msgstr "選擇一個可執行檔以建立第一個安全設定檔。"
+
+msgctxt "web.tools.myToolsLegacy"
+msgid "Legacy Raw profiles"
+msgstr "舊版原始設定檔"
+
+msgctxt "web.tools.myToolsLegacyDetail"
+msgid "Profiles imported from 9.x are preserved as metadata but remain blocked until the isolated Legacy Raw permission flow is implemented."
+msgstr "從 9.x 匯入的設定檔會保留為中繼資料，但在隔離的舊版原始權限流程實作前仍維持封鎖。"
+
+msgctxt "web.tools.myToolsBlocked"
+msgid "Blocked"
+msgstr "已封鎖"
+
+msgctxt "web.tools.myToolsEditor"
+msgid "Personal tool editor"
+msgstr "個人工具編輯器"
+
+msgctxt "web.tools.myToolsEdit"
+msgid "Edit safe profile"
+msgstr "編輯安全設定檔"
+
+msgctxt "web.tools.myToolsAdd"
+msgid "Add safe profile"
+msgstr "新增安全設定檔"
+
+msgctxt "web.tools.myToolsNew"
+msgid "New profile"
+msgstr "新增設定檔"
+
+msgctxt "web.tools.myToolsTitle"
+msgid "Title"
+msgstr "標題"
+
+msgctxt "web.tools.myToolsExecutable"
+msgid "Executable"
+msgstr "可執行檔"
+
+msgctxt "web.tools.myToolsNoExecutable"
+msgid "No executable selected"
+msgstr "未選擇可執行檔"
+
+msgctxt "web.tools.myToolsChoose"
+msgid "Choose executable"
+msgstr "選擇可執行檔"
+
+msgctxt "web.tools.myToolsSelected"
+msgid "Selected executable"
+msgstr "已選擇的可執行檔"
+
+msgctxt "web.tools.myToolsArguments"
+msgid "Arguments"
+msgstr "引數"
+
+msgctxt "web.tools.myToolsArgumentsDetail"
+msgid "Enter one literal argument per line. Shell operators have no special meaning."
+msgstr "每行輸入一個字面引數。Shell 運算子沒有特殊意義。"
+
+msgctxt "web.tools.myToolsSave"
+msgid "Save profile"
+msgstr "儲存設定檔"
+
+msgctxt "web.tools.myToolsRun"
+msgid "Run"
+msgstr "執行"
+
+msgctxt "web.tools.myToolsDelete"
+msgid "Delete"
+msgstr "刪除"

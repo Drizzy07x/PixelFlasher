@@ -81,6 +81,7 @@ export const commands = {
   toolsKeybox: "tools.keybox",
   toolsLogcat: "tools.logcat",
   toolsLogcatClear: "tools.logcat.clear",
+  toolsMyTools: "tools.myTools",
   toolsPiAnalysis: "tools.piAnalysis",
   toolsPif: "tools.pif",
   toolsPushFiles: "tools.pushFiles",
@@ -445,6 +446,14 @@ export interface BridgePayloadByCommand {
   "tools.logcat.clear": {
     "serial"?: string;
   };
+  "tools.myTools": {
+    "action": string;
+    "arguments"?: string[];
+    "enabled"?: boolean;
+    "grant"?: string;
+    "title"?: string;
+    "toolId"?: string;
+  };
   "tools.piAnalysis": {
     "action": string;
     "serial": string;
@@ -592,6 +601,7 @@ export const allowedCommands = [
   commands.toolsKeybox,
   commands.toolsLogcat,
   commands.toolsLogcatClear,
+  commands.toolsMyTools,
   commands.toolsPiAnalysis,
   commands.toolsPif,
   commands.toolsPushFiles,
@@ -690,6 +700,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.toolsKeybox]: 300000,
   [commands.toolsLogcat]: 180000,
   [commands.toolsLogcatClear]: 180000,
+  [commands.toolsMyTools]: 300000,
   [commands.toolsPiAnalysis]: 180000,
   [commands.toolsPif]: 120000,
   [commands.toolsPushFiles]: 21600000,
@@ -782,6 +793,7 @@ export const bridgeCommandMetadata = {
   [commands.toolsKeybox]: {"owner":"developer_tools","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"keybox.analyze","confirmation":"none","postconditions":["bounded_keybox_reports_returned"]},
   [commands.toolsLogcat]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
   [commands.toolsLogcatClear]: {"owner":"device_tools","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat.clear","confirmation":"standard","postconditions":["logcat_buffers_cleared"]},
+  [commands.toolsMyTools]: {"owner":"developer_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"my_tools.safe_argv","confirmation":"none","postconditions":["profile_persisted_or_process_exit_zero"]},
   [commands.toolsPiAnalysis]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.pi_analysis","confirmation":"none","postconditions":["bounded_redacted_analysis_returned"]},
   [commands.toolsPif]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.action","confirmation":"standard","postconditions":["pif_or_target_state_verified"]},
   [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"standard","postconditions":["remote_files_written"]},
@@ -905,6 +917,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.toolsKeybox]: {"action":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32}},
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"logcat_filter_array","required":false,"minItems":0,"maxItems":32},"formatEnabled":{"kind":"boolean","required":false},"formatModifiers":{"kind":"string_array","required":false,"minItems":0,"maxItems":7},"formatVerb":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"regex":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false},"uids":{"kind":"integer_array","required":false,"minItems":0,"maxItems":32}},
   [commands.toolsLogcatClear]: {"serial":{"kind":"string","required":false}},
+  [commands.toolsMyTools]: {"action":{"kind":"string","required":true},"arguments":{"kind":"string_array","required":false,"minItems":0,"maxItems":128},"enabled":{"kind":"boolean","required":false},"grant":{"kind":"string","required":false},"title":{"kind":"string","required":false},"toolId":{"kind":"string","required":false}},
   [commands.toolsPiAnalysis]: {"action":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
   [commands.toolsPif]: {"action":{"kind":"string","required":true},"baseSha256":{"kind":"string","required":false},"checker":{"kind":"string","required":false},"confirmationText":{"kind":"string","required":true},"content":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"profileId":{"kind":"string","required":false},"serial":{"kind":"string","required":true},"targetFormat":{"kind":"string","required":false},"targetPackage":{"kind":"string","required":false}},
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},

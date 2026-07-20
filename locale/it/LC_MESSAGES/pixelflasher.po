@@ -6672,3 +6672,94 @@ msgstr "È disponibile una versione verificata più recente."
 msgctxt "web.settings.updateCheckFailed"
 msgid "Verified update information is unavailable."
 msgstr "Le informazioni di aggiornamento verificate non sono disponibili."
+msgctxt "web.tools.myTools"
+msgid "My Tools"
+msgstr "I miei strumenti"
+
+msgctxt "web.tools.myToolsDetail"
+msgid "Run personal executables with pinned identity and shell-free arguments."
+msgstr "Esegui programmi personali con identità bloccata e argomenti senza shell."
+
+msgctxt "web.tools.myToolsSafety"
+msgid "Safe profiles execute a verified file directly. Shell syntax, custom environment, working directory, redirection, and elevation are not interpreted."
+msgstr "I profili sicuri eseguono direttamente un file verificato. La sintassi shell, l’ambiente personalizzato, la directory di lavoro, il reindirizzamento e l’elevazione non vengono interpretati."
+
+msgctxt "web.tools.myToolsSaved"
+msgid "Saved profiles"
+msgstr "Profili salvati"
+
+msgctxt "web.tools.myToolsSavedDetail"
+msgid "Each executable is revalidated against its approved SHA-256 before launch."
+msgstr "Ogni eseguibile viene riconvalidato con il relativo SHA-256 approvato prima dell’avvio."
+
+msgctxt "web.tools.myToolsEmpty"
+msgid "Choose an executable to create your first safe profile."
+msgstr "Scegli un eseguibile per creare il tuo primo profilo sicuro."
+
+msgctxt "web.tools.myToolsLegacy"
+msgid "Legacy Raw profiles"
+msgstr "Profili Legacy Raw"
+
+msgctxt "web.tools.myToolsLegacyDetail"
+msgid "Profiles imported from 9.x are preserved as metadata but remain blocked until the isolated Legacy Raw permission flow is implemented."
+msgstr "I profili importati dalla versione 9.x vengono conservati come metadati, ma rimangono bloccati finché non viene implementato il flusso di autorizzazione Legacy Raw isolato."
+
+msgctxt "web.tools.myToolsBlocked"
+msgid "Blocked"
+msgstr "Bloccato"
+
+msgctxt "web.tools.myToolsEditor"
+msgid "Personal tool editor"
+msgstr "Editor degli strumenti personali"
+
+msgctxt "web.tools.myToolsEdit"
+msgid "Edit safe profile"
+msgstr "Modifica profilo sicuro"
+
+msgctxt "web.tools.myToolsAdd"
+msgid "Add safe profile"
+msgstr "Aggiungi profilo sicuro"
+
+msgctxt "web.tools.myToolsNew"
+msgid "New profile"
+msgstr "Nuovo profilo"
+
+msgctxt "web.tools.myToolsTitle"
+msgid "Title"
+msgstr "Titolo"
+
+msgctxt "web.tools.myToolsExecutable"
+msgid "Executable"
+msgstr "Eseguibile"
+
+msgctxt "web.tools.myToolsNoExecutable"
+msgid "No executable selected"
+msgstr "Nessun eseguibile selezionato"
+
+msgctxt "web.tools.myToolsChoose"
+msgid "Choose executable"
+msgstr "Scegli eseguibile"
+
+msgctxt "web.tools.myToolsSelected"
+msgid "Selected executable"
+msgstr "Eseguibile selezionato"
+
+msgctxt "web.tools.myToolsArguments"
+msgid "Arguments"
+msgstr "Argomenti"
+
+msgctxt "web.tools.myToolsArgumentsDetail"
+msgid "Enter one literal argument per line. Shell operators have no special meaning."
+msgstr "Inserisci un argomento letterale per riga. Gli operatori shell non hanno alcun significato speciale."
+
+msgctxt "web.tools.myToolsSave"
+msgid "Save profile"
+msgstr "Salva profilo"
+
+msgctxt "web.tools.myToolsRun"
+msgid "Run"
+msgstr "Esegui"
+
+msgctxt "web.tools.myToolsDelete"
+msgid "Delete"
+msgstr "Elimina"

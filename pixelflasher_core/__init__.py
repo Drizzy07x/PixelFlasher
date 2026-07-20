@@ -55,6 +55,14 @@ from .binary_xml import (
     BinaryXmlService,
     BinaryXmlStatus,
 )
+from .my_tools import (
+    MY_TOOLS_SCHEMA_VERSION,
+    LegacyRawTool,
+    MyToolSpec,
+    MyToolsError,
+    MyToolsRepository,
+    MyToolsService,
+)
 from .boot_patch import (
     BOOT_PATCH_COMMAND,
     SUPPORTED_BOOT_PATCH_FLAVORS,
@@ -633,6 +641,12 @@ __all__ = [
     "InteractionRequest",
     "InteractionResponse",
     "ModernPreferences",
+    "MY_TOOLS_SCHEMA_VERSION",
+    "LegacyRawTool",
+    "MyToolSpec",
+    "MyToolsError",
+    "MyToolsRepository",
+    "MyToolsService",
     "ManagedDeviceInfo",
     "GrantAccess",
     "GrantError",

@@ -160,6 +160,13 @@ _NATIVE_GRANT_SPECS = (
     ),
     NativeGrantSpec(
         "native.pickFile",
+        "tools.myTools.executable",
+        "tools.myTools",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
         "root.dataAdb.restore.source",
         "root.dataAdb.restore",
         GrantTarget.FILE,
@@ -627,6 +634,16 @@ class CoreCommandFactory:
                 )
             except GrantError as exc:
                 raise CommandFactoryError(exc.code, str(exc)) from exc
+        elif command == "tools.myTools":
+            token = payload.pop("grant", None)
+            if token is not None:
+                if not isinstance(token, str):
+                    raise CommandFactoryError("grant_required", "A native executable grant is required.")
+                spec = _SPECS_BY_PURPOSE["tools.myTools.executable"]
+                try:
+                    payload["grant"] = self.path_grants.resolve_bound_file(token, purpose=spec.purpose)
+                except GrantError as exc:
+                    raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "tools.keybox":
             raw_grants = payload.pop("grants", None)
             if not isinstance(raw_grants, list):

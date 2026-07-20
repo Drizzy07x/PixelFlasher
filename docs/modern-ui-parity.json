@@ -2437,24 +2437,34 @@
       "area": "application",
       "capability": "Create, edit, delete and launch My Tools entries",
       "owner": "application",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No explicit expert-only My Tools editor and launcher exists.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/my_tools.py:versioned repository, blocked 9.x migration, executable pinning and shell-free runner",
+        "pixelflasher_core/engine.py:tools.myTools list/save/delete/run owner with explicit OperationResult",
+        "ui/command_registry.py:closed tools.myTools bridge-v2 contract",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:Expert-only safe profile editor and launcher"
+      ],
+      "gap": "Safe argv profiles are native. Legacy Raw imports remain deliberately non-executable until persistent per-tool permission, reinforced per-run confirmation, exact-command preview and restricted shell execution are implemented and tested on every platform.",
       "exitCriteria": [
         "Create, edit, delete and launch My Tools entries is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
-        "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
-        "Every destructive plan requires operation-layer confirmation; cancellation can never be reported as success."
+        "Every safe profile uses a purpose-bound native executable grant, pinned identity, typed argv and shell=False; the executable is revalidated immediately before execution.",
+        "Legacy Raw is isolated behind Expert Mode, persistent per-tool permission and reinforced confirmation on every run, with exact command preview and bounded cwd/environment/redirection/elevation policy.",
+        "Every launch returns explicit success, cancellation or failure and a non-zero exit or unverifiable executable can never be reported as success."
       ],
       "dependsOn": [
         "native.file_dialogs"
       ],
-      "risk": "destructive",
+      "risk": "host_write",
       "platforms": [
         "windows",
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_my_tools.py",
+        "tests/test_command_registry.py:CommandRegistryTests.test_generated_typescript_is_current_and_exactly_matches_allow_list",
+        "ui/web/src/test/my-tools.test.tsx:My Tools Expert workspace"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [

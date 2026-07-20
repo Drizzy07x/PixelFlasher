@@ -80,6 +80,7 @@ class SafetyPolicy:
             "tools.avb",
             "tools.xml",
             "tools.keybox",
+            "tools.myTools",
             "tools.piAnalysis",
             "tools.pif",
             "device.inspect",
@@ -185,6 +186,11 @@ class SafetyPolicy:
                     "keybox_target_not_allowed",
                     "keybox analysis is a local operation",
                 )
+        if command.kind == "tools.myTools":
+            if command.operation_plan is not None:
+                return SafetyDecision(False, "untrusted_operation_plan", "Personal tools do not accept a process plan")
+            if command.target_serial is not None:
+                return SafetyDecision(False, "my_tools_target_not_allowed", "Personal tools are local operations")
         if command.kind in {"backups.list", "backups.delete"}:
             if command.operation_plan is not None:
                 return SafetyDecision(

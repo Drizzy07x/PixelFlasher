@@ -67,6 +67,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.avb",
         "tools.xml",
         "tools.keybox",
+        "tools.myTools",
         "tools.piAnalysis",
         "tools.scrcpy.setup",
         "tools.wifi.discover",
@@ -3616,6 +3617,79 @@ def _project_update_check(value: object) -> JSONValue:
     return ensure_public_json(source)
 
 
+def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONValue]:
+    base = {"id", "title", "mode", "displayName", "sha256", "arguments", "enabled"}
+    fields = base | ({"permissionGranted", "blockedReason"} if legacy else set())
+    source = _closed_record(value, fields=frozenset(fields))
+    tool_id = source["id"]
+    title = source["title"]
+    display_name = source["displayName"]
+    arguments = source["arguments"]
+    if (
+        not isinstance(tool_id, str)
+        or (legacy and not tool_id.startswith("legacy:"))
+        or (not legacy and re.fullmatch(r"[0-9a-f]{32}", tool_id) is None)
+        or not isinstance(title, str)
+        or not 1 <= len(title) <= 96
+        or not isinstance(display_name, str)
+        or not display_name
+        or not isinstance(arguments, list)
+        or len(arguments) > 128
+        or any(not isinstance(item, str) or "\x00" in item for item in arguments)
+        or not isinstance(source["enabled"], bool)
+    ):
+        raise PublicProjectionError("personal tool result is invalid")
+    if legacy:
+        if (
+            source["mode"] != "legacyRaw"
+            or source["sha256"] != ""
+            or source["permissionGranted"] is not False
+            or source["blockedReason"] != "legacy_raw_permission_required"
+        ):
+            raise PublicProjectionError("legacy personal tool boundary is invalid")
+    elif source["mode"] != "safeArgv" or (
+        not isinstance(source["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
+    ):
+        raise PublicProjectionError("safe personal tool boundary is invalid")
+    projected = ensure_public_json(source)
+    if not isinstance(projected, dict):
+        raise PublicProjectionError("personal tool result must be an object")
+    return projected
+
+
+def _project_my_tools(value: object) -> JSONValue:
+    source = _record(value)
+    revision = source.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PublicProjectionError("personal tools revision is invalid")
+    if "schemaVersion" in source:
+        closed = _closed_record(
+            source,
+            fields=frozenset({"schemaVersion", "tools", "legacyRaw", "revision"}),
+        )
+        if closed["schemaVersion"] != 1:
+            raise PublicProjectionError("personal tools schema is invalid")
+        tools = _array(closed["tools"])
+        legacy = _array(closed["legacyRaw"])
+        if len(tools) > 128 or len(legacy) > 128:
+            raise PublicProjectionError("personal tools inventory is too large")
+        return {
+            "schemaVersion": 1,
+            "tools": [_project_my_tool(item) for item in tools],
+            "legacyRaw": [_project_my_tool(item, legacy=True) for item in legacy],
+            "revision": revision,
+        }
+    if "tool" in source:
+        closed = _closed_record(source, fields=frozenset({"tool", "revision"}))
+        return {"tool": _project_my_tool(closed["tool"]), "revision": revision}
+    closed = _closed_record(source, fields=frozenset({"toolId", "revision"}))
+    tool_id = closed["toolId"]
+    if not isinstance(tool_id, str) or re.fullmatch(r"[0-9a-f]{32}", tool_id) is None:
+        raise PublicProjectionError("deleted personal tool id is invalid")
+    return {"toolId": tool_id, "revision": revision}
+
+
 def _public_grant(value: object) -> dict[str, JSONValue]:
     source = _record(value)
     raw_expiry = source.get("expiresInSeconds")
@@ -3715,6 +3789,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.avb": _project_avb_downgrade,
     "tools.xml": _project_binary_xml,
     "tools.keybox": _project_keybox_analysis,
+    "tools.myTools": _project_my_tools,
     "tools.piAnalysis": _project_pi_analysis,
     "tools.pif": _project_pif_action,
     "tools.shizuku": _project_shizuku_recovery,

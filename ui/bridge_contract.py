@@ -314,6 +314,47 @@ def _validate_payload_values(
     if command == "tools.keybox" and payload.get("action") != "analyze":
         _payload_error("tools.keybox action is invalid", request_id)
 
+    if command == "tools.myTools":
+        action = payload.get("action")
+        if action not in {"list", "save", "delete", "run"}:
+            _payload_error("tools.myTools action is invalid", request_id)
+        if action == "list" and set(payload) != {"action"}:
+            _payload_error("tools.myTools list payload is invalid", request_id)
+        if action in {"delete", "run"}:
+            if set(payload) != {"action", "toolId"}:
+                _payload_error("tools.myTools action payload is invalid", request_id)
+        if action == "save":
+            required = {"action", "title", "arguments", "enabled"}
+            if not required.issubset(payload):
+                _payload_error("tools.myTools save payload is incomplete", request_id)
+            if set(payload) - (required | {"toolId", "grant"}):
+                _payload_error("tools.myTools save payload is invalid", request_id)
+            if "toolId" not in payload and "grant" not in payload:
+                _payload_error("new personal tools require an executable grant", request_id)
+            title = payload.get("title")
+            if (
+                not isinstance(title, str)
+                or not 1 <= len(title.strip()) <= 96
+                or not title.isprintable()
+            ):
+                _payload_error("tools.myTools title is invalid", request_id)
+            arguments = payload.get("arguments")
+            if (
+                not isinstance(arguments, list)
+                or len(arguments) > 128
+                or any(
+                    not isinstance(item, str) or "\x00" in item or len(item) > 2048
+                    for item in arguments
+                )
+                or sum(len(item.encode("utf-8")) for item in arguments) > 16_384
+            ):
+                _payload_error("tools.myTools arguments are invalid", request_id)
+        tool_id = payload.get("toolId")
+        if tool_id is not None and (
+            not isinstance(tool_id, str) or re.fullmatch(r"[0-9a-f]{32}", tool_id) is None
+        ):
+            _payload_error("tools.myTools toolId is invalid", request_id)
+
     if command == "backups.restore":
         has_grant = "grant" in payload
         has_backup_id = "backupId" in payload

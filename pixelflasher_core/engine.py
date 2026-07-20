@@ -106,6 +106,7 @@ from .keybox_validation import (
     KeyboxStatus,
     KeyboxValidationService,
 )
+from .my_tools import MyToolsError, MyToolsService
 from .operation_runner import (
     CancellationCleanup,
     ExecutionBoundaryAck,
@@ -276,6 +277,7 @@ class CommandEngine:
         avb_downgrade_service: DowngradePatchService,
         binary_xml_service: BinaryXmlService,
         keybox_validation_service: KeyboxValidationService,
+        my_tools_service: MyToolsService,
         update_service: UpdateService | None,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
@@ -334,6 +336,7 @@ class CommandEngine:
         self.avb_downgrade_service = avb_downgrade_service
         self.binary_xml_service = binary_xml_service
         self.keybox_validation_service = keybox_validation_service
+        self.my_tools_service = my_tools_service
         self.support_package_service = support_package_service
         self.update_service = update_service
         self.snapshot_provider = snapshot_provider
@@ -418,11 +421,99 @@ class CommandEngine:
             return self._decode_binary_xml(command)
         if command.kind == "tools.keybox":
             return self._analyze_keyboxes(command)
+        if command.kind == "tools.myTools":
+            return self._my_tools_command(command)
         return OperationResult.failed(
             command.operation_id,
             code="command_unknown",
             message=f"unsupported command kind: {command.kind}",
         )
+
+    def _my_tools_command(self, command: AppCommand) -> OperationResult:
+        payload = command.payload
+        action = payload.get("action")
+        allowed = {"action", "toolId", "title", "grant", "arguments", "enabled"}
+        if set(payload) - allowed or action not in {"list", "save", "delete", "run"}:
+            return self._invalid(command, "Personal tools payload is invalid.")
+        if command.target_serial is not None or command.operation_plan is not None:
+            return self._invalid(command, "Personal tools are local and do not accept a target or plan.")
+        decision = self.safety_policy.evaluate(command, self.store.snapshot())
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        tool_id = payload.get("toolId")
+        try:
+            if action == "list":
+                if len(payload) != 1:
+                    return self._invalid(command, "Listing personal tools accepts no extra fields.")
+                return OperationResult.success(
+                    command.operation_id,
+                    code="my_tools_listed",
+                    value={
+                        **self.my_tools_service.repository.inventory(),
+                        "revision": self.store.snapshot().revision,
+                    },
+                )
+            if action == "save":
+                required = {"action", "title", "arguments", "enabled"}
+                if not required.issubset(payload):
+                    return self._invalid(command, "Saving a personal tool requires title, arguments, and enabled.")
+                grant = payload.get("grant")
+                if grant is not None and not isinstance(grant, BoundReadFile):
+                    return self._invalid(command, "Personal tool executable must use a native grant.")
+                if tool_id is not None and not isinstance(tool_id, str):
+                    return self._invalid(command, "Personal tool id is invalid.")
+                saved = self.my_tools_service.repository.save(
+                    title=payload["title"],
+                    executable=grant,
+                    arguments=payload["arguments"],
+                    enabled=payload["enabled"],
+                    tool_id=tool_id,
+                )
+                return OperationResult.success(
+                    command.operation_id,
+                    code="my_tool_saved",
+                    message="Personal tool saved.",
+                    value={"tool": saved.to_public_dict(), "revision": self.store.snapshot().revision},
+                )
+            if not isinstance(tool_id, str) or set(payload) != {"action", "toolId"}:
+                return self._invalid(command, "This action requires exactly one personal tool id.")
+            if action == "delete":
+                self.my_tools_service.repository.delete(tool_id)
+                return OperationResult.success(
+                    command.operation_id,
+                    code="my_tool_deleted",
+                    message="Personal tool deleted.",
+                    value={"toolId": tool_id, "revision": self.store.snapshot().revision},
+                )
+            token = self._register_cancellation(command)
+            if token is None:
+                return self._denied(command, "operation_busy", "operation id is already active")
+            try:
+                with self._operation_guard(token) as acquired:
+                    if not acquired or token.cancelled:
+                        return self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="my_tool_cancelled",
+                            cancelled_message="Personal tool was cancelled before it started.",
+                            timeout_message="Personal tool timed out before it started.",
+                        )
+                    current = self.store.snapshot()
+                    decision = self.safety_policy.evaluate(command, current)
+                    if not decision.allowed:
+                        return self._denied(command, decision.code, decision.message)
+                    result = self.my_tools_service.run(command, tool_id, token)
+                    if not result.ok:
+                        return result
+                    value = result.value if isinstance(result.value, Mapping) else {}
+                    return replace(
+                        result,
+                        value={**value, "revision": self.store.snapshot().revision},
+                    )
+            finally:
+                self._unregister_cancellation(command.operation_id)
+        except MyToolsError as error:
+            return OperationResult.failed(command.operation_id, code=error.code, message=str(error))
 
     def _check_updates(self, command: AppCommand) -> OperationResult:
         if command.payload or command.target_serial is not None or command.operation_plan is not None:

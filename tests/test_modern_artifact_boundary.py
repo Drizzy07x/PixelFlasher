@@ -391,6 +391,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.pushFiles",
                         "tools.avb",
                         "tools.keybox",
+                        "tools.myTools",
                         "tools.shizuku",
                         "tools.sos",
                         "tools.xml",
