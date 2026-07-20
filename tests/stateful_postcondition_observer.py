@@ -106,6 +106,8 @@ class StatefulPostconditionObserver:
             return self._result(self._root_module_state(plan, calls, expected))
         if kind == "pif_profile_state":
             return self._result(self._pif_profile_state(plan, calls, expected))
+        if kind == "pif_profile_hash":
+            return self._result(self._pif_profile_hash(plan, calls, expected))
         return self._unverified(f"the fake has no probe for {kind}")
 
     @staticmethod
@@ -328,6 +330,26 @@ class StatefulPostconditionObserver:
             request.argv[:6] == ("ADB", "-s", plan.target_serial, "shell", "su", "-c")
             and request.argv[6] == f"rm -f -- {path}"
             for request in calls
+        )
+
+    @staticmethod
+    def _pif_profile_hash(
+        plan: OperationPlan,
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        profile_id = expected.get("profileId")
+        digest = expected.get("sha256")
+        if not isinstance(profile_id, str) or not isinstance(digest, str):
+            return False
+        role = f"pif-profile:{profile_id}"
+        artifact = next((item for item in plan.artifacts if item.role == role), None)
+        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        return (
+            artifact is not None
+            and artifact.sha256 == digest
+            and any("push" in request.argv and request.argv[-1].startswith("/data/local/tmp/pixelflasher-pif-") for request in calls)
+            and "chmod 0600" in shell_text
         )
 
     @staticmethod

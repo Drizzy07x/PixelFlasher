@@ -844,6 +844,44 @@ class CoreCommandFactoryTests(unittest.TestCase):
         with self.assertRaises(BridgeProtocolError):
             factory(legacy)
 
+    def test_pif_import_grant_resolves_only_for_the_exact_purpose_and_action(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "profile.json"
+            source.write_text('{"PRODUCT":"akita"}', encoding="utf-8")
+            factory = create_command_factory(lambda: AppSnapshot(revision=4))
+            picker = request(
+                "native.pickFile",
+                payload={"purpose": "root.pif.import", "title": "PIF", "filters": []},
+            )
+            issued = factory.issue_native_grants(picker, [source])
+            profile_id = "pif.custom_json"
+            command = factory(
+                request(
+                    "tools.pif",
+                    payload={
+                        "serial": "SERIAL",
+                        "action": "importProfile",
+                        "profileId": profile_id,
+                        "confirmationText": f"IMPORT PIF {profile_id} SERIAL",
+                        "grant": issued["grant"],
+                    },
+                )
+            )
+            self.assertEqual(str(source.resolve()), command.payload["path"])
+            self.assertNotIn("grant", command.payload)
+
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "tools.pif",
+                    payload={
+                        "serial": "SERIAL",
+                        "action": "deleteProfile",
+                        "profileId": profile_id,
+                        "confirmationText": f"DELETE PIF {profile_id} SERIAL",
+                        "grant": issued["grant"],
+                    },
+                ).validate()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -56,7 +56,8 @@ describe('PIF and TargetedFix inventory', () => {
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
 
     expect(onCommand).toHaveBeenCalledWith('root.pif.inventory', { serial: snapshot.devices[0].serial });
-    expect(await within(card as HTMLElement).findByText('pif.custom_json')).toBeVisible();
+    const profileLabels = await within(card as HTMLElement).findAllByText('pif.custom_json');
+    expect(profileLabels.some((element) => element.tagName === 'STRONG')).toBe(true);
     expect(within(card as HTMLElement).getByText('com.google.android.gms')).toBeVisible();
     expect(card.textContent).not.toContain('/data/adb');
     expect(card.textContent).not.toContain('BEGIN CERTIFICATE');
@@ -86,7 +87,7 @@ describe('PIF and TargetedFix inventory', () => {
     const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
     if (!card) throw new Error('PIF inventory card missing');
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
-    await within(card as HTMLElement).findByText('pif.custom_json');
+    await within(card as HTMLElement).findByRole('button', { name: 'Delete profile' });
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Delete profile' }));
 
     const confirmation = `DELETE PIF pif.custom_json ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
@@ -102,6 +103,33 @@ describe('PIF and TargetedFix inventory', () => {
       profileId: 'pif.custom_json',
       confirmationText: confirmation,
     });
-    expect(within(card as HTMLElement).queryByText('pif.custom_json')).not.toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByRole('button', { name: 'Delete profile' })).not.toBeInTheDocument();
+  });
+
+  it('imports through an opaque grant and requires remote hash verification metadata', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn(async (command: BridgeCommand) => {
+      if (command === 'native.pickFile') return { result: { value: { data: { grant: 'opaque-pif-grant' } } } };
+      return { result: { status: 'SUCCESS', value: { action: 'importProfile', profileId: 'pif.custom_json', sha256: 'c'.repeat(64), size: 512 } } };
+    });
+    const { snapshot } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Import profile' }));
+    const phrase = `IMPORT PIF pif.custom_json ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    await user.type(within(card as HTMLElement).getByRole('textbox'), phrase);
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Import and verify profile' }));
+    expect(onCommand).toHaveBeenNthCalledWith(1, 'native.pickFile', {
+      purpose: 'root.pif.import',
+      title: 'Import profile',
+      filters: [{ label: 'PIF and TargetedFix profiles', extensions: ['json', 'prop', 'txt', 'list'] }],
+    });
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'importProfile',
+      profileId: 'pif.custom_json',
+      confirmationText: phrase,
+      grant: 'opaque-pif-grant',
+    });
   });
 });

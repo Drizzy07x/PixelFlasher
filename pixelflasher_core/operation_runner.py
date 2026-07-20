@@ -2039,6 +2039,7 @@ class OperationRunner:
         expected_adb_endpoints: dict[str, bool] = {}
         expected_root_modules: dict[str, str] = {}
         expected_pif_profiles: dict[str, bool] = {}
+        expected_pif_profile_hashes: dict[str, str] = {}
         expected_magisk_denylist: dict[str, bool] = {}
         expected_magisk_su_policies: dict[int, str] = {}
         expected_magisk_backups: dict[str, str] = {}
@@ -2361,6 +2362,19 @@ class OperationRunner:
                 if current_profile is not None and current_profile is not present:
                     raise ValueError("conflicting PIF profile postconditions")
                 expected_pif_profiles[profile_id] = present
+            elif postcondition.kind == "pif_profile_hash":
+                if set(expected) != {"profileId", "sha256"}:
+                    raise ValueError("PIF profile hash postcondition fields are invalid")
+                profile_id = expected.get("profileId")
+                digest = expected.get("sha256")
+                if not isinstance(profile_id, str) or not profile_id:
+                    raise ValueError("PIF profile hash ID is unavailable")
+                if not isinstance(digest, str) or not self._sha256_valid(digest):
+                    raise ValueError("PIF profile hash is invalid")
+                current_digest = expected_pif_profile_hashes.get(profile_id)
+                if current_digest is not None and not hmac.compare_digest(current_digest, digest):
+                    raise ValueError("conflicting PIF profile hash postconditions")
+                expected_pif_profile_hashes[profile_id] = digest.casefold()
             elif postcondition.kind == "flash_applied":
                 hashes, flashed_partitions = self._planned_partition_hashes(plan)
                 expected_partitions = expected.get("partitions", plan.partitions)
@@ -2410,6 +2424,7 @@ class OperationRunner:
             expected_adb_endpoints=expected_adb_endpoints,
             expected_root_modules=expected_root_modules,
             expected_pif_profiles=expected_pif_profiles,
+            expected_pif_profile_hashes=expected_pif_profile_hashes,
             expected_magisk_denylist=expected_magisk_denylist,
             expected_magisk_su_policies=expected_magisk_su_policies,
             expected_magisk_backups=expected_magisk_backups,

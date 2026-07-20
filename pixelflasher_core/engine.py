@@ -1797,7 +1797,7 @@ class CommandEngine:
         if kind == "tools.pif":
             if (
                 not isinstance(compilation, RootingCompilation)
-                or compilation.action != "pif.delete_profile"
+                or compilation.action not in {"pif.delete_profile", "pif.import_profile"}
                 or compilation.pif_profile_id is None
             ):
                 return OperationResult.failed(
@@ -1805,11 +1805,29 @@ class CommandEngine:
                     code="pif_action_compilation_invalid",
                     message="PIF action returned an invalid compilation",
                 )
+            imported = compilation.action == "pif.import_profile"
+            value: dict[str, object] = {
+                "action": "importProfile" if imported else "deleteProfile",
+                "profileId": compilation.pif_profile_id,
+            }
+            if imported:
+                if compilation.pif_sha256 is None or compilation.pif_size is None:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="pif_action_compilation_invalid",
+                        message="PIF import is missing its verified hash",
+                    )
+                value["sha256"] = compilation.pif_sha256
+                value["size"] = compilation.pif_size
             return replace(
                 result,
-                code="pif_profile_deleted",
-                message="PIF profile deletion was independently verified",
-                value={"action": "deleteProfile", "profileId": compilation.pif_profile_id},
+                code="pif_profile_imported" if imported else "pif_profile_deleted",
+                message=(
+                    "PIF profile import hash was independently verified"
+                    if imported
+                    else "PIF profile deletion was independently verified"
+                ),
+                value=value,
                 stdout="",
                 stderr="",
             )

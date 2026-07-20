@@ -2216,6 +2216,39 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             transport.calls[0].argv[6],
         )
 
+    def test_pif_profile_import_returns_only_the_independently_verified_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "profile.json"
+            source.write_text('{"PRODUCT":"akita"}', encoding="utf-8")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            engine, transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0), TransportOutcome(0)],
+                root=True,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            profile_id = "pif.custom_json"
+            result = engine.execute(
+                command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "importProfile",
+                        "profileId": profile_id,
+                        "confirmationText": f"IMPORT PIF {profile_id} SERIAL",
+                        "path": str(source.resolve()),
+                    },
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("pif_profile_imported", result.code)
+        self.assertEqual(
+            {"action": "importProfile", "profileId": profile_id, "sha256": digest, "size": 19},
+            result.value,
+        )
+        self.assertEqual(2, len(transport.calls))
+
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (
             (

@@ -409,6 +409,9 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [pifInventoryInvalid, setPifInventoryInvalid] = useState(false);
   const [pifDeleteProfile, setPifDeleteProfile] = useState('');
   const [pifDeleteConfirmation, setPifDeleteConfirmation] = useState('');
+  const [pifImportProfile, setPifImportProfile] = useState('pif.custom_json');
+  const [pifImportGrant, setPifImportGrant] = useState('');
+  const [pifImportConfirmation, setPifImportConfirmation] = useState('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -683,6 +686,50 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         } : current);
         setPifDeleteProfile('');
         setPifDeleteConfirmation('');
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const preparePifImport = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    const picked = await onCommand(commands.nativePickFile, {
+      purpose: 'root.pif.import',
+      title: t('root.pifImport'),
+      filters: [{ label: t('root.pifInventoryTitle'), extensions: ['json', 'prop', 'txt', 'list'] }],
+    });
+    const grant = selectedGrant(picked);
+    if (!grant) return;
+    setPifImportGrant(grant);
+    setPifImportConfirmation('');
+  };
+
+  const importPifProfile = async () => {
+    if (!rootedAdb || !primary || busy || !pifImportGrant) return;
+    const required = `IMPORT PIF ${pifImportProfile} ${primary.serial.slice(-6).toUpperCase()}`;
+    if (pifImportConfirmation !== required) return;
+    setBusy(`pif-import:${pifImportProfile}`);
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: 'importProfile',
+        profileId: pifImportProfile,
+        confirmationText: pifImportConfirmation,
+        grant: pifImportGrant,
+      });
+      if (operationSucceeded(response)) {
+        const value = record(record(response?.result).value);
+        if (typeof value.sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.sha256) && boundedCount(value.size, 1024 * 1024)) {
+          setPifInventory((current) => current ? {
+            ...current,
+            profiles: current.profiles.map((item) => item.id === pifImportProfile
+              ? { ...item, present: true, size: value.size as number, sha256: value.sha256 as string }
+              : item),
+          } : current);
+        }
+        setPifImportGrant('');
+        setPifImportConfirmation('');
       }
     } finally {
       setBusy('');
@@ -998,9 +1045,16 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       </div>
       <Card className="root-manager" aria-busy={busy === 'pif-inventory'}>
         <CardTitle icon="shield" after={(
-          <Button icon="scan" onClick={() => void refreshPifInventory()} disabled={Boolean(busy) || !rootedAdb}>
-            {t('common.refresh')}
-          </Button>
+          <div className="button-row button-row--wrap">
+            <label className="select-field select-field--compact">
+              <span>{t('root.pifImportTarget')}</span>
+              <select value={pifImportProfile} onChange={(event) => { setPifImportProfile(event.currentTarget.value); setPifImportGrant(''); }} disabled={Boolean(busy)}>
+                {pifProfileSpecs.map(([id]) => <option value={id} key={id}>{id}</option>)}
+              </select>
+            </label>
+            <Button icon="folderPng" onClick={() => void preparePifImport()} disabled={Boolean(busy) || !rootedAdb}>{t('root.pifImport')}</Button>
+            <Button icon="scan" onClick={() => void refreshPifInventory()} disabled={Boolean(busy) || !rootedAdb}>{t('common.refresh')}</Button>
+          </div>
         )}>{t('root.pifInventoryTitle')}</CardTitle>
         <p className="root-manager__detail">{t('root.pifInventoryDetail')}</p>
         {!rootedAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.moduleDeviceRequired')}</p> : null}
@@ -1053,6 +1107,19 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 disabled={Boolean(busy) || pifDeleteConfirmation !== `DELETE PIF ${pifDeleteProfile} ${primary.serial.slice(-6).toUpperCase()}`}
               >{t('root.pifDeleteRun')}</Button>
               <Button variant="ghost" onClick={() => { setPifDeleteProfile(''); setPifDeleteConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </span>
+          </div>
+        ) : null}
+        {pifImportGrant && primary ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.pifImportConfirm', { profile: pifImportProfile })}</span>
+              <small><code>{`IMPORT PIF ${pifImportProfile} ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+              <input value={pifImportConfirmation} onChange={(event) => setPifImportConfirmation(event.currentTarget.value.slice(0, 320))} autoComplete="off" spellCheck={false} disabled={Boolean(busy)} />
+            </label>
+            <span className="button-row">
+              <Button variant="danger" onClick={() => void importPifProfile()} disabled={Boolean(busy) || pifImportConfirmation !== `IMPORT PIF ${pifImportProfile} ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.pifImportRun')}</Button>
+              <Button variant="ghost" onClick={() => { setPifImportGrant(''); setPifImportConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
             </span>
           </div>
         ) : null}

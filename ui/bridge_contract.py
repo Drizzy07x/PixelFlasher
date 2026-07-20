@@ -358,10 +358,18 @@ def _validate_payload_values(
         }
         if not _nonempty_string(serial, limit=256):
             _payload_error("tools.pif serial is invalid", request_id)
-        if payload.get("action") != "deleteProfile" or profile_id not in canonical_profiles:
+        action = payload.get("action")
+        if action not in {"deleteProfile", "importProfile"} or profile_id not in canonical_profiles:
             _payload_error("tools.pif action or profileId is invalid", request_id)
         assert isinstance(serial, str) and isinstance(profile_id, str)
-        required = f"DELETE PIF {profile_id} {serial[-6:].upper()}"
+        if action == "importProfile":
+            if not _nonempty_string(payload.get("grant"), limit=256):
+                _payload_error("tools.pif import grant is invalid", request_id)
+            required = f"IMPORT PIF {profile_id} {serial[-6:].upper()}"
+        else:
+            if "grant" in payload:
+                _payload_error("tools.pif delete grant is not allowed", request_id)
+            required = f"DELETE PIF {profile_id} {serial[-6:].upper()}"
         if payload.get("confirmationText") != required:
             _payload_error("tools.pif confirmationText is invalid", request_id)
     elif command == "tools.sos":

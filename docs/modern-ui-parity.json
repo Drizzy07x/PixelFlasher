@@ -2222,12 +2222,14 @@
         "pixelflasher_core/rooting.py:inspect_pif_profile_stream",
         "pixelflasher_core/rooting.py:parse_pif_inventory",
         "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._pif_profile_states",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._pif_profile_hashes",
         "pixelflasher_core/engine.py:CommandEngine._parse_service_result",
+        "ui/core_command_factory.py:CoreCommandFactory._resolve_native_resources",
         "ui/public_bridge.py:_project_pif_inventory",
         "ui/public_bridge.py:_project_pi_analysis",
         "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion is native, serial-confirmed and independently observed. The backend import validator now enforces format-specific JSON, property, package-list, marker and text policies with a 1 MiB limit and returns metadata only. Grant resolution, device-side import/hash observation, TargetedFix mutations, cleanup/check workflows and packaged rooted-device validation remain.",
+      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion is serial-confirmed and independently observed. Import consumes a purpose-bound opaque grant, validates JSON, property, package-list, marker or text input below 1 MiB, writes through confined staging and succeeds only after an independent remote SHA-256 observation. TargetedFix mutations, cleanup/check workflows and packaged rooted-device validation remain.",
       "exitCriteria": [
         "PIF/TargetedFix management and Play Integrity analysis is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -2250,7 +2252,10 @@
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pi_analysis_returns_only_closed_redacted_evidence",
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pif_inventory_returns_only_verified_metadata",
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pif_profile_delete_requires_and_verifies_the_exact_canonical_target",
+        "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pif_profile_import_returns_only_the_independently_verified_hash",
         "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_pif_profile_state_uses_only_canonical_backend_path",
+        "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_pif_profile_hash_requires_exact_root_readback",
+        "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_pif_import_grant_resolves_only_for_the_exact_purpose_and_action",
         "tests/test_pi_analysis_public_contract.py:PiAnalysisPublicContractTests",
         "tests/test_pif_inventory_public_contract.py:PifInventoryPublicContractTests",
         "ui/web/src/test/pi-analysis.test.tsx:redacted Play Integrity analysis",

@@ -293,6 +293,8 @@ class RootingCompilation:
     root_apps: tuple[RootAppInfo, ...] = ()
     module_id: str | None = None
     pif_profile_id: str | None = None
+    pif_sha256: str | None = None
+    pif_size: int | None = None
     device_build: str | None = None
     device_write: bool = False
     destructive: bool = False
@@ -305,6 +307,8 @@ class RootingCompilation:
             "root_apps": [item.to_dict() for item in self.root_apps],
             "module_id": self.module_id,
             "pif_profile_id": self.pif_profile_id,
+            "pif_sha256": self.pif_sha256,
+            "pif_size": self.pif_size,
             "device_build": self.device_build,
             "device_write": self.device_write,
             "destructive": self.destructive,
@@ -488,22 +492,80 @@ class RootingService:
         device: DeviceInfo,
         adb: str,
     ) -> RootingCompilation:
-        self._validate_payload(command, {"serial", "action", "profileId", "confirmationText"})
-        if command.payload.get("action") != "deleteProfile":
+        self._validate_payload(command, {"serial", "action", "profileId", "confirmationText", "path"})
+        action = command.payload.get("action")
+        if action not in {"deleteProfile", "importProfile"}:
             raise RootingPlanningError(
                 "pif_action_invalid",
-                "PIF action must be exactly deleteProfile",
+                "PIF action must be deleteProfile or importProfile",
             )
         profile_id = command.payload.get("profileId")
         if not isinstance(profile_id, str) or profile_id not in _PIF_PROFILE_PATHS:
             raise RootingPlanningError("pif_profile_invalid", "PIF profile ID is not canonical")
-        required = f"DELETE PIF {profile_id} {device.serial[-6:].upper()}"
+        verb = "DELETE" if action == "deleteProfile" else "IMPORT"
+        required = f"{verb} PIF {profile_id} {device.serial[-6:].upper()}"
         if command.payload.get("confirmationText") != required:
             raise RootingPlanningError(
                 "pif_confirmation_required",
                 f"confirmationText must be exactly {required}",
             )
         path = _PIF_PROFILE_PATHS[profile_id]
+        if action == "importProfile":
+            source = self._input_file(
+                command.payload.get("path"),
+                suffix="",
+                missing_code="pif_import_source_invalid",
+            )
+            try:
+                with source.open("rb") as stream:
+                    inspection = inspect_pif_profile_stream(profile_id, stream)
+            except OSError as error:
+                raise RootingPlanningError(
+                    "pif_import_source_invalid",
+                    "PIF import source could not be read",
+                ) from error
+            artifact = FileArtifact(str(source), inspection.sha256, f"pif-profile:{profile_id}")
+            remote = f"/data/local/tmp/pixelflasher-pif-{inspection.sha256[:16]}.tmp"
+            parent = path.rsplit("/", 1)[0]
+            install_script = (
+                f"mkdir -p {parent} && cp {remote} {path} && chmod 0600 {path}; "
+                f"status=$?; rm -f -- {remote}; exit $status"
+            )
+            requests = (
+                ProcessRequest((adb, "-s", device.serial, "push", str(source), remote), timeout_seconds=120.0),
+                ProcessRequest(
+                    (adb, "-s", device.serial, "shell", "su", "-c", install_script),
+                    timeout_seconds=30.0,
+                    output_limit_bytes=16 * 1024,
+                ),
+            )
+            return RootingCompilation(
+                "pif.import_profile",
+                self._base_plan(
+                    snapshot,
+                    device,
+                    requests,
+                    label=f"Import PIF profile {profile_id} on {device.serial}",
+                    data_behavior="pif_profile_import",
+                    artifacts=(artifact,),
+                    risk=OperationRisk.DESTRUCTIVE,
+                    postconditions=(
+                        OperationPostcondition(
+                            "pif_profile_hash",
+                            {"profileId": profile_id, "sha256": inspection.sha256},
+                            "the imported PIF profile matches the granted source",
+                        ),
+                    ),
+                ),
+                pif_profile_id=profile_id,
+                pif_sha256=inspection.sha256,
+                pif_size=inspection.size,
+                device_write=True,
+                destructive=True,
+                requires_confirmation=True,
+            )
+        if "path" in command.payload:
+            raise RootingPlanningError("pif_import_source_ambiguous", "PIF deletion does not accept a source")
         request = ProcessRequest(
             (adb, "-s", device.serial, "shell", "su", "-c", f"rm -f -- {path}"),
             timeout_seconds=30.0,
@@ -1422,7 +1484,7 @@ class RootingService:
             path = expanded.resolve(strict=True)
         except (OSError, RuntimeError, ValueError) as error:
             raise RootingPlanningError(missing_code, str(error)) from error
-        if not path.is_file() or path.suffix.casefold() != suffix:
+        if not path.is_file() or (suffix and path.suffix.casefold() != suffix):
             raise RootingPlanningError(
                 missing_code,
                 f"selected path must be an existing {suffix} regular file",

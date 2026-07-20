@@ -6093,3 +6093,23 @@ msgstr "Conferma eliminazione di {profile}"
 msgctxt "web.root.pifDeleteRun"
 msgid "Delete verified profile"
 msgstr "Elimina profilo verificato"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifImport"
+msgid "Import profile"
+msgstr "Importa profilo"
+
+msgctxt "web.root.pifImportTarget"
+msgid "Import target"
+msgstr "Destinazione importazione"
+
+msgctxt "web.root.pifImportConfirm"
+msgid "Confirm import into {profile}"
+msgstr "Conferma importazione in {profile}"
+
+msgctxt "web.root.pifImportRun"
+msgid "Import and verify profile"
+msgstr "Importa e verifica profilo"

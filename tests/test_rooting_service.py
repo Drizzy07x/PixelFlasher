@@ -416,7 +416,7 @@ class RootingServiceTests(unittest.TestCase):
             ({**base, "action": "delete"}, "pif_action_invalid"),
             ({**base, "profileId": "../private"}, "pif_profile_invalid"),
             ({**base, "confirmationText": "DELETE"}, "pif_confirmation_required"),
-            ({**base, "path": "/data/adb/private"}, "invalid_rooting_payload"),
+            ({**base, "path": "/data/adb/private"}, "pif_import_source_ambiguous"),
         )
         for payload, code in cases:
             with self.subTest(payload=payload):
@@ -459,6 +459,37 @@ class RootingServiceTests(unittest.TestCase):
                 with self.assertRaises(RootingPlanningError) as raised:
                     inspect_pif_profile_stream(profile_id, io.BytesIO(contents))
                 self.assertEqual(code, raised.exception.code)
+
+    def test_pif_import_compiles_verified_push_install_cleanup_and_hash_observation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "profile.json"
+            source.write_text('{"PRODUCT":"akita"}', encoding="utf-8")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            profile_id = "pif.custom_json"
+            compilation = RootingService().compile(
+                self.command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "importProfile",
+                        "profileId": profile_id,
+                        "confirmationText": f"IMPORT PIF {profile_id} SERIAL",
+                        "path": str(source.resolve()),
+                    },
+                ),
+                self.snapshot,
+            )
+
+        self.assertEqual("pif.import_profile", compilation.action)
+        self.assertEqual(digest, compilation.pif_sha256)
+        assert compilation.plan is not None
+        self.assertEqual(2, len(compilation.plan.requests))
+        self.assertEqual(("ADB", "-s", "SERIAL", "push"), compilation.plan.requests[0].argv[:4])
+        self.assertIn("mkdir -p /data/adb/modules/playintegrityfix", compilation.plan.requests[1].argv[6])
+        self.assertIn("chmod 0600 /data/adb/modules/playintegrityfix/custom.pif.json", compilation.plan.requests[1].argv[6])
+        self.assertIn("rm -f -- /data/local/tmp/pixelflasher-pif-", compilation.plan.requests[1].argv[6])
+        self.assertEqual("pif_profile_hash", compilation.plan.postconditions[0].kind)
+        self.assertEqual({"profileId": profile_id, "sha256": digest}, compilation.plan.postconditions[0].expected)
 
     def test_local_root_app_inventory_has_hash_and_provenance(self):
         with tempfile.TemporaryDirectory() as directory:

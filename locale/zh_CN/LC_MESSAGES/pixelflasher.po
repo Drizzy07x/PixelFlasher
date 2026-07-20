@@ -6096,3 +6096,23 @@ msgstr "确认删除 {profile}"
 msgctxt "web.root.pifDeleteRun"
 msgid "Delete verified profile"
 msgstr "删除已验证的配置文件"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifImport"
+msgid "Import profile"
+msgstr "导入配置文件"
+
+msgctxt "web.root.pifImportTarget"
+msgid "Import target"
+msgstr "导入目标"
+
+msgctxt "web.root.pifImportConfirm"
+msgid "Confirm import into {profile}"
+msgstr "确认导入到 {profile}"
+
+msgctxt "web.root.pifImportRun"
+msgid "Import and verify profile"
+msgstr "导入并验证配置文件"

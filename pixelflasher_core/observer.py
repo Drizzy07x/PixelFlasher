@@ -96,6 +96,7 @@ class DeviceObservation:
     adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
+    pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -142,6 +143,13 @@ class DeviceObservation:
         ):
             raise TypeError("observed PIF profile states are invalid")
         if any(
+            profile_id not in _PIF_PROFILE_PATHS
+            or not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for profile_id, value in self.pif_profile_hashes.items()
+        ):
+            raise TypeError("observed PIF profile hashes are invalid")
+        if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(value, bool)
@@ -185,6 +193,7 @@ class DeviceObservation:
         )
         object.__setattr__(self, "root_modules", MappingProxyType(dict(self.root_modules)))
         object.__setattr__(self, "pif_profiles", MappingProxyType(dict(self.pif_profiles)))
+        object.__setattr__(self, "pif_profile_hashes", MappingProxyType(dict(self.pif_profile_hashes)))
         object.__setattr__(
             self,
             "magisk_denylist",
@@ -269,6 +278,7 @@ class PostconditionSpec:
     expected_adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
+    expected_pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -359,6 +369,13 @@ class PostconditionSpec:
         ):
             raise ValueError("expected PIF profile state is invalid")
         if any(
+            profile_id not in _PIF_PROFILE_PATHS
+            or not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for profile_id, value in self.expected_pif_profile_hashes.items()
+        ):
+            raise ValueError("expected PIF profile hash is invalid")
+        if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(listed, bool)
@@ -416,6 +433,11 @@ class PostconditionSpec:
             self,
             "expected_pif_profiles",
             MappingProxyType(dict(self.expected_pif_profiles)),
+        )
+        object.__setattr__(
+            self,
+            "expected_pif_profile_hashes",
+            MappingProxyType(dict(self.expected_pif_profile_hashes)),
         )
         object.__setattr__(
             self,
@@ -748,6 +770,13 @@ class ProcessDeviceObservationProbe:
                     timeout,
                 ),
                 pif_profiles=self._pif_profile_states(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                pif_profile_hashes=self._pif_profile_hashes(
                     spec,
                     toolchain,
                     mode,
@@ -1194,6 +1223,38 @@ class ProcessDeviceObservationProbe:
             )
             if present is not None:
                 observed[profile_id] = present
+        return observed
+
+    def _pif_profile_hashes(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, str]:
+        profiles = tuple(spec.expected_pif_profile_hashes)
+        if mode != "adb" or not profiles or len(profiles) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        observed: dict[str, str] = {}
+        for profile_id in profiles:
+            path = _PIF_PROFILE_PATHS.get(profile_id)
+            if token.cancelled or path is None:
+                break
+            outcome = self._run(
+                (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", f"sha256sum -- {path}"),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+            )
+            if not self._successful(outcome, _MAX_PROPERTY_OUTPUT_BYTES):
+                continue
+            assert outcome is not None
+            match = re.fullmatch(rf"([0-9a-f]{{64}})  {re.escape(path)}\n?", outcome.stdout)
+            if match is not None:
+                observed[profile_id] = match.group(1)
         return observed
 
     def _magisk_modules_disabled(
@@ -2336,6 +2397,14 @@ class PostconditionObserver:
             if actual is None:
                 missing.append(key)
             elif actual is not expected:
+                mismatches[key] = (expected, actual)
+
+        for profile_id, expected in spec.expected_pif_profile_hashes.items():
+            actual = observation.pif_profile_hashes.get(profile_id)
+            key = f"pif_profile_hash:{profile_id}"
+            if actual is None:
+                missing.append(key)
+            elif actual != expected:
                 mismatches[key] = (expected, actual)
 
         for package_name, expected in spec.expected_magisk_denylist.items():

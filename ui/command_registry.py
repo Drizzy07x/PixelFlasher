@@ -1370,6 +1370,7 @@ _COMMAND_SPECS = (
             ("action", PayloadKind.STRING, True),
             ("profileId", PayloadKind.STRING, True),
             ("confirmationText", PayloadKind.STRING, True),
+            ("grant", PayloadKind.STRING),
         ),
         owner=CommandOwner.ROOT,
         **_LIVE,

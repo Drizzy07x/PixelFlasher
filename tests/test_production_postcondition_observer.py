@@ -46,6 +46,7 @@ class StatefulDeviceTransport:
         adb_endpoints: dict[str, str] | None = None,
         root_modules: dict[str, str] | None = None,
         pif_profiles: set[str] | None = None,
+        pif_profile_hashes: dict[str, str] | None = None,
         magisk_denylist: set[str] | None = None,
         magisk_su_policies: dict[int, str] | None = None,
         magisk_backups: dict[str, str] | None = None,
@@ -69,6 +70,7 @@ class StatefulDeviceTransport:
         self.adb_endpoints = adb_endpoints or {}
         self.root_modules = root_modules or {}
         self.pif_profiles = pif_profiles or set()
+        self.pif_profile_hashes = pif_profile_hashes or {}
         self.magisk_denylist = magisk_denylist or set()
         self.magisk_su_policies = magisk_su_policies or {}
         self.magisk_backups = magisk_backups or {}
@@ -248,6 +250,9 @@ class StatefulDeviceTransport:
             for profile_id, path in pif_paths.items():
                 if command == f"test -f {path}":
                     return TransportOutcome(0 if profile_id in self.pif_profiles else 1)
+                if command == f"sha256sum -- {path}":
+                    digest = self.pif_profile_hashes.get(profile_id)
+                    return TransportOutcome(0, f"{digest}  {path}\n") if digest else TransportOutcome(1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -744,6 +749,26 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             PostconditionSpec(SERIAL, 1, expected_pif_profiles={"../private": False})
+
+    def test_pif_profile_hash_requires_exact_root_readback(self) -> None:
+        profile_id = "pif.custom_json"
+        digest = "a" * 64
+        verified = observer(
+            StatefulDeviceTransport(mode="adb", pif_profile_hashes={profile_id: digest})
+        ).verify(
+            PostconditionSpec(SERIAL, 1, expected_pif_profile_hashes={profile_id: digest})
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        timer = FakeTime()
+        mismatch = observer(
+            StatefulDeviceTransport(mode="adb", pif_profile_hashes={profile_id: "b" * 64}),
+            timer=timer,
+        ).verify(
+            PostconditionSpec(SERIAL, 0.2, expected_pif_profile_hashes={profile_id: digest})
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
+        self.assertEqual((digest, "b" * 64), mismatch.mismatches[f"pif_profile_hash:{profile_id}"])
 
     def test_root_recovery_aggregate_states_require_explicit_device_evidence(self) -> None:
         verified = observer(

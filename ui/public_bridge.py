@@ -3060,14 +3060,30 @@ def _project_pif_inventory(value: object) -> JSONValue:
 
 
 def _project_pif_action(value: object) -> JSONValue:
-    source = _closed_record(value, fields=frozenset({"action", "profileId"}))
+    if not isinstance(value, Mapping):
+        raise PublicProjectionError("PIF action receipt is invalid")
+    action = value.get("action")
+    fields = (
+        frozenset({"action", "profileId", "sha256", "size"})
+        if action == "importProfile"
+        else frozenset({"action", "profileId"})
+    )
+    source = _closed_record(value, fields=fields)
     profile_ids = {
         "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
         "pif.app_replace", "pif.scripts_only", "tricky.spoof", "tricky.target",
         "tricky.security_patch", "tricky.tee", "targeted.targets",
     }
-    if source["action"] != "deleteProfile" or source["profileId"] not in profile_ids:
+    if source["action"] not in {"deleteProfile", "importProfile"} or source["profileId"] not in profile_ids:
         raise PublicProjectionError("PIF action receipt is invalid")
+    if source["action"] == "importProfile" and (
+        not isinstance(source["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
+        or not isinstance(source["size"], int)
+        or isinstance(source["size"], bool)
+        or not 0 <= source["size"] <= 1024 * 1024
+    ):
+        raise PublicProjectionError("PIF import hash is invalid")
     return ensure_public_json(dict(source))
 
 

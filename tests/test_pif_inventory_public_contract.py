@@ -144,6 +144,40 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 ),
             )
 
+    def test_import_contract_requires_opaque_grant_and_projects_only_hash_metadata(self):
+        profile_id = "pif.custom_json"
+        digest = "a" * 64
+        payload = {
+            "serial": "SERIAL",
+            "action": "importProfile",
+            "profileId": profile_id,
+            "confirmationText": f"IMPORT PIF {profile_id} SERIAL",
+            "grant": "G" * 32,
+        }
+        request = BridgeRequest(2, "pif-import", "tools.pif", payload, 7)
+        self.assertIs(request, request.validate())
+        projected = project_operation_result(
+            "tools.pif",
+            OperationResult.success(
+                "pif-import",
+                value={"action": "importProfile", "profileId": profile_id, "sha256": digest, "size": 19},
+            ),
+        )["value"]
+        self.assertEqual(
+            {"action": "importProfile", "profileId": profile_id, "sha256": digest, "size": 19},
+            projected,
+        )
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest(2, "bad-import", "tools.pif", {**payload, "grant": ""}, 7).validate()
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "tools.pif",
+                OperationResult.success(
+                    "bad-import",
+                    value={"action": "importProfile", "profileId": profile_id, "sha256": "bad", "size": 19},
+                ),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
