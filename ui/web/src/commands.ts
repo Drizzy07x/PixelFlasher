@@ -59,6 +59,7 @@ export const commands = {
   snapshotGet: "snapshot.get",
   supportCreate: "support.create",
   toolsAvb: "tools.avb",
+  toolsKeybox: "tools.keybox",
   toolsLogcat: "tools.logcat",
   toolsLogcatClear: "tools.logcat.clear",
   toolsPushFiles: "tools.pushFiles",
@@ -304,6 +305,10 @@ export interface BridgePayloadByCommand {
     "grant"?: string;
     "patchFingerprint"?: boolean;
   };
+  "tools.keybox": {
+    "action": string;
+    "grants": string[];
+  };
   "tools.logcat": {
     "buffers"?: string[];
     "filters"?: Array<{ tag: string; priority: "V" | "D" | "I" | "W" | "E" | "F" | "S" }>;
@@ -421,6 +426,7 @@ export const allowedCommands = [
   commands.snapshotGet,
   commands.supportCreate,
   commands.toolsAvb,
+  commands.toolsKeybox,
   commands.toolsLogcat,
   commands.toolsLogcatClear,
   commands.toolsPushFiles,
@@ -494,6 +500,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.snapshotGet]: 60000,
   [commands.supportCreate]: 1800000,
   [commands.toolsAvb]: 1800000,
+  [commands.toolsKeybox]: 300000,
   [commands.toolsLogcat]: 180000,
   [commands.toolsLogcatClear]: 180000,
   [commands.toolsPushFiles]: 21600000,
@@ -561,6 +568,7 @@ export const bridgeCommandMetadata = {
   [commands.snapshotGet]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"engine.snapshot","confirmation":"none","postconditions":["snapshot_returned"]},
   [commands.supportCreate]: {"owner":"support","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"support.package_v2","confirmation":"none","postconditions":["encrypted_container_verified"]},
   [commands.toolsAvb]: {"owner":"developer_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"avb_downgrade.patch_service","confirmation":"none","postconditions":["downgrade_artifact_registered"]},
+  [commands.toolsKeybox]: {"owner":"developer_tools","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"keybox.analyze","confirmation":"none","postconditions":["bounded_keybox_reports_returned"]},
   [commands.toolsLogcat]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
   [commands.toolsLogcatClear]: {"owner":"device_tools","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat.clear","confirmation":"standard","postconditions":["logcat_buffers_cleared"]},
   [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"standard","postconditions":["remote_files_written"]},
@@ -659,6 +667,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.snapshotGet]: {},
   [commands.supportCreate]: {"grant":{"kind":"string","required":true},"includeConfig":{"kind":"boolean","required":false},"includeLogs":{"kind":"boolean","required":false},"includeState":{"kind":"boolean","required":false},"includeSystemInfo":{"kind":"boolean","required":false}},
   [commands.toolsAvb]: {"action":{"kind":"string","required":true},"currentSecurityPatch":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"patchFingerprint":{"kind":"boolean","required":false}},
+  [commands.toolsKeybox]: {"action":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32}},
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"logcat_filter_array","required":false,"minItems":0,"maxItems":32},"formatEnabled":{"kind":"boolean","required":false},"formatModifiers":{"kind":"string_array","required":false,"minItems":0,"maxItems":7},"formatVerb":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"regex":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false},"uids":{"kind":"integer_array","required":false,"minItems":0,"maxItems":32}},
   [commands.toolsLogcatClear]: {"serial":{"kind":"string","required":false}},
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},

@@ -78,6 +78,7 @@ class SafetyPolicy:
             "tools.wifi.discover",
             "tools.avb",
             "tools.xml",
+            "tools.keybox",
             "device.inspect",
             "device.openUrl",
             "backups.create",
@@ -161,6 +162,19 @@ class SafetyPolicy:
                     False,
                     "xml_target_not_allowed",
                     "binary XML decoding is a local operation",
+                )
+        if command.kind == "tools.keybox":
+            if command.operation_plan is not None:
+                return SafetyDecision(
+                    False,
+                    "untrusted_operation_plan",
+                    "keybox analysis does not accept a process plan",
+                )
+            if command.target_serial is not None:
+                return SafetyDecision(
+                    False,
+                    "keybox_target_not_allowed",
+                    "keybox analysis is a local operation",
                 )
         if (
             command.kind == CommandKind.FLASH_EXECUTE.value

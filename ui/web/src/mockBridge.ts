@@ -1321,6 +1321,42 @@ export function installDevelopmentBridge() {
               },
             });
             break;
+          case 'tools.keybox':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'keybox_analyzed',
+              message: 'Keybox analysis completed.',
+              value: {
+                reports: [{
+                  displayName: 'attestation.xml',
+                  sha256: 'c'.repeat(64),
+                  sizeBytes: 4096,
+                  status: 'unverified',
+                  structureValid: true,
+                  cryptographicValid: true,
+                  keyboxCount: 1,
+                  algorithms: ['ecdsa', 'rsa'],
+                  certificateCount: 4,
+                  expired: false,
+                  expiringSoon: false,
+                  softwareAttestation: false,
+                  revocationStatus: 'unverified',
+                  issues: ['revocation_evidence_unavailable'],
+                }],
+                count: 1,
+                summary: {
+                  valid: 0,
+                  unverified: 1,
+                  revoked: 0,
+                  expired: 0,
+                  softwareAttestation: 0,
+                  invalid: 0,
+                },
+                revocationEvidence: null,
+                bounded: true,
+              },
+            });
+            break;
           case 'support.create':
             respond(request, success('Created redacted support package.', {
               displayName: 'PixelFlasher-support.zip',

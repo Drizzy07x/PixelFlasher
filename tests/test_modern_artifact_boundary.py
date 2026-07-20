@@ -367,6 +367,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.logcat.clear",
                         "tools.pushFiles",
                         "tools.avb",
+                        "tools.keybox",
                         "tools.xml",
                         "tools.scrcpy.setup",
                         "tools.wifi.discover",
@@ -839,6 +840,59 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 project_operation_result(
                     "tools.xml",
                     OperationResult.success("xml", value=hostile),
+                )
+
+    def test_keybox_receipt_is_bounded_closed_and_secret_free(self):
+        report = {
+            "displayName": "attestation.xml",
+            "sha256": "c" * 64,
+            "sizeBytes": 128,
+            "status": "unverified",
+            "structureValid": True,
+            "cryptographicValid": True,
+            "keyboxCount": 1,
+            "algorithms": ["ecdsa", "rsa"],
+            "certificateCount": 4,
+            "expired": False,
+            "expiringSoon": False,
+            "softwareAttestation": False,
+            "revocationStatus": "unverified",
+            "issues": ["revocation_evidence_unavailable"],
+        }
+        value = {
+            "reports": [report],
+            "count": 1,
+            "summary": {
+                "valid": 0,
+                "unverified": 1,
+                "revoked": 0,
+                "expired": 0,
+                "softwareAttestation": 0,
+                "invalid": 0,
+            },
+            "revocationEvidence": None,
+            "bounded": True,
+        }
+        projected = project_operation_result(
+            "tools.keybox",
+            OperationResult.success("keybox", value=value),
+        )
+        self.assertEqual(value, projected["value"])
+        self.assert_route_free(projected)
+
+        hostile_values = (
+            {**value, "path": r"C:\\private\\keybox.xml"},
+            {**value, "reports": [{**report, "privateKey": "SECRET"}]},
+            {**value, "reports": [{**report, "certificate": "SECRET"}]},
+            {**value, "reports": [{**report, "displayName": "/private/keybox.xml"}]},
+            {**value, "reports": [{**report, "status": "valid"}]},
+            {**value, "count": 2},
+        )
+        for hostile in hostile_values:
+            with self.subTest(hostile=hostile), self.assertRaises(PublicProjectionError):
+                project_operation_result(
+                    "tools.keybox",
+                    OperationResult.success("keybox", value=hostile),
                 )
 
     def test_generic_host_serializer_rejects_python_paths_and_host_path_strings(self):

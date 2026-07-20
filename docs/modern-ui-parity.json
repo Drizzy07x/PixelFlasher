@@ -2244,11 +2244,16 @@
         "pixelflasher_core/binary_xml.py:BinaryXmlService",
         "pixelflasher_core/engine.py:CommandEngine._decode_binary_xml",
         "ui/web/src/pages/tooling/ToolsPage.tsx:decodeBinaryXml",
+        "pixelflasher_core/keybox_validation.py:KeyboxValidationService/SignedKeyboxRevocationProvider",
+        "pixelflasher_core/engine.py:CommandEngine._analyze_keyboxes",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:analyzeKeyboxes",
         "tests/test_avb_downgrade.py:AvbDowngradeTests",
         "tests/test_binary_xml_service.py",
+        "tests/test_keybox_validation.py",
+        "ui/web/src/test/keybox-validation.test.tsx:keybox Expert workspace",
         "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace"
       ],
-      "gap": "AVB downgrade and bounded binary XML have closed bridge contracts, opaque native grants and React Expert flows; keybox validation plus packaged and hardware validation remain open.",
+      "gap": "AVB downgrade, bounded binary XML and bounded local keybox validation have closed bridge contracts, opaque native grants and React Expert flows. Production signed keybox revocation evidence plus packaged and hardware validation remain open.",
       "exitCriteria": [
         "Keybox validation, binary XML decode and AVB image/downgrade tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2268,7 +2273,10 @@
         "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace",
         "tests/test_binary_xml_service.py",
         "tests/test_command_registry.py:CommandRegistryTests.test_binary_xml_payload_is_closed_and_requires_decode_action",
-        "ui/web/src/test/binary-xml.test.tsx:binary XML Expert workspace"
+        "ui/web/src/test/binary-xml.test.tsx:binary XML Expert workspace",
+        "tests/test_keybox_validation.py",
+        "tests/test_command_registry.py:CommandRegistryTests.test_keybox_payload_is_closed_bounded_and_requires_analyze_action",
+        "ui/web/src/test/keybox-validation.test.tsx:keybox Expert workspace"
       ],
       "blockReason": null,
       "releaseGate": true,

@@ -136,6 +136,15 @@ _NATIVE_GRANT_SPECS = (
     ),
     NativeGrantSpec(
         "native.pickFiles",
+        "tools.keybox.sources",
+        "tools.keybox",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+        multiple=True,
+        max_selections=32,
+    ),
+    NativeGrantSpec(
+        "native.pickFiles",
         "tools.pushFiles.sources",
         "tools.pushFiles",
         GrantTarget.FILE,
@@ -473,6 +482,28 @@ class CoreCommandFactory:
                     token,
                     purpose=spec.purpose,
                 )
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
+        elif command == "tools.keybox":
+            raw_grants = payload.pop("grants", None)
+            if not isinstance(raw_grants, list):
+                raise CommandFactoryError(
+                    "grant_required", "Native keybox file grants are required."
+                )
+            grants = cast("list[object]", raw_grants)
+            if (
+                not 1 <= len(grants) <= 32
+                or any(not isinstance(token, str) or not token for token in grants)
+            ):
+                raise CommandFactoryError(
+                    "grant_required", "Native keybox file grants are required."
+                )
+            spec = _SPECS_BY_PURPOSE["tools.keybox.sources"]
+            try:
+                payload["sources"] = [
+                    self.path_grants.resolve_bound_file(token, purpose=spec.purpose)
+                    for token in cast("list[str]", grants)
+                ]
             except GrantError as exc:
                 raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "tools.wifi":

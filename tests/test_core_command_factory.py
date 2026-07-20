@@ -446,6 +446,34 @@ class CoreCommandFactoryTests(unittest.TestCase):
                     request_id="xml-raw-path",
                 )
 
+    def test_keybox_grants_are_bounded_and_never_expose_host_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            selected = Path(directory) / "attestation.xml"
+            selected.write_bytes(b"<AndroidAttestation />")
+            factory = create_command_factory(lambda: AppSnapshot(revision=4))
+            issued = factory.issue_native_grants(
+                request(
+                    "native.pickFiles",
+                    payload={"purpose": "tools.keybox.sources", "title": "Keyboxes"},
+                ),
+                (selected,),
+            )
+
+            command = factory(
+                request(
+                    "tools.keybox",
+                    payload={
+                        "action": "analyze",
+                        "grants": [item["grant"] for item in issued["grants"]],
+                    },
+                )
+            )
+
+            self.assertEqual(1, len(command.payload["sources"]))
+            self.assertIsInstance(command.payload["sources"][0], BoundReadFile)
+            self.assertNotIn("grants", command.payload)
+            self.assertNotIn(str(selected), repr(command))
+
     def test_wifi_secret_grant_is_one_use_and_never_serializes_plaintext(self):
         factory = create_command_factory(
             lambda: AppSnapshot(revision=4, selected_serial="SERIAL-WIFI")

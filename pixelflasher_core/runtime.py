@@ -73,6 +73,7 @@ from .firmware_catalog import (
     FirmwareManifestCatalog,
 )
 from .interaction import InteractionBroker
+from .keybox_validation import KeyboxValidationService
 from .observer import PostconditionObserver, ProcessDeviceObservationProbe
 from .operation_runner import (
     OperationRunner,
@@ -340,6 +341,7 @@ class ApplicationRuntime:
             root_app_catalog_service=self.root_app_catalog_service,
             avb_downgrade_service=avb_downgrade_service,
             binary_xml_service=BinaryXmlService(),
+            keybox_validation_service=KeyboxValidationService(),
         )
         self.engine = PixelFlasherEngine(
             command_engine=self.command_engine,

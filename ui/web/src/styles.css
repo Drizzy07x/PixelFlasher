@@ -3543,6 +3543,31 @@ code {
   background: var(--accent-soft);
 }
 
+.keybox-report-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.keybox-report-list li {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) auto minmax(12rem, 2fr);
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  color: var(--text-soft);
+}
+
+.keybox-report-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 .tool-result {
   display: flex;
   align-items: center;
@@ -3686,7 +3711,8 @@ code {
 
   .push-progress,
   .push-outcome,
-  .push-receipts li {
+  .push-receipts li,
+  .keybox-report-list li {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -14,7 +14,7 @@ import ntpath
 import posixpath
 import re
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import cast
 
 from pixelflasher_core import AppSnapshot, OperationResult, is_valid_target_serial
@@ -40,6 +40,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.pushFiles",
         "tools.avb",
         "tools.xml",
+        "tools.keybox",
         "tools.scrcpy.setup",
         "tools.wifi.discover",
     }
@@ -2170,6 +2171,192 @@ def _project_binary_xml(value: object) -> JSONValue:
             "bounded": True,
         }
     )
+
+
+_KEYBOX_STATUSES = frozenset(
+    {"valid", "unverified", "revoked", "expired", "software_attestation", "invalid"}
+)
+_KEYBOX_ISSUES = frozenset(
+    {
+        "algorithm_key_type_mismatch",
+        "certificate_count_mismatch",
+        "certificate_expired_or_not_yet_valid",
+        "certificate_expiring_soon",
+        "certificate_hash_algorithm_invalid",
+        "certificate_issuer_mismatch",
+        "certificate_revoked",
+        "certificate_signature_invalid",
+        "file_too_large",
+        "invalid_certificate",
+        "invalid_certificate_count",
+        "invalid_certificate_structure",
+        "invalid_chain_attributes",
+        "invalid_device_id",
+        "invalid_key_attributes",
+        "invalid_keybox_children",
+        "invalid_keybox_count",
+        "invalid_keybox_structure",
+        "invalid_pem_encoding",
+        "invalid_pem_size",
+        "invalid_private_key",
+        "invalid_root",
+        "missing_or_duplicate_algorithms",
+        "missing_pem",
+        "missing_private_key_or_chain",
+        "private_key_mismatch",
+        "revocation_evidence_invalid",
+        "revocation_evidence_unavailable",
+        "root_not_self_issued",
+        "software_attestation_detected",
+        "source_not_bytes",
+        "unsafe_or_empty_xml",
+        "unsupported_algorithm",
+        "unsupported_certificate_key",
+        "xml_node_limit_exceeded",
+        "xml_parse_failed",
+    }
+)
+
+
+def _project_keybox_analysis(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"reports", "count", "summary", "revocationEvidence", "bounded"}),
+    )
+    reports_value = source["reports"]
+    count = source["count"]
+    if (
+        source["bounded"] is not True
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or not 1 <= count <= 32
+        or not isinstance(reports_value, list)
+        or len(reports_value) != count
+    ):
+        raise PublicProjectionError("keybox analysis receipt is invalid")
+    report_values = cast("list[object]", reports_value)
+    reports: list[dict[str, JSONValue]] = []
+    computed = {status: 0 for status in _KEYBOX_STATUSES}
+    for value_item in report_values:
+        item = _closed_record(
+            value_item,
+            fields=frozenset(
+                {
+                    "displayName",
+                    "sha256",
+                    "sizeBytes",
+                    "status",
+                    "structureValid",
+                    "cryptographicValid",
+                    "keyboxCount",
+                    "algorithms",
+                    "certificateCount",
+                    "expired",
+                    "expiringSoon",
+                    "softwareAttestation",
+                    "revocationStatus",
+                    "issues",
+                }
+            ),
+        )
+        display_name = item["displayName"]
+        status = item["status"]
+        algorithms = item["algorithms"]
+        issues = item["issues"]
+        if (
+            not isinstance(display_name, str)
+            or not display_name
+            or len(display_name) > 255
+            or ntpath.basename(posixpath.basename(display_name.replace("\\", "/"))) != display_name
+            or not display_name.isprintable()
+            or not isinstance(item["sha256"], str)
+            or not _LOWERCASE_SHA256.fullmatch(item["sha256"])
+            or not isinstance(item["sizeBytes"], int)
+            or isinstance(item["sizeBytes"], bool)
+            or not 0 <= item["sizeBytes"] <= 4 * 1024 * 1024
+            or status not in _KEYBOX_STATUSES
+            or not isinstance(item["structureValid"], bool)
+            or not isinstance(item["cryptographicValid"], bool)
+            or not isinstance(item["keyboxCount"], int)
+            or isinstance(item["keyboxCount"], bool)
+            or not 0 <= item["keyboxCount"] <= 16
+            or not isinstance(algorithms, list)
+            or algorithms not in ([], ["ecdsa", "rsa"])
+            or not isinstance(item["certificateCount"], int)
+            or isinstance(item["certificateCount"], bool)
+            or not 0 <= item["certificateCount"] <= 192
+            or not isinstance(item["expired"], bool)
+            or not isinstance(item["expiringSoon"], bool)
+            or not isinstance(item["softwareAttestation"], bool)
+            or item["revocationStatus"] not in {"clear", "revoked", "unverified"}
+            or not isinstance(issues, list)
+            or len(cast("list[object]", issues)) > 32
+            or any(
+                issue not in _KEYBOX_ISSUES for issue in cast("list[object]", issues)
+            )
+        ):
+            raise PublicProjectionError("keybox report is invalid")
+        computed[cast(str, status)] += 1
+        reports.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+
+    summary = _closed_record(
+        source["summary"],
+        fields=frozenset(
+            {"valid", "unverified", "revoked", "expired", "softwareAttestation", "invalid"}
+        ),
+    )
+    expected_summary = {
+        "valid": computed["valid"],
+        "unverified": computed["unverified"],
+        "revoked": computed["revoked"],
+        "expired": computed["expired"],
+        "softwareAttestation": computed["software_attestation"],
+        "invalid": computed["invalid"],
+    }
+    if summary != expected_summary:
+        raise PublicProjectionError("keybox summary is invalid")
+
+    evidence_value = source["revocationEvidence"]
+    evidence: dict[str, JSONValue] | None = None
+    if evidence_value is not None:
+        raw_evidence = _closed_record(
+            evidence_value,
+            fields=frozenset({"sourceId", "keyId", "issuedAt", "expiresAt", "authenticated"}),
+        )
+        source_id = raw_evidence["sourceId"]
+        key_id = raw_evidence["keyId"]
+        if (
+            raw_evidence["authenticated"] is not True
+            or not isinstance(source_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", source_id)
+            or not isinstance(key_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key_id)
+        ):
+            raise PublicProjectionError("keybox revocation evidence is invalid")
+        try:
+            issued_at = datetime.fromisoformat(_string(raw_evidence["issuedAt"]))
+            expires_at = datetime.fromisoformat(_string(raw_evidence["expiresAt"]))
+        except ValueError as error:
+            raise PublicProjectionError("keybox revocation evidence is invalid") from error
+        if (
+            issued_at.tzinfo is None
+            or expires_at.tzinfo is None
+            or expires_at <= issued_at
+            or expires_at - issued_at > timedelta(days=31)
+        ):
+            raise PublicProjectionError("keybox revocation evidence is invalid")
+        evidence = cast(dict[str, JSONValue], ensure_public_json(dict(raw_evidence)))
+    elif expected_summary["valid"] or expected_summary["revoked"]:
+        raise PublicProjectionError("verified keybox status requires revocation evidence")
+    return ensure_public_json(
+        {
+            "reports": reports,
+            "count": count,
+            "summary": expected_summary,
+            "revocationEvidence": evidence,
+            "bounded": True,
+        }
+    )
 def _project_native_grant(value: object) -> JSONValue:
     source = _record(value)
     data = source.get("data", source)
@@ -2260,6 +2447,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.pushFiles": _project_push_files,
     "tools.avb": _project_avb_downgrade,
     "tools.xml": _project_binary_xml,
+    "tools.keybox": _project_keybox_analysis,
     "tools.scrcpy": _project_none,
     "tools.scrcpy.setup": _project_scrcpy_setup,
     "tools.wifi": _project_none,

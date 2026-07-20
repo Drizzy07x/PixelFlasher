@@ -92,6 +92,7 @@ class CommandRegistryTests(unittest.TestCase):
             # ten-minute process boundary, followed by postcondition checks.
             "tools.pushFiles": 330 * 60_000,
             "tools.avb": 30 * 60_000,
+            "tools.keybox": 5 * 60_000,
             "tools.xml": 30_000,
         }
 
@@ -191,6 +192,21 @@ class CommandRegistryTests(unittest.TestCase):
         ):
             with self.subTest(payload=payload), self.assertRaises(BridgeProtocolError) as error:
                 BridgeRequest.from_json(_request("tools.xml", payload))
+            self.assertEqual("invalid_payload", error.exception.code)
+
+    def test_keybox_payload_is_closed_bounded_and_requires_analyze_action(self):
+        BridgeRequest.from_json(
+            _request("tools.keybox", {"action": "analyze", "grants": ["G" * 32]})
+        )
+        for payload in (
+            {},
+            {"action": "analyze", "grants": []},
+            {"action": "inspect", "grants": ["G" * 32]},
+            {"action": "analyze", "grants": ["G" * 32] * 33},
+            {"action": "analyze", "grants": ["G" * 32], "path": "C:/private"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(BridgeProtocolError) as error:
+                BridgeRequest.from_json(_request("tools.keybox", payload))
             self.assertEqual("invalid_payload", error.exception.code)
 
     def test_device_tools_accept_only_the_adb_state_supported_by_the_service(self):

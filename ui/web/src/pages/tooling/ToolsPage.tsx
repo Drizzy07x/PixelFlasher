@@ -17,7 +17,7 @@ import {
   type LogcatUiState,
 } from './LogcatPanel';
 
-type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | null;
+type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type WifiService = {
   id: string;
@@ -670,6 +670,30 @@ export function ToolsPage({
       setBusy('');
     }
   };
+  const analyzeKeyboxes = async () => {
+    if (busy) return;
+    setBusy('keybox-picker');
+    try {
+      const picked = await onCommand(commands.nativePickFiles, {
+        purpose: 'tools.keybox.sources',
+        title: t('tools.keyboxChoose'),
+        filters: [{ label: t('tools.keyboxFiles'), extensions: ['xml'] }],
+      });
+      const grants = selectedGrants(picked);
+      if (!grants.length) return;
+      setBusy('');
+      await runTool(commands.toolsKeybox, {
+        action: 'analyze',
+        grants,
+      }, {
+        expectedRevision: picked?.revision,
+        returnCancelled: true,
+        returnFailed: true,
+      });
+    } finally {
+      setBusy('');
+    }
+  };
 
   const openPanel = (next: ToolPanel) => {
     setPanel(next);
@@ -719,6 +743,7 @@ export function ToolsPage({
       { id: 'bootloader', icon: 'bootloader', title: t('tools.bootloader'), detail: t('tools.bootloaderDetail'), disabled: !primary || !isToolchainReady(snapshot), run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'bootloader' }); } },
       { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), disabled: !avbFirmwareReady, run: () => openPanel('avb') },
       { id: 'xml', icon: 'processFile', title: t('tools.xmlDecode'), detail: t('tools.xmlDecodeDetail'), disabled: false, run: () => openPanel('xml') },
+      { id: 'keybox', icon: 'shield', title: t('tools.keyboxValidate'), detail: t('tools.keyboxValidateDetail'), disabled: false, run: () => openPanel('keybox') },
     ] satisfies ToolCard[] : []),
   ];
   const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
@@ -762,8 +787,8 @@ export function ToolsPage({
 
       {panel ? (
         <Card className="tool-workspace" aria-busy={Boolean(busy)}>
-          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' ? 'shield' : panel === 'xml' ? 'processFile' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
-            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : t('tools.wifi')}
+          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' || panel === 'keybox' ? 'shield' : panel === 'xml' ? 'processFile' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
+            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : panel === 'keybox' ? t('tools.keyboxValidate') : t('tools.wifi')}
           </CardTitle>
           {panel === 'scrcpy' ? (
             <div className="tool-panel-body scrcpy-panel">
@@ -985,6 +1010,51 @@ export function ToolsPage({
                   <pre className="tool-log-viewer" aria-label={t('tools.xmlDecodedOutput')} tabIndex={0}>{String(record(result?.value).xml)}</pre>
                 </>
               ) : <EmptyState icon="processFile" title={t('tools.xmlDecodedOutput')} detail={t('tools.xmlDecodeDetail')} />}
+            </div>
+          ) : null}
+          {panel === 'keybox' ? (
+            <div className="tool-panel-body keybox-panel">
+              <div className="wifi-discovery-toolbar">
+                <div>
+                  <strong>{t('tools.keyboxValidate')}</strong>
+                  <p>{t('tools.keyboxValidateDetail')}</p>
+                </div>
+                <Button variant="primary" icon="shield" onClick={() => void analyzeKeyboxes()} disabled={Boolean(busy)}>
+                  {t('tools.keyboxChoose')}
+                </Button>
+              </div>
+              {Array.isArray(record(result?.value).reports) ? (
+                <>
+                  {record(result?.value).revocationEvidence === null ? (
+                    <div className="inline-alert inline-alert--warning" role="status">
+                      <Icon name="warningPng" size={18} />
+                      <span>{t('tools.keyboxRevocationUnavailable')}</span>
+                    </div>
+                  ) : (
+                    <div className="inline-alert inline-alert--success" role="status">
+                      <Icon name="check" size={18} />
+                      <span>{t('tools.keyboxRevocationAuthenticated')}</span>
+                    </div>
+                  )}
+                  <dl className="device-inspection-meta">
+                    <div><dt>{t('tools.keyboxValid')}</dt><dd>{String(record(record(result?.value).summary).valid ?? 0)}</dd></div>
+                    <div><dt>{t('tools.keyboxUnverified')}</dt><dd>{String(record(record(result?.value).summary).unverified ?? 0)}</dd></div>
+                    <div><dt>{t('tools.keyboxRevoked')}</dt><dd>{String(record(record(result?.value).summary).revoked ?? 0)}</dd></div>
+                    <div><dt>{t('tools.keyboxExpired')}</dt><dd>{String(record(record(result?.value).summary).expired ?? 0)}</dd></div>
+                    <div><dt>{t('tools.keyboxSoftware')}</dt><dd>{String(record(record(result?.value).summary).softwareAttestation ?? 0)}</dd></div>
+                    <div><dt>{t('tools.keyboxInvalid')}</dt><dd>{String(record(record(result?.value).summary).invalid ?? 0)}</dd></div>
+                  </dl>
+                  <ul className="keybox-report-list" aria-label={t('tools.keyboxReports')}>
+                    {(record(result?.value).reports as unknown[]).map((entry) => {
+                      const report = record(entry);
+                      const status = String(report.status);
+                      const tone = status === 'valid' ? 'success' : status === 'unverified' || status === 'expired' ? 'warning' : 'danger';
+                      const label = status === 'valid' ? t('tools.keyboxValid') : status === 'unverified' ? t('tools.keyboxUnverified') : status === 'revoked' ? t('tools.keyboxRevoked') : status === 'expired' ? t('tools.keyboxExpired') : status === 'software_attestation' ? t('tools.keyboxSoftware') : t('tools.keyboxInvalid');
+                      return <li key={`${String(report.sha256)}-${String(report.displayName)}`}><strong>{String(report.displayName)}</strong><Badge tone={tone}>{label}</Badge><code>{String(report.sha256)}</code></li>;
+                    })}
+                  </ul>
+                </>
+              ) : <EmptyState icon="shield" title={t('tools.keyboxReports')} detail={t('tools.keyboxValidateDetail')} />}
             </div>
           ) : null}
           {result && panel !== 'push' ? <div className={`tool-result tool-result--${toolResultStatus}`} role={toolResultFailed ? 'alert' : 'status'}><Icon name={toolResultSucceeded ? 'check' : 'warningPng'} size={18} /><span><strong>{t('tools.results')}</strong><small>{typeof result.message === 'string' ? result.message : t('status.ready')}</small></span></div> : null}

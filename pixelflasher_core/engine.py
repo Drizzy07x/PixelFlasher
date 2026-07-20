@@ -88,6 +88,11 @@ from .firmware_catalog import (
 )
 from .grants import BoundReadFile, GrantError
 from .interaction import InteractionTimeoutError
+from .keybox_validation import (
+    KeyboxAnalysisStatus,
+    KeyboxStatus,
+    KeyboxValidationService,
+)
 from .operation_runner import (
     CancellationCleanup,
     ExecutionBoundaryAck,
@@ -247,6 +252,7 @@ class CommandEngine:
         root_app_catalog_service: RootAppCatalogService,
         avb_downgrade_service: DowngradePatchService,
         binary_xml_service: BinaryXmlService,
+        keybox_validation_service: KeyboxValidationService,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
@@ -301,6 +307,7 @@ class CommandEngine:
         self.root_app_catalog_service = root_app_catalog_service
         self.avb_downgrade_service = avb_downgrade_service
         self.binary_xml_service = binary_xml_service
+        self.keybox_validation_service = keybox_validation_service
         self.support_package_service = support_package_service
         self.snapshot_provider = snapshot_provider
         self.postcondition_observer = postcondition_observer
@@ -376,6 +383,8 @@ class CommandEngine:
             return self._prepare_avb_downgrade(command)
         if command.kind == "tools.xml":
             return self._decode_binary_xml(command)
+        if command.kind == "tools.keybox":
+            return self._analyze_keyboxes(command)
         return OperationResult.failed(
             command.operation_id,
             code="command_unknown",
@@ -716,6 +725,174 @@ class CommandEngine:
                     fallback = OperationResult.failed(
                         command.operation_id,
                         code="binary_xml_state_promotion_failed",
+                        message=str(error),
+                    )
+                    self._abort_operation_safely(fallback)
+                    return fallback
+                return result
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _analyze_keyboxes(self, command: AppCommand) -> OperationResult:
+        raw_sources = command.payload.get("sources")
+        if (
+            set(command.payload) != {"action", "sources"}
+            or command.payload.get("action") != "analyze"
+            or not isinstance(raw_sources, Sequence)
+            or isinstance(raw_sources, (str, bytes))
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="keybox_payload_invalid",
+                message="tools.keybox requires one to 32 purpose-bound keybox grants",
+            )
+        source_values = cast("Sequence[object]", raw_sources)
+        if not 1 <= len(source_values) <= 32 or any(
+            not isinstance(source, BoundReadFile) for source in source_values
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="keybox_payload_invalid",
+                message="tools.keybox requires one to 32 purpose-bound keybox grants",
+            )
+        sources = cast("Sequence[BoundReadFile]", source_values)
+        initial = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, initial)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="keybox_analysis_cancelled",
+                        cancelled_message="keybox analysis was cancelled before it started",
+                        timeout_message="keybox analysis timed out before it started",
+                    )
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                try:
+                    active = self.store.begin_operation(
+                        command.operation_id,
+                        expected_revision=snapshot.revision,
+                        kind="tools.keybox",
+                        label="Analyze Android keyboxes",
+                    )
+                except StaleRevisionError as error:
+                    return self._denied(command, "stale_revision", str(error))
+                except ValueError as error:
+                    return self._denied(command, "operation_busy", str(error))
+
+                evidence, revocation_issue = self.keybox_validation_service.revocation_evidence()
+                reports: list[dict[str, object]] = []
+                result: OperationResult
+                try:
+                    for source in sources:
+                        if token.cancelled:
+                            break
+                        with source.open_verified() as input_stream:
+                            analyzed = self.keybox_validation_service.analyze(
+                                source.path.name,
+                                input_stream,
+                                evidence=evidence,
+                                revocation_issue=revocation_issue,
+                                cancellation=token,
+                            )
+                        if analyzed.status is KeyboxAnalysisStatus.CANCELLED:
+                            break
+                        if not analyzed.ok or analyzed.report is None:
+                            raise OSError("keybox analysis failed without a bounded report")
+                        reports.append(analyzed.report.to_public_dict())
+                except (GrantError, OSError, ValueError) as error:
+                    result = OperationResult.failed(
+                        command.operation_id,
+                        code="keybox_source_unavailable",
+                        message=str(error),
+                    )
+                else:
+                    if token.cancelled:
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="keybox_analysis_cancelled",
+                            cancelled_message="keybox analysis was cancelled",
+                            timeout_message="keybox analysis timed out",
+                        )
+                    else:
+                        status_counts = {
+                            status.value: sum(
+                                report.get("status") == status.value for report in reports
+                            )
+                            for status in KeyboxStatus
+                        }
+                        result = OperationResult.success(
+                            command.operation_id,
+                            code="keybox_analyzed",
+                            message="keybox analysis completed",
+                            value={
+                                "reports": reports,
+                                "count": len(reports),
+                                "summary": {
+                                    "valid": status_counts[KeyboxStatus.VALID.value],
+                                    "unverified": status_counts[KeyboxStatus.UNVERIFIED.value],
+                                    "revoked": status_counts[KeyboxStatus.REVOKED.value],
+                                    "expired": status_counts[KeyboxStatus.EXPIRED.value],
+                                    "softwareAttestation": status_counts[
+                                        KeyboxStatus.SOFTWARE_ATTESTATION.value
+                                    ],
+                                    "invalid": status_counts[KeyboxStatus.INVALID.value],
+                                },
+                                "revocationEvidence": (
+                                    {
+                                        "sourceId": evidence.source_id,
+                                        "keyId": evidence.key_id,
+                                        "issuedAt": evidence.issued_at.isoformat(),
+                                        "expiresAt": evidence.expires_at.isoformat(),
+                                        "authenticated": True,
+                                    }
+                                    if evidence is not None
+                                    else None
+                                ),
+                                "bounded": True,
+                            },
+                        )
+                current = self.store.snapshot()
+                if result.ok and (
+                    token.cancelled
+                    or current.revision != active.revision
+                    or current.active_operation is None
+                    or current.active_operation.operation_id != command.operation_id
+                ):
+                    result = (
+                        self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="keybox_analysis_cancelled",
+                            cancelled_message="keybox analysis was cancelled before completion",
+                            timeout_message="keybox analysis timed out before completion",
+                        )
+                        if token.cancelled
+                        else OperationResult.failed(
+                            command.operation_id,
+                            code="keybox_context_changed",
+                            message="application state changed while analyzing keyboxes",
+                        )
+                    )
+                try:
+                    self.store.complete_operation(
+                        result,
+                        expected_revision=active.revision if result.ok else None,
+                    )
+                except (StaleRevisionError, TypeError, ValueError) as error:
+                    fallback = OperationResult.failed(
+                        command.operation_id,
+                        code="keybox_state_promotion_failed",
                         message=str(error),
                     )
                     self._abort_operation_safely(fallback)

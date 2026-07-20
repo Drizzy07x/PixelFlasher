@@ -5576,3 +5576,55 @@ msgstr "Elementi"
 msgctxt "web.tools.xmlAttributes"
 msgid "Attributes"
 msgstr "Attributi"
+
+msgctxt "web.tools.keyboxValidate"
+msgid "Validate keyboxes"
+msgstr "Convalida keybox"
+
+msgctxt "web.tools.keyboxValidateDetail"
+msgid "Validate bounded Android attestation keyboxes locally without exposing private keys or certificates."
+msgstr "Convalida localmente keybox di attestazione Android limitati senza esporre chiavi private o certificati."
+
+msgctxt "web.tools.keyboxChoose"
+msgid "Choose keybox files"
+msgstr "Scegli file keybox"
+
+msgctxt "web.tools.keyboxFiles"
+msgid "Keybox XML files"
+msgstr "File XML keybox"
+
+msgctxt "web.tools.keyboxReports"
+msgid "Keybox reports"
+msgstr "Rapporti keybox"
+
+msgctxt "web.tools.keyboxRevocationUnavailable"
+msgid "Authenticated revocation evidence is unavailable. Cryptographically valid keyboxes remain unverified."
+msgstr "Le prove di revoca autenticate non sono disponibili. I keybox crittograficamente validi restano non verificati."
+
+msgctxt "web.tools.keyboxRevocationAuthenticated"
+msgid "Revocation status was checked against authenticated evidence."
+msgstr "Lo stato di revoca è stato verificato con prove autenticate."
+
+msgctxt "web.tools.keyboxValid"
+msgid "Valid"
+msgstr "Valido"
+
+msgctxt "web.tools.keyboxUnverified"
+msgid "Unverified"
+msgstr "Non verificato"
+
+msgctxt "web.tools.keyboxRevoked"
+msgid "Revoked"
+msgstr "Revocato"
+
+msgctxt "web.tools.keyboxExpired"
+msgid "Expired"
+msgstr "Scaduto"
+
+msgctxt "web.tools.keyboxSoftware"
+msgid "Software attestation"
+msgstr "Attestazione software"
+
+msgctxt "web.tools.keyboxInvalid"
+msgid "Invalid"
+msgstr "Non valido"

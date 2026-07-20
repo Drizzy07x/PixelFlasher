@@ -37,6 +37,7 @@ from pixelflasher_core.executor import CommandExecutor
 from pixelflasher_core.firmware import FirmwareInspector
 from pixelflasher_core.firmware_artifacts import FirmwareArtifactService
 from pixelflasher_core.firmware_catalog import FirmwareCatalogService
+from pixelflasher_core.keybox_validation import KeyboxValidationService
 from pixelflasher_core.observer import PostconditionObserver, ProcessDeviceObservationProbe
 from pixelflasher_core.operation_runner import (
     OperationRunner,
@@ -93,6 +94,7 @@ def make_test_command_engine(
     root_app_catalog_service: RootAppCatalogService | None = None,
     avb_downgrade_service: DowngradePatchService | None = None,
     binary_xml_service: BinaryXmlService | None = None,
+    keybox_validation_service: KeyboxValidationService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
 
@@ -211,4 +213,5 @@ def make_test_command_engine(
         root_app_catalog_service=root_app_catalog_service,
         avb_downgrade_service=avb_downgrade_service,
         binary_xml_service=binary_xml_service or BinaryXmlService(),
+        keybox_validation_service=keybox_validation_service or KeyboxValidationService(),
     )
