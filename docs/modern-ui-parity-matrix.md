@@ -172,6 +172,11 @@ atomic-operation boundaries:
 - `BootloaderLockPolicy` fails closed unless canonical, revision-bound evidence
   proves a complete compatible stock factory flash across both slots. No
   producer is trusted yet, so the real host keeps lock disabled by default.
+- `MyToolsService` keeps safe profiles on pinned, revalidated executable argv.
+  Imported Legacy Raw profiles remain backend-owned and are isolated behind
+  Expert Mode, content-bound persistent permission, exact per-run confirmation,
+  restricted working directories and bounded host-shell execution. React sees
+  the exact reviewed preview but never sends a command, cwd or environment.
 
 These are backend-native contracts, not claims of complete UI parity. The Apps
 page refreshes canonical rows through `apps.list`, exposes enable/disable,
@@ -211,7 +216,7 @@ becomes implicit success.
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
 | Backups | Raw-backup inventory/results are persistent and route-free; complete the distinct Magisk list/import/delete behavior. |
 | Root and integrity | `/data/adb` now rejects the complete hostile tar matrix and distinguishes verified pre-mutation staging failures from `outcome_unknown` cancellation/disconnection after the mutation-bearing request starts; packaged rooted-device smokes remain. PIF/TargetedFix, PI analysis, Shizuku and SOS still require their hardware/release validation. |
-| Developer/personal tools | Production signed keybox revocation evidence, packaged validation of the native AVB downgrade, bounded binary-XML and local keybox flows, and arbitrary My Tools commands. |
+| Developer/personal tools | Production signed keybox revocation evidence and packaged validation of AVB downgrade, binary XML, local keybox and Legacy Raw host-shell execution. My Tools safe argv and the isolated Legacy Raw permission/confirmation flow are technically complete. |
 | Application shell | Production signed update manifests, packaged dev/RC version derivation and remaining 9.x/expert preferences. About/help and allow-listed native links are implemented. Backend-owned Configuration, Logs and Cache folders, safe revisioned exit, persistent top/right/bottom/left toolbar layout and a bounded redacted console with clear plus atomic one-use-grant export are implemented without exposing paths or opening classic dialogs. |
 
 The JSON inventory maps each individual menu/context-menu and primary-control

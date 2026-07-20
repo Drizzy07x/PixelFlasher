@@ -6687,7 +6687,7 @@ msgid "Run personal executables with pinned identity and shell-free arguments."
 msgstr "Run personal executables with pinned identity and shell-free arguments."
 
 msgctxt "web.tools.myToolsSafety"
-msgid "Safe profiles execute a verified file directly. Shell syntax, custom environment, working directory, redirection, and elevation are not interpreted."
+msgid "Safe profiles execute a verified file directly. Legacy Raw is isolated behind Expert Mode, persistent permission, and confirmation on every run."
 msgstr "Safe profiles execute a verified file directly. Shell syntax, custom environment, working directory, redirection, and elevation are not interpreted."
 
 msgctxt "web.tools.myToolsSaved"
@@ -6707,7 +6707,7 @@ msgid "Legacy Raw profiles"
 msgstr "Legacy Raw profiles"
 
 msgctxt "web.tools.myToolsLegacyDetail"
-msgid "Profiles imported from 9.x are preserved as metadata but remain blocked until the isolated Legacy Raw permission flow is implemented."
+msgid "Imported 9.x commands use a restricted host shell. Review the exact command before granting permission."
 msgstr "Profiles imported from 9.x are preserved as metadata but remain blocked until the isolated Legacy Raw permission flow is implemented."
 
 msgctxt "web.tools.myToolsBlocked"
@@ -6854,4 +6854,34 @@ msgstr ""
 
 msgctxt "web.root.moduleUpdateRun"
 msgid "Install verified ZIP"
+msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.myToolsLegacyCwd"
+msgid "Working directory: {mode}"
+msgstr ""
+
+msgctxt "web.tools.myToolsLegacyAllowed"
+msgid "Permission granted"
+msgstr ""
+
+msgctxt "web.tools.myToolsLegacyRevoke"
+msgid "Revoke permission"
+msgstr ""
+
+msgctxt "web.tools.myToolsLegacyAllow"
+msgid "Allow Legacy Raw"
+msgstr ""
+
+msgctxt "web.tools.myToolsLegacyWarning"
+msgid ""
+"This command can change or delete host data. PixelFlasher blocks elevation "
+"and shell redirection but cannot make arbitrary shell code safe."
+msgstr ""
+
+msgctxt "web.tools.myToolsLegacyConfirm"
+msgid "Type the exact confirmation"
 msgstr ""

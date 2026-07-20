@@ -57,7 +57,26 @@ type MyToolRow = {
   arguments: string[];
   enabled: boolean;
   blockedReason?: string;
+  permissionGranted?: boolean;
+  commandPreview?: string;
+  fingerprint?: string;
+  workingDirectory?: 'default' | 'approved';
 };
+const SAFE_MY_TOOL_FIELDS = ['arguments', 'displayName', 'enabled', 'id', 'mode', 'sha256', 'title'] as const;
+const LEGACY_MY_TOOL_FIELDS = [
+  'arguments',
+  'blockedReason',
+  'commandPreview',
+  'displayName',
+  'enabled',
+  'fingerprint',
+  'id',
+  'mode',
+  'permissionGranted',
+  'sha256',
+  'title',
+  'workingDirectory',
+] as const;
 export type PushDestination = '/data/local/tmp/' | '/sdcard/Download/';
 export type PushPayload = { serial: string; grants: string[]; destination: PushDestination };
 export type PushReceipt = {
@@ -358,12 +377,20 @@ export function ToolsPage({
   const [myToolGrant, setMyToolGrant] = useState('');
   const [myToolGrantRevision, setMyToolGrantRevision] = useState<number | undefined>();
   const [myToolExecutableName, setMyToolExecutableName] = useState('');
+  const [legacyRawPending, setLegacyRawPending] = useState<{ tool: MyToolRow; action: 'allow' | 'run' } | null>(null);
+  const [legacyRawConfirmation, setLegacyRawConfirmation] = useState('');
   const [secretPromptOpen, setSecretPromptOpen] = useState(false);
   const [secretValue, setSecretValue] = useState('');
   const secretResolverRef = useRef<((value: string | null) => void) | null>(null);
   const secretDialogRef = useRef<HTMLElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
   const [localPushUiState, setLocalPushUiState] = useState<PushUiState>(initialPushUiState);
+  useEffect(() => {
+    if (expertMode) return;
+    setLegacyRawPending(null);
+    setLegacyRawConfirmation('');
+    if (panel === 'mytools') setPanel(null);
+  }, [expertMode, panel]);
   const currentPushUiState = pushUiState ?? localPushUiState;
   const setPushUiState = onPushUiStateChange ?? setLocalPushUiState;
   const pushDestination = currentPushUiState.destination;
@@ -951,6 +978,8 @@ export function ToolsPage({
   const parseMyTool = (value: unknown, mode: MyToolRow['mode']): MyToolRow | null => {
     const item = record(value);
     if (
+      !hasExactKeys(item, mode === 'legacyRaw' ? LEGACY_MY_TOOL_FIELDS : SAFE_MY_TOOL_FIELDS)
+      ||
       typeof item.id !== 'string'
       || typeof item.title !== 'string'
       || item.mode !== mode
@@ -960,6 +989,16 @@ export function ToolsPage({
       || item.arguments.some((argument) => typeof argument !== 'string')
       || typeof item.enabled !== 'boolean'
     ) return null;
+    if (mode === 'legacyRaw' && (
+      !/^legacy:[A-Za-z0-9._-]{1,64}$/.test(item.id)
+      || item.sha256 !== ''
+      || item.arguments.length !== 0
+      || typeof item.permissionGranted !== 'boolean'
+      || typeof item.blockedReason !== 'string'
+      || typeof item.commandPreview !== 'string'
+      || typeof item.fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(item.fingerprint)
+      || !['default', 'approved'].includes(String(item.workingDirectory))
+    )) return null;
     return {
       id: item.id,
       title: item.title,
@@ -969,17 +1008,36 @@ export function ToolsPage({
       arguments: item.arguments as string[],
       enabled: item.enabled,
       ...(typeof item.blockedReason === 'string' ? { blockedReason: item.blockedReason } : {}),
+      ...(typeof item.permissionGranted === 'boolean' ? { permissionGranted: item.permissionGranted } : {}),
+      ...(typeof item.commandPreview === 'string' ? { commandPreview: item.commandPreview } : {}),
+      ...(typeof item.fingerprint === 'string' ? { fingerprint: item.fingerprint } : {}),
+      ...(item.workingDirectory === 'default' || item.workingDirectory === 'approved'
+        ? { workingDirectory: item.workingDirectory }
+        : {}),
     };
   };
   const loadMyTools = async () => {
     const response = await runTool(commands.toolsMyTools, { action: 'list' }, { returnFailed: true });
     const value = record(record(response?.result).value);
-    const safe = Array.isArray(value.tools)
-      ? value.tools.flatMap((item) => { const parsed = parseMyTool(item, 'safeArgv'); return parsed ? [parsed] : []; })
-      : [];
-    const legacy = Array.isArray(value.legacyRaw)
-      ? value.legacyRaw.flatMap((item) => { const parsed = parseMyTool(item, 'legacyRaw'); return parsed ? [parsed] : []; })
-      : [];
+    if (
+      !hasExactKeys(value, ['legacyRaw', 'revision', 'schemaVersion', 'tools'])
+      || value.schemaVersion !== 2
+      || !Array.isArray(value.tools)
+      || !Array.isArray(value.legacyRaw)
+      || value.tools.length > 128
+      || value.legacyRaw.length > 128
+    ) {
+      setMyTools([]);
+      setLegacyMyTools([]);
+      return;
+    }
+    const safe = value.tools.flatMap((item) => { const parsed = parseMyTool(item, 'safeArgv'); return parsed ? [parsed] : []; });
+    const legacy = value.legacyRaw.flatMap((item) => { const parsed = parseMyTool(item, 'legacyRaw'); return parsed ? [parsed] : []; });
+    if (safe.length !== value.tools.length || legacy.length !== value.legacyRaw.length) {
+      setMyTools([]);
+      setLegacyMyTools([]);
+      return;
+    }
     setMyTools(safe);
     setLegacyMyTools(legacy);
   };
@@ -1047,6 +1105,31 @@ export function ToolsPage({
     if (normalizeOperationStatus(record(response?.result).status) !== 'success') return;
     if (myToolId === toolId) resetMyToolEditor();
     await loadMyTools();
+  };
+  const legacyRawRequired = legacyRawPending?.tool.fingerprint
+    ? `${legacyRawPending.action === 'allow' ? 'ALLOW' : 'RUN'} RAW ${legacyRawPending.tool.fingerprint.slice(0, 8).toUpperCase()}`
+    : '';
+  const updateLegacyPermission = async (tool: MyToolRow, granted: boolean) => {
+    if (busy) return;
+    const response = await runTool(commands.toolsMyToolsLegacyPermission, {
+      toolId: tool.id,
+      granted,
+      ...(granted ? { confirmationText: legacyRawConfirmation } : {}),
+    }, { returnFailed: true });
+    if (normalizeOperationStatus(record(response?.result).status) !== 'success') return;
+    setLegacyRawPending(null);
+    setLegacyRawConfirmation('');
+    await loadMyTools();
+  };
+  const runLegacyRaw = async () => {
+    if (!legacyRawPending || legacyRawPending.action !== 'run' || busy) return;
+    const response = await runTool(commands.toolsMyToolsLegacyRun, {
+      toolId: legacyRawPending.tool.id,
+      confirmationText: legacyRawConfirmation,
+    }, { returnCancelled: true, returnFailed: true });
+    if (normalizeOperationStatus(record(response?.result).status) !== 'success') return;
+    setLegacyRawPending(null);
+    setLegacyRawConfirmation('');
   };
   const openMyTools = () => {
     openPanel('mytools');
@@ -1492,7 +1575,31 @@ export function ToolsPage({
                   {legacyMyTools.length ? <div className="legacy-tools">
                     <strong>{t('tools.myToolsLegacy')}</strong>
                     <p>{t('tools.myToolsLegacyDetail')}</p>
-                    <ul>{legacyMyTools.map((tool) => <li key={tool.id}><span>{tool.title}</span><Badge tone="warning">{t('tools.myToolsBlocked')}</Badge></li>)}</ul>
+                    <ul>{legacyMyTools.map((tool) => <li key={tool.id}>
+                      <span>
+                        <strong>{tool.title}</strong>
+                        {tool.commandPreview ? <code>{tool.commandPreview}</code> : null}
+                        <small>{t('tools.myToolsLegacyCwd', { mode: tool.workingDirectory ?? 'default' })}</small>
+                      </span>
+                      <span className="button-row">
+                        {tool.blockedReason && tool.blockedReason !== 'legacy_raw_permission_required'
+                          ? <Badge tone="warning">{t('tools.myToolsBlocked')}</Badge>
+                          : tool.permissionGranted
+                            ? <>
+                                <Badge tone="danger">{t('tools.myToolsLegacyAllowed')}</Badge>
+                                <Button variant="danger" onClick={() => { setLegacyRawPending({ tool, action: 'run' }); setLegacyRawConfirmation(''); }} disabled={Boolean(busy) || !tool.enabled}>{t('tools.myToolsRun')}</Button>
+                                <Button variant="ghost" onClick={() => void updateLegacyPermission(tool, false)} disabled={Boolean(busy)}>{t('tools.myToolsLegacyRevoke')}</Button>
+                              </>
+                            : <Button variant="secondary" onClick={() => { setLegacyRawPending({ tool, action: 'allow' }); setLegacyRawConfirmation(''); }} disabled={Boolean(busy) || !tool.enabled}>{t('tools.myToolsLegacyAllow')}</Button>}
+                      </span>
+                    </li>)}</ul>
+                    {legacyRawPending ? <div className="root-footer root-footer--wrap">
+                      <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('tools.myToolsLegacyWarning')}</p>
+                      <code>{legacyRawPending.tool.commandPreview}</code>
+                      <label><span>{t('tools.myToolsLegacyConfirm')}</span><input value={legacyRawConfirmation} onChange={(event) => setLegacyRawConfirmation(event.currentTarget.value.slice(0, 128))} placeholder={legacyRawRequired} autoComplete="off" spellCheck={false} disabled={Boolean(busy)} /></label>
+                      <Button variant="danger" onClick={() => void (legacyRawPending.action === 'allow' ? updateLegacyPermission(legacyRawPending.tool, true) : runLegacyRaw())} disabled={Boolean(busy) || legacyRawConfirmation !== legacyRawRequired}>{legacyRawPending.action === 'allow' ? t('tools.myToolsLegacyAllow') : t('tools.myToolsRun')}</Button>
+                      <Button variant="ghost" onClick={() => { setLegacyRawPending(null); setLegacyRawConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+                    </div> : null}
                   </div> : null}
                 </section>
                 <section className="my-tools-editor" aria-label={t('tools.myToolsEditor')}>

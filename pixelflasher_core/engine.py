@@ -431,6 +431,10 @@ class CommandEngine:
             return self._analyze_keyboxes(command)
         if command.kind == "tools.myTools":
             return self._my_tools_command(command)
+        if command.kind == "tools.myTools.legacyPermission":
+            return self._my_tools_legacy_permission(command)
+        if command.kind == "tools.myTools.legacyRun":
+            return self._my_tools_legacy_run(command)
         return OperationResult.failed(
             command.operation_id,
             code="command_unknown",
@@ -527,6 +531,103 @@ class CommandEngine:
                 self._unregister_cancellation(command.operation_id)
         except MyToolsError as error:
             return OperationResult.failed(command.operation_id, code=error.code, message=str(error))
+
+    def _my_tools_legacy_permission(self, command: AppCommand) -> OperationResult:
+        payload = command.payload
+        allowed = {"toolId", "granted", "confirmationText"}
+        if set(payload) - allowed or not {"toolId", "granted"}.issubset(payload):
+            return self._invalid(command, "Legacy Raw permission payload is invalid.")
+        if command.target_serial is not None or command.operation_plan is not None:
+            return self._invalid(command, "Legacy Raw permissions are local operations.")
+        snapshot = self.store.snapshot()
+        if not snapshot.preferences.expert_mode:
+            return self._denied(command, "expert_mode_required", "Legacy Raw requires Expert Mode.")
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        tool_id = payload.get("toolId")
+        granted = payload.get("granted")
+        if not isinstance(tool_id, str) or not isinstance(granted, bool):
+            return self._invalid(command, "Legacy Raw permission identity is invalid.")
+        if not granted and "confirmationText" in payload:
+            return self._invalid(command, "Revoking Legacy Raw permission accepts no confirmation.")
+        try:
+            updated = self.my_tools_service.set_legacy_permission(
+                tool_id,
+                granted=granted,
+                confirmation_text=payload.get("confirmationText"),
+            )
+        except MyToolsError as error:
+            return OperationResult.failed(command.operation_id, code=error.code, message=str(error))
+        return OperationResult.success(
+            command.operation_id,
+            code="legacy_raw_permission_updated",
+            message="Legacy Raw permission updated.",
+            value={"tool": updated.to_public_dict(), "revision": snapshot.revision},
+        )
+
+    def _my_tools_legacy_run(self, command: AppCommand) -> OperationResult:
+        payload = command.payload
+        if set(payload) != {"toolId", "confirmationText"}:
+            return self._invalid(command, "Legacy Raw run payload is invalid.")
+        if command.target_serial is not None or command.operation_plan is not None:
+            return self._invalid(command, "Legacy Raw is a local operation.")
+        snapshot = self.store.snapshot()
+        if not snapshot.preferences.expert_mode:
+            return self._denied(command, "expert_mode_required", "Legacy Raw requires Expert Mode.")
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        tool_id = payload.get("toolId")
+        confirmation_text = payload.get("confirmationText")
+        if not isinstance(tool_id, str) or not isinstance(confirmation_text, str):
+            return self._invalid(command, "Legacy Raw run identity is invalid.")
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="legacy_raw_cancelled",
+                        cancelled_message="Legacy Raw was cancelled before it started.",
+                        timeout_message="Legacy Raw timed out before it started.",
+                    )
+                current = self.store.snapshot()
+                if not current.preferences.expert_mode:
+                    return self._denied(command, "expert_mode_required", "Legacy Raw requires Expert Mode.")
+                decision = self.safety_policy.evaluate(command, current)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                try:
+                    result = self.my_tools_service.run_legacy(
+                        command,
+                        tool_id,
+                        confirmation_text,
+                        token,
+                    )
+                except MyToolsError as error:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                if not result.ok:
+                    return result
+                raw_value = cast(object, result.value)
+                value: Mapping[str, object] = (
+                    cast(Mapping[str, object], raw_value)
+                    if isinstance(raw_value, Mapping)
+                    else {}
+                )
+                return replace(
+                    result,
+                    value={**value, "revision": self.store.snapshot().revision},
+                )
+        finally:
+            self._unregister_cancellation(command.operation_id)
 
     def _check_updates(self, command: AppCommand) -> OperationResult:
         if command.payload or command.target_serial is not None or command.operation_plan is not None:

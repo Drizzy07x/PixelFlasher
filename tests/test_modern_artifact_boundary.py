@@ -398,6 +398,8 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.avb",
                         "tools.keybox",
                         "tools.myTools",
+                        "tools.myTools.legacyPermission",
+                        "tools.myTools.legacyRun",
                         "tools.shizuku",
                         "tools.sos",
                         "tools.xml",

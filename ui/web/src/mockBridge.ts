@@ -293,6 +293,20 @@ export function installDevelopmentBridge() {
     id: string; title: string; mode: 'safeArgv'; displayName: string;
     sha256: string; arguments: string[]; enabled: boolean;
   }> = [];
+  let mockLegacyRawTool = {
+    id: 'legacy:1',
+    title: 'Legacy echo',
+    mode: 'legacyRaw' as const,
+    displayName: 'Legacy 9.x',
+    sha256: '',
+    arguments: [] as string[],
+    enabled: true,
+    permissionGranted: false,
+    blockedReason: 'legacy_raw_permission_required',
+    commandPreview: '"echo" PixelFlasher',
+    fingerprint: 'c'.repeat(64),
+    workingDirectory: 'default' as const,
+  };
   let mockPifFavoriteRevision = 0;
   let mockPifFavorites: Array<{
     favoriteId: string; label: string; createdAt: string; sha256: string; size: number; content: string;
@@ -2125,9 +2139,9 @@ export function installDevelopmentBridge() {
             const action = request.payload.action;
             if (action === 'list') {
               respond(request, success('Personal tools listed.', {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 tools: mockMyTools,
-                legacyRaw: [],
+                legacyRaw: [mockLegacyRawTool],
                 revision: snapshot.revision,
               }));
               break;
@@ -2158,6 +2172,25 @@ export function installDevelopmentBridge() {
             respond(request, success('Personal tool completed.', { tool, revision: snapshot.revision }));
             break;
           }
+          case 'tools.myTools.legacyPermission': {
+            const granted = request.payload.granted === true;
+            mockLegacyRawTool = {
+              ...mockLegacyRawTool,
+              permissionGranted: granted,
+              blockedReason: granted ? '' : 'legacy_raw_permission_required',
+            };
+            respond(request, success('Legacy Raw permission updated.', {
+              tool: mockLegacyRawTool,
+              revision: snapshot.revision,
+            }));
+            break;
+          }
+          case 'tools.myTools.legacyRun':
+            respond(request, success('Legacy Raw personal tool completed successfully.', {
+              tool: mockLegacyRawTool,
+              revision: snapshot.revision,
+            }));
+            break;
           case 'support.create':
             respond(request, success('Created redacted support package.', {
               displayName: 'PixelFlasher-support.zip',

@@ -74,6 +74,8 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.xml",
         "tools.keybox",
         "tools.myTools",
+        "tools.myTools.legacyPermission",
+        "tools.myTools.legacyRun",
         "tools.piAnalysis",
         "tools.scrcpy.setup",
         "tools.wifi.discover",
@@ -3796,7 +3798,17 @@ def _project_update_check(value: object) -> JSONValue:
 
 def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONValue]:
     base = {"id", "title", "mode", "displayName", "sha256", "arguments", "enabled"}
-    fields = base | ({"permissionGranted", "blockedReason"} if legacy else set())
+    fields = base | (
+        {
+            "permissionGranted",
+            "blockedReason",
+            "commandPreview",
+            "fingerprint",
+            "workingDirectory",
+        }
+        if legacy
+        else set()
+    )
     source = _closed_record(value, fields=frozenset(fields))
     tool_id = source["id"]
     title = source["title"]
@@ -3817,11 +3829,35 @@ def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONVa
     ):
         raise PublicProjectionError("personal tool result is invalid")
     if legacy:
+        blocked_reason = source["blockedReason"]
         if (
             source["mode"] != "legacyRaw"
             or source["sha256"] != ""
-            or source["permissionGranted"] is not False
-            or source["blockedReason"] != "legacy_raw_permission_required"
+            or arguments != []
+            or not isinstance(source["permissionGranted"], bool)
+            or not isinstance(blocked_reason, str)
+            or blocked_reason
+            not in {
+                "",
+                "legacy_raw_permission_required",
+                "legacy_raw_definition_unavailable",
+                "legacy_raw_redirection_blocked",
+                "legacy_raw_elevation_blocked",
+            }
+            or not isinstance(source["commandPreview"], str)
+            or len(source["commandPreview"].encode("utf-8")) > 2 * 8 * 1024 + 3
+            or any(not character.isprintable() for character in source["commandPreview"])
+            or not isinstance(source["fingerprint"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", source["fingerprint"]) is None
+            or source["workingDirectory"] not in {"default", "approved"}
+            or (
+                source["permissionGranted"] is True
+                and blocked_reason != ""
+            )
+            or (
+                source["permissionGranted"] is False
+                and blocked_reason == ""
+            )
         ):
             raise PublicProjectionError("legacy personal tool boundary is invalid")
     elif source["mode"] != "safeArgv" or (
@@ -3844,21 +3880,28 @@ def _project_my_tools(value: object) -> JSONValue:
             source,
             fields=frozenset({"schemaVersion", "tools", "legacyRaw", "revision"}),
         )
-        if closed["schemaVersion"] != 1:
+        if closed["schemaVersion"] != 2:
             raise PublicProjectionError("personal tools schema is invalid")
         tools = _array(closed["tools"])
         legacy = _array(closed["legacyRaw"])
         if len(tools) > 128 or len(legacy) > 128:
             raise PublicProjectionError("personal tools inventory is too large")
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "tools": [_project_my_tool(item) for item in tools],
             "legacyRaw": [_project_my_tool(item, legacy=True) for item in legacy],
             "revision": revision,
         }
     if "tool" in source:
         closed = _closed_record(source, fields=frozenset({"tool", "revision"}))
-        return {"tool": _project_my_tool(closed["tool"]), "revision": revision}
+        tool_record = _record(closed["tool"])
+        return {
+            "tool": _project_my_tool(
+                closed["tool"],
+                legacy=tool_record.get("mode") == "legacyRaw",
+            ),
+            "revision": revision,
+        }
     closed = _closed_record(source, fields=frozenset({"toolId", "revision"}))
     tool_id = closed["toolId"]
     if not isinstance(tool_id, str) or re.fullmatch(r"[0-9a-f]{32}", tool_id) is None:
@@ -3974,6 +4017,8 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.xml": _project_binary_xml,
     "tools.keybox": _project_keybox_analysis,
     "tools.myTools": _project_my_tools,
+    "tools.myTools.legacyPermission": _project_my_tools,
+    "tools.myTools.legacyRun": _project_my_tools,
     "tools.piAnalysis": _project_pi_analysis,
     "tools.pif": _project_pif_action,
     "tools.shizuku": _project_shizuku_recovery,

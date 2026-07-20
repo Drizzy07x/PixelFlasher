@@ -61,7 +61,16 @@ def _run_cli_command(argv):
         arg == "--pty-smoke-report" or arg.startswith("--pty-smoke-report=")
         for arg in argv[1:]
     )
-    if len(argv) <= 1 or not (any(arg in cli_flags for arg in argv[1:]) or pty_smoke_requested):
+    legacy_raw_smoke_requested = any(
+        arg == "--legacy-raw-smoke-report"
+        or arg.startswith("--legacy-raw-smoke-report=")
+        for arg in argv[1:]
+    )
+    if len(argv) <= 1 or not (
+        any(arg in cli_flags for arg in argv[1:])
+        or pty_smoke_requested
+        or legacy_raw_smoke_requested
+    ):
         return
 
     if "--help" in argv or "-h" in argv:
@@ -73,6 +82,7 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
         print("  python PixelFlasher.py --ui-smoke-report PATH  Prove React/WebView startup")
         print("  python PixelFlasher.py --pty-smoke-report PATH Prove packaged PTY startup")
+        print("  python PixelFlasher.py --legacy-raw-smoke-report PATH Prove Legacy Raw shell")
         print("  python PixelFlasher.py --version       Print version")
         raise SystemExit(0)
 
@@ -94,6 +104,10 @@ def _run_cli_command(argv):
     if pty_smoke_requested:
         from pty_smoke_contract import main as pty_smoke_main
         raise SystemExit(pty_smoke_main(argv[1:]))
+
+    if legacy_raw_smoke_requested:
+        from legacy_raw_smoke_contract import main as legacy_raw_smoke_main
+        raise SystemExit(legacy_raw_smoke_main(argv[1:]))
 
 _run_cli_command(sys.argv)
 

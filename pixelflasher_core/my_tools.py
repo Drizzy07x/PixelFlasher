@@ -1,9 +1,10 @@
-"""Versioned, shell-free personal tool profiles.
+"""Versioned personal tools with an isolated legacy-shell escape hatch.
 
 The browser never supplies host paths.  New executables enter through a
 purpose-bound native grant and are pinned by SHA-256 before they may run.
-Legacy 9.x command strings are imported for visibility only and remain
-non-executable.
+Legacy 9.x command strings remain separate from safe argv profiles. They can
+run only in Expert Mode after a content-bound persistent permission and an
+exact confirmation for each execution.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import math
 import os
 import re
 import stat
+import sys
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
@@ -27,12 +29,19 @@ from .contracts import AppCommand, OperationPlan, OperationResult, ProcessReques
 from .executor import CommandExecutor
 from .grants import BoundReadFile, GrantError
 
-MY_TOOLS_SCHEMA_VERSION = 1
+MY_TOOLS_SCHEMA_VERSION = 2
 MAX_TOOLS = 128
 MAX_ARGUMENTS = 128
 MAX_ARGUMENT_BYTES = 16_384
 MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024
 _TOOL_ID = re.compile(r"[0-9a-f]{32}")
+_LEGACY_ID = re.compile(r"legacy:[A-Za-z0-9._-]{1,64}")
+_LEGACY_ELEVATION = re.compile(
+    r"(?i)(?:^|[\s;&|()\"'])(?:sudo|doas|pkexec|runas|gsudo)(?:$|[\s;&|()\"'])"
+    r"|start-process\b[^\r\n]*\s-verb\s+runas\b"
+    r"|with\s+administrator\s+privileges"
+)
+MAX_LEGACY_FIELD_BYTES = 8 * 1024
 
 
 class MyToolsError(ValueError):
@@ -87,6 +96,27 @@ def _timestamp(value: object) -> float:
     return float(value)
 
 
+def _clean_legacy_field(
+    value: object,
+    *,
+    label: str,
+    required: bool = False,
+) -> str:
+    if not isinstance(value, str):
+        raise MyToolsError("legacy_raw_definition_invalid", f"Legacy {label} must be text.")
+    cleaned = value.strip()
+    if (
+        (required and not cleaned)
+        or len(cleaned.encode("utf-8")) > MAX_LEGACY_FIELD_BYTES
+        or any(not character.isprintable() for character in cleaned)
+    ):
+        raise MyToolsError(
+            "legacy_raw_definition_invalid",
+            f"Legacy {label} is outside its safety bounds.",
+        )
+    return cleaned
+
+
 def _sha256_stream(stream: Any) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
@@ -99,6 +129,14 @@ def _sha256_stream(stream: Any) -> tuple[str, int]:
             raise MyToolsError("my_tool_executable_too_large", "Executable exceeds 512 MiB.")
         digest.update(block)
     return digest.hexdigest(), size
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def _validate_executable_path(path: Path) -> None:
@@ -182,9 +220,77 @@ class MyToolSpec:
 class LegacyRawTool:
     legacy_id: str
     title: str
+    command: str
+    arguments: str
+    directory: str
     enabled: bool
+    permission_granted: bool = False
+
+    def __post_init__(self) -> None:
+        if _LEGACY_ID.fullmatch(self.legacy_id) is None:
+            raise MyToolsError("legacy_raw_id_invalid", "Legacy tool id is invalid.")
+        object.__setattr__(self, "title", _clean_title(self.title))
+        object.__setattr__(
+            self,
+            "command",
+            _clean_legacy_field(self.command, label="command"),
+        )
+        object.__setattr__(
+            self,
+            "arguments",
+            _clean_legacy_field(self.arguments, label="arguments"),
+        )
+        object.__setattr__(
+            self,
+            "directory",
+            _clean_legacy_field(self.directory, label="directory"),
+        )
+        if not isinstance(self.enabled, bool) or not isinstance(self.permission_granted, bool):
+            raise MyToolsError("legacy_raw_definition_invalid", "Legacy tool flags are invalid.")
+
+    @property
+    def command_preview(self) -> str:
+        if not self.command:
+            return ""
+        return f'"{self.command}" {self.arguments}'.rstrip()
+
+    @property
+    def fingerprint(self) -> str:
+        return hashlib.sha256(
+            b"pixelflasher-legacy-raw-v1\0"
+            + self.command.encode("utf-8")
+            + b"\0"
+            + self.arguments.encode("utf-8")
+            + b"\0"
+            + self.directory.encode("utf-8")
+        ).hexdigest()
+
+    @property
+    def policy_block(self) -> str:
+        if not self.command:
+            return "legacy_raw_definition_unavailable"
+        if "<" in self.command_preview or ">" in self.command_preview:
+            return "legacy_raw_redirection_blocked"
+        if _LEGACY_ELEVATION.search(self.command_preview):
+            return "legacy_raw_elevation_blocked"
+        return ""
+
+    def to_storage_dict(self) -> dict[str, object]:
+        return {
+            "id": self.legacy_id,
+            "title": self.title,
+            "command": self.command,
+            "arguments": self.arguments,
+            "directory": self.directory,
+            "enabled": self.enabled,
+            "permissionGranted": self.permission_granted,
+            "permissionFingerprint": self.fingerprint if self.permission_granted else "",
+        }
 
     def to_public_dict(self) -> dict[str, object]:
+        blocked_reason = self.policy_block or (
+            "" if self.permission_granted else "legacy_raw_permission_required"
+        )
         return {
             "id": self.legacy_id,
             "title": self.title,
@@ -193,8 +299,11 @@ class LegacyRawTool:
             "sha256": "",
             "arguments": [],
             "enabled": self.enabled,
-            "permissionGranted": False,
-            "blockedReason": "legacy_raw_permission_required",
+            "permissionGranted": self.permission_granted,
+            "blockedReason": blocked_reason,
+            "commandPreview": self.command_preview,
+            "fingerprint": self.fingerprint,
+            "workingDirectory": "approved" if self.directory else "default",
         }
 
 
@@ -223,6 +332,23 @@ class MyToolsRepository:
         if _TOOL_ID.fullmatch(tool_id) is None or tool_id not in self._safe:
             raise MyToolsError("my_tool_not_found", "Personal tool was not found.")
         return self._safe[tool_id]
+
+    def get_legacy(self, tool_id: str) -> LegacyRawTool:
+        if _LEGACY_ID.fullmatch(tool_id) is None:
+            raise MyToolsError("legacy_raw_not_found", "Legacy personal tool was not found.")
+        for item in self._legacy:
+            if item.legacy_id == tool_id:
+                return item
+        raise MyToolsError("legacy_raw_not_found", "Legacy personal tool was not found.")
+
+    def set_legacy_permission(self, tool_id: str, granted: bool) -> LegacyRawTool:
+        if not isinstance(granted, bool):
+            raise MyToolsError("legacy_raw_permission_invalid", "Legacy permission is invalid.")
+        current = self.get_legacy(tool_id)
+        updated = replace(current, permission_granted=granted)
+        self._legacy = tuple(updated if item.legacy_id == tool_id else item for item in self._legacy)
+        self._write()
+        return updated
 
     def save(
         self,
@@ -306,7 +432,8 @@ class MyToolsRepository:
         if not isinstance(raw_object, Mapping):
             raise MyToolsError("my_tools_store_invalid", "Personal tools store is invalid.")
         raw = cast(Mapping[object, object], raw_object)
-        if raw.get("schemaVersion") != MY_TOOLS_SCHEMA_VERSION:
+        schema_version = raw.get("schemaVersion")
+        if schema_version not in {1, MY_TOOLS_SCHEMA_VERSION}:
             raise MyToolsError("my_tools_store_invalid", "Personal tools schema is unsupported.")
         tools_object = raw.get("tools")
         legacy_object = raw.get("legacyRaw", [])
@@ -336,18 +463,56 @@ class MyToolsRepository:
                 if spec.tool_id in parsed:
                     raise MyToolsError("my_tools_store_invalid", "Duplicate personal tool id.")
                 parsed[spec.tool_id] = spec
-            parsed_legacy = tuple(
-                LegacyRawTool(
-                    str(cast(Mapping[str, object], item)["id"]),
-                    _clean_title(cast(Mapping[str, object], item)["title"]),
-                    bool(cast(Mapping[str, object], item).get("enabled", False)),
-                )
-                for item in legacy
-            )
+            if schema_version == MY_TOOLS_SCHEMA_VERSION:
+                current_legacy: list[LegacyRawTool] = []
+                for item in legacy:
+                    values = cast(Mapping[str, object], item)
+                    parsed_item = LegacyRawTool(
+                        str(values["id"]),
+                        cast(str, values["title"]),
+                        cast(str, values.get("command", "")),
+                        cast(str, values.get("arguments", "")),
+                        cast(str, values.get("directory", "")),
+                        cast(bool, values.get("enabled", False)),
+                    )
+                    permission_granted = values.get("permissionGranted", False)
+                    permission_fingerprint = values.get("permissionFingerprint", "")
+                    current_legacy.append(
+                        replace(
+                            parsed_item,
+                            permission_granted=(
+                                permission_granted is True
+                                and permission_fingerprint == parsed_item.fingerprint
+                            ),
+                        )
+                    )
+                parsed_legacy = tuple(current_legacy)
+            else:
+                source = {item.legacy_id: item for item in self._read_legacy()}
+                migrated_legacy: list[LegacyRawTool] = []
+                for item in legacy:
+                    values = cast(Mapping[str, object], item)
+                    legacy_id = str(values["id"])
+                    recovered = source.get(legacy_id)
+                    migrated_legacy.append(
+                        recovered
+                        if recovered is not None
+                        else LegacyRawTool(
+                            legacy_id,
+                            cast(str, values["title"]),
+                            "",
+                            "",
+                            "",
+                            cast(bool, values.get("enabled", False)),
+                        )
+                    )
+                parsed_legacy = tuple(migrated_legacy)
         except (KeyError, TypeError, ValueError, MyToolsError) as error:
             raise MyToolsError("my_tools_store_invalid", "Personal tools store is invalid.") from error
         self._safe = parsed
         self._legacy = parsed_legacy
+        if schema_version == 1:
+            self._write()
 
     def _read_legacy(self) -> tuple[LegacyRawTool, ...]:
         path = self.legacy_path
@@ -369,15 +534,29 @@ class MyToolsRepository:
             for key, item in list(tools.items())[:MAX_TOOLS]:
                 if not isinstance(item, Mapping):
                     continue
-                values = cast(Mapping[object, object], item)
-                if values.get("title") == "---":
-                    continue
-                title = _clean_title(values.get("title"))
-                migrated.append(
-                    LegacyRawTool(
-                        f"legacy:{key}", title, bool(values.get("enabled", False))
+                try:
+                    values = cast(Mapping[object, object], item)
+                    if values.get("title") == "---":
+                        continue
+                    title = _clean_title(values.get("title"))
+                    legacy_key = str(key)
+                    legacy_id = (
+                        f"legacy:{legacy_key}"
+                        if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", legacy_key)
+                        else f"legacy:{hashlib.sha256(legacy_key.encode('utf-8')).hexdigest()[:24]}"
                     )
-                )
+                    migrated.append(
+                        LegacyRawTool(
+                            legacy_id,
+                            title,
+                            _clean_legacy_field(values.get("command", ""), label="command"),
+                            _clean_legacy_field(values.get("arguments", ""), label="arguments"),
+                            _clean_legacy_field(values.get("directory", ""), label="directory"),
+                            bool(values.get("enabled", False)),
+                        )
+                    )
+                except MyToolsError:
+                    continue
             return tuple(migrated)
         except (OSError, UnicodeError, json.JSONDecodeError, MyToolsError):
             return ()
@@ -386,10 +565,7 @@ class MyToolsRepository:
         payload = {
             "schemaVersion": MY_TOOLS_SCHEMA_VERSION,
             "tools": [item.to_storage_dict() for item in self._safe.values()],
-            "legacyRaw": [
-                {"id": item.legacy_id, "title": item.title, "enabled": item.enabled}
-                for item in self._legacy
-            ],
+            "legacyRaw": [item.to_storage_dict() for item in self._legacy],
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=f".{self.path.name}.", dir=self.path.parent)
@@ -415,9 +591,146 @@ class MyToolsRepository:
 
 
 class MyToolsService:
-    def __init__(self, repository: MyToolsRepository, executor: CommandExecutor) -> None:
+    def __init__(
+        self,
+        repository: MyToolsRepository,
+        executor: CommandExecutor,
+        *,
+        allowed_legacy_cwd_roots: Sequence[str | Path] | None = None,
+    ) -> None:
         self.repository = repository
         self.executor = executor
+        roots = allowed_legacy_cwd_roots or (Path.home(), Path(tempfile.gettempdir()))
+        self.allowed_legacy_cwd_roots = tuple(
+            Path(root).expanduser().resolve(strict=False)
+            for root in roots
+        )
+
+    @staticmethod
+    def legacy_permission_confirmation(spec: LegacyRawTool) -> str:
+        return f"ALLOW RAW {spec.fingerprint[:8].upper()}"
+
+    @staticmethod
+    def legacy_run_confirmation(spec: LegacyRawTool) -> str:
+        return f"RUN RAW {spec.fingerprint[:8].upper()}"
+
+    def set_legacy_permission(
+        self,
+        tool_id: str,
+        *,
+        granted: bool,
+        confirmation_text: object = None,
+    ) -> LegacyRawTool:
+        spec = self.repository.get_legacy(tool_id)
+        if granted:
+            self._legacy_request(spec)
+            required = self.legacy_permission_confirmation(spec)
+            if confirmation_text != required:
+                raise MyToolsError(
+                    "legacy_raw_permission_confirmation_required",
+                    f"confirmationText must be exactly {required}",
+                )
+        elif confirmation_text is not None:
+            raise MyToolsError(
+                "legacy_raw_permission_invalid",
+                "Revoking Legacy Raw permission accepts no confirmation text.",
+            )
+        return self.repository.set_legacy_permission(tool_id, granted)
+
+    def run_legacy(
+        self,
+        command: AppCommand,
+        tool_id: str,
+        confirmation_text: object,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        spec = self.repository.get_legacy(tool_id)
+        if not spec.enabled:
+            raise MyToolsError("legacy_raw_disabled", "Legacy Raw tool is disabled.")
+        if not spec.permission_granted:
+            raise MyToolsError(
+                "legacy_raw_permission_required",
+                "Grant persistent permission before running this Legacy Raw tool.",
+            )
+        required = self.legacy_run_confirmation(spec)
+        if confirmation_text != required:
+            raise MyToolsError(
+                "legacy_raw_run_confirmation_required",
+                f"confirmationText must be exactly {required}",
+            )
+        request = self._legacy_request(spec)
+        result = self.executor.execute(
+            command,
+            OperationPlan(
+                request,
+                label=f"Legacy Raw personal tool: {spec.title}",
+                snapshot_revision=command.expected_revision,
+                postconditions=("process_exit_zero",),
+            ),
+            cancellation,
+        )
+        if not result.ok:
+            return result
+        return replace(
+            result,
+            code="legacy_raw_completed",
+            message="Legacy Raw personal tool completed successfully.",
+            value={"tool": spec.to_public_dict()},
+        )
+
+    def _legacy_request(self, spec: LegacyRawTool) -> ProcessRequest:
+        blocked = spec.policy_block
+        if blocked:
+            raise MyToolsError(blocked, "Legacy Raw command violates the restricted shell policy.")
+        cwd: str | None = None
+        if spec.directory:
+            try:
+                directory = Path(spec.directory).expanduser().resolve(strict=True)
+                info = directory.lstat()
+            except (OSError, RuntimeError) as error:
+                raise MyToolsError(
+                    "legacy_raw_cwd_unavailable",
+                    "Legacy Raw working directory is unavailable.",
+                ) from error
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise MyToolsError(
+                    "legacy_raw_cwd_invalid",
+                    "Legacy Raw working directory must be a real directory.",
+                )
+            if not any(_is_relative_to(directory, root) for root in self.allowed_legacy_cwd_roots):
+                raise MyToolsError(
+                    "legacy_raw_cwd_not_allowed",
+                    "Legacy Raw working directory is outside the approved roots.",
+                )
+            cwd = str(directory)
+        preview = spec.command_preview
+        environment: tuple[tuple[str, str], ...] | None = None
+        if os.name == "nt":
+            system_root = Path(os.environ.get("SystemRoot", r"C:\Windows")).resolve(strict=False)
+            shell = system_root / "System32" / "cmd.exe"
+            # Python's Windows argv quoting escapes embedded quotes with a
+            # backslash, which cmd.exe treats literally.  Bind the already
+            # reviewed command to one task-specific environment value so the
+            # fixed /c operand contains no attacker-controlled quoting.
+            environment = (("PIXELFLASHER_LEGACY_RAW_COMMAND", preview),)
+            argv = (
+                str(shell),
+                "/d",
+                "/s",
+                "/c",
+                "%PIXELFLASHER_LEGACY_RAW_COMMAND%",
+            )
+        elif sys.platform == "darwin":
+            argv = ("/bin/zsh", "-f", "-c", preview)
+        else:
+            argv = ("/bin/sh", "-c", preview)
+        return ProcessRequest(
+            argv,
+            cwd=cwd,
+            env=environment,
+            timeout_seconds=300.0,
+            output_limit_bytes=4 * 1024 * 1024,
+        )
 
     def run(
         self,

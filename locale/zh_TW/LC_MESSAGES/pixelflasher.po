@@ -6720,8 +6720,8 @@ msgid "Run personal executables with pinned identity and shell-free arguments."
 msgstr "使用固定身分與無 Shell 引數執行個人可執行檔。"
 
 msgctxt "web.tools.myToolsSafety"
-msgid "Safe profiles execute a verified file directly. Shell syntax, custom environment, working directory, redirection, and elevation are not interpreted."
-msgstr "安全設定檔會直接執行已驗證的檔案，不會解譯 Shell 語法、自訂環境、工作目錄、重新導向或權限提升。"
+msgid "Safe profiles execute a verified file directly. Legacy Raw is isolated behind Expert Mode, persistent permission, and confirmation on every run."
+msgstr "安全設定檔會直接執行已驗證的檔案。Legacy Raw 僅能在專家模式下使用，並需要持續授權與每次執行確認。"
 
 msgctxt "web.tools.myToolsSaved"
 msgid "Saved profiles"
@@ -6740,8 +6740,8 @@ msgid "Legacy Raw profiles"
 msgstr "舊版原始設定檔"
 
 msgctxt "web.tools.myToolsLegacyDetail"
-msgid "Profiles imported from 9.x are preserved as metadata but remain blocked until the isolated Legacy Raw permission flow is implemented."
-msgstr "從 9.x 匯入的設定檔會保留為中繼資料，但在隔離的舊版原始權限流程實作前仍維持封鎖。"
+msgid "Imported 9.x commands use a restricted host shell. Review the exact command before granting permission."
+msgstr "匯入的 9.x 命令會使用受限的主機 Shell。授予權限前請檢查完整命令。"
 
 msgctxt "web.tools.myToolsBlocked"
 msgid "Blocked"
@@ -6888,3 +6888,33 @@ msgstr "確認來自未驗證作者的更新"
 msgctxt "web.root.moduleUpdateRun"
 msgid "Install verified ZIP"
 msgstr "安裝已驗證的 ZIP"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.myToolsLegacyCwd"
+msgid "Working directory: {mode}"
+msgstr "工作目錄：{mode}"
+
+msgctxt "web.tools.myToolsLegacyAllowed"
+msgid "Permission granted"
+msgstr "已授予權限"
+
+msgctxt "web.tools.myToolsLegacyRevoke"
+msgid "Revoke permission"
+msgstr "撤銷權限"
+
+msgctxt "web.tools.myToolsLegacyAllow"
+msgid "Allow Legacy Raw"
+msgstr "允許 Legacy Raw"
+
+msgctxt "web.tools.myToolsLegacyWarning"
+msgid ""
+"This command can change or delete host data. PixelFlasher blocks elevation "
+"and shell redirection but cannot make arbitrary shell code safe."
+msgstr "此命令可能變更或刪除主機資料。PixelFlasher 會阻止權限提升與 Shell 重新導向，但無法保證任意 Shell 程式碼安全。"
+
+msgctxt "web.tools.myToolsLegacyConfirm"
+msgid "Type the exact confirmation"
+msgstr "輸入完全相符的確認文字"

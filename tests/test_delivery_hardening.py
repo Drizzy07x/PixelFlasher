@@ -26,6 +26,12 @@ class DeliveryHardeningTests(unittest.TestCase):
         self.assertIn("dumpbin.exe /headers", arm)
         self.assertIn("PixelFlasher-arm64.exe\" --self-test", arm)
 
+    def test_windows_build_wrapper_propagates_failures_and_exposes_repo_modules(self):
+        source = (ROOT / "build.bat").read_text(encoding="utf-8")
+        self.assertIn('set "PYTHONPATH=%~dp0;%PYTHONPATH%"', source)
+        self.assertGreaterEqual(source.count("if errorlevel 1 exit /b 1"), 4)
+        self.assertNotIn("exit /b %errorlevel%", source)
+
     def test_macos_builds_native_signed_notarized_packages_for_both_arches(self):
         source = self.source("mac.yml")
         workflow = self.parsed("mac.yml")
@@ -79,6 +85,23 @@ class DeliveryHardeningTests(unittest.TestCase):
                 self.assertIn("--ui-smoke-report", source)
                 self.assertIn("--ui-smoke-timeout", source)
                 self.assertIn("scripts/verify_ui_smoke.py", source)
+                self.assertIn(f"--expect-platform {platform}", source)
+                self.assertIn(f"--expect-architecture {architecture}", source)
+
+    def test_every_native_artifact_executes_the_isolated_legacy_raw_smoke(self):
+        expected_targets = {
+            "windows.yml": ("windows", "x86_64"),
+            "windows-arm64.yml": ("windows", "arm64"),
+            "mac.yml": ("macos", '"${{ matrix.arch }}"'),
+            "ubuntu_24_04.yml": ("linux", "x86_64"),
+            "ubuntu_22_04.yml": ("linux", "x86_64"),
+            "appimage-x86_64.yml": ("linux", "x86_64"),
+        }
+        for workflow, (platform, architecture) in expected_targets.items():
+            source = self.source(workflow)
+            with self.subTest(workflow=workflow):
+                self.assertIn("--legacy-raw-smoke-report", source)
+                self.assertIn("scripts/verify_legacy_raw_smoke.py", source)
                 self.assertIn(f"--expect-platform {platform}", source)
                 self.assertIn(f"--expect-architecture {architecture}", source)
 

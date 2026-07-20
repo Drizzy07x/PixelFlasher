@@ -81,6 +81,8 @@ class SafetyPolicy:
             "tools.xml",
             "tools.keybox",
             "tools.myTools",
+            "tools.myTools.legacyPermission",
+            "tools.myTools.legacyRun",
             "tools.piAnalysis",
             "tools.pif",
             "device.inspect",
@@ -188,7 +190,11 @@ class SafetyPolicy:
                     "keybox_target_not_allowed",
                     "keybox analysis is a local operation",
                 )
-        if command.kind == "tools.myTools":
+        if command.kind in {
+            "tools.myTools",
+            "tools.myTools.legacyPermission",
+            "tools.myTools.legacyRun",
+        }:
             if command.operation_plan is not None:
                 return SafetyDecision(False, "untrusted_operation_plan", "Personal tools do not accept a process plan")
             if command.target_serial is not None:
@@ -210,7 +216,7 @@ class SafetyPolicy:
             command.kind == CommandKind.FLASH_EXECUTE.value
             or self.is_destructive(command)
             or (command.operation_plan is not None and command.operation_plan.target_serial is not None)
-        ):
+        ) and command.kind != "tools.myTools.legacyRun":
             if not snapshot.selected_serials:
                 return SafetyDecision(False, "device_not_selected", "no target device is selected")
             plan_target = command.operation_plan.target_serial if command.operation_plan is not None else None

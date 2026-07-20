@@ -252,6 +252,13 @@ jobs:
             --report "$pty_report" \
             --expect-platform linux \
             --expect-architecture x86_64
+          legacy_raw_report="$RUNNER_TEMP/pixelflasher-appimage-legacy-raw-smoke.json"
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage \
+            --legacy-raw-smoke-report "$legacy_raw_report"
+          myenv/bin/python scripts/verify_legacy_raw_smoke.py \
+            --report "$legacy_raw_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
           if ! XDG_CONFIG_HOME="$config_dir" APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
             dist/PixelFlasher-x86_64.AppImage \
               --ui-smoke-report "$smoke_report" \
@@ -358,6 +365,13 @@ jobs:
             --pty-smoke-timeout 10
           python3 scripts/verify_pty_smoke.py \
             --report "$pty_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
+          legacy_raw_report="$RUNNER_TEMP/pixelflasher-clean-legacy-raw-smoke.json"
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage \
+            --legacy-raw-smoke-report "$legacy_raw_report"
+          python3 scripts/verify_legacy_raw_smoke.py \
+            --report "$legacy_raw_report" \
             --expect-platform linux \
             --expect-architecture x86_64
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \

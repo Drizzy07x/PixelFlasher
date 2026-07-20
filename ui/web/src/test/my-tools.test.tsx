@@ -24,7 +24,7 @@ function renderTools(onCommand: SharedPageProps['onCommand']) {
 }
 
 describe('My Tools Expert workspace', () => {
-  it('creates and runs a shell-free profile while keeping legacy raw blocked', async () => {
+  it('creates a shell-free profile and gates Legacy Raw with two exact confirmations', async () => {
     const user = userEvent.setup();
     const calls: Parameters<SharedPageProps['onCommand']>[] = [];
     const safeTool = {
@@ -46,6 +46,9 @@ describe('My Tools Expert workspace', () => {
       enabled: true,
       permissionGranted: false,
       blockedReason: 'legacy_raw_permission_required',
+      commandPreview: '"echo" literal && value',
+      fingerprint: 'c'.repeat(64),
+      workingDirectory: 'default',
     };
     let saved = false;
     const onCommand: SharedPageProps['onCommand'] = vi.fn(async (command, payload = {}, options) => {
@@ -60,7 +63,7 @@ describe('My Tools Expert workspace', () => {
         return {
           result: {
             status: 'SUCCESS',
-            value: { schemaVersion: 1, tools: saved ? [safeTool] : [], legacyRaw: [legacy], revision: 41 },
+            value: { schemaVersion: 2, tools: saved ? [safeTool] : [], legacyRaw: [legacy], revision: 41 },
           },
           revision: 41,
         };
@@ -69,6 +72,14 @@ describe('My Tools Expert workspace', () => {
         saved = true;
         return { result: { status: 'SUCCESS', value: { tool: safeTool, revision: 41 } }, revision: 41 };
       }
+      if (command === commands.toolsMyToolsLegacyPermission) {
+        legacy.permissionGranted = payload.granted === true;
+        legacy.blockedReason = legacy.permissionGranted ? '' : 'legacy_raw_permission_required';
+        return { result: { status: 'SUCCESS', value: { tool: legacy, revision: 41 } }, revision: 41 };
+      }
+      if (command === commands.toolsMyToolsLegacyRun) {
+        return { result: { status: 'SUCCESS', value: { tool: legacy, revision: 41 } }, revision: 41 };
+      }
       return { result: { status: 'SUCCESS', value: { tool: safeTool, revision: 41 } }, revision: 41 };
     });
     renderTools(onCommand);
@@ -76,7 +87,17 @@ describe('My Tools Expert workspace', () => {
     await user.click(screen.getByRole('button', { name: /My Tools/i }));
     const workspace = document.querySelector('.tool-workspace') as HTMLElement;
     expect(await within(workspace).findByText('Old raw command')).toBeVisible();
-    expect(within(workspace).getByText('Blocked')).toBeVisible();
+    expect(within(workspace).getByText('"echo" literal && value')).toBeVisible();
+
+    await user.click(within(workspace).getByRole('button', { name: 'Allow Legacy Raw' }));
+    await user.type(within(workspace).getByLabelText('Type the exact confirmation'), `ALLOW RAW ${'c'.repeat(8).toUpperCase()}`);
+    await user.click(within(workspace).getAllByRole('button', { name: 'Allow Legacy Raw' }).at(-1)!);
+    expect(await within(workspace).findByText('Permission granted')).toBeVisible();
+
+    const legacyRow = within(workspace).getByText('Old raw command').closest('li') as HTMLElement;
+    await user.click(within(legacyRow).getByRole('button', { name: 'Run' }));
+    await user.type(within(workspace).getByLabelText('Type the exact confirmation'), `RUN RAW ${'c'.repeat(8).toUpperCase()}`);
+    await user.click(within(workspace).getAllByRole('button', { name: 'Run' }).at(-1)!);
 
     await user.type(within(workspace).getByLabelText('Title'), 'Device report');
     await user.click(within(workspace).getByRole('button', { name: 'Choose executable' }));
@@ -84,8 +105,26 @@ describe('My Tools Expert workspace', () => {
     await user.click(within(workspace).getByRole('button', { name: 'Save profile' }));
 
     expect(await within(workspace).findByText('report.exe')).toBeVisible();
-    await user.click(within(workspace).getByRole('button', { name: 'Run' }));
+    const safeRow = within(workspace).getByText('report.exe').closest('li') as HTMLElement;
+    await user.click(within(safeRow).getByRole('button', { name: 'Run' }));
 
+    expect(calls).toContainEqual([
+      commands.toolsMyToolsLegacyPermission,
+      {
+        toolId: 'legacy:1',
+        granted: true,
+        confirmationText: `ALLOW RAW ${'c'.repeat(8).toUpperCase()}`,
+      },
+      { returnFailed: true },
+    ]);
+    expect(calls).toContainEqual([
+      commands.toolsMyToolsLegacyRun,
+      {
+        toolId: 'legacy:1',
+        confirmationText: `RUN RAW ${'c'.repeat(8).toUpperCase()}`,
+      },
+      { returnCancelled: true, returnFailed: true },
+    ]);
     expect(calls).toContainEqual([
       commands.nativePickFile,
       {
@@ -110,6 +149,6 @@ describe('My Tools Expert workspace', () => {
       { action: 'run', toolId: 'a'.repeat(32) },
       { returnCancelled: true, returnFailed: true },
     ]);
-    expect(JSON.stringify(calls)).not.toMatch(/cmd\.exe|\/c |shell|workingDirectory|environment/i);
+    expect(JSON.stringify(calls)).not.toMatch(/"echo"|cmd\.exe|\/c |workingDirectory|environment/i);
   });
 });

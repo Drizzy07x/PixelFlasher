@@ -6731,8 +6731,8 @@ msgid "Run personal executables with pinned identity and shell-free arguments."
 msgstr "Exécutez des programmes personnels avec une identité figée et des arguments sans shell."
 
 msgctxt "web.tools.myToolsSafety"
-msgid "Safe profiles execute a verified file directly. Shell syntax, custom environment, working directory, redirection, and elevation are not interpreted."
-msgstr "Les profils sûrs exécutent directement un fichier vérifié. La syntaxe shell, l’environnement personnalisé, le répertoire de travail, la redirection et l’élévation ne sont pas interprétés."
+msgid "Safe profiles execute a verified file directly. Legacy Raw is isolated behind Expert Mode, persistent permission, and confirmation on every run."
+msgstr "Les profils sûrs exécutent directement un fichier vérifié. Legacy Raw est isolé derrière le mode Expert, une autorisation persistante et une confirmation à chaque exécution."
 
 msgctxt "web.tools.myToolsSaved"
 msgid "Saved profiles"
@@ -6751,8 +6751,8 @@ msgid "Legacy Raw profiles"
 msgstr "Profils Legacy Raw"
 
 msgctxt "web.tools.myToolsLegacyDetail"
-msgid "Profiles imported from 9.x are preserved as metadata but remain blocked until the isolated Legacy Raw permission flow is implemented."
-msgstr "Les profils importés de la version 9.x sont conservés comme métadonnées, mais restent bloqués jusqu’à l’implémentation du flux d’autorisation Legacy Raw isolé."
+msgid "Imported 9.x commands use a restricted host shell. Review the exact command before granting permission."
+msgstr "Les commandes 9.x importées utilisent un shell hôte restreint. Vérifiez la commande exacte avant d’accorder l’autorisation."
 
 msgctxt "web.tools.myToolsBlocked"
 msgid "Blocked"
@@ -6899,3 +6899,33 @@ msgstr "Confirmer la mise à jour d'un auteur non vérifié"
 msgctxt "web.root.moduleUpdateRun"
 msgid "Install verified ZIP"
 msgstr "Installer le ZIP vérifié"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.tools.myToolsLegacyCwd"
+msgid "Working directory: {mode}"
+msgstr "Répertoire de travail : {mode}"
+
+msgctxt "web.tools.myToolsLegacyAllowed"
+msgid "Permission granted"
+msgstr "Autorisation accordée"
+
+msgctxt "web.tools.myToolsLegacyRevoke"
+msgid "Revoke permission"
+msgstr "Révoquer l’autorisation"
+
+msgctxt "web.tools.myToolsLegacyAllow"
+msgid "Allow Legacy Raw"
+msgstr "Autoriser Legacy Raw"
+
+msgctxt "web.tools.myToolsLegacyWarning"
+msgid ""
+"This command can change or delete host data. PixelFlasher blocks elevation "
+"and shell redirection but cannot make arbitrary shell code safe."
+msgstr "Cette commande peut modifier ou supprimer des données de l’hôte. PixelFlasher bloque l’élévation et la redirection du shell, mais ne peut pas rendre sûr un code shell arbitraire."
+
+msgctxt "web.tools.myToolsLegacyConfirm"
+msgid "Type the exact confirmation"
+msgstr "Saisissez la confirmation exacte"

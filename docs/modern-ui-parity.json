@@ -2483,12 +2483,13 @@
       "owner": "application",
       "modernStatus": "partial",
       "currentEvidence": [
-        "pixelflasher_core/my_tools.py:versioned repository, blocked 9.x migration, executable pinning and shell-free runner",
-        "pixelflasher_core/engine.py:tools.myTools list/save/delete/run owner with explicit OperationResult",
-        "ui/command_registry.py:closed tools.myTools bridge-v2 contract",
-        "ui/web/src/pages/tooling/ToolsPage.tsx:Expert-only safe profile editor and launcher"
+        "pixelflasher_core/my_tools.py:schema-v2 repository, 9.x rehydration, safe argv pinning and isolated restricted host-shell runner",
+        "pixelflasher_core/engine.py:tools.myTools plus Legacy Raw permission/run owners with Expert Mode revalidation and explicit OperationResult",
+        "ui/command_registry.py:closed tools.myTools, legacyPermission and legacyRun bridge-v2 contracts",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:Expert-only safe editor plus exact Legacy Raw preview, permission, revoke and per-run confirmation",
+        "legacy_raw_smoke_contract.py:closed packaged native-shell process receipt"
       ],
-      "gap": "Safe argv profiles are native. Legacy Raw imports remain deliberately non-executable until persistent per-tool permission, reinforced per-run confirmation, exact-command preview and restricted shell execution are implemented and tested on every platform.",
+      "gap": "Technical parity is complete: safe argv profiles use pinned executables, while Legacy Raw is isolated behind Expert Mode, a content-bound persistent permission, exact per-run confirmation and a restricted shell with bounded cwd/environment/output/timeout plus elevation/redirection rejection. Packaged Windows, macOS and Linux process smokes remain open before promotion to native.",
       "exitCriteria": [
         "Create, edit, delete and launch My Tools entries is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every safe profile uses a purpose-bound native executable grant, pinned identity, typed argv and shell=False; the executable is revalidated immediately before execution.",
@@ -2506,6 +2507,8 @@
       ],
       "tests": [
         "tests/test_my_tools.py",
+        "tests/test_legacy_raw_smoke.py",
+        "tests/test_delivery_hardening.py:test_every_native_artifact_executes_the_isolated_legacy_raw_smoke",
         "tests/test_command_registry.py:CommandRegistryTests.test_generated_typescript_is_current_and_exactly_matches_allow_list",
         "ui/web/src/test/my-tools.test.tsx:My Tools Expert workspace"
       ],
@@ -2517,7 +2520,9 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
-        "tools.myTools"
+        "tools.myTools",
+        "tools.myTools.legacyPermission",
+        "tools.myTools.legacyRun"
       ]
     },
     {

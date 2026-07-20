@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import replace
@@ -397,7 +398,15 @@ class ApplicationRuntime:
             avb_downgrade_service=avb_downgrade_service,
             binary_xml_service=BinaryXmlService(),
             keybox_validation_service=KeyboxValidationService(),
-            my_tools_service=MyToolsService(self.my_tools_repository, self.executor),
+            my_tools_service=MyToolsService(
+                self.my_tools_repository,
+                self.executor,
+                allowed_legacy_cwd_roots=(
+                    config_store.path.parent,
+                    Path.home(),
+                    Path(tempfile.gettempdir()),
+                ),
+            ),
             update_service=self.update_service,
         )
         self.engine = PixelFlasherEngine(
