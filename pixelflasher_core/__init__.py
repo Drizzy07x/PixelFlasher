@@ -316,6 +316,15 @@ from .payload_extractor import (
     verify_builtin_payload_extractor_identity,
 )
 from .persistent_artifacts import PersistentProcessedArtifactRepository
+from .pif_profiles import (
+    MAX_PIF_FAVORITES,
+    MAX_PIF_PROFILE_BYTES,
+    PifFavorite,
+    PifFavoritesRepository,
+    PifProfileError,
+    PifProfileTransformer,
+    PifTransformation,
+)
 from .planner import (
     PLANNED_COMMANDS,
     OperationPlanner,
@@ -656,10 +665,17 @@ __all__ = [
     "PAYLOAD_OPERATION_TYPES",
     "PARTITION_COMMANDS",
     "PifDocument",
+    "PifFavorite",
+    "PifFavoritesRepository",
     "PifProfileInfo",
+    "PifProfileError",
+    "PifProfileTransformer",
     "PifImportInspection",
+    "PifTransformation",
     "TargetedFixImportInspection",
     "PifTargetInfo",
+    "MAX_PIF_FAVORITES",
+    "MAX_PIF_PROFILE_BYTES",
     "PackageCompilation",
     "PackageInfo",
     "PackagePlanningError",
