@@ -1549,11 +1549,12 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/packages.py:PackageService._compile_install",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._package_installers",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
         "ui/web/src/pages/apps/AppsPage.tsx:installApk",
         "ui/pages/modern_webview_host.py:_handle_native_request"
       ],
-      "gap": "The React flow now covers the six install flags admitted by PackageService through an opaque native grant, explicit terminal states and a success-gated inventory refresh. Legacy Play Store ownership is not yet represented by a typed backend option, so the capability remains partial.",
+      "gap": "The React flow covers Play Store ownership and the six install flags through an opaque native grant, explicit terminal states and a success-gated inventory refresh. The backend emits -i com.android.vending only from the typed boolean and independently verifies Android's reported installer. Packaged cross-platform smokes remain open, so the capability stays partial.",
       "exitCriteria": [
         "Install APK with ownership and low-target-SDK options is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1570,6 +1571,7 @@
       ],
       "tests": [
         "tests/test_package_service.py:test_install_hashes_canonical_apk_and_orders_allowlisted_flags",
+        "tests/test_production_postcondition_observer.py:test_package_installer_is_observed_independently",
         "ui/web/src/test/apps-install.test.tsx"
       ],
       "blockReason": null,

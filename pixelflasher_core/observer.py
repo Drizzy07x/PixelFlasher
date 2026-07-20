@@ -79,6 +79,7 @@ class DeviceObservation:
     partition_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     packages: Mapping[str, bool] = field(default_factory=_empty_booleans)
     package_states: Mapping[str, str] = field(default_factory=_empty_hashes)
+    package_installers: Mapping[str, str] = field(default_factory=_empty_hashes)
     adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
@@ -96,6 +97,14 @@ class DeviceObservation:
             raise TypeError("observed package states must be booleans")
         if any(not isinstance(value, str) for value in self.package_states.values()):
             raise TypeError("observed package lifecycle states must be strings")
+        if any(
+            not isinstance(package, str)
+            or _PACKAGE_PATTERN.fullmatch(package) is None
+            or not isinstance(installer, str)
+            or _PACKAGE_PATTERN.fullmatch(installer) is None
+            for package, installer in self.package_installers.items()
+        ):
+            raise TypeError("observed package installers are invalid")
         if any(not isinstance(value, bool) for value in self.adb_endpoints.values()):
             raise TypeError("observed ADB endpoint states must be booleans")
         if any(not isinstance(value, str) for value in self.root_modules.values()):
@@ -124,6 +133,11 @@ class DeviceObservation:
             self,
             "package_states",
             MappingProxyType(dict(self.package_states)),
+        )
+        object.__setattr__(
+            self,
+            "package_installers",
+            MappingProxyType(dict(self.package_installers)),
         )
         object.__setattr__(
             self,
@@ -206,6 +220,7 @@ class PostconditionSpec:
     partition_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_packages: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_package_states: Mapping[str, str] = field(default_factory=_empty_hashes)
+    expected_package_installers: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
@@ -246,6 +261,14 @@ class PostconditionSpec:
             for value in self.expected_package_states.values()
         ):
             raise ValueError("expected package lifecycle state is invalid")
+        if any(
+            not isinstance(package, str)
+            or _PACKAGE_PATTERN.fullmatch(package) is None
+            or not isinstance(installer, str)
+            or _PACKAGE_PATTERN.fullmatch(installer) is None
+            for package, installer in self.expected_package_installers.items()
+        ):
+            raise ValueError("expected package installer is invalid")
         if any(
             not isinstance(endpoint, str)
             or not ProcessDeviceObservationProbe.safe_adb_endpoint(endpoint)
@@ -296,6 +319,11 @@ class PostconditionSpec:
             self,
             "expected_package_states",
             MappingProxyType(dict(self.expected_package_states)),
+        )
+        object.__setattr__(
+            self,
+            "expected_package_installers",
+            MappingProxyType(dict(self.expected_package_installers)),
         )
         object.__setattr__(
             self,
@@ -612,6 +640,13 @@ class ProcessDeviceObservationProbe:
                     token,
                     timeout,
                 ),
+                package_installers=self._package_installers(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
                 adb_endpoints=self._adb_endpoint_states(
                     spec,
                     toolchain,
@@ -876,6 +911,54 @@ class ProcessDeviceObservationProbe:
             )
             if process_state is not None:
                 observed[package_name] = process_state
+        return observed
+
+    def _package_installers(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, str]:
+        installers = tuple(spec.expected_package_installers)
+        if mode != "adb" or not installers or len(installers) > self.max_hash_targets:
+            return {}
+        observed: dict[str, str] = {}
+        for package_name in installers:
+            if token.cancelled:
+                break
+            outcome = self._run(
+                (
+                    toolchain.adb,
+                    "-s",
+                    spec.serial,
+                    "shell",
+                    "pm",
+                    "list",
+                    "packages",
+                    "-i",
+                    "--user",
+                    "0",
+                    package_name,
+                ),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+            )
+            if not self._successful(outcome, _MAX_PROPERTY_OUTPUT_BYTES):
+                continue
+            assert outcome is not None
+            lines = tuple(line.strip() for line in outcome.stdout.splitlines() if line.strip())
+            if len(lines) != 1:
+                continue
+            match = re.fullmatch(
+                r"package:([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)[ \t]+"
+                r"installer=([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)",
+                lines[0],
+            )
+            if match is not None and match.group(1) == package_name:
+                observed[package_name] = match.group(2)
         return observed
 
     def _root_modules(
@@ -1932,6 +2015,14 @@ class PostconditionObserver:
         for package_name, expected in spec.expected_package_states.items():
             actual = observation.package_states.get(package_name)
             key = f"package_state:{package_name}"
+            if actual is None:
+                missing.append(key)
+            elif actual != expected:
+                mismatches[key] = (expected, actual)
+
+        for package_name, expected in spec.expected_package_installers.items():
+            actual = observation.package_installers.get(package_name)
+            key = f"package_installer:{package_name}"
             if actual is None:
                 missing.append(key)
             elif actual != expected:

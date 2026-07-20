@@ -1923,6 +1923,7 @@ class OperationRunner:
         partition_hashes: dict[str, str] = {}
         expected_packages: dict[str, bool] = {}
         expected_package_states: dict[str, str] = {}
+        expected_package_installers: dict[str, str] = {}
         expected_adb_endpoints: dict[str, bool] = {}
         expected_root_modules: dict[str, str] = {}
         expected_magisk_denylist: dict[str, bool] = {}
@@ -2041,6 +2042,22 @@ class OperationRunner:
                     if current_state is not None and current_state != package_state:
                         raise ValueError("conflicting package state postconditions")
                     expected_package_states[package_name] = package_state
+            elif postcondition.kind == "package_installer":
+                if set(expected) != {"package", "installer"}:
+                    raise ValueError("package installer postcondition fields are invalid")
+                package_name = expected.get("package")
+                installer = expected.get("installer")
+                if (
+                    not isinstance(package_name, str)
+                    or not package_name
+                    or not isinstance(installer, str)
+                    or not installer
+                ):
+                    raise TypeError("package installer postcondition is invalid")
+                current_installer = expected_package_installers.get(package_name)
+                if current_installer is not None and current_installer != installer:
+                    raise ValueError("conflicting package installer postconditions")
+                expected_package_installers[package_name] = installer
             elif postcondition.kind == "magisk_denylist_state":
                 if set(expected) != {"packages", "listed"}:
                     raise ValueError("Magisk denylist postcondition fields are invalid")
@@ -2209,6 +2226,7 @@ class OperationRunner:
             partition_hashes=partition_hashes,
             expected_packages=expected_packages,
             expected_package_states=expected_package_states,
+            expected_package_installers=expected_package_installers,
             remote_hashes=remote_hashes,
             expected_adb_endpoints=expected_adb_endpoints,
             expected_root_modules=expected_root_modules,

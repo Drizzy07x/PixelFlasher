@@ -76,6 +76,7 @@ _INSTALL_OPTIONS = {
     "forceQueryable": "--force-queryable",
     "bypassLowTargetSdk": "--bypass-low-target-sdk-block",
 }
+_PLAY_STORE_PACKAGE = "com.android.vending"
 
 
 class PackagePlanningError(ValueError):
@@ -695,7 +696,7 @@ class PackageService:
                 "the selected path must be an existing .apk file",
             )
         options = self._options(command.payload.get("options"))
-        unknown_options = set(options) - set(_INSTALL_OPTIONS)
+        unknown_options = set(options) - {*_INSTALL_OPTIONS, "playStoreOwnership"}
         if unknown_options:
             raise PackagePlanningError(
                 "package_option_invalid",
@@ -736,10 +737,33 @@ class PackageService:
             )
         artifact = FileArtifact(str(path), identity.sha256, "apk")
         flags = tuple(flag for key, flag in _INSTALL_OPTIONS.items() if options.get(key) is True)
+        ownership = (
+            ("-i", _PLAY_STORE_PACKAGE)
+            if options.get("playStoreOwnership") is True
+            else ()
+        )
         request = ProcessRequest(
-            (adb, "-s", device.serial, "install", *flags, str(path)),
+            (adb, "-s", device.serial, "install", *flags, *ownership, str(path)),
             timeout_seconds=600.0,
         )
+        postconditions = [
+            OperationPostcondition(
+                "package_state",
+                {"packages": (identity.package_name,), "state": "installed"},
+                "the cryptographically verified APK package is installed on the device",
+            )
+        ]
+        if ownership:
+            postconditions.append(
+                OperationPostcondition(
+                    "package_installer",
+                    {
+                        "package": identity.package_name,
+                        "installer": _PLAY_STORE_PACKAGE,
+                    },
+                    "Android independently reports Google Play as the package installer",
+                )
+            )
         plan = self._base_plan(
             snapshot,
             device,
@@ -747,13 +771,7 @@ class PackageService:
             label=f"Install {identity.package_name} on {device.serial}",
             artifacts=(artifact,),
             risk=OperationRisk.MUTATING,
-            postconditions=(
-                OperationPostcondition(
-                    "package_state",
-                    {"packages": (identity.package_name,), "state": "installed"},
-                    "the cryptographically verified APK package is installed on the device",
-                ),
-            ),
+            postconditions=tuple(postconditions),
         )
         return PackageCompilation(
             plan,

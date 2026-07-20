@@ -516,6 +516,13 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                     {"packages": ("com.example.app",), "listed": True},
                 ),
                 OperationPostcondition(
+                    "package_installer",
+                    {
+                        "package": "com.example.app",
+                        "installer": "com.android.vending",
+                    },
+                ),
+                OperationPostcondition(
                     "magisk_su_policy",
                     {
                         "package": "com.example.app",
@@ -547,6 +554,10 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(
             {"com.example.app": True},
             dict(spec.expected_magisk_denylist),
+        )
+        self.assertEqual(
+            {"com.example.app": "com.android.vending"},
+            dict(spec.expected_package_installers),
         )
         self.assertEqual(
             {10123: "allow:1:0:1700000600"},

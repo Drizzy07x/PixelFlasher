@@ -38,7 +38,7 @@ describe('modern APK installation', () => {
     window.pixelflasher = { postMessage: vi.fn() };
   });
 
-  it('uses one opaque grant, all six typed options and refreshes only after explicit success', async () => {
+  it('uses one opaque grant, Play ownership, all six install flags and refreshes only after explicit success', async () => {
     const user = userEvent.setup();
     const snapshot = freshSnapshot();
     const serial = snapshot.selectedSerials?.[0] ?? '';
@@ -79,6 +79,7 @@ describe('modern APK installation', () => {
     });
     const { container } = renderApps(snapshot, onCommand);
 
+    await user.click(screen.getByRole('checkbox', { name: /^Set Google Play as installer/ }));
     await user.click(screen.getByRole('checkbox', { name: /^Grant runtime permissions/ }));
     await user.click(screen.getByRole('checkbox', { name: /^Allow version downgrade/ }));
     await user.click(screen.getByRole('checkbox', { name: /^Allow test-only packages/ }));
@@ -105,6 +106,7 @@ describe('modern APK installation', () => {
         action: 'install',
         grant: 'opaque-apk-grant',
         options: {
+          playStoreOwnership: true,
           replace: true,
           grantPermissions: true,
           allowDowngrade: true,

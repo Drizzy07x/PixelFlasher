@@ -277,6 +277,7 @@ describe('apps, backups and settings workflows', () => {
         action: 'install',
         grant: 'apk-read-grant',
         options: {
+          playStoreOwnership: false,
           replace: true,
           grantPermissions: false,
           allowDowngrade: true,

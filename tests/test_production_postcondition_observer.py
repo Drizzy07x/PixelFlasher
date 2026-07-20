@@ -42,6 +42,7 @@ class StatefulDeviceTransport:
         remote_hashes: dict[str, str] | None = None,
         packages: set[str] | None = None,
         package_states: dict[str, str] | None = None,
+        package_installers: dict[str, str] | None = None,
         adb_endpoints: dict[str, str] | None = None,
         root_modules: dict[str, str] | None = None,
         magisk_denylist: set[str] | None = None,
@@ -59,6 +60,7 @@ class StatefulDeviceTransport:
         self.remote_hashes = remote_hashes or {}
         self.packages = packages or set()
         self.package_states = package_states or {}
+        self.package_installers = package_installers or {}
         self.adb_endpoints = adb_endpoints or {}
         self.root_modules = root_modules or {}
         self.magisk_denylist = magisk_denylist or set()
@@ -159,6 +161,19 @@ class StatefulDeviceTransport:
             expected = "enabled" if flag == "-e" else "disabled"
             state = self.package_states.get(package_name, "enabled")
             stdout = f"package:{package_name}\n" if package_name in self.packages and state == expected else ""
+            return TransportOutcome(0, stdout)
+        if (
+            argv[3:9] == ("shell", "pm", "list", "packages", "-i", "--user")
+            and len(argv) == 11
+            and argv[9] == "0"
+        ):
+            package_name = argv[10]
+            installer = self.package_installers.get(package_name)
+            stdout = (
+                f"package:{package_name} installer={installer}\n"
+                if installer is not None
+                else ""
+            )
             return TransportOutcome(0, stdout)
         if argv[3:5] == ("shell", "pidof") and len(argv) == 6:
             package_name = argv[5]
@@ -757,6 +772,76 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             ("enabled", "disabled"),
             result.mismatches[f"package_state:{package_name}"],
         )
+
+    def test_package_installer_is_observed_independently(self) -> None:
+        package_name = "com.example.application"
+        transport = StatefulDeviceTransport(
+            mode="adb",
+            package_installers={package_name: "com.android.vending"},
+        )
+        result = observer(transport).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_package_installers={package_name: "com.android.vending"},
+            )
+        )
+
+        self.assertEqual(ObservationStatus.VERIFIED, result.status)
+        self.assertIn(
+            (
+                "ADB",
+                "-s",
+                SERIAL,
+                "shell",
+                "pm",
+                "list",
+                "packages",
+                "-i",
+                "--user",
+                "0",
+                package_name,
+            ),
+            [call.argv for call in transport.calls],
+        )
+
+    def test_wrong_package_installer_is_a_mismatch(self) -> None:
+        package_name = "com.example.application"
+        result = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                package_installers={package_name: "com.example.store"},
+            )
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_package_installers={package_name: "com.android.vending"},
+            )
+        )
+
+        self.assertEqual(ObservationStatus.MISMATCH, result.status)
+        self.assertEqual(
+            ("com.android.vending", "com.example.store"),
+            result.mismatches[f"package_installer:{package_name}"],
+        )
+
+    def test_missing_package_installer_never_verifies_ownership(self) -> None:
+        timer = FakeTime()
+        package_name = "com.example.application"
+        result = observer(
+            StatefulDeviceTransport(mode="adb"),
+            timer=timer,
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_package_installers={package_name: "com.android.vending"},
+            )
+        )
+
+        self.assertEqual(ObservationStatus.UNVERIFIED, result.status)
+        self.assertIn(f"package_installer:{package_name}", result.missing)
 
     def test_magisk_denylist_state_is_observed_independently(self) -> None:
         package_name = "com.example.application"

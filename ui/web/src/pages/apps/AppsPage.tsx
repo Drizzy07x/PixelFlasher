@@ -9,6 +9,7 @@ import { isToolchainReady, record, selectedGrant, type SharedPageProps } from '.
 type PackageRow = (typeof demoApps)[number] & { uid?: number | null };
 
 type InstallOptions = {
+  playStoreOwnership: boolean;
   replace: boolean;
   grantPermissions: boolean;
   allowDowngrade: boolean;
@@ -117,6 +118,7 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [installState, setInstallState] = useState<InstallState>({ phase: 'idle' });
   const [installOptions, setInstallOptions] = useState<InstallOptions>({
+    playStoreOwnership: false,
     replace: true,
     grantPermissions: false,
     allowDowngrade: false,
@@ -368,6 +370,7 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         ) : null}
         <fieldset className="toggle-stack apps-install-options" disabled={installBusy || inventoryBusy}>
           <legend className="sr-only">{t('apps.installOptions')}</legend>
+          <Toggle checked={installOptions.playStoreOwnership} onChange={(value) => setInstallOption('playStoreOwnership', value)} label={t('apps.playStoreOwnership')} description={t('apps.playStoreOwnershipDetail')} disabled={installBusy || inventoryBusy} />
           <Toggle checked={installOptions.replace} onChange={(value) => setInstallOption('replace', value)} label={t('apps.replace')} description={t('apps.replaceDetail')} disabled={installBusy || inventoryBusy} />
           <Toggle checked={installOptions.grantPermissions} onChange={(value) => setInstallOption('grantPermissions', value)} label={t('apps.grantPermissions')} description={t('apps.grantPermissionsDetail')} disabled={installBusy || inventoryBusy} />
           <Toggle checked={installOptions.allowDowngrade} onChange={(value) => setInstallOption('allowDowngrade', value)} label={t('apps.allowDowngrade')} description={t('apps.allowDowngradeDetail')} disabled={installBusy || inventoryBusy} />

@@ -325,6 +325,7 @@ class PackageServiceTests(unittest.TestCase):
                     "action": "install",
                     "path": str(apk),
                     "options": {
+                        "playStoreOwnership": True,
                         "replace": True,
                         "grantPermissions": True,
                         "allowDowngrade": False,
@@ -342,6 +343,8 @@ class PackageServiceTests(unittest.TestCase):
                     "-r",
                     "-g",
                     "--bypass-low-target-sdk-block",
+                    "-i",
+                    "com.android.vending",
                     str(apk.resolve()),
                 ),
                 compilation.plan.request.argv,
@@ -361,6 +364,13 @@ class PackageServiceTests(unittest.TestCase):
                     "state": "installed",
                 },
                 dict(compilation.plan.postconditions[0].expected),
+            )
+            self.assertEqual(
+                {
+                    "package": "com.example.verified",
+                    "installer": "com.android.vending",
+                },
+                dict(compilation.plan.postconditions[1].expected),
             )
             self.assertIsNotNone(compilation.apk_identity)
             self.assertEqual(
@@ -745,15 +755,19 @@ class PackageServiceTests(unittest.TestCase):
 
             apk = Path(directory) / "payload.apk"
             apk.write_bytes(b"apk")
-            with self.assertRaisesRegex(PackagePlanningError, "must be a boolean"):
-                self.compile(
-                    "apps.action",
-                    {
-                        "action": "install",
-                        "path": str(apk),
-                        "options": {"replace": "yes"},
-                    },
-                )
+            for option in ("replace", "playStoreOwnership"):
+                with self.subTest(option=option), self.assertRaisesRegex(
+                    PackagePlanningError,
+                    "must be a boolean",
+                ):
+                    self.compile(
+                        "apps.action",
+                        {
+                            "action": "install",
+                            "path": str(apk),
+                            "options": {option: "yes"},
+                        },
+                    )
 
     def test_install_propagates_typed_signature_failure_without_compiling_argv(self):
         class RejectingInspector:

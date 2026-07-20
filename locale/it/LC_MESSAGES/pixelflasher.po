@@ -5816,3 +5816,11 @@ msgstr "Mostra notifiche SU"
 msgctxt "web.apps.action.export"
 msgid "Export APK"
 msgstr "Esporta APK"
+
+msgctxt "web.apps.playStoreOwnership"
+msgid "Set Google Play as installer"
+msgstr "Imposta Google Play come programma di installazione"
+
+msgctxt "web.apps.playStoreOwnershipDetail"
+msgid "Record Google Play as the installer and verify Android reports that source after installation."
+msgstr "Registra Google Play come programma di installazione e verifica che Android segnali questa origine dopo l’installazione."

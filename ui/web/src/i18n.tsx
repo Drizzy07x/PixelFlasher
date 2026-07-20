@@ -370,6 +370,8 @@ export const sourceMessages = {
   'apps.install': 'Install APK',
   'apps.apkFiles': 'Android application packages',
   'apps.chooseApk': 'Choose APK and install',
+  'apps.playStoreOwnership': 'Set Google Play as installer',
+  'apps.playStoreOwnershipDetail': 'Record Google Play as the installer and verify Android reports that source after installation.',
   'apps.replace': 'Replace an installed application',
   'apps.replaceDetail': 'Preserve app data while replacing an existing package with the selected APK.',
   'apps.grantPermissions': 'Grant runtime permissions',

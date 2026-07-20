@@ -5810,3 +5810,11 @@ msgstr "顯示 SU 通知"
 msgctxt "web.apps.action.export"
 msgid "Export APK"
 msgstr "匯出 APK"
+
+msgctxt "web.apps.playStoreOwnership"
+msgid "Set Google Play as installer"
+msgstr "將 Google Play 設為安裝來源"
+
+msgctxt "web.apps.playStoreOwnershipDetail"
+msgid "Record Google Play as the installer and verify Android reports that source after installation."
+msgstr "將 Google Play 記錄為安裝來源，並在安裝後驗證 Android 回報的來源。"

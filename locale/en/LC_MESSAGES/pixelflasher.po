@@ -5777,3 +5777,11 @@ msgstr ""
 msgctxt "web.apps.action.export"
 msgid "Export APK"
 msgstr ""
+
+msgctxt "web.apps.playStoreOwnership"
+msgid "Set Google Play as installer"
+msgstr ""
+
+msgctxt "web.apps.playStoreOwnershipDetail"
+msgid "Record Google Play as the installer and verify Android reports that source after installation."
+msgstr ""

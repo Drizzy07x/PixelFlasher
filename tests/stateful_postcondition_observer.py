@@ -70,6 +70,8 @@ class StatefulPostconditionObserver:
             return self._result(self._root_app_installed(calls, expected))
         if kind == "package_state":
             return self._result(self._package_state(calls, expected))
+        if kind == "package_installer":
+            return self._result(self._package_installer(calls, expected))
         if kind == "magisk_denylist_state":
             return self._result(self._magisk_denylist_state(calls, expected))
         if kind == "magisk_su_policy":
@@ -309,6 +311,22 @@ class StatefulPostconditionObserver:
         return all(
             any(all(part in request.argv for part in prefix) and request.argv[-1] == package for request in calls)
             for package in packages
+        )
+
+    @staticmethod
+    def _package_installer(
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        package = expected.get("package")
+        installer = expected.get("installer")
+        if not isinstance(package, str) or not isinstance(installer, str):
+            return False
+        return any(
+            "install" in request.argv
+            and request.argv[-1].casefold().endswith(".apk")
+            and ("-i", installer) in tuple(zip(request.argv, request.argv[1:], strict=False))
+            for request in calls
         )
 
     @staticmethod
