@@ -57,7 +57,11 @@ def _run_cli_command(argv):
         "--help",
         "-h",
     }
-    if len(argv) <= 1 or not any(arg in cli_flags for arg in argv[1:]):
+    pty_smoke_requested = any(
+        arg == "--pty-smoke-report" or arg.startswith("--pty-smoke-report=")
+        for arg in argv[1:]
+    )
+    if len(argv) <= 1 or not (any(arg in cli_flags for arg in argv[1:]) or pty_smoke_requested):
         return
 
     if "--help" in argv or "-h" in argv:
@@ -68,6 +72,7 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --doctor        Alias for --self-test")
         print("  python PixelFlasher.py --diagnostics   Create redacted diagnostics ZIP")
         print("  python PixelFlasher.py --ui-smoke-report PATH  Prove React/WebView startup")
+        print("  python PixelFlasher.py --pty-smoke-report PATH Prove packaged PTY startup")
         print("  python PixelFlasher.py --version       Print version")
         raise SystemExit(0)
 
@@ -85,6 +90,10 @@ def _run_cli_command(argv):
         from diagnostics import main as diagnostics_main
         filtered = [arg for arg in argv[1:] if arg != "--diagnostics"]
         raise SystemExit(diagnostics_main(filtered))
+
+    if pty_smoke_requested:
+        from pty_smoke_contract import main as pty_smoke_main
+        raise SystemExit(pty_smoke_main(argv[1:]))
 
 _run_cli_command(sys.argv)
 

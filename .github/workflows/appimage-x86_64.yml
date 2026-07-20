@@ -242,8 +242,16 @@ jobs:
           set -euo pipefail
           launch_log="$RUNNER_TEMP/pixelflasher-appimage-default.log"
           config_dir="$RUNNER_TEMP/pixelflasher-appimage-config"
+          pty_report="$RUNNER_TEMP/pixelflasher-appimage-pty-smoke.json"
           smoke_report="$RUNNER_TEMP/pixelflasher-appimage-x11-ui-smoke.json"
           mkdir -p "$config_dir"
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage \
+            --pty-smoke-report "$pty_report" \
+            --pty-smoke-timeout 10
+          myenv/bin/python scripts/verify_pty_smoke.py \
+            --report "$pty_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
           if ! XDG_CONFIG_HOME="$config_dir" APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
             dist/PixelFlasher-x86_64.AppImage \
               --ui-smoke-report "$smoke_report" \
@@ -342,8 +350,16 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage --self-test
           launch_log="$RUNNER_TEMP/pixelflasher-clean-appimage.log"
           config_dir="$RUNNER_TEMP/pixelflasher-clean-config"
+          pty_report="$RUNNER_TEMP/pixelflasher-clean-pty-smoke.json"
           smoke_report="$RUNNER_TEMP/pixelflasher-clean-ui-smoke.json"
           mkdir -p "$config_dir"
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage \
+            --pty-smoke-report "$pty_report" \
+            --pty-smoke-timeout 10
+          python3 scripts/verify_pty_smoke.py \
+            --report "$pty_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
             dist/PixelFlasher-x86_64.AppImage \
               --ui-smoke-report "$smoke_report" \

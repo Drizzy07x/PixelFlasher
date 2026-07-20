@@ -206,6 +206,16 @@ jobs:
             Write-Error "Packaged PixelFlasher self-test failed."
             exit $LASTEXITCODE
           }
+          $ptyReport = Join-Path $env:RUNNER_TEMP "pixelflasher-pty-smoke-windows.json"
+          $ptyProcess = Start-Process -FilePath "dist/PixelFlasher.exe" -ArgumentList @(
+            "--pty-smoke-report=$ptyReport", "--pty-smoke-timeout=10"
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($ptyProcess.ExitCode -ne 0) {
+            Write-Error "Packaged PixelFlasher ConPTY smoke failed."
+            exit $ptyProcess.ExitCode
+          }
+          & $env:PYTHON_EXE scripts/verify_pty_smoke.py --report $ptyReport --expect-platform windows --expect-architecture x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $smokeReport = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows.json"
           $smokeConfig = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows\PixelFlasher.json"
           New-Item -ItemType Directory -Force -Path (Split-Path $smokeConfig) | Out-Null

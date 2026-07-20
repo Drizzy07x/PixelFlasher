@@ -13,13 +13,12 @@ import importlib.util
 import json
 import os
 import platform
-import shutil
 import stat
 import sys
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from platform_utils import current_platform, repo_root, resolve_executable
 
@@ -219,6 +218,12 @@ def _check_platform_layer() -> CheckResult:
 def _check_ui_foundation() -> list[CheckResult]:
     """Validate the product UI source without importing retired wx previews."""
 
+    if _is_frozen():
+        return [
+            CheckResult("ui_theme_tokens", True, "covered by the bundled frontend contract"),
+            CheckResult("ui_asset_registry", True, "covered by the bundled frontend contract"),
+        ]
+
     web_root = _repo_root() / "ui" / "web" / "src"
     styles = web_root / "styles.css"
     assets = web_root / "assets.ts"
@@ -342,8 +347,6 @@ def run_checks() -> list[CheckResult]:
         _check_module("wx", required=False),
         _check_module("requests", required=False),
         _check_module("psutil", required=False),
-        _check_module("darkdetect", required=True),
-        _check_module("json5", required=True),
     ])
     checks.extend(_check_platform_tools())
     checks.extend(_check_ui_foundation())

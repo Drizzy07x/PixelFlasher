@@ -272,12 +272,16 @@ class AdbTerminalDeliveryTests(unittest.TestCase):
     def test_windows_conpty_dependency_is_native_and_packaged_for_both_architectures(self):
         requirements = Path("requirements.txt").read_text(encoding="utf-8")
         self.assertIn('pywinpty==3.0.5; sys_platform == "win32"', requirements)
+        backend = Path("pixelflasher_core/adb_terminal.py").read_text(encoding="utf-8")
+        self.assertIn("backend=Backend.ConPTY", backend)
         for path in (Path("build-on-win.spec"), Path("build-on-win-arm64.spec")):
             with self.subTest(path=path):
                 source = path.read_text(encoding="utf-8")
                 self.assertIn("collect_dynamic_libs('winpty')", source)
                 self.assertIn("collect_data_files('winpty', includes=['*.exe'])", source)
                 self.assertIn("'winpty._winpty'", source)
+                self.assertIn("console=True", source)
+                self.assertIn("hide_console='hide-early'", source)
 
 
 if __name__ == "__main__":

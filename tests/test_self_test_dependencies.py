@@ -23,14 +23,20 @@ RELEASE_METADATA_PATHS = (
 
 
 class SelfTestDependencyTests(unittest.TestCase):
-    def test_required_runtime_modules_are_checked(self):
+    def test_retired_wx_runtime_modules_are_not_modern_release_requirements(self):
         results = {result.name: result for result in run_checks()}
 
         for module in ("darkdetect", "json5"):
             with self.subTest(module=module):
-                name = f"module:{module}"
-                self.assertIn(name, results)
-                self.assertTrue(results[name].required)
+                self.assertNotIn(f"module:{module}", results)
+
+    def test_frozen_ui_foundation_is_validated_by_the_bundled_frontend_contract(self):
+        with patch("self_test._is_frozen", return_value=True):
+            results = {result.name: result for result in run_checks()}
+
+        self.assertTrue(results["ui_theme_tokens"].ok)
+        self.assertTrue(results["ui_asset_registry"].ok)
+        self.assertIn("bundled frontend", results["ui_theme_tokens"].message)
 
     def test_release_metadata_is_checked(self):
         results = {result.name: result for result in run_checks()}

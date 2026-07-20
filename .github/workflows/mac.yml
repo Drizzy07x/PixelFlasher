@@ -150,6 +150,14 @@ jobs:
           set -euo pipefail
           dist/PixelFlasher.app/Contents/MacOS/PixelFlasher --version
           dist/PixelFlasher.app/Contents/MacOS/PixelFlasher --self-test
+          pty_report="$RUNNER_TEMP/pixelflasher-pty-smoke-${{ matrix.arch }}.json"
+          dist/PixelFlasher.app/Contents/MacOS/PixelFlasher \
+            --pty-smoke-report "$pty_report" \
+            --pty-smoke-timeout 10
+          myenv/bin/python scripts/verify_pty_smoke.py \
+            --report "$pty_report" \
+            --expect-platform macos \
+            --expect-architecture "${{ matrix.arch }}"
           smoke_report="$RUNNER_TEMP/pixelflasher-ui-smoke-${{ matrix.arch }}.json"
           smoke_config="$RUNNER_TEMP/pixelflasher-ui-smoke-${{ matrix.arch }}/PixelFlasher.json"
           mkdir -p "$(dirname "$smoke_config")"

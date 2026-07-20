@@ -154,8 +154,16 @@ jobs:
           set -euo pipefail
           launch_log="$RUNNER_TEMP/pixelflasher-ubuntu22-default.log"
           config_dir="$RUNNER_TEMP/pixelflasher-ubuntu22-config"
+          pty_report="$RUNNER_TEMP/pixelflasher-ubuntu22-pty-smoke.json"
           smoke_report="$RUNNER_TEMP/pixelflasher-ubuntu22-ui-smoke.json"
           mkdir -p "$config_dir"
+          dist/PixelFlasher_Ubuntu_22_04 \
+            --pty-smoke-report "$pty_report" \
+            --pty-smoke-timeout 10
+          myenv/bin/python scripts/verify_pty_smoke.py \
+            --report "$pty_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
           if ! XDG_CONFIG_HOME="$config_dir" xvfb-run -a \
             dist/PixelFlasher_Ubuntu_22_04 \
               --ui-smoke-report "$smoke_report" \

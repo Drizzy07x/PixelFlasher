@@ -11,9 +11,11 @@ import base64
 import errno
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -124,6 +126,7 @@ class TerminalBackend(Protocol):
 class _WinPtyProcess(Protocol):
     exitstatus: int | None
     fileobj: _SocketLike
+    _server: _SocketLike
 
     def write(self, data: str) -> object: ...
 
@@ -141,6 +144,10 @@ class _WinPtyProcess(Protocol):
 class _SocketLike(Protocol):
     def settimeout(self, timeout: float | None) -> None: ...
 
+    def shutdown(self, how: int) -> None: ...
+
+    def close(self) -> None: ...
+
 
 class _WinPtyFactory(Protocol):
     def spawn(
@@ -148,6 +155,7 @@ class _WinPtyFactory(Protocol):
         argv: list[str],
         *,
         dimensions: tuple[int, int],
+        backend: int,
     ) -> _WinPtyProcess: ...
 
 
@@ -581,6 +589,17 @@ class _PosixTerminalProcess:
             except OSError:
                 pass
 
+    def mark_exited(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            descriptor = self._master_fd
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+
 
 class PosixTerminalBackend:
     def start(
@@ -633,7 +652,9 @@ class PosixTerminalBackend:
                         break
                     on_output(chunk)
             finally:
-                on_exit(process.wait())
+                exit_code = process.wait()
+                terminal.mark_exited()
+                on_exit(exit_code)
 
         threading.Thread(target=read_output, name="PixelFlasherAdbPty", daemon=True).start()
         return terminal
@@ -666,6 +687,24 @@ class _WindowsTerminalProcess:
             process = self._process
         process.close(force=True)
 
+    def mark_exited(self) -> None:
+        """Close reader sockets after a natural exit without killing anything."""
+
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            process = self._process
+        for stream in (process.fileobj, process._server):
+            try:
+                stream.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                stream.close()
+            except OSError:
+                pass
+
 
 class WindowsConPtyBackend:
     def start(
@@ -681,15 +720,21 @@ class WindowsConPtyBackend:
             raise OSError("Windows ConPTY backend is unavailable")
         try:
             from winpty import PtyProcess
+            from winpty.enums import Backend
         except ImportError as error:
             raise OSError("pywinpty is required for Windows ConPTY") from error
         factory = cast(_WinPtyFactory, PtyProcess)
-        process = factory.spawn(list(argv), dimensions=(rows, columns))
+        process = factory.spawn(
+            list(argv),
+            dimensions=(rows, columns),
+            backend=Backend.ConPTY,
+        )
         process.fileobj.settimeout(0.2)
         terminal = _WindowsTerminalProcess(process)
 
+        output_drained = threading.Event()
+
         def read_output() -> None:
-            exit_code: int | None = None
             try:
                 while True:
                     try:
@@ -706,12 +751,19 @@ class WindowsConPtyBackend:
                         on_output(text.encode("utf-8", errors="surrogateescape"))
                     elif not process.isalive():
                         break
-                process.wait()
-                exit_code = process.exitstatus
             finally:
-                on_exit(exit_code)
+                output_drained.set()
+
+        def observe_exit() -> None:
+            while process.isalive():
+                time.sleep(0.05)
+            output_drained.wait(0.5)
+            exit_code = process.exitstatus
+            terminal.mark_exited()
+            on_exit(exit_code)
 
         threading.Thread(target=read_output, name="PixelFlasherAdbConPty", daemon=True).start()
+        threading.Thread(target=observe_exit, name="PixelFlasherAdbConPtyExit", daemon=True).start()
         return terminal
 
 

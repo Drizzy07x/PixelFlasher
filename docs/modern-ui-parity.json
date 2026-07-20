@@ -1679,11 +1679,15 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/adb_terminal.py:AdbTerminalService",
+        "pty_smoke_contract.py:run_packaged_pty_smoke",
+        "scripts/verify_pty_smoke.py:main",
+        "build-on-win.spec:hide_console",
+        "build-on-win-arm64.spec:hide_console",
         "ui/pages/modern_webview_host.py:ModernWebViewFrame._handle_adb_terminal_request",
         "ui/web/src/pages/tooling/AdbShellPanel.tsx:AdbShellPanel",
         "ui/command_registry.py:tools.adbShell"
       ],
-      "gap": "The fixed expert-only PTY contract, SafetyPolicy entry, React terminal and Windows ConPTY proof exist; packaged PTY smokes on Windows, macOS and Linux plus terminal-focused axe/manual screen-reader validation remain.",
+      "gap": "The fixed expert-only PTY contract, SafetyPolicy entry, React terminal and a closed packaged-process smoke exist. Windows x64 passes locally, and Windows x64/ARM64, macOS Intel/ARM, Ubuntu 22/24 and AppImage CI now execute and verify an atomic route-free receipt. Remote matrix results plus terminal-focused axe/manual screen-reader validation remain.",
       "exitCriteria": [
         "Interactive ADB shell is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "The host launches only adb -s SERIAL shell with shell disabled, binds the PTY to the selected serial and current revision, and closes it on selection, mode, connectivity, toolchain or revision changes.",
@@ -1701,6 +1705,8 @@
       ],
       "tests": [
         "tests/test_adb_terminal.py",
+        "tests/test_pty_smoke.py",
+        "tests/test_packaged_web_assets.py:test_every_release_platform_executes_the_packaged_pty_smoke",
         "tests/test_modern_webview_host_contract.py:test_adb_terminal_requests_are_exactly_projected_to_the_native_service",
         "tests/test_modern_webview_host_contract.py:test_adb_terminal_event_uses_the_bounded_terminal_channel",
         "ui/web/src/test/adb-shell.test.tsx",

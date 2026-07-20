@@ -85,5 +85,6 @@ exe = EXE(pyz,
           debug=False,
           strip=False,
           upx=True,
-          console=False,
+          console=True,
+          hide_console='hide-early',
           icon='images\\icon-dark-256.ico')

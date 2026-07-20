@@ -34,6 +34,14 @@ TERMINAL_ASSETS = (
     "ui/web/dist/assets/adb-terminal.js",
     "ui/web/dist/assets/adb-terminal.css",
 )
+PACKAGED_PTY_WORKFLOWS = (
+    Path(".github/workflows/windows.yml"),
+    Path(".github/workflows/windows-arm64.yml"),
+    Path(".github/workflows/mac.yml"),
+    Path(".github/workflows/ubuntu_24_04.yml"),
+    Path(".github/workflows/ubuntu_22_04.yml"),
+    Path(".github/workflows/appimage-x86_64.yml"),
+)
 
 
 class PackagedWebAssetTests(unittest.TestCase):
@@ -89,6 +97,14 @@ class PackagedWebAssetTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             with self.subTest(path=path):
                 self.assertIn("'ui/web/dist', 'ui/web/dist'", source)
+
+    def test_every_release_platform_executes_the_packaged_pty_smoke(self):
+        for path in PACKAGED_PTY_WORKFLOWS:
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertIn("--pty-smoke-report", source)
+                self.assertIn("--pty-smoke-timeout", source)
+                self.assertIn("scripts/verify_pty_smoke.py", source)
 
 
 if __name__ == "__main__":
