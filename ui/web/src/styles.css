@@ -4138,6 +4138,27 @@ code {
   font-weight: 700;
 }
 
+.settings-update-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem 1rem;
+}
+
+.settings-update-check > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.settings-update-check strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
 .settings-card-detail {
   margin: 0;
   padding: 0.85rem 1rem 0;

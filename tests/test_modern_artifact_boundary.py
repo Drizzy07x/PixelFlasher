@@ -396,6 +396,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.xml",
                         "tools.scrcpy.setup",
                         "tools.wifi.discover",
+                        "updates.check",
                     }:
                         with self.assertRaises(PublicProjectionError):
                             project_operation_result(command, result)

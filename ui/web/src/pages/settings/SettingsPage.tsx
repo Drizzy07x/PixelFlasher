@@ -2,6 +2,11 @@ import { localeOptions, useI18n } from '../../i18n';
 import type { Locale, ModernPreferences, Theme, ToolbarPosition } from '../../types';
 import { Button, Card, CardTitle, Icon, PageHeader, Toggle } from '../../components/ui';
 
+export type UpdateCheckState = {
+  phase: 'idle' | 'checking' | 'current' | 'available' | 'failed';
+  latestVersion?: string;
+};
+
 export function SettingsPage({
   theme,
   onThemeChange,
@@ -19,6 +24,8 @@ export function SettingsPage({
   onMaintenancePreferenceChange,
   onApplicationCommand,
   applicationVersion,
+  updateCheckState,
+  onUpdateCheck,
   applicationConsoleLines,
   onApplicationConsoleClear,
   onApplicationConsoleExport,
@@ -45,6 +52,8 @@ export function SettingsPage({
     target?: 'configuration' | 'logs' | 'cache' | 'documentation' | 'license' | 'releases' | 'reportIssue' | 'source',
   ) => void;
   applicationVersion: string;
+  updateCheckState: UpdateCheckState;
+  onUpdateCheck: () => void;
   applicationConsoleLines: readonly string[];
   onApplicationConsoleClear: () => void;
   onApplicationConsoleExport: () => void;
@@ -181,6 +190,17 @@ export function SettingsPage({
             <Toggle checked={preferences.automaticUpdateCheck} onChange={(value) => onMaintenancePreferenceChange('automaticUpdateCheck', value)} label={t('settings.updateCheck')} description={t('settings.updateCheckDetail')} />
             <Toggle checked={preferences.checkModuleUpdates} onChange={(value) => onMaintenancePreferenceChange('checkModuleUpdates', value)} label={t('settings.moduleUpdates')} description={t('settings.moduleUpdatesDetail')} />
             <Toggle checked={preferences.showNotifications} onChange={(value) => onMaintenancePreferenceChange('showNotifications', value)} label={t('settings.notifications')} description={t('settings.notificationsDetail')} />
+          </div>
+          <div className="settings-update-check">
+            <Button icon="download" disabled={updateCheckState.phase === 'checking'} onClick={onUpdateCheck}>
+              {t(updateCheckState.phase === 'checking' ? 'settings.checkingUpdates' : 'settings.checkUpdates')}
+            </Button>
+            <span role="status" aria-live="polite">
+              {updateCheckState.phase === 'current' ? t('settings.applicationCurrent') : null}
+              {updateCheckState.phase === 'available' ? t('settings.updateAvailable') : null}
+              {updateCheckState.phase === 'failed' ? t('settings.updateCheckFailed') : null}
+              {updateCheckState.latestVersion ? <strong>{updateCheckState.latestVersion}</strong> : null}
+            </span>
           </div>
         </Card>
         <Card className="settings-shortcuts">

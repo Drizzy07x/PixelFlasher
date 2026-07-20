@@ -29,6 +29,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
     {
         "app.openFolder",
         "app.openLink",
+        "updates.check",
         "apps.action",
         "device.openUrl",
         "device.inspect",
@@ -3589,6 +3590,32 @@ def _project_application_link(value: object) -> JSONValue:
     return {"target": cast(str, target)}
 
 
+def _project_update_check(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"currentVersion", "latestVersion", "channel", "updateAvailable", "releaseTarget", "revision"}
+        ),
+    )
+    current = source["currentVersion"]
+    latest = source["latestVersion"]
+    revision = source["revision"]
+    if (
+        not isinstance(current, str)
+        or not current
+        or not isinstance(latest, str)
+        or not latest
+        or source["channel"] not in {"stable", "rc"}
+        or not isinstance(source["updateAvailable"], bool)
+        or source["releaseTarget"] != "releases"
+        or not isinstance(revision, int)
+        or isinstance(revision, bool)
+        or revision < 0
+    ):
+        raise PublicProjectionError("application update result is invalid")
+    return ensure_public_json(source)
+
+
 def _public_grant(value: object) -> dict[str, JSONValue]:
     source = _record(value)
     raw_expiry = source.get("expiresInSeconds")
@@ -3681,6 +3708,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "settings.update": _project_preferences,
     "snapshot.get": _project_snapshot,
     "support.create": _project_support,
+    "updates.check": _project_update_check,
     "tools.logcat": _project_logcat,
     "tools.logcat.clear": _project_logcat_clear,
     "tools.pushFiles": _project_push_files,

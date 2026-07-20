@@ -23,6 +23,7 @@ import {
   useLogcatExpertGuard,
   type LogcatUiState,
   type PushUiState,
+  type UpdateCheckState,
 } from './pages/Pages';
 import type { ActiveOperation, HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme, ToolbarPosition } from './types';
 
@@ -268,6 +269,8 @@ function PixelFlasherApp({
   const [pushUiState, setPushUiState] = useState<PushUiState>(initialPushUiState);
   const [bridgeState, setBridgeState] = useState<'connecting' | 'ready' | 'error'>('connecting');
   const [applicationVersion, setApplicationVersion] = useState(isMockHost ? '9.2.2-dev' : '');
+  const [updateCheckState, setUpdateCheckState] = useState<UpdateCheckState>({ phase: 'idle' });
+  const automaticUpdateCheckRanRef = useRef(false);
   const [interaction, setInteraction] = useState<InteractionRequest | null>(null);
   const [interactionBusy, setInteractionBusy] = useState(false);
   const interactionDialogRef = useRef<HTMLElement | null>(null);
@@ -804,6 +807,40 @@ function PixelFlasherApp({
     await runCommand(commands.appConsoleExport, { grant, lines: [...applicationConsoleLines] });
   }, [applicationConsoleLines, runCommand, t]);
 
+  const checkForUpdates = useCallback(async () => {
+    setUpdateCheckState({ phase: 'checking' });
+    const response = await runCommand(
+      commands.updatesCheck,
+      {},
+      { returnFailed: true, suppressNotice: true },
+    );
+    const result = objectValue(response?.result);
+    if (normalizeOperationStatus(result.status) !== 'success') {
+      setUpdateCheckState({ phase: 'failed' });
+      return;
+    }
+    const value = objectValue(result.value);
+    const latestVersion = typeof value.latestVersion === 'string' ? value.latestVersion : '';
+    if (!latestVersion || typeof value.updateAvailable !== 'boolean') {
+      setUpdateCheckState({ phase: 'failed' });
+      return;
+    }
+    setUpdateCheckState({
+      phase: value.updateAvailable ? 'available' : 'current',
+      latestVersion,
+    });
+  }, [runCommand]);
+
+  useEffect(() => {
+    if (
+      bridgeState !== 'ready'
+      || !applicationPreferences.automaticUpdateCheck
+      || automaticUpdateCheckRanRef.current
+    ) return;
+    automaticUpdateCheckRanRef.current = true;
+    void checkForUpdates();
+  }, [applicationPreferences.automaticUpdateCheck, bridgeState, checkForUpdates]);
+
   const cancelUnsafeLogcat = useCallback((operationId: string) => runCommand(
     commands.operationCancel,
     { operationId },
@@ -1018,6 +1055,8 @@ function PixelFlasherApp({
           onMaintenancePreferenceChange={changeMaintenancePreference}
           onApplicationCommand={runApplicationCommand}
           applicationVersion={applicationVersion}
+          updateCheckState={updateCheckState}
+          onUpdateCheck={() => void checkForUpdates()}
           applicationConsoleLines={applicationConsoleLines}
           onApplicationConsoleClear={clearApplicationConsole}
           onApplicationConsoleExport={exportApplicationConsole}

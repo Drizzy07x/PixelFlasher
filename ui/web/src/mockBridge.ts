@@ -517,6 +517,21 @@ export function installDevelopmentBridge() {
           case 'app.exit':
             respond(request, { status: 'SUCCESS', code: 'exit_requested', message: 'PixelFlasher is closing.' });
             return;
+          case 'updates.check':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'application_current',
+              message: 'PixelFlasher is up to date.',
+              value: {
+                currentVersion: '9.2.2-dev',
+                latestVersion: '9.2.2',
+                channel: 'stable',
+                updateAvailable: false,
+                releaseTarget: 'releases',
+                revision: snapshot.revision,
+              },
+            });
+            return;
           case 'snapshot.get':
             respond(request, structuredClone(snapshot) as unknown as Record<string, unknown>);
             publishSnapshot();

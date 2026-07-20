@@ -19,3 +19,4 @@ export {
   type PushUiState,
 } from './tooling/ToolsPage';
 export { SettingsPage } from './settings/SettingsPage';
+export type { UpdateCheckState } from './settings/SettingsPage';

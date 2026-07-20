@@ -458,6 +458,17 @@ from .toolchain import (
     format_platform_tools_version,
     parse_platform_tools_version,
 )
+from .updates import (
+    UpdateCheckError,
+    UpdateCheckResult,
+    UpdateManifest,
+    UpdateManifestSource,
+    UpdateManifestVerifier,
+    UpdateSequenceStore,
+    UpdateService,
+    UpdateStatus,
+    version_is_newer,
+)
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
@@ -800,6 +811,14 @@ __all__ = [
     "SupportV2Limits",
     "SupportV2WriteResult",
     "UnavailableSupportPackageV2Service",
+    "UpdateCheckError",
+    "UpdateCheckResult",
+    "UpdateManifest",
+    "UpdateManifestSource",
+    "UpdateManifestVerifier",
+    "UpdateSequenceStore",
+    "UpdateService",
+    "UpdateStatus",
     "ToolchainInfo",
     "Toolchain",
     "ToolchainCheck",
@@ -817,6 +836,7 @@ __all__ = [
     "inspect_apk",
     "inspect_pif_profile_stream",
     "inspect_targeted_fix_profile_stream",
+    "version_is_newer",
     "import_legacy_devices",
     "is_valid_target_serial",
     "merge_device_history",

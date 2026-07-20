@@ -168,6 +168,7 @@ from .support_v2_service import (
     CancellationProbe as SupportCancellationProbe,
 )
 from .toolchain import ToolchainService
+from .updates import UpdateService, UpdateStatus
 
 InteractionHandler = Callable[[InteractionRequest], InteractionDecision | bool]
 EngineListener = Callable[[AppEvent], None]
@@ -275,6 +276,7 @@ class CommandEngine:
         avb_downgrade_service: DowngradePatchService,
         binary_xml_service: BinaryXmlService,
         keybox_validation_service: KeyboxValidationService,
+        update_service: UpdateService | None,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
@@ -333,6 +335,7 @@ class CommandEngine:
         self.binary_xml_service = binary_xml_service
         self.keybox_validation_service = keybox_validation_service
         self.support_package_service = support_package_service
+        self.update_service = update_service
         self.snapshot_provider = snapshot_provider
         self.postcondition_observer = postcondition_observer
         self.operation_runner = operation_runner
@@ -381,6 +384,8 @@ class CommandEngine:
             return self._firmware_catalog_command(command)
         if command.kind in {"root.apps.catalog.refresh", "root.apps.download"}:
             return self._root_app_catalog_command(command)
+        if command.kind == "updates.check":
+            return self._check_updates(command)
         if command.kind == CommandKind.DEVICE_SCAN.value:
             # Compatibility for milestone-1 callers that inject an already
             # reviewed plan. Browser commands never provide operation plans.
@@ -418,6 +423,61 @@ class CommandEngine:
             code="command_unknown",
             message=f"unsupported command kind: {command.kind}",
         )
+
+    def _check_updates(self, command: AppCommand) -> OperationResult:
+        if command.payload or command.target_serial is not None or command.operation_plan is not None:
+            return self._invalid(command, "Application update checks accept no payload or target.")
+        snapshot = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, snapshot)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        service = self.update_service
+        if service is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="update_manifest_unavailable",
+                message="Signed application update metadata is not provisioned.",
+            )
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="update_check_cancelled",
+                        cancelled_message="Application update check was cancelled.",
+                        timeout_message="Application update check timed out.",
+                    )
+                current = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, current)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                checked = service.check(token)
+                if checked.status is UpdateStatus.CANCELLED:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code=checked.code,
+                        cancelled_message=checked.message,
+                        timeout_message="Application update check timed out.",
+                    )
+                if not checked.ok:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code=checked.code,
+                        message=checked.message,
+                    )
+                return OperationResult.success(
+                    command.operation_id,
+                    code=checked.code,
+                    message=checked.message,
+                    value={**checked.to_public_dict(), "revision": current.revision},
+                )
+        finally:
+            self._unregister_cancellation(command.operation_id)
 
     def _prepare_avb_downgrade(self, command: AppCommand) -> OperationResult:
         allowed_fields = {

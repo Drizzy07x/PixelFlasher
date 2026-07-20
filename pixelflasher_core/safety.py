@@ -50,6 +50,7 @@ class SafetyPolicy:
             "firmware.catalog.refresh",
             "firmware.download",
             "support.create",
+            "updates.check",
             "flash.plan.preview",
             "device.reboot",
             "device.switchSlot",

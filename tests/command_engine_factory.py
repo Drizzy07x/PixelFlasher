@@ -61,6 +61,7 @@ from pixelflasher_core.scrcpy_setup import ScrcpySetupService
 from pixelflasher_core.store import AppStateStore
 from pixelflasher_core.support_v2_service import UnavailableSupportPackageV2Service
 from pixelflasher_core.toolchain import ToolchainService
+from pixelflasher_core.updates import UpdateService
 
 ToolchainStateUpdater = Callable[[AppCommand, ToolchainInfo], OperationResult]
 
@@ -106,6 +107,7 @@ def make_test_command_engine(
     avb_downgrade_service: DowngradePatchService | None = None,
     binary_xml_service: BinaryXmlService | None = None,
     keybox_validation_service: KeyboxValidationService | None = None,
+    update_service: UpdateService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
 
@@ -234,6 +236,7 @@ def make_test_command_engine(
         avb_downgrade_service=avb_downgrade_service,
         binary_xml_service=binary_xml_service or BinaryXmlService(),
         keybox_validation_service=keybox_validation_service or KeyboxValidationService(),
+        update_service=update_service,
     )
     if owned_backup_root is not None:
         weakref.finalize(

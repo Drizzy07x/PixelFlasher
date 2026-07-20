@@ -1105,12 +1105,14 @@
       "area": "support",
       "capability": "Manual and opt-in update checks, help, links and About information",
       "owner": "support",
-      "modernStatus": "missing",
+      "modernStatus": "partial",
       "currentEvidence": [
-        "ui/bridge_contract.py:updates.check",
-        "ui/web/src/commands.ts:updatesCheck"
+        "pixelflasher_core/updates.py:UpdateManifestVerifier/UpdateSequenceStore/UpdateService",
+        "pixelflasher_core/engine.py:_check_updates",
+        "ui/web/src/pages/settings/SettingsPage.tsx:manual and opt-in update checks",
+        "ui/pages/modern_webview_host.py:_APPLICATION_LINKS"
       ],
-      "gap": "The modern backend has no update service and React has no complete Help, About, release-notes or support-link surface.",
+      "gap": "The authenticated backend, manual and opt-in automatic React checks, Help/About and native links are implemented. Production Ed25519 keys, the HTTPS manifest source and packaged interoperability remain unprovisioned.",
       "exitCriteria": [
         "Manual update checks and opt-in automatic checks run only in the backend, Help and About are fully available in React, and every external link is opened through reviewed native chrome without enabling WebView network access."
       ],
@@ -2450,7 +2452,11 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_updates.py:signed manifests, expiry, URL policy, SemVer, rollback and offline behavior",
+        "ui/web/src/test/pages.behavior.test.tsx:manual update control",
+        "ui/web/src/test/App.test.tsx:automatic update check requires persisted opt-in"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [

@@ -127,6 +127,12 @@ from .support_v2_service import (
     UnavailableSupportPackageV2Service,
 )
 from .toolchain import ToolchainService
+from .updates import (
+    UpdateManifestSource,
+    UpdateManifestVerifier,
+    UpdateSequenceStore,
+    UpdateService,
+)
 
 RuntimeListener = Callable[[AppEvent], None]
 
@@ -173,6 +179,8 @@ class ApplicationRuntime:
         root_app_catalog: RootAppManifestCatalog | None = None,
         root_app_downloader: ArtifactDownloader | None = None,
         android_device_catalog_path: str | Path | None = None,
+        update_manifest_source: UpdateManifestSource | None = None,
+        update_manifest_verifier: UpdateManifestVerifier | None = None,
     ) -> None:
         bootloader_prefixes = load_bootloader_prefix_catalog(
             android_device_catalog_path or self._packaged_android_device_catalog_path()
@@ -269,6 +277,12 @@ class ApplicationRuntime:
             if support_recipient_public_key is not None and support_key_id
             else UnavailableSupportPackageV2Service()
         )
+        self.update_service = UpdateService(
+            VERSION,
+            update_manifest_source,
+            update_manifest_verifier,
+            UpdateSequenceStore(config_store.path.parent / "updates-state-v1.json"),
+        )
         safety_policy = SafetyPolicy()
         snapshot_provider = snapshot_provider or (lambda _serial: self.store.snapshot())
         if postcondition_observer is None:
@@ -363,6 +377,7 @@ class ApplicationRuntime:
             avb_downgrade_service=avb_downgrade_service,
             binary_xml_service=BinaryXmlService(),
             keybox_validation_service=KeyboxValidationService(),
+            update_service=self.update_service,
         )
         self.engine = PixelFlasherEngine(
             command_engine=self.command_engine,

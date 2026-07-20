@@ -103,6 +103,15 @@ afterEach(() => {
 });
 
 describe('PixelFlasher web workspace', () => {
+  it('runs one automatic update check only after the persisted opt-in is loaded', async () => {
+    const requests = installPreferencesHost({ ...hostPreferences, automaticUpdateCheck: true });
+    render(<App />);
+
+    await waitFor(() => {
+      expect(requests.filter((request) => request.command === 'updates.check')).toHaveLength(1);
+    });
+  });
+
   it('renders the faithful dashboard and exposes all nine tasks', async () => {
     render(<App />);
     expect(await screen.findByRole('heading', { name: 'Modern UI' })).toBeVisible();

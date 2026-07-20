@@ -6651,3 +6651,23 @@ msgstr "Código fuente"
 msgctxt "web.settings.viewLicense"
 msgid "View license"
 msgstr "Ver licencia"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.checkingUpdates"
+msgid "Checking for updates..."
+msgstr "Buscando actualizaciones..."
+
+msgctxt "web.settings.applicationCurrent"
+msgid "PixelFlasher is up to date."
+msgstr "PixelFlasher está actualizado."
+
+msgctxt "web.settings.updateAvailable"
+msgid "A newer verified release is available."
+msgstr "Hay disponible una versión verificada más reciente."
+
+msgctxt "web.settings.updateCheckFailed"
+msgid "Verified update information is unavailable."
+msgstr "La información verificada de actualización no está disponible."

@@ -434,7 +434,7 @@ describe('apps, backups and settings workflows', () => {
   it('exposes bounded appearance and accessibility controls', async () => {
     const user = userEvent.setup();
     const callbacks = {
-      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(), application: vi.fn(), consoleClear: vi.fn(), consoleExport: vi.fn(),
+      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(), application: vi.fn(), consoleClear: vi.fn(), consoleExport: vi.fn(), updateCheck: vi.fn(),
     };
     const { rerender } = page(
       <SettingsPage
@@ -447,6 +447,8 @@ describe('apps, backups and settings workflows', () => {
         preferences={demoSnapshot.preferences} onMaintenancePreferenceChange={callbacks.maintenance}
         onApplicationCommand={callbacks.application}
         applicationVersion="9.2.2"
+        updateCheckState={{ phase: 'current', latestVersion: '9.2.2' }}
+        onUpdateCheck={callbacks.updateCheck}
         applicationConsoleLines={['[PROGRESS 50%] Processing firmware.']}
         onApplicationConsoleClear={callbacks.consoleClear}
         onApplicationConsoleExport={callbacks.consoleExport}
@@ -477,6 +479,7 @@ describe('apps, backups and settings workflows', () => {
     await user.click(screen.getByRole('button', { name: 'Report an issue' }));
     await user.click(screen.getByRole('button', { name: 'Source code' }));
     await user.click(screen.getByRole('button', { name: 'View license' }));
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }));
     await user.click(screen.getByRole('button', { name: 'Clear console' }));
     await user.click(screen.getByRole('button', { name: 'Export redacted console' }));
     expect(callbacks.theme).toHaveBeenCalledWith('light');
@@ -503,9 +506,11 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.application).toHaveBeenCalledWith('openLink', 'reportIssue');
     expect(callbacks.application).toHaveBeenCalledWith('openLink', 'source');
     expect(callbacks.application).toHaveBeenCalledWith('openLink', 'license');
-    expect(screen.getByText('9.2.2')).toBeVisible();
+    expect(screen.getAllByText('9.2.2')).toHaveLength(2);
     expect(callbacks.consoleClear).toHaveBeenCalledOnce();
     expect(callbacks.consoleExport).toHaveBeenCalledOnce();
+    expect(callbacks.updateCheck).toHaveBeenCalledOnce();
+    expect(screen.getByText('PixelFlasher is up to date.')).toBeVisible();
 
     rerender(<I18nProvider locale="en"><SettingsPage
       theme="light" onThemeChange={callbacks.theme}
@@ -517,6 +522,8 @@ describe('apps, backups and settings workflows', () => {
       preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
       onApplicationCommand={callbacks.application}
       applicationVersion="9.2.2"
+      updateCheckState={{ phase: 'checking' }}
+      onUpdateCheck={callbacks.updateCheck}
       applicationConsoleLines={[]}
       onApplicationConsoleClear={callbacks.consoleClear}
       onApplicationConsoleExport={callbacks.consoleExport}

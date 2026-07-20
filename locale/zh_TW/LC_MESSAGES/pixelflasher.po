@@ -6639,3 +6639,23 @@ msgstr "原始碼"
 msgctxt "web.settings.viewLicense"
 msgid "View license"
 msgstr "檢視授權條款"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.checkingUpdates"
+msgid "Checking for updates..."
+msgstr "正在檢查更新..."
+
+msgctxt "web.settings.applicationCurrent"
+msgid "PixelFlasher is up to date."
+msgstr "PixelFlasher 已是最新版本。"
+
+msgctxt "web.settings.updateAvailable"
+msgid "A newer verified release is available."
+msgstr "有較新的已驗證版本可用。"
+
+msgctxt "web.settings.updateCheckFailed"
+msgid "Verified update information is unavailable."
+msgstr "無法取得已驗證的更新資訊。"
