@@ -4,6 +4,28 @@ PixelFlasher 10 ports upstream behavior deliberately. It does not merge wx UI,
 release-version changes, or superseded build experiments into the modern branch.
 Each milestone close and the release code freeze must add a dated audit entry.
 
+## 2026-07-20 — packaged bridge smoke checkpoint
+
+- Modern branch: `modernization/10.0`
+- Modern checkpoint: `757eb20` (`Prove packaged React bridge startup`)
+- Upstream remote: `https://github.com/badabing2005/PixelFlasher.git`
+- Audited upstream tip: `d85019245f3da403fb165bfc6561242e6c914e9e`
+- New commits after the previously audited tip: none
+- Integration decision: no upstream commit is required
+
+The fetch confirmed that upstream remains on the same audited release tip. The
+selected behavior port `624006d` therefore remains complete for this range;
+there is no new kernel patching, LSPosed, timeout, platform, or safety behavior
+to extract. Version and wx UI history remain excluded as documented below.
+
+Checkpoint evidence: 1,238 Python tests passed with seven platform skips and
+16,127 subtests; Ruff and strict core Pyright passed; 196 frontend tests,
+gettext verification, TypeScript checks and the production Vite build passed;
+the Windows x86_64 default entrypoint completed a real React `app.ready`
+bridge-v2 handshake and emitted a clean-shutdown receipt. Native CI workflows
+now require the same closed receipt for every release architecture and Linux
+display backend.
+
 ## 2026-07-18 — foundation checkpoint
 
 - Modern branch: `modernization/10.0`
