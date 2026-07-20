@@ -93,7 +93,7 @@ describe('PIF and TargetedFix inventory', () => {
     const confirmation = `DELETE PIF pif.custom_json ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
     const run = within(card as HTMLElement).getByRole('button', { name: 'Delete verified profile' });
     expect(run).toBeDisabled();
-    await user.type(within(card as HTMLElement).getByRole('textbox'), confirmation);
+    await user.type(within(card as HTMLElement).getByLabelText(/Confirm deletion/), confirmation);
     expect(run).toBeEnabled();
     await user.click(run);
 
@@ -117,7 +117,7 @@ describe('PIF and TargetedFix inventory', () => {
     if (!card) throw new Error('PIF inventory card missing');
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Import profile' }));
     const phrase = `IMPORT PIF pif.custom_json ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
-    await user.type(within(card as HTMLElement).getByRole('textbox'), phrase);
+    await user.type(within(card as HTMLElement).getByLabelText(/Confirm import/), phrase);
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Import and verify profile' }));
     expect(onCommand).toHaveBeenNthCalledWith(1, 'native.pickFile', {
       purpose: 'root.pif.import',
@@ -130,6 +130,45 @@ describe('PIF and TargetedFix inventory', () => {
       profileId: 'pif.custom_json',
       confirmationText: phrase,
       grant: 'opaque-pif-grant',
+    });
+  });
+
+  it('adds and deletes TargetedFix packages with serial-bound verified mutations', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn(async (command: BridgeCommand, payload?: Record<string, unknown>) => ({
+      result: command === 'root.pif.inventory'
+        ? { status: 'SUCCESS', value: inventory() }
+        : { status: 'SUCCESS', value: { action: payload?.action, targetPackage: payload?.targetPackage } },
+    }));
+    const { snapshot } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
+
+    const packageName = 'com.example.app';
+    await user.type(within(card as HTMLElement).getByLabelText('Installed package ID'), packageName);
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Add TargetedFix target' }));
+    const addPhrase = `ADD TARGET ${packageName} ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    await user.type(within(card as HTMLElement).getByLabelText(/Confirm TargetedFix change/), addPhrase);
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Add and verify target' }));
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'addTarget',
+      targetPackage: packageName,
+      confirmationText: addPhrase,
+    });
+
+    const targetRow = within(card as HTMLElement).getByText(packageName).closest('.root-inventory__row');
+    if (!targetRow) throw new Error('Added TargetedFix row missing');
+    await user.click(within(targetRow as HTMLElement).getByRole('button', { name: 'Delete target' }));
+    const deletePhrase = `DELETE TARGET ${packageName} ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    await user.type(within(card as HTMLElement).getByLabelText(/Confirm TargetedFix change/), deletePhrase);
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Delete and verify target' }));
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'deleteTarget',
+      targetPackage: packageName,
+      confirmationText: deletePhrase,
     });
   });
 });

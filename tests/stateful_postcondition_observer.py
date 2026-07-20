@@ -108,6 +108,8 @@ class StatefulPostconditionObserver:
             return self._result(self._pif_profile_state(plan, calls, expected))
         if kind == "pif_profile_hash":
             return self._result(self._pif_profile_hash(plan, calls, expected))
+        if kind == "targeted_fix_target_state":
+            return self._result(self._targeted_fix_target_state(plan, calls, expected))
         return self._unverified(f"the fake has no probe for {kind}")
 
     @staticmethod
@@ -350,6 +352,30 @@ class StatefulPostconditionObserver:
             and artifact.sha256 == digest
             and any("push" in request.argv and request.argv[-1].startswith("/data/local/tmp/pixelflasher-pif-") for request in calls)
             and "chmod 0600" in shell_text
+        )
+
+    @staticmethod
+    def _targeted_fix_target_state(
+        plan: OperationPlan,
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        package = expected.get("packageName")
+        present = expected.get("present")
+        if not isinstance(package, str) or not isinstance(present, bool):
+            return False
+        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        target_file = "/data/adb/modules/targetedfix/config/target.txt"
+        if present:
+            return (
+                f"pm path {package}" in shell_text
+                and f"printf '%s\\n' {package}" in shell_text
+                and target_file in shell_text
+            )
+        return (
+            f"grep -Fxv -- {package} {target_file}" in shell_text
+            and f"/{package}.json" in shell_text
+            and f"/{package}.prop" in shell_text
         )
 
     @staticmethod

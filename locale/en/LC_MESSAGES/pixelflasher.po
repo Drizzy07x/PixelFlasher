@@ -6074,3 +6074,31 @@ msgstr "Confirm import into {profile}"
 msgctxt "web.root.pifImportRun"
 msgid "Import and verify profile"
 msgstr "Import and verify profile"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.targetedFixPackage"
+msgid "Installed package ID"
+msgstr "Installed package ID"
+
+msgctxt "web.root.targetedFixAdd"
+msgid "Add TargetedFix target"
+msgstr "Add TargetedFix target"
+
+msgctxt "web.root.targetedFixDelete"
+msgid "Delete target"
+msgstr "Delete target"
+
+msgctxt "web.root.targetedFixConfirm"
+msgid "Confirm TargetedFix change for {package}"
+msgstr "Confirm TargetedFix change for {package}"
+
+msgctxt "web.root.targetedFixAddRun"
+msgid "Add and verify target"
+msgstr "Add and verify target"
+
+msgctxt "web.root.targetedFixDeleteRun"
+msgid "Delete and verify target"
+msgstr "Delete and verify target"

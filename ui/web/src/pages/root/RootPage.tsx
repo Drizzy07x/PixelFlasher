@@ -412,6 +412,9 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [pifImportProfile, setPifImportProfile] = useState('pif.custom_json');
   const [pifImportGrant, setPifImportGrant] = useState('');
   const [pifImportConfirmation, setPifImportConfirmation] = useState('');
+  const [targetedFixPackage, setTargetedFixPackage] = useState('');
+  const [targetedFixAction, setTargetedFixAction] = useState<'addTarget' | 'deleteTarget' | ''>('');
+  const [targetedFixConfirmation, setTargetedFixConfirmation] = useState('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -731,6 +734,43 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         setPifImportGrant('');
         setPifImportConfirmation('');
       }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const mutateTargetedFix = async () => {
+    if (!rootedAdb || !primary || busy || !targetedFixAction) return;
+    const packageName = targetedFixPackage.trim();
+    if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(packageName) || packageName.length > 255) return;
+    const verb = targetedFixAction === 'addTarget' ? 'ADD' : 'DELETE';
+    const required = `${verb} TARGET ${packageName} ${primary.serial.slice(-6).toUpperCase()}`;
+    if (targetedFixConfirmation !== required) return;
+    setBusy(`targeted-fix:${targetedFixAction}`);
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: targetedFixAction,
+        targetPackage: packageName,
+        confirmationText: targetedFixConfirmation,
+      });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      if (value.action !== targetedFixAction || value.targetPackage !== packageName) {
+        setPifInventoryInvalid(true);
+        return;
+      }
+      setPifInventory((current) => {
+        if (!current) return current;
+        const retained = current.targets.filter((item) => item.packageName !== packageName);
+        const targets = targetedFixAction === 'addTarget'
+          ? [...retained, { packageName, format: 'json' as const, present: false, size: 0, sha256: null }].sort((a, b) => a.packageName.localeCompare(b.packageName))
+          : retained;
+        return { ...current, targets, targetCount: targets.length };
+      });
+      setTargetedFixAction('');
+      setTargetedFixConfirmation('');
+      if (targetedFixAction === 'addTarget') setTargetedFixPackage('');
     } finally {
       setBusy('');
     }
@@ -1059,6 +1099,26 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         <p className="root-manager__detail">{t('root.pifInventoryDetail')}</p>
         {!rootedAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.moduleDeviceRequired')}</p> : null}
         {pifInventoryInvalid ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('root.pifInventoryInvalid')}</p> : null}
+        {rootedAdb ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.targetedFixPackage')}</span>
+              <input
+                value={targetedFixPackage}
+                onChange={(event) => { setTargetedFixPackage(event.currentTarget.value.slice(0, 255)); setTargetedFixAction(''); setTargetedFixConfirmation(''); }}
+                placeholder="com.example.app"
+                autoComplete="off"
+                spellCheck={false}
+                disabled={Boolean(busy)}
+              />
+            </label>
+            <Button
+              variant="secondary"
+              onClick={() => { setTargetedFixPackage(targetedFixPackage.trim()); setTargetedFixAction('addTarget'); setTargetedFixConfirmation(''); }}
+              disabled={Boolean(busy) || !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(targetedFixPackage.trim()) || targetedFixPackage.trim().length > 255 || Boolean(pifInventory?.targets.some((item) => item.packageName === targetedFixPackage.trim()))}
+            >{t('root.targetedFixAdd')}</Button>
+          </div>
+        ) : null}
         {pifInventory ? (
           <div className="root-inventory" role="list" aria-label={t('root.pifInventoryTitle')}>
             {pifInventory.profiles.filter((item) => item.present).map((item) => (
@@ -1080,7 +1140,10 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               <div className="root-inventory__row" role="listitem" key={item.packageName}>
                 <span className="root-inventory__icon"><Icon name="androidPng" size={24} /></span>
                 <span className="root-inventory__copy"><strong>{item.packageName}</strong><small>{t('root.pifTargetedFix')}</small></span>
-                <Badge tone={item.present ? 'success' : 'warning'}>{item.present ? t('root.pifPresent') : t('root.pifMissing')}</Badge>
+                <span className="root-inventory__actions">
+                  <Badge tone={item.present ? 'success' : 'warning'}>{item.present ? t('root.pifPresent') : t('root.pifMissing')}</Badge>
+                  <Button variant="danger" onClick={() => { setTargetedFixPackage(item.packageName); setTargetedFixAction('deleteTarget'); setTargetedFixConfirmation(''); }} disabled={Boolean(busy)}>{t('root.targetedFixDelete')}</Button>
+                </span>
               </div>
             ))}
             {!pifInventory.profiles.some((item) => item.present) && !pifInventory.targets.length
@@ -1120,6 +1183,23 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             <span className="button-row">
               <Button variant="danger" onClick={() => void importPifProfile()} disabled={Boolean(busy) || pifImportConfirmation !== `IMPORT PIF ${pifImportProfile} ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.pifImportRun')}</Button>
               <Button variant="ghost" onClick={() => { setPifImportGrant(''); setPifImportConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </span>
+          </div>
+        ) : null}
+        {targetedFixAction && primary ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.targetedFixConfirm', { package: targetedFixPackage })}</span>
+              <small><code>{`${targetedFixAction === 'addTarget' ? 'ADD' : 'DELETE'} TARGET ${targetedFixPackage} ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+              <input value={targetedFixConfirmation} onChange={(event) => setTargetedFixConfirmation(event.currentTarget.value.slice(0, 360))} autoComplete="off" spellCheck={false} disabled={Boolean(busy)} />
+            </label>
+            <span className="button-row">
+              <Button
+                variant={targetedFixAction === 'deleteTarget' ? 'danger' : 'primary'}
+                onClick={() => void mutateTargetedFix()}
+                disabled={Boolean(busy) || targetedFixConfirmation !== `${targetedFixAction === 'addTarget' ? 'ADD' : 'DELETE'} TARGET ${targetedFixPackage} ${primary.serial.slice(-6).toUpperCase()}`}
+              >{targetedFixAction === 'addTarget' ? t('root.targetedFixAddRun') : t('root.targetedFixDeleteRun')}</Button>
+              <Button variant="ghost" onClick={() => { setTargetedFixAction(''); setTargetedFixConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
             </span>
           </div>
         ) : null}

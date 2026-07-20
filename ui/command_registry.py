@@ -1368,7 +1368,8 @@ _COMMAND_SPECS = (
         _payload(
             ("serial", PayloadKind.STRING, True),
             ("action", PayloadKind.STRING, True),
-            ("profileId", PayloadKind.STRING, True),
+            ("profileId", PayloadKind.STRING),
+            ("targetPackage", PayloadKind.STRING),
             ("confirmationText", PayloadKind.STRING, True),
             ("grant", PayloadKind.STRING),
         ),
@@ -1379,10 +1380,10 @@ _COMMAND_SPECS = (
         risk=CommandRisk.DESTRUCTIVE,
         valid_device_states=ADB_DEVICE_STATES,
         target_scope=TargetScope.SELECTED_DEVICE,
-        planner="root.pif.delete_profile",
+        planner="root.pif.action",
         timeout_ms=2 * 60_000,
         confirmation=ConfirmationPolicy.STANDARD,
-        postconditions=("pif_profile_absent",),
+        postconditions=("pif_or_target_state_verified",),
     ),
     _command(
         "tools.piAnalysis",

@@ -424,6 +424,68 @@ class RootingServiceTests(unittest.TestCase):
                     RootingService().compile(self.command("tools.pif", payload), self.snapshot)
                 self.assertEqual(code, raised.exception.code)
 
+    def test_targeted_fix_add_and_delete_are_atomic_confirmed_and_observed(self):
+        package = "com.example.app"
+        for action, verb, expected_present in (
+            ("addTarget", "ADD", True),
+            ("deleteTarget", "DELETE", False),
+        ):
+            with self.subTest(action=action):
+                compilation = RootingService().compile(
+                    self.command(
+                        "tools.pif",
+                        {
+                            "serial": "SERIAL",
+                            "action": action,
+                            "targetPackage": package,
+                            "confirmationText": f"{verb} TARGET {package} SERIAL",
+                        },
+                    ),
+                    self.snapshot,
+                )
+                self.assertEqual(
+                    "pif.add_target" if expected_present else "pif.delete_target",
+                    compilation.action,
+                )
+                self.assertEqual(package, compilation.pif_target_package)
+                assert compilation.plan is not None
+                script = compilation.plan.request.argv[6]
+                self.assertIn("/data/adb/modules/targetedfix/config/target.txt", script)
+                self.assertIn(".pixelflasher-targets-", script)
+                self.assertIn("chmod 0600", script)
+                if expected_present:
+                    self.assertIn(f"pm path {package}", script)
+                    self.assertIn(f"printf '%s\\n' {package}", script)
+                else:
+                    self.assertIn(f"grep -Fxv -- {package}", script)
+                    self.assertIn(f"/{package}.json", script)
+                    self.assertIn(f"/{package}.prop", script)
+                postcondition = compilation.plan.postconditions[0]
+                self.assertEqual("targeted_fix_target_state", postcondition.kind)
+                self.assertEqual(
+                    {"packageName": package, "present": expected_present},
+                    postcondition.expected,
+                )
+
+    def test_targeted_fix_rejects_hostile_ambiguous_or_unconfirmed_targets(self):
+        base = {
+            "serial": "SERIAL",
+            "action": "addTarget",
+            "targetPackage": "com.example.app",
+            "confirmationText": "ADD TARGET com.example.app SERIAL",
+        }
+        cases = (
+            ({**base, "targetPackage": "../private"}, "targeted_fix_package_invalid"),
+            ({**base, "profileId": "targeted.targets"}, "targeted_fix_payload_ambiguous"),
+            ({**base, "path": "C:/private"}, "targeted_fix_payload_ambiguous"),
+            ({**base, "confirmationText": "ADD TARGET"}, "targeted_fix_confirmation_required"),
+        )
+        for payload, code in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaises(RootingPlanningError) as raised:
+                    RootingService().compile(self.command("tools.pif", payload), self.snapshot)
+                self.assertEqual(code, raised.exception.code)
+
     def test_pif_import_inspection_is_format_specific_and_metadata_only(self):
         cases = (
             ("pif.custom_json", b'{"PRODUCT":"akita"}', "json"),

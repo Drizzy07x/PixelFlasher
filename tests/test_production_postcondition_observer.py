@@ -47,6 +47,7 @@ class StatefulDeviceTransport:
         root_modules: dict[str, str] | None = None,
         pif_profiles: set[str] | None = None,
         pif_profile_hashes: dict[str, str] | None = None,
+        targeted_fix_targets: set[str] | None = None,
         magisk_denylist: set[str] | None = None,
         magisk_su_policies: dict[int, str] | None = None,
         magisk_backups: dict[str, str] | None = None,
@@ -71,6 +72,7 @@ class StatefulDeviceTransport:
         self.root_modules = root_modules or {}
         self.pif_profiles = pif_profiles or set()
         self.pif_profile_hashes = pif_profile_hashes or {}
+        self.targeted_fix_targets = targeted_fix_targets or set()
         self.magisk_denylist = magisk_denylist or set()
         self.magisk_su_policies = magisk_su_policies or {}
         self.magisk_backups = magisk_backups or {}
@@ -253,6 +255,15 @@ class StatefulDeviceTransport:
                 if command == f"sha256sum -- {path}":
                     digest = self.pif_profile_hashes.get(profile_id)
                     return TransportOutcome(0, f"{digest}  {path}\n") if digest else TransportOutcome(1)
+            target_prefix = (
+                "[ -f /data/adb/modules/targetedfix/config/target.txt ] || exit 1; "
+                "grep -Fxq -- "
+            )
+            if command.startswith(target_prefix) and command.endswith(
+                " /data/adb/modules/targetedfix/config/target.txt"
+            ):
+                package = command[len(target_prefix) :].split(" ", 1)[0]
+                return TransportOutcome(0 if package in self.targeted_fix_targets else 1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -769,6 +780,25 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
         )
         self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
         self.assertEqual((digest, "b" * 64), mismatch.mismatches[f"pif_profile_hash:{profile_id}"])
+
+    def test_targeted_fix_target_state_requires_exact_root_readback(self) -> None:
+        package = "com.example.app"
+        verified = observer(
+            StatefulDeviceTransport(mode="adb", targeted_fix_targets={package})
+        ).verify(
+            PostconditionSpec(SERIAL, 1, expected_targeted_fix_targets={package: True})
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        timer = FakeTime()
+        mismatch = observer(StatefulDeviceTransport(mode="adb"), timer=timer).verify(
+            PostconditionSpec(SERIAL, 0.2, expected_targeted_fix_targets={package: True})
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
+        self.assertEqual((True, False), mismatch.mismatches[f"targeted_fix_target:{package}"])
+
+        with self.assertRaises(ValueError):
+            PostconditionSpec(SERIAL, 1, expected_targeted_fix_targets={"../private": True})
 
     def test_root_recovery_aggregate_states_require_explicit_device_evidence(self) -> None:
         verified = observer(

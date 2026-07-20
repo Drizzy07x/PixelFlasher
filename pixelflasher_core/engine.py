@@ -1797,19 +1797,50 @@ class CommandEngine:
         if kind == "tools.pif":
             if (
                 not isinstance(compilation, RootingCompilation)
-                or compilation.action not in {"pif.delete_profile", "pif.import_profile"}
-                or compilation.pif_profile_id is None
+                or compilation.action
+                not in {
+                    "pif.delete_profile",
+                    "pif.import_profile",
+                    "pif.add_target",
+                    "pif.delete_target",
+                }
             ):
                 return OperationResult.failed(
                     result.operation_id,
                     code="pif_action_compilation_invalid",
                     message="PIF action returned an invalid compilation",
                 )
-            imported = compilation.action == "pif.import_profile"
-            value: dict[str, object] = {
-                "action": "importProfile" if imported else "deleteProfile",
-                "profileId": compilation.pif_profile_id,
+            action_names = {
+                "pif.delete_profile": "deleteProfile",
+                "pif.import_profile": "importProfile",
+                "pif.add_target": "addTarget",
+                "pif.delete_target": "deleteTarget",
             }
+            public_action = action_names[compilation.action]
+            imported = compilation.action == "pif.import_profile"
+            target_action = compilation.action in {"pif.add_target", "pif.delete_target"}
+            if target_action:
+                if compilation.pif_target_package is None:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="pif_action_compilation_invalid",
+                        message="TargetedFix action is missing its package identity",
+                    )
+                value: dict[str, object] = {
+                    "action": public_action,
+                    "targetPackage": compilation.pif_target_package,
+                }
+            else:
+                if compilation.pif_profile_id is None:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="pif_action_compilation_invalid",
+                        message="PIF action is missing its profile identity",
+                    )
+                value = {
+                    "action": public_action,
+                    "profileId": compilation.pif_profile_id,
+                }
             if imported:
                 if compilation.pif_sha256 is None or compilation.pif_size is None:
                     return OperationResult.failed(
@@ -1821,12 +1852,18 @@ class CommandEngine:
                 value["size"] = compilation.pif_size
             return replace(
                 result,
-                code="pif_profile_imported" if imported else "pif_profile_deleted",
-                message=(
-                    "PIF profile import hash was independently verified"
-                    if imported
-                    else "PIF profile deletion was independently verified"
-                ),
+                code={
+                    "importProfile": "pif_profile_imported",
+                    "deleteProfile": "pif_profile_deleted",
+                    "addTarget": "targeted_fix_target_added",
+                    "deleteTarget": "targeted_fix_target_deleted",
+                }[public_action],
+                message={
+                    "importProfile": "PIF profile import hash was independently verified",
+                    "deleteProfile": "PIF profile deletion was independently verified",
+                    "addTarget": "TargetedFix target addition was independently verified",
+                    "deleteTarget": "TargetedFix target deletion was independently verified",
+                }[public_action],
                 value=value,
                 stdout="",
                 stderr="",

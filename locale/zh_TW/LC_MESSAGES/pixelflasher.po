@@ -6107,3 +6107,31 @@ msgstr "確認匯入至 {profile}"
 msgctxt "web.root.pifImportRun"
 msgid "Import and verify profile"
 msgstr "匯入並驗證設定檔"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.targetedFixPackage"
+msgid "Installed package ID"
+msgstr "已安裝的套件 ID"
+
+msgctxt "web.root.targetedFixAdd"
+msgid "Add TargetedFix target"
+msgstr "新增 TargetedFix 目標"
+
+msgctxt "web.root.targetedFixDelete"
+msgid "Delete target"
+msgstr "刪除目標"
+
+msgctxt "web.root.targetedFixConfirm"
+msgid "Confirm TargetedFix change for {package}"
+msgstr "確認 {package} 的 TargetedFix 變更"
+
+msgctxt "web.root.targetedFixAddRun"
+msgid "Add and verify target"
+msgstr "新增並驗證目標"
+
+msgctxt "web.root.targetedFixDeleteRun"
+msgid "Delete and verify target"
+msgstr "刪除並驗證目標"

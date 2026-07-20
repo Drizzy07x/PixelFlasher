@@ -3063,19 +3063,32 @@ def _project_pif_action(value: object) -> JSONValue:
     if not isinstance(value, Mapping):
         raise PublicProjectionError("PIF action receipt is invalid")
     action = value.get("action")
-    fields = (
-        frozenset({"action", "profileId", "sha256", "size"})
-        if action == "importProfile"
-        else frozenset({"action", "profileId"})
-    )
+    if action == "importProfile":
+        fields = frozenset({"action", "profileId", "sha256", "size"})
+    elif action == "deleteProfile":
+        fields = frozenset({"action", "profileId"})
+    elif action in {"addTarget", "deleteTarget"}:
+        fields = frozenset({"action", "targetPackage"})
+    else:
+        raise PublicProjectionError("PIF action receipt is invalid")
     source = _closed_record(value, fields=fields)
     profile_ids = {
         "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
         "pif.app_replace", "pif.scripts_only", "tricky.spoof", "tricky.target",
         "tricky.security_patch", "tricky.tee", "targeted.targets",
     }
-    if source["action"] not in {"deleteProfile", "importProfile"} or source["profileId"] not in profile_ids:
-        raise PublicProjectionError("PIF action receipt is invalid")
+    if action in {"deleteProfile", "importProfile"} and source["profileId"] not in profile_ids:
+        raise PublicProjectionError("PIF profile action receipt is invalid")
+    if action in {"addTarget", "deleteTarget"} and (
+        not isinstance(source["targetPackage"], str)
+        or re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+",
+            source["targetPackage"],
+        )
+        is None
+        or len(source["targetPackage"]) > 255
+    ):
+        raise PublicProjectionError("TargetedFix target receipt is invalid")
     if source["action"] == "importProfile" and (
         not isinstance(source["sha256"], str)
         or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None

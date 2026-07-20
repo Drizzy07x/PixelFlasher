@@ -178,6 +178,49 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 ),
             )
 
+    def test_target_contract_is_package_scoped_confirmed_and_route_free(self):
+        package = "com.example.app"
+        for action, verb in (("addTarget", "ADD"), ("deleteTarget", "DELETE")):
+            with self.subTest(action=action):
+                payload = {
+                    "serial": "SERIAL",
+                    "action": action,
+                    "targetPackage": package,
+                    "confirmationText": f"{verb} TARGET {package} SERIAL",
+                }
+                request = BridgeRequest(2, f"target-{action}", "tools.pif", payload, 7)
+                self.assertIs(request, request.validate())
+                projected = project_operation_result(
+                    "tools.pif",
+                    OperationResult.success(
+                        f"target-{action}",
+                        value={"action": action, "targetPackage": package},
+                    ),
+                )["value"]
+                self.assertEqual({"action": action, "targetPackage": package}, projected)
+
+        hostile_payloads = (
+            {"serial": "SERIAL", "action": "addTarget", "targetPackage": "../private", "confirmationText": "x"},
+            {
+                "serial": "SERIAL",
+                "action": "addTarget",
+                "targetPackage": package,
+                "profileId": "targeted.targets",
+                "confirmationText": f"ADD TARGET {package} SERIAL",
+            },
+            {
+                "serial": "SERIAL",
+                "action": "deleteTarget",
+                "targetPackage": package,
+                "grant": "opaque",
+                "confirmationText": f"DELETE TARGET {package} SERIAL",
+            },
+        )
+        for payload in hostile_payloads:
+            with self.subTest(payload=payload):
+                with self.assertRaises(BridgeProtocolError):
+                    BridgeRequest(2, "bad-target", "tools.pif", payload, 7).validate()
+
 
 if __name__ == "__main__":
     unittest.main()

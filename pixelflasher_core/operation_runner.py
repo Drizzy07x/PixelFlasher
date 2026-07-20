@@ -2040,6 +2040,7 @@ class OperationRunner:
         expected_root_modules: dict[str, str] = {}
         expected_pif_profiles: dict[str, bool] = {}
         expected_pif_profile_hashes: dict[str, str] = {}
+        expected_targeted_fix_targets: dict[str, bool] = {}
         expected_magisk_denylist: dict[str, bool] = {}
         expected_magisk_su_policies: dict[int, str] = {}
         expected_magisk_backups: dict[str, str] = {}
@@ -2375,6 +2376,19 @@ class OperationRunner:
                 if current_digest is not None and not hmac.compare_digest(current_digest, digest):
                     raise ValueError("conflicting PIF profile hash postconditions")
                 expected_pif_profile_hashes[profile_id] = digest.casefold()
+            elif postcondition.kind == "targeted_fix_target_state":
+                if set(expected) != {"packageName", "present"}:
+                    raise ValueError("TargetedFix target postcondition fields are invalid")
+                package_name = expected.get("packageName")
+                present = expected.get("present")
+                if not isinstance(package_name, str) or not package_name:
+                    raise ValueError("TargetedFix target package is unavailable")
+                if not isinstance(present, bool):
+                    raise TypeError("TargetedFix target state must be a boolean")
+                current_target = expected_targeted_fix_targets.get(package_name)
+                if current_target is not None and current_target is not present:
+                    raise ValueError("conflicting TargetedFix target postconditions")
+                expected_targeted_fix_targets[package_name] = present
             elif postcondition.kind == "flash_applied":
                 hashes, flashed_partitions = self._planned_partition_hashes(plan)
                 expected_partitions = expected.get("partitions", plan.partitions)
@@ -2425,6 +2439,7 @@ class OperationRunner:
             expected_root_modules=expected_root_modules,
             expected_pif_profiles=expected_pif_profiles,
             expected_pif_profile_hashes=expected_pif_profile_hashes,
+            expected_targeted_fix_targets=expected_targeted_fix_targets,
             expected_magisk_denylist=expected_magisk_denylist,
             expected_magisk_su_policies=expected_magisk_su_policies,
             expected_magisk_backups=expected_magisk_backups,

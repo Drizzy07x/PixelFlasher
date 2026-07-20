@@ -97,6 +97,7 @@ class DeviceObservation:
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
+    targeted_fix_targets: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -153,6 +154,13 @@ class DeviceObservation:
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(value, bool)
+            for package, value in self.targeted_fix_targets.items()
+        ):
+            raise TypeError("observed TargetedFix target states are invalid")
+        if any(
+            not isinstance(package, str)
+            or _PACKAGE_PATTERN.fullmatch(package) is None
+            or not isinstance(value, bool)
             for package, value in self.magisk_denylist.items()
         ):
             raise TypeError("observed Magisk denylist states must be booleans")
@@ -194,6 +202,11 @@ class DeviceObservation:
         object.__setattr__(self, "root_modules", MappingProxyType(dict(self.root_modules)))
         object.__setattr__(self, "pif_profiles", MappingProxyType(dict(self.pif_profiles)))
         object.__setattr__(self, "pif_profile_hashes", MappingProxyType(dict(self.pif_profile_hashes)))
+        object.__setattr__(
+            self,
+            "targeted_fix_targets",
+            MappingProxyType(dict(self.targeted_fix_targets)),
+        )
         object.__setattr__(
             self,
             "magisk_denylist",
@@ -279,6 +292,7 @@ class PostconditionSpec:
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
+    expected_targeted_fix_targets: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -378,6 +392,13 @@ class PostconditionSpec:
         if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
+            or not isinstance(value, bool)
+            for package, value in self.expected_targeted_fix_targets.items()
+        ):
+            raise ValueError("expected TargetedFix target state is invalid")
+        if any(
+            not isinstance(package, str)
+            or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(listed, bool)
             for package, listed in self.expected_magisk_denylist.items()
         ):
@@ -438,6 +459,11 @@ class PostconditionSpec:
             self,
             "expected_pif_profile_hashes",
             MappingProxyType(dict(self.expected_pif_profile_hashes)),
+        )
+        object.__setattr__(
+            self,
+            "expected_targeted_fix_targets",
+            MappingProxyType(dict(self.expected_targeted_fix_targets)),
         )
         object.__setattr__(
             self,
@@ -777,6 +803,13 @@ class ProcessDeviceObservationProbe:
                     timeout,
                 ),
                 pif_profile_hashes=self._pif_profile_hashes(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                targeted_fix_targets=self._targeted_fix_target_states(
                     spec,
                     toolchain,
                     mode,
@@ -1255,6 +1288,35 @@ class ProcessDeviceObservationProbe:
             match = re.fullmatch(rf"([0-9a-f]{{64}})  {re.escape(path)}\n?", outcome.stdout)
             if match is not None:
                 observed[profile_id] = match.group(1)
+        return observed
+
+    def _targeted_fix_target_states(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, bool]:
+        packages = tuple(spec.expected_targeted_fix_targets)
+        if mode != "adb" or not packages or len(packages) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        target_file = "/data/adb/modules/targetedfix/config/target.txt"
+        observed: dict[str, bool] = {}
+        for package in packages:
+            if token.cancelled:
+                break
+            present = self._root_test(
+                toolchain,
+                spec.serial,
+                f"[ -f {target_file} ] || exit 1; grep -Fxq -- {package} {target_file}",
+                token,
+                timeout,
+            )
+            if present is not None:
+                observed[package] = present
         return observed
 
     def _magisk_modules_disabled(
@@ -2405,6 +2467,14 @@ class PostconditionObserver:
             if actual is None:
                 missing.append(key)
             elif actual != expected:
+                mismatches[key] = (expected, actual)
+
+        for package, expected in spec.expected_targeted_fix_targets.items():
+            actual = observation.targeted_fix_targets.get(package)
+            key = f"targeted_fix_target:{package}"
+            if actual is None:
+                missing.append(key)
+            elif actual is not expected:
                 mismatches[key] = (expected, actual)
 
         for package_name, expected in spec.expected_magisk_denylist.items():

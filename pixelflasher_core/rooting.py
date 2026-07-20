@@ -293,6 +293,7 @@ class RootingCompilation:
     root_apps: tuple[RootAppInfo, ...] = ()
     module_id: str | None = None
     pif_profile_id: str | None = None
+    pif_target_package: str | None = None
     pif_sha256: str | None = None
     pif_size: int | None = None
     device_build: str | None = None
@@ -307,6 +308,7 @@ class RootingCompilation:
             "root_apps": [item.to_dict() for item in self.root_apps],
             "module_id": self.module_id,
             "pif_profile_id": self.pif_profile_id,
+            "pif_target_package": self.pif_target_package,
             "pif_sha256": self.pif_sha256,
             "pif_size": self.pif_size,
             "device_build": self.device_build,
@@ -492,13 +494,19 @@ class RootingService:
         device: DeviceInfo,
         adb: str,
     ) -> RootingCompilation:
-        self._validate_payload(command, {"serial", "action", "profileId", "confirmationText", "path"})
+        self._validate_payload(
+            command,
+            {"serial", "action", "profileId", "targetPackage", "confirmationText", "path"},
+        )
         action = command.payload.get("action")
-        if action not in {"deleteProfile", "importProfile"}:
+        if action not in {"deleteProfile", "importProfile", "addTarget", "deleteTarget"}:
             raise RootingPlanningError(
                 "pif_action_invalid",
-                "PIF action must be deleteProfile or importProfile",
+                "PIF action is not supported",
             )
+        assert isinstance(action, str)
+        if action in {"addTarget", "deleteTarget"}:
+            return self._compile_targeted_fix_action(command, snapshot, device, adb, action)
         profile_id = command.payload.get("profileId")
         if not isinstance(profile_id, str) or profile_id not in _PIF_PROFILE_PATHS:
             raise RootingPlanningError("pif_profile_invalid", "PIF profile ID is not canonical")
@@ -591,6 +599,99 @@ class RootingService:
             pif_profile_id=profile_id,
             device_write=True,
             destructive=True,
+            requires_confirmation=True,
+        )
+
+    def _compile_targeted_fix_action(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+        action: str,
+    ) -> RootingCompilation:
+        if "profileId" in command.payload or "path" in command.payload:
+            raise RootingPlanningError(
+                "targeted_fix_payload_ambiguous",
+                "TargetedFix target changes do not accept a profile or source path",
+            )
+        package = command.payload.get("targetPackage")
+        if not isinstance(package, str) or _PACKAGE_NAME_PATTERN.fullmatch(package) is None:
+            raise RootingPlanningError(
+                "targeted_fix_package_invalid",
+                "TargetedFix package ID is invalid",
+            )
+        verb = "ADD" if action == "addTarget" else "DELETE"
+        required = f"{verb} TARGET {package} {device.serial[-6:].upper()}"
+        if command.payload.get("confirmationText") != required:
+            raise RootingPlanningError(
+                "targeted_fix_confirmation_required",
+                f"confirmationText must be exactly {required}",
+            )
+        config = "/data/adb/modules/targetedfix/config"
+        target_file = f"{config}/target.txt"
+        nonce = hashlib.sha256(package.encode("utf-8")).hexdigest()[:16]
+        temporary = f"{config}/.pixelflasher-targets-{nonce}.tmp"
+        if action == "addTarget":
+            script = (
+                "[ -d /data/adb/modules/targetedfix ] || exit 72; "
+                f"pm path {package} >/dev/null 2>&1 || exit 73; "
+                f"mkdir -p {config} || exit 74; "
+                f"if [ -f {target_file} ]; then "
+                f"size=$(wc -c < {target_file} 2>/dev/null | tr -d ' '); "
+                "case \"$size\" in ''|*[!0-9]*) exit 75;; esac; "
+                f"[ \"$size\" -le {_MAX_PIF_IMPORT_BYTES} ] || exit 76; "
+                f"cp -- {target_file} {temporary} || exit 77; "
+                f"else : > {temporary} || exit 77; fi; "
+                f"grep -Fxq -- {package} {temporary} || printf '%s\\n' {package} >> {temporary} || "
+                f"{{ rm -f -- {temporary}; exit 78; }}; "
+                f"chmod 0600 {temporary} && mv -f -- {temporary} {target_file}"
+            )
+            risk = OperationRisk.MUTATING
+            behavior = "targeted_fix_target_add"
+            present = True
+            label = f"Add TargetedFix target {package} on {device.serial}"
+        else:
+            script = (
+                "[ -d /data/adb/modules/targetedfix ] || exit 72; "
+                f"if [ -f {target_file} ]; then "
+                f"size=$(wc -c < {target_file} 2>/dev/null | tr -d ' '); "
+                "case \"$size\" in ''|*[!0-9]*) exit 75;; esac; "
+                f"[ \"$size\" -le {_MAX_PIF_IMPORT_BYTES} ] || exit 76; "
+                f"grep -Fxv -- {package} {target_file} > {temporary}; status=$?; "
+                f"[ \"$status\" -le 1 ] || {{ rm -f -- {temporary}; exit 77; }}; "
+                f"chmod 0600 {temporary} && mv -f -- {temporary} {target_file} || exit 78; fi; "
+                f"rm -f -- {config}/{package}.json {config}/{package}.prop"
+            )
+            risk = OperationRisk.DESTRUCTIVE
+            behavior = "targeted_fix_target_delete"
+            present = False
+            label = f"Delete TargetedFix target {package} on {device.serial}"
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            timeout_seconds=30.0,
+            output_limit_bytes=16 * 1024,
+        )
+        return RootingCompilation(
+            "pif.add_target" if action == "addTarget" else "pif.delete_target",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=label,
+                data_behavior=behavior,
+                risk=risk,
+                postconditions=(
+                    OperationPostcondition(
+                        "targeted_fix_target_state",
+                        {"packageName": package, "present": present},
+                        "the TargetedFix target list matches the requested state",
+                    ),
+                ),
+            ),
+            pif_target_package=package,
+            device_write=True,
+            destructive=action == "deleteTarget",
             requires_confirmation=True,
         )
 

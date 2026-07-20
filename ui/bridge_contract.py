@@ -359,17 +359,34 @@ def _validate_payload_values(
         if not _nonempty_string(serial, limit=256):
             _payload_error("tools.pif serial is invalid", request_id)
         action = payload.get("action")
-        if action not in {"deleteProfile", "importProfile"} or profile_id not in canonical_profiles:
-            _payload_error("tools.pif action or profileId is invalid", request_id)
-        assert isinstance(serial, str) and isinstance(profile_id, str)
-        if action == "importProfile":
-            if not _nonempty_string(payload.get("grant"), limit=256):
-                _payload_error("tools.pif import grant is invalid", request_id)
-            required = f"IMPORT PIF {profile_id} {serial[-6:].upper()}"
+        if action in {"deleteProfile", "importProfile"}:
+            if profile_id not in canonical_profiles or "targetPackage" in payload:
+                _payload_error("tools.pif profile action payload is invalid", request_id)
+            assert isinstance(serial, str) and isinstance(profile_id, str)
+            if action == "importProfile":
+                if not _nonempty_string(payload.get("grant"), limit=256):
+                    _payload_error("tools.pif import grant is invalid", request_id)
+                required = f"IMPORT PIF {profile_id} {serial[-6:].upper()}"
+            else:
+                if "grant" in payload:
+                    _payload_error("tools.pif delete grant is not allowed", request_id)
+                required = f"DELETE PIF {profile_id} {serial[-6:].upper()}"
+        elif action in {"addTarget", "deleteTarget"}:
+            target_package = payload.get("targetPackage")
+            if (
+                not isinstance(target_package, str)
+                or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", target_package)
+                is None
+                or len(target_package) > 255
+                or "profileId" in payload
+                or "grant" in payload
+            ):
+                _payload_error("tools.pif TargetedFix payload is invalid", request_id)
+            assert isinstance(serial, str)
+            verb = "ADD" if action == "addTarget" else "DELETE"
+            required = f"{verb} TARGET {target_package} {serial[-6:].upper()}"
         else:
-            if "grant" in payload:
-                _payload_error("tools.pif delete grant is not allowed", request_id)
-            required = f"DELETE PIF {profile_id} {serial[-6:].upper()}"
+            _payload_error("tools.pif action is invalid", request_id)
         if payload.get("confirmationText") != required:
             _payload_error("tools.pif confirmationText is invalid", request_id)
     elif command == "tools.sos":

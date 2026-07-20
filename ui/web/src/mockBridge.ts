@@ -1151,27 +1151,40 @@ export function installDevelopmentBridge() {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);
             const profileId = typeof request.payload.profileId === 'string' ? request.payload.profileId : '';
-            const importing = request.payload.action === 'importProfile';
-            const required = `${importing ? 'IMPORT' : 'DELETE'} PIF ${profileId} ${serial.slice(-6).toUpperCase()}`;
+            const action = String(request.payload.action);
+            const importing = action === 'importProfile';
+            const targetAction = action === 'addTarget' || action === 'deleteTarget';
+            const targetPackage = typeof request.payload.targetPackage === 'string' ? request.payload.targetPackage : '';
+            const required = targetAction
+              ? `${action === 'addTarget' ? 'ADD' : 'DELETE'} TARGET ${targetPackage} ${serial.slice(-6).toUpperCase()}`
+              : `${importing ? 'IMPORT' : 'DELETE'} PIF ${profileId} ${serial.slice(-6).toUpperCase()}`;
             if (
               !target || target.mode !== 'adb' || !target.rooted
-              || !['deleteProfile', 'importProfile'].includes(String(request.payload.action))
+              || !['deleteProfile', 'importProfile', 'addTarget', 'deleteTarget'].includes(action)
               || request.payload.confirmationText !== required
             ) {
-              emit(errorMessage('PIF profile deletion request is invalid.', request));
+              emit(errorMessage('PIF or TargetedFix request is invalid.', request));
               break;
             }
             requestGuardedConfirmation(
               request,
-              `${importing ? 'Import' : 'Delete'} PIF profile ${profileId} on ${serial}?`,
+              targetAction
+                ? `${action === 'addTarget' ? 'Add' : 'Delete'} TargetedFix target ${targetPackage} on ${serial}?`
+                : `${importing ? 'Import' : 'Delete'} PIF profile ${profileId} on ${serial}?`,
               true,
               () => finishGuarded(request, {
                 status: 'SUCCESS',
-                code: importing ? 'pif_profile_imported' : 'pif_profile_deleted',
-                message: `PIF profile ${importing ? 'import hash' : 'deletion'} was independently verified`,
-                value: importing
-                  ? { action: 'importProfile', profileId, sha256: 'c'.repeat(64), size: 512 }
-                  : { action: 'deleteProfile', profileId },
+                code: targetAction
+                  ? action === 'addTarget' ? 'targeted_fix_target_added' : 'targeted_fix_target_deleted'
+                  : importing ? 'pif_profile_imported' : 'pif_profile_deleted',
+                message: targetAction
+                  ? 'TargetedFix target state was independently verified'
+                  : `PIF profile ${importing ? 'import hash' : 'deletion'} was independently verified`,
+                value: targetAction
+                  ? { action, targetPackage }
+                  : importing
+                    ? { action: 'importProfile', profileId, sha256: 'c'.repeat(64), size: 512 }
+                    : { action: 'deleteProfile', profileId },
               }),
             );
             break;

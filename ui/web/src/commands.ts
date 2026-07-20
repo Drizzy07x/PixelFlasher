@@ -384,8 +384,9 @@ export interface BridgePayloadByCommand {
     "action": string;
     "confirmationText": string;
     "grant"?: string;
-    "profileId": string;
+    "profileId"?: string;
     "serial": string;
+    "targetPackage"?: string;
   };
   "tools.pushFiles": {
     "destination": string;
@@ -676,7 +677,7 @@ export const bridgeCommandMetadata = {
   [commands.toolsLogcat]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat","confirmation":"none","postconditions":["bounded_log_returned"]},
   [commands.toolsLogcatClear]: {"owner":"device_tools","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.logcat.clear","confirmation":"standard","postconditions":["logcat_buffers_cleared"]},
   [commands.toolsPiAnalysis]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.pi_analysis","confirmation":"none","postconditions":["bounded_redacted_analysis_returned"]},
-  [commands.toolsPif]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.delete_profile","confirmation":"standard","postconditions":["pif_profile_absent"]},
+  [commands.toolsPif]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.action","confirmation":"standard","postconditions":["pif_or_target_state_verified"]},
   [commands.toolsPushFiles]: {"owner":"device_tools","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.push_files","confirmation":"standard","postconditions":["remote_files_written"]},
   [commands.toolsScrcpy]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"tools.scrcpy","confirmation":"none","postconditions":["managed_process_started"]},
   [commands.toolsScrcpySetup]: {"owner":"device_tools","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"tools.scrcpy.setup","confirmation":"none","postconditions":["scrcpy_binary_probed"]},
@@ -788,7 +789,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"logcat_filter_array","required":false,"minItems":0,"maxItems":32},"formatEnabled":{"kind":"boolean","required":false},"formatModifiers":{"kind":"string_array","required":false,"minItems":0,"maxItems":7},"formatVerb":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"regex":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false},"uids":{"kind":"integer_array","required":false,"minItems":0,"maxItems":32}},
   [commands.toolsLogcatClear]: {"serial":{"kind":"string","required":false}},
   [commands.toolsPiAnalysis]: {"action":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
-  [commands.toolsPif]: {"action":{"kind":"string","required":true},"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"profileId":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
+  [commands.toolsPif]: {"action":{"kind":"string","required":true},"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"profileId":{"kind":"string","required":false},"serial":{"kind":"string","required":true},"targetPackage":{"kind":"string","required":false}},
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},
   [commands.toolsScrcpy]: {"alwaysOnTop":{"kind":"boolean","required":true},"fullscreen":{"kind":"boolean","required":true},"maxFps":{"kind":"integer","required":true},"maxSize":{"kind":"integer","required":true},"noAudio":{"kind":"boolean","required":true},"serial":{"kind":"string","required":false},"showTouches":{"kind":"boolean","required":true},"stayAwake":{"kind":"boolean","required":true},"turnScreenOff":{"kind":"boolean","required":true},"videoBitRateMbps":{"kind":"integer","required":true}},
   [commands.toolsScrcpySetup]: {"source":{"kind":"string","required":false}},

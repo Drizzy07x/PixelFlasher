@@ -2249,6 +2249,36 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(2, len(transport.calls))
 
+    def test_targeted_fix_target_changes_return_only_verified_package_identity(self):
+        package = "com.example.app"
+        for action, verb, code in (
+            ("addTarget", "ADD", "targeted_fix_target_added"),
+            ("deleteTarget", "DELETE", "targeted_fix_target_deleted"),
+        ):
+            with self.subTest(action=action):
+                engine, transport = self.engine_for(
+                    "adb",
+                    [TransportOutcome(0)],
+                    root=True,
+                    interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+                )
+                result = engine.execute(
+                    command(
+                        "tools.pif",
+                        {
+                            "serial": "SERIAL",
+                            "action": action,
+                            "targetPackage": package,
+                            "confirmationText": f"{verb} TARGET {package} SERIAL",
+                        },
+                    )
+                )
+
+                self.assertTrue(result.ok)
+                self.assertEqual(code, result.code)
+                self.assertEqual({"action": action, "targetPackage": package}, result.value)
+                self.assertIn("/data/adb/modules/targetedfix/config/target.txt", transport.calls[0].argv[6])
+
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (
             (
