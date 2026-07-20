@@ -1279,9 +1279,9 @@
       "currentEvidence": [
         "pixelflasher_core/rooting.py:RootingService",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:RootPage"
+        "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "Module update discovery and the remaining legacy root-settings workflow are absent.",
+      "gap": "Install, enable, disable and remove now refresh canonical device state at the returned revision only after SUCCESS; failures cannot invent local state. Module update discovery and the remaining legacy root-settings workflow are absent.",
       "exitCriteria": [
         "React lists, installs, updates, enables, disables and removes validated modules with action-specific confirmation and refreshed state."
       ],
@@ -1299,7 +1299,8 @@
       "tests": [
         "tests/test_rooting_service.py",
         "tests/test_service_engine_integration.py",
-        "ui/web/src/test/App.test.tsx:root workflow"
+        "ui/web/src/test/App.test.tsx:root workflow",
+        "ui/web/src/test/root-modules.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,

@@ -85,6 +85,10 @@ function parseRootAppCatalogEntry(value: unknown): RootAppCatalogEntry | null {
   return entry as unknown as RootAppCatalogEntry;
 }
 
+function operationSucceeded(response: Awaited<ReturnType<SharedPageProps['onCommand']>>) {
+  return Boolean(response && String(record(response.result).status).toLowerCase() === 'success');
+}
+
 interface RootModuleEntry {
   id: string;
 }
@@ -317,12 +321,17 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     }
   };
 
-  const refreshModules = async () => {
-    if (!rootedAdb || !primary || busy) return;
-    setBusy('modules-list');
+  const refreshModules = async (expectedRevision?: number) => {
+    if (!rootedAdb || !primary || (busy && expectedRevision === undefined)) return false;
+    const ownsBusyState = expectedRevision === undefined;
+    if (ownsBusyState) setBusy('modules-list');
     try {
-      const response = await onCommand(commands.rootModulesList, { serial: primary.serial });
-      if (!response) return;
+      const response = await onCommand(
+        commands.rootModulesList,
+        { serial: primary.serial },
+        expectedRevision === undefined ? undefined : { expectedRevision, suppressNotice: true },
+      );
+      if (!response) return false;
       const value = record(record(response.result).value);
       const parsed = (Array.isArray(value.modules) ? value.modules : []).flatMap((entry) => {
         const module = record(entry);
@@ -332,8 +341,9 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       });
       setModules(parsed);
       setModulesLoaded(true);
+      return true;
     } finally {
-      setBusy('');
+      if (ownsBusyState) setBusy('');
     }
   };
 
@@ -342,8 +352,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     setBusy(`module:${action}:${moduleId}`);
     try {
       const response = await onCommand(commands.rootModulesAction, { serial: primary.serial, action, moduleId });
-      if (response && action === 'remove') {
-        setModules((current) => current.filter((module) => module.id !== moduleId));
+      if (operationSucceeded(response)) {
+        await refreshModules(response?.revision);
       }
     } finally {
       setBusy('');
@@ -362,13 +372,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       const grant = selectedGrant(picked);
       if (!grant) return;
       const response = await onCommand(commands.rootModulesAction, { serial: primary.serial, action: 'install', grant });
-      if (!response) return;
-      const value = record(record(response.result).value);
-      if (typeof value.moduleId === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(value.moduleId)) {
-        setModules((current) => current.some((module) => module.id === value.moduleId)
-          ? current
-          : [...current, { id: value.moduleId as string }]);
-        setModulesLoaded(true);
+      if (operationSucceeded(response)) {
+        await refreshModules(response?.revision);
       }
     } finally {
       setBusy('');

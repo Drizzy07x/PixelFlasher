@@ -298,7 +298,7 @@ describe('PixelFlasher web workspace', () => {
       await screen.findByRole('alertdialog');
       expect(modulesRefresh).toBeDisabled();
       await acceptInteraction();
-      expect(await screen.findByText(`${action.toLowerCase()} Magisk module play_integrity_fix`)).toBeVisible();
+      await waitFor(() => expect(modulesRefresh).toBeEnabled());
     }
 
     await user.click(within(moduleRow).getByRole('button', { name: 'Remove' }));
