@@ -4,6 +4,28 @@ PixelFlasher 10 ports upstream behavior deliberately. It does not merge wx UI,
 release-version changes, or superseded build experiments into the modern branch.
 Each milestone close and the release code freeze must add a dated audit entry.
 
+## 2026-07-20 — packaged personal-tools checkpoint
+
+- Modern branch: `modernization/10.0`
+- Modern checkpoint: `9241179` (`Prove packaged personal tool execution`)
+- Upstream remote: `https://github.com/badabing2005/PixelFlasher.git`
+- Audited upstream tip: `d85019245f3da403fb165bfc6561242e6c914e9e`
+- New commits after the previously audited tip: none
+- Integration decision: no upstream commit is required
+
+The fresh fetch confirmed that `upstream/main` still points to the same audited
+release tip. The behavior port in `624006d` remains complete; version bumps,
+wx UI changes and superseded release-workflow experiments remain excluded.
+
+Checkpoint evidence: 1,361 Python tests passed with seven platform skips and
+16,680 subtests; Ruff and strict Pyright passed; all 33 frontend files and 209
+tests passed; gettext verification, TypeScript and both production Vite bundles
+passed. A rebuilt Windows x86_64 executable completed the schema-v2 personal
+tools smoke: a purpose-bound, hash-pinned safe argv profile survived repository
+reload and executed directly, then the isolated Legacy Raw boundary proved
+persistent permission, exact per-run confirmation and native-shell execution.
+The same executable also reran the packaged firmware smoke successfully.
+
 ## 2026-07-20 — packaged bridge smoke checkpoint
 
 - Modern branch: `modernization/10.0`
