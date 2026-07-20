@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, BinaryIO, Protocol, cast, runtime_checkable
 
 from .cancellation import CancellationReason, CancellationToken
@@ -39,6 +40,21 @@ class ProcessTransport(Protocol):
         self,
         request: ProcessRequest,
         cancellation: CancellationToken,
+    ) -> TransportOutcome: ...
+
+
+OutputListener = Callable[[str, str], None]
+
+
+@runtime_checkable
+class StreamingProcessTransport(Protocol):
+    """A process boundary that reports bounded output chunks while running."""
+
+    def run_streaming(
+        self,
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        output_listener: OutputListener,
     ) -> TransportOutcome: ...
 
 
@@ -109,6 +125,7 @@ class SubprocessTransport:
     """Execute an argv tuple directly; a command string is never interpreted."""
 
     poll_interval_seconds = 0.05
+    streaming_output_limit_bytes = 4 * 1_024 * 1_024
 
     def run(
         self,
@@ -123,6 +140,37 @@ class SubprocessTransport:
         if cancellation.cancelled:
             return self._cancellation_outcome(cancellation)
         return self._run_process(request, cancellation)
+
+    def run_streaming(
+        self,
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        output_listener: OutputListener,
+    ) -> TransportOutcome:
+        if request.stdin_secret_field is not None:
+            raise SecretTransportError(
+                "secret_transport_required",
+                "secret-bearing requests require the dedicated stdin transport",
+            )
+        if cancellation.cancelled:
+            return self._cancellation_outcome(cancellation)
+        environment = None
+        if request.env:
+            environment = os.environ.copy()
+            environment.update(dict(request.env))
+        bounded_request = request
+        if bounded_request.output_limit_bytes is None:
+            bounded_request = replace(
+                bounded_request,
+                output_limit_bytes=self.streaming_output_limit_bytes,
+            )
+        return self._run_bounded_process(
+            bounded_request,
+            cancellation,
+            environment=environment,
+            stdin_text=None,
+            output_listener=output_listener,
+        )
 
     def run_secret(
         self,
@@ -267,6 +315,7 @@ class SubprocessTransport:
         *,
         environment: dict[str, str] | None,
         stdin_text: str | None,
+        output_listener: OutputListener | None = None,
     ) -> TransportOutcome:
         """Drain both pipes concurrently and terminate at the aggregate byte cap."""
 
@@ -295,7 +344,7 @@ class SubprocessTransport:
         output_limited = threading.Event()
         captured_bytes = 0
 
-        def collect(stream: BinaryIO, target: bytearray) -> None:
+        def collect(stream_name: str, stream: BinaryIO, target: bytearray) -> None:
             nonlocal captured_bytes
             while True:
                 with capture_lock:
@@ -313,18 +362,28 @@ class SubprocessTransport:
                         captured_bytes += accepted
                     if accepted != len(chunk):
                         output_limited.set()
-                        return
+                if accepted and output_listener is not None:
+                    try:
+                        output_listener(
+                            stream_name,
+                            chunk[:accepted].decode(request.encoding, errors="replace"),
+                        )
+                    except Exception:
+                        # Output observers must not change process semantics.
+                        pass
+                if accepted != len(chunk):
+                    return
 
         readers = (
             threading.Thread(
                 target=collect,
-                args=(process.stdout, stdout_buffer),
+                args=("stdout", process.stdout, stdout_buffer),
                 name="pixelflasher-stdout-capture",
                 daemon=True,
             ),
             threading.Thread(
                 target=collect,
-                args=(process.stderr, stderr_buffer),
+                args=("stderr", process.stderr, stderr_buffer),
                 name="pixelflasher-stderr-capture",
                 daemon=True,
             ),
@@ -624,12 +683,27 @@ class FakeTransportStep:
     started_event: threading.Event | None = None
     release_event: threading.Event | None = None
     expected_secret: SensitiveText | None = None
+    output_chunks: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if self.expected_secret is not None and not isinstance(
             self.expected_secret, SensitiveText
         ):
             raise TypeError("expected_secret must be SensitiveText or null")
+        normalized_chunks: list[tuple[str, str]] = []
+        for chunk in self.output_chunks:
+            if len(chunk) == 2 and all(isinstance(value, str) for value in chunk):
+                normalized_chunks.append((chunk[0], chunk[1]))
+            else:
+                normalized_chunks.append(("", ""))
+        self.output_chunks = tuple(normalized_chunks)
+        if any(
+            len(chunk) != 2
+            or chunk[0] not in {"stdout", "stderr"}
+            or not isinstance(chunk[1], str)
+            for chunk in self.output_chunks
+        ):
+            raise ValueError("output chunks must contain a stdout/stderr name and text")
 
 
 class FakeProcessTransport:
@@ -668,6 +742,37 @@ class FakeProcessTransport:
                 "secret-bearing requests require the dedicated stdin transport",
             )
         step = self._take_step(request)
+        return self._complete_step(step, cancellation)
+
+    def run_streaming(
+        self,
+        request: ProcessRequest,
+        cancellation: CancellationToken,
+        output_listener: OutputListener,
+    ) -> TransportOutcome:
+        if request.stdin_secret_field is not None:
+            raise SecretTransportError(
+                "secret_transport_required",
+                "secret-bearing requests require the dedicated stdin transport",
+            )
+        step = self._take_step(request)
+        chunks = step.output_chunks
+        if not chunks:
+            chunks = tuple(
+                (stream, value)
+                for stream, value in (
+                    ("stdout", step.outcome.stdout),
+                    ("stderr", step.outcome.stderr),
+                )
+                if value
+            )
+        for stream_name, value in chunks:
+            if cancellation.cancelled:
+                break
+            try:
+                output_listener(stream_name, value)
+            except Exception:
+                pass
         return self._complete_step(step, cancellation)
 
     def run_secret(
@@ -734,6 +839,41 @@ class FakeProcessTransport:
 
 ProgressListener = Callable[[ProgressEvent], None]
 
+_ADB_EXECUTABLES = frozenset({"adb", "adb.exe"})
+_PERCENT_PATTERN = re.compile(
+    r"(?:^|[\r\n])serving:\s*'[^'\r\n]{0,180}'\s*"
+    r"\(\s*~\s*(100|[0-9]{1,2})\s*%\s*\)"
+)
+
+
+def _is_ota_sideload_request(request: ProcessRequest) -> bool:
+    return (
+        len(request.argv) >= 3
+        and os.path.basename(request.argv[0]).casefold() in _ADB_EXECUTABLES
+        and request.argv[-2].casefold() == "sideload"
+    )
+
+
+class _OtaSideloadProgress:
+    """Parse adb sideload percentages without exposing process output."""
+
+    def __init__(self, listener: Callable[[int], None]) -> None:
+        self._listener = listener
+        self._buffers = {"stdout": "", "stderr": ""}
+        self._last_percent = -1
+
+    def feed(self, stream_name: str, value: str) -> None:
+        if stream_name not in self._buffers or not isinstance(value, str):
+            return
+        combined = (self._buffers[stream_name] + value)[-256:]
+        self._buffers[stream_name] = combined
+        for match in _PERCENT_PATTERN.finditer(combined):
+            percent = int(match.group(1))
+            if percent <= self._last_percent:
+                continue
+            self._last_percent = percent
+            self._listener(percent)
+
 
 class CommandExecutor:
     def __init__(
@@ -784,6 +924,14 @@ class CommandExecutor:
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
         total = len(plan.requests)
+        ota_sideload_index = next(
+            (
+                index
+                for index, candidate in enumerate(plan.requests, start=1)
+                if _is_ota_sideload_request(candidate)
+            ),
+            None,
+        )
         for index, request in enumerate(plan.requests, start=1):
             if token.cancelled:
                 if token.reason is CancellationReason.DEADLINE:
@@ -802,7 +950,11 @@ class CommandExecutor:
                     stdout="".join(stdout_parts),
                     stderr="".join(stderr_parts),
                 )
-            progress_percent = int(((index - 1) / total) * 100)
+            progress_percent = self._request_progress_percent(
+                index,
+                total,
+                ota_sideload_index,
+            )
             progress_current: int | None = None
             progress_total: int | None = None
             progress_item: str | None = None
@@ -827,9 +979,34 @@ class CommandExecutor:
                 total=progress_total,
                 item=progress_item,
             )
+            ota_progress = (
+                _OtaSideloadProgress(
+                    lambda raw_percent: self._progress(
+                        command,
+                        ProgressPhase.RUNNING,
+                        f"OTA sideload transfer: {raw_percent}%",
+                        10 + int(raw_percent * 80 / 100),
+                    )
+                )
+                if index == ota_sideload_index
+                else None
+            )
             try:
                 if request.stdin_secret_field is None:
-                    outcome = self.transport.run(request, token)
+                    if ota_progress is not None and isinstance(
+                        self.transport,
+                        StreamingProcessTransport,
+                    ):
+                        outcome = self.transport.run_streaming(
+                            request,
+                            token,
+                            ota_progress.feed,
+                        )
+                    else:
+                        outcome = self.transport.run(request, token)
+                        if ota_progress is not None:
+                            ota_progress.feed("stdout", outcome.stdout)
+                            ota_progress.feed("stderr", outcome.stderr)
                 else:
                     secret = command.payload.get(request.stdin_secret_field)
                     if not isinstance(secret, SensitiveText):
@@ -974,6 +1151,22 @@ class CommandExecutor:
             stdout="".join(stdout_parts),
             stderr="".join(stderr_parts),
         )
+
+    @staticmethod
+    def _request_progress_percent(
+        index: int,
+        total: int,
+        ota_sideload_index: int | None,
+    ) -> int:
+        if ota_sideload_index is None:
+            return int(((index - 1) / total) * 100)
+        if index < ota_sideload_index:
+            transition_count = max(1, ota_sideload_index - 1)
+            return int(((index - 1) / transition_count) * 10)
+        if index == ota_sideload_index:
+            return 10
+        remaining_count = max(1, total - ota_sideload_index)
+        return 90 + int(((index - ota_sideload_index - 1) / remaining_count) * 9)
 
     def _progress(
         self,

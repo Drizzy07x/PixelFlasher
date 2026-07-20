@@ -96,6 +96,8 @@ describe('five-step flash planning edge behavior', () => {
     rerender(<I18nProvider locale="en"><FlashWizard {...props} operation={{ status: 'failed', detail: 'Postcondition mismatch' }} /></I18nProvider>);
     expect(screen.getByText('Flash failed — review the operation log')).toBeVisible();
     expect(screen.getByRole('progressbar', { name: 'Postcondition mismatch' })).toHaveAttribute('aria-valuenow', '0');
+    rerender(<I18nProvider locale="en"><FlashWizard {...props} operation={{ status: 'running', progress: 47, detail: 'OTA sideload transfer: 47%' }} /></I18nProvider>);
+    expect(screen.getByRole('progressbar', { name: 'OTA sideload transfer: 47%' })).toHaveAttribute('aria-valuenow', '47');
     rerender(<I18nProvider locale="en"><FlashWizard {...props} operation={{ status: 'cancelled', progress: 35 }} /></I18nProvider>);
     expect(screen.getByText('Flash was cancelled')).toBeVisible();
   });

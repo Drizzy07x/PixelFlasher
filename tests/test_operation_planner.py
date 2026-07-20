@@ -25,6 +25,7 @@ from pixelflasher_core import (
     OperationRunner,
     OperationStatus,
     ProcessedArtifactRepository,
+    ProgressEvent,
     SafetyPolicy,
     ToolchainInfo,
     TransportOutcome,
@@ -1004,7 +1005,19 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                 True,
                 True,
             )
-            transport = FakeProcessTransport([TransportOutcome(0)])
+            progress: list[ProgressEvent] = []
+            transport = FakeProcessTransport(
+                [
+                    FakeTransportStep(
+                        TransportOutcome(0, stderr="serving: 'ota.zip' (~100%)"),
+                        output_chunks=(
+                            ("stderr", "serving: 'ota.zip' (~25%)\r"),
+                            ("stderr", "serving: 'ota.zip' (~75%)\r"),
+                            ("stderr", "serving: 'ota.zip' (~100%)\n"),
+                        ),
+                    )
+                ]
+            )
             engine = CommandEngine(
                 store=AppStateStore(
                     snapshot_for(
@@ -1017,7 +1030,7 @@ class FlashPlannerGoldenTests(unittest.TestCase):
                         firmware=firmware,
                     )
                 ),
-                executor=CommandExecutor(transport),
+                executor=CommandExecutor(transport, progress.append),
                 postcondition_observer=StatefulPostconditionObserver(transport),
                 interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
             )
@@ -1025,6 +1038,14 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             result = engine.execute(command("flash.execute"))
 
             self.assertEqual(OperationStatus.SUCCESS, result.status)
+            self.assertEqual(
+                [25, 75, 100],
+                [
+                    int(event.message.removeprefix("OTA sideload transfer: ").removesuffix("%"))
+                    for event in progress
+                    if event.message.startswith("OTA sideload transfer:")
+                ],
+            )
             assert_exact_or_staged_argv(
                 self,
                 [("ADB", "-s", "SERIAL-A", "sideload", str(ota.resolve()))],

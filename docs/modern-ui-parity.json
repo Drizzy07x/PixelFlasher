@@ -901,10 +901,11 @@
         "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "ui/web/src/App.tsx:prepareFlash/startFlash",
         "pixelflasher_core/planner.py:OperationPlanner._flash",
+        "pixelflasher_core/executor.py:SubprocessTransport.run_streaming/CommandExecutor.execute",
         "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
         "pixelflasher_core/observer.py:PostconditionObserver"
       ],
-      "gap": "ADB/recovery-to-sideload orchestration and reboot/build/slot postconditions are implemented; percentage progress plus packaged-platform and hardware validation remain open.",
+      "gap": "ADB/recovery-to-sideload orchestration, bounded live percentage parsing and reboot/build/slot postconditions are implemented; packaged-platform and hardware validation remain open.",
       "exitCriteria": [
         "Full OTA sideload to inactive slot is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -924,6 +925,8 @@
         "tests/test_operation_planner.py:test_ota_sideload_uses_exact_adb_command_and_verified_archive",
         "tests/test_operation_planner.py:test_ota_no_reboot_false_appends_exact_adb_reboot",
         "tests/test_operation_planner.py:test_ota_transitions_from_adb_or_recovery_and_rejects_unsafe_state_or_hash",
+        "tests/test_ota_sideload_progress.py",
+        "ui/web/src/test/flash-wizard.behavior.test.tsx",
         "tests/test_operation_runner_v2.py"
       ],
       "blockReason": null,
