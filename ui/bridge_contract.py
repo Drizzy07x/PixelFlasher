@@ -345,6 +345,9 @@ def _validate_payload_values(
             _payload_error("tools.piAnalysis serial is invalid", request_id)
         if payload.get("action") != "analyze":
             _payload_error("tools.piAnalysis action is invalid", request_id)
+    elif command == "root.pif.inventory":
+        if not _nonempty_string(payload.get("serial"), limit=256):
+            _payload_error("root.pif.inventory serial is invalid", request_id)
     elif command == "tools.sos":
         serial = payload.get("serial")
         if not _nonempty_string(serial, limit=256):

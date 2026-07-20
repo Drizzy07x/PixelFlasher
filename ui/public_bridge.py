@@ -44,6 +44,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.catalog.refresh",
         "root.apps.download",
         "root.modules.list",
+        "root.pif.inventory",
         "root.dataAdb.backup",
         "root.dataAdb.restore",
         "root.dataAdb.clear",
@@ -2976,6 +2977,102 @@ def _project_keybox_analysis(value: object) -> JSONValue:
     )
 
 
+def _project_pif_inventory(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"schemaVersion", "rootAccess", "bounded", "count", "profiles", "targetCount", "targets"}
+        ),
+    )
+    profile_specs = [
+        ("pif.custom_json", "playintegrityfix", "json"),
+        ("pif.custom_prop", "playintegrityfix", "prop"),
+        ("pif.module_json", "playintegrityfix", "json"),
+        ("pif.legacy_json", "playintegrityfix", "json"),
+        ("pif.app_replace", "playintegrityfix", "list"),
+        ("pif.scripts_only", "playintegrityfix", "marker"),
+        ("tricky.spoof", "tricky_store", "prop"),
+        ("tricky.target", "tricky_store", "list"),
+        ("tricky.security_patch", "tricky_store", "text"),
+        ("tricky.tee", "tricky_store", "text"),
+        ("targeted.targets", "targetedfix", "list"),
+    ]
+    raw_profiles = source["profiles"]
+    raw_targets = source["targets"]
+    if (
+        source["schemaVersion"] != 1
+        or source["rootAccess"] != "verified"
+        or source["bounded"] is not True
+        or source["count"] != len(profile_specs)
+        or not isinstance(raw_profiles, list)
+        or len(raw_profiles) != len(profile_specs)
+        or not isinstance(source["targetCount"], int)
+        or isinstance(source["targetCount"], bool)
+        or not 0 <= source["targetCount"] <= 256
+        or not isinstance(raw_targets, list)
+        or len(raw_targets) != source["targetCount"]
+    ):
+        raise PublicProjectionError("PIF inventory boundary is invalid")
+
+    profiles: list[dict[str, JSONValue]] = []
+    for raw, expected in zip(cast("list[object]", raw_profiles), profile_specs, strict=True):
+        item = _closed_record(
+            raw,
+            fields=frozenset({"id", "module", "format", "present", "size", "sha256"}),
+        )
+        if (item["id"], item["module"], item["format"]) != expected:
+            raise PublicProjectionError("PIF profile identity is invalid")
+        _validate_pif_file_metadata(item)
+        profiles.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+
+    targets: list[dict[str, JSONValue]] = []
+    target_ids: list[str] = []
+    for raw in cast("list[object]", raw_targets):
+        item = _closed_record(
+            raw,
+            fields=frozenset({"packageName", "format", "present", "size", "sha256"}),
+        )
+        package_name = item["packageName"]
+        if (
+            not isinstance(package_name, str)
+            or len(package_name) > 255
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", package_name) is None
+            or item["format"] != "json"
+        ):
+            raise PublicProjectionError("PIF target identity is invalid")
+        _validate_pif_file_metadata(item)
+        target_ids.append(package_name.casefold())
+        targets.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+    if target_ids != sorted(set(target_ids)):
+        raise PublicProjectionError("PIF target identities are invalid")
+    return ensure_public_json(
+        {
+            "schemaVersion": 1,
+            "rootAccess": "verified",
+            "bounded": True,
+            "count": len(profiles),
+            "profiles": profiles,
+            "targetCount": len(targets),
+            "targets": targets,
+        }
+    )
+
+
+def _validate_pif_file_metadata(item: Mapping[str, object]) -> None:
+    present = item["present"]
+    size = item["size"]
+    digest = item["sha256"]
+    if (
+        not isinstance(present, bool)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 0 <= size <= 4 * 1024 * 1024
+        or (present and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None))
+        or (not present and (size != 0 or digest is not None))
+    ):
+        raise PublicProjectionError("PIF file evidence is invalid")
+
+
 def _project_pi_analysis(value: object) -> JSONValue:
     source = _closed_record(
         value,
@@ -3232,6 +3329,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "root.dataAdb.clear": _project_data_adb_clear,
     "root.modules.action": _project_root_module_action,
     "root.modules.list": _project_root_modules,
+    "root.pif.inventory": _project_pif_inventory,
     "secret.issue": _project_native_grant,
     "settings.get": _project_preferences,
     "settings.update": _project_preferences,

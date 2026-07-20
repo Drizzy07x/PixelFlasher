@@ -61,6 +61,7 @@ export const commands = {
   rootDataAdbRestore: "root.dataAdb.restore",
   rootModulesAction: "root.modules.action",
   rootModulesList: "root.modules.list",
+  rootPifInventory: "root.pif.inventory",
   secretIssue: "secret.issue",
   settingsGet: "settings.get",
   settingsUpdate: "settings.update",
@@ -323,6 +324,9 @@ export interface BridgePayloadByCommand {
   "root.modules.list": {
     "serial"?: string;
   };
+  "root.pif.inventory": {
+    "serial": string;
+  };
   "secret.issue": {
     "purpose": string;
     "secret": string;
@@ -485,6 +489,7 @@ export const allowedCommands = [
   commands.rootDataAdbRestore,
   commands.rootModulesAction,
   commands.rootModulesList,
+  commands.rootPifInventory,
   commands.secretIssue,
   commands.settingsGet,
   commands.settingsUpdate,
@@ -570,6 +575,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.rootDataAdbRestore]: 3600000,
   [commands.rootModulesAction]: 1800000,
   [commands.rootModulesList]: 300000,
+  [commands.rootPifInventory]: 120000,
   [commands.secretIssue]: 60000,
   [commands.settingsGet]: 60000,
   [commands.settingsUpdate]: 60000,
@@ -649,6 +655,7 @@ export const bridgeCommandMetadata = {
   [commands.rootDataAdbRestore]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb"],"planner":"root.data_adb.restore","confirmation":"standard","postconditions":["data_adb_restore_verified"]},
   [commands.rootModulesAction]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.module_action","confirmation":"standard","postconditions":["root_module_state_verified"]},
   [commands.rootModulesList]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.modules_inventory","confirmation":"none","postconditions":["root_modules_returned"]},
+  [commands.rootPifInventory]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.inventory","confirmation":"none","postconditions":["bounded_pif_inventory_returned"]},
   [commands.secretIssue]: {"owner":"native_host","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.secret_grant","confirmation":"none","postconditions":["secret_grant_issued"]},
   [commands.settingsGet]: {"owner":"settings","mutability":"read_only","risk":"host_read","expectedRevision":"optional","validDeviceStates":["*"],"planner":"runtime.settings_get","confirmation":"none","postconditions":["preferences_returned"]},
   [commands.settingsUpdate]: {"owner":"settings","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"runtime.settings_update","confirmation":"none","postconditions":["preferences_persisted"]},
@@ -759,6 +766,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.rootDataAdbRestore]: {"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
   [commands.rootModulesAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"moduleId":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.rootModulesList]: {"serial":{"kind":"string","required":false}},
+  [commands.rootPifInventory]: {"serial":{"kind":"string","required":true}},
   [commands.secretIssue]: {"purpose":{"kind":"string","required":true},"secret":{"kind":"string","required":true}},
   [commands.settingsGet]: {},
   [commands.settingsUpdate]: {"highContrast":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"reducedMotion":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"zoom":{"kind":"integer","required":false}},

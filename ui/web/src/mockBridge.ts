@@ -1104,6 +1104,49 @@ export function installDevelopmentBridge() {
             });
             break;
           }
+          case 'root.pif.inventory': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            if (!target || target.mode !== 'adb' || !target.rooted) {
+              emit(errorMessage('PIF inventory requires one rooted ADB device.', request));
+              break;
+            }
+            const specs = [
+              ['pif.custom_json', 'playintegrityfix', 'json'],
+              ['pif.custom_prop', 'playintegrityfix', 'prop'],
+              ['pif.module_json', 'playintegrityfix', 'json'],
+              ['pif.legacy_json', 'playintegrityfix', 'json'],
+              ['pif.app_replace', 'playintegrityfix', 'list'],
+              ['pif.scripts_only', 'playintegrityfix', 'marker'],
+              ['tricky.spoof', 'tricky_store', 'prop'],
+              ['tricky.target', 'tricky_store', 'list'],
+              ['tricky.security_patch', 'tricky_store', 'text'],
+              ['tricky.tee', 'tricky_store', 'text'],
+              ['targeted.targets', 'targetedfix', 'list'],
+            ];
+            const profiles = specs.map(([id, module, format], index) => ({
+              id, module, format, present: index === 0, size: index === 0 ? 512 : 0,
+              sha256: index === 0 ? 'a'.repeat(64) : null,
+            }));
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'pif_inventory_listed',
+              message: 'verified PIF and TargetedFix inventory completed',
+              value: {
+                schemaVersion: 1,
+                rootAccess: 'verified',
+                bounded: true,
+                count: profiles.length,
+                profiles,
+                targetCount: 1,
+                targets: [{
+                  packageName: 'com.google.android.gms', format: 'json', present: true,
+                  size: 64, sha256: 'b'.repeat(64),
+                }],
+              },
+            });
+            break;
+          }
           case 'tools.sos': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);

@@ -151,6 +151,7 @@ from .rooting import (
     RootingPlanningError,
     RootingService,
     parse_pi_analysis,
+    parse_pif_inventory,
     parse_root_module_list,
 )
 from .safety import SafetyPolicy
@@ -1769,6 +1770,29 @@ class CommandEngine:
                     "count": len(modules),
                     "modules": [module.to_dict() for module in modules],
                 },
+            )
+        if kind == "root.pif.inventory":
+            if not isinstance(compilation, RootingCompilation) or compilation.action != "pif.inventory":
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="pif_inventory_compilation_invalid",
+                    message="PIF inventory returned an invalid compilation",
+                )
+            try:
+                inventory = parse_pif_inventory(result.stdout)
+            except RootingPlanningError as error:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            return replace(
+                result,
+                code="pif_inventory_listed",
+                message="verified PIF and TargetedFix inventory completed",
+                value=inventory,
+                stdout="",
+                stderr="",
             )
         if kind == "tools.piAnalysis":
             if (

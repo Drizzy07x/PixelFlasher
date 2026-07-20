@@ -95,6 +95,7 @@ class SafetyPolicy:
             "root.apps.download",
             "root.modules.list",
             "root.modules.action",
+            "root.pif.inventory",
         }
     )
     clock: Callable[[], float] = field(default=time.time, repr=False, compare=False)

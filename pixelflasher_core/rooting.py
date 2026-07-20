@@ -47,6 +47,7 @@ ROOTING_COMMANDS = frozenset(
         "root.apps.install",
         "root.modules.list",
         "root.modules.action",
+        "root.pif.inventory",
         "tools.piAnalysis",
         "tools.shizuku",
         "tools.sos",
@@ -94,6 +95,23 @@ _PI_WITHHELD = (
     "raw_logs",
     "target_package_names",
 )
+_PIF_INVENTORY_PREFIX = "PF_PIF"
+_MAX_PIF_INVENTORY_BYTES = 128 * 1024
+_MAX_PIF_TARGETS = 256
+_PIF_PROFILE_SPECS = (
+    ("pif.custom_json", "playintegrityfix", "json"),
+    ("pif.custom_prop", "playintegrityfix", "prop"),
+    ("pif.module_json", "playintegrityfix", "json"),
+    ("pif.legacy_json", "playintegrityfix", "json"),
+    ("pif.app_replace", "playintegrityfix", "list"),
+    ("pif.scripts_only", "playintegrityfix", "marker"),
+    ("tricky.spoof", "tricky_store", "prop"),
+    ("tricky.target", "tricky_store", "list"),
+    ("tricky.security_patch", "tricky_store", "text"),
+    ("tricky.tee", "tricky_store", "text"),
+    ("targeted.targets", "targetedfix", "list"),
+)
+_PIF_PROFILE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$")
 
 
 class RootApkInspector(Protocol):
@@ -197,6 +215,43 @@ class RootModuleInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class PifProfileInfo:
+    id: str
+    module: str
+    format: str
+    present: bool
+    size: int
+    sha256: str | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "module": self.module,
+            "format": self.format,
+            "present": self.present,
+            "size": self.size,
+            "sha256": self.sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PifTargetInfo:
+    package_name: str
+    present: bool
+    size: int
+    sha256: str | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "packageName": self.package_name,
+            "format": "json",
+            "present": self.present,
+            "size": self.size,
+            "sha256": self.sha256,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RootingCompilation:
     """A local result or process plan plus backend-owned safety metadata."""
 
@@ -295,6 +350,13 @@ class RootingService:
                     "Play Integrity analysis requires a device reporting root access",
                 )
             return self._compile_pi_analysis(command, snapshot, device, adb)
+        if command.kind == "root.pif.inventory":
+            if not device.root:
+                raise RootingPlanningError(
+                    "root_access_required",
+                    "PIF inventory requires a device reporting root access",
+                )
+            return self._compile_pif_inventory(command, snapshot, device, adb)
         if not device.root:
             raise RootingPlanningError(
                 "root_access_required",
@@ -308,6 +370,73 @@ class RootingService:
             device,
             adb,
             cancellation,
+        )
+
+    def _compile_pif_inventory(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        self._validate_payload(command, {"serial"})
+        file_specs = (
+            ("pif.custom_json", "/data/adb/modules/playintegrityfix/custom.pif.json", "playintegrityfix", "json"),
+            ("pif.custom_prop", "/data/adb/modules/playintegrityfix/custom.pif.prop", "playintegrityfix", "prop"),
+            ("pif.module_json", "/data/adb/modules/playintegrityfix/pif.json", "playintegrityfix", "json"),
+            ("pif.legacy_json", "/data/adb/pif.json", "playintegrityfix", "json"),
+            ("pif.app_replace", "/data/adb/modules/playintegrityfix/custom.app_replace.list", "playintegrityfix", "list"),
+            ("pif.scripts_only", "/data/adb/modules/playintegrityfix/scripts-only-mode", "playintegrityfix", "marker"),
+            ("tricky.spoof", "/data/adb/tricky_store/spoof_build_vars", "tricky_store", "prop"),
+            ("tricky.target", "/data/adb/tricky_store/target.txt", "tricky_store", "list"),
+            ("tricky.security_patch", "/data/adb/tricky_store/security_patch.txt", "tricky_store", "text"),
+            ("tricky.tee", "/data/adb/tricky_store/tee_status", "tricky_store", "text"),
+            ("targeted.targets", "/data/adb/modules/targetedfix/config/target.txt", "targetedfix", "list"),
+        )
+        fixed_calls = " ".join(
+            f"pf_profile {profile_id} {path} {module} {profile_format};"
+            for profile_id, path, module, profile_format in file_specs
+        )
+        script = (
+            f"printf '{_PIF_INVENTORY_PREFIX}|schema|1\\n'; "
+            "uid=$(id -u 2>/dev/null); [ \"$uid\" = 0 ] || { "
+            f"printf '{_PIF_INVENTORY_PREFIX}|root|missing\\n'; exit 71; }}; "
+            f"printf '{_PIF_INVENTORY_PREFIX}|root|verified\\n'; "
+            "pf_b64() { printf '%s' \"$1\" | base64 | tr -d '\\r\\n'; }; "
+            "pf_profile() { key=$1; file=$2; module=$3; format=$4; "
+            "if [ -f \"$file\" ]; then size=$(wc -c < \"$file\" 2>/dev/null | tr -d ' '); "
+            "case \"$size\" in ''|*[!0-9]*) size=0;; esac; "
+            "digest=$(sha256sum \"$file\" 2>/dev/null | cut -d ' ' -f 1); "
+            "case \"$digest\" in [0-9a-f][0-9a-f][0-9a-f]*) ;; *) digest=-;; esac; "
+            f"printf '{_PIF_INVENTORY_PREFIX}|profile|%s|%s|%s|present|%s|%s\\n' \"$key\" \"$module\" \"$format\" \"$size\" \"$digest\"; "
+            f"else printf '{_PIF_INVENTORY_PREFIX}|profile|%s|%s|%s|absent|0|-\\n' \"$key\" \"$module\" \"$format\"; fi; }}; "
+            f"{fixed_calls} "
+            "target_file=/data/adb/modules/targetedfix/config/target.txt; count=0; "
+            "if [ -f \"$target_file\" ]; then while IFS= read -r target; do "
+            "case \"$target\" in ''|*[!A-Za-z0-9_.]*) continue;; esac; "
+            "case \"$target\" in [A-Za-z]*) ;; *) continue;; esac; "
+            "[ \"${#target}\" -le 255 ] || continue; file=/data/adb/modules/targetedfix/config/$target.json; "
+            "if [ -f \"$file\" ]; then size=$(wc -c < \"$file\" 2>/dev/null | tr -d ' '); "
+            "case \"$size\" in ''|*[!0-9]*) size=0;; esac; digest=$(sha256sum \"$file\" 2>/dev/null | cut -d ' ' -f 1); "
+            "case \"$digest\" in [0-9a-f][0-9a-f][0-9a-f]*) ;; *) digest=-;; esac; status=present; "
+            "else size=0; digest=-; status=absent; fi; "
+            f"printf '{_PIF_INVENTORY_PREFIX}|target|%s|json|%s|%s|%s\\n' \"$(pf_b64 \"$target\")\" \"$status\" \"$size\" \"$digest\"; "
+            f"count=$((count + 1)); [ \"$count\" -lt {_MAX_PIF_TARGETS} ] || break; done < \"$target_file\"; fi; "
+            f"printf '{_PIF_INVENTORY_PREFIX}|complete|1\\n'"
+        )
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            timeout_seconds=60.0,
+            output_limit_bytes=_MAX_PIF_INVENTORY_BYTES,
+        )
+        return RootingCompilation(
+            "pif.inventory",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"List PIF and TargetedFix profiles on {device.serial}",
+            ),
         )
 
     def _compile_pi_analysis(
@@ -1406,6 +1535,107 @@ def _module_property(encoded: str, label: str, maximum: int) -> str:
     return value
 
 
+def parse_pif_inventory(stdout: str) -> dict[str, object]:
+    """Parse bounded PIF metadata without accepting paths or file contents."""
+
+    if not isinstance(stdout, str):
+        raise RootingPlanningError("pif_inventory_invalid", "PIF inventory output must be text")
+    if len(stdout.encode("utf-8", errors="replace")) > _MAX_PIF_INVENTORY_BYTES:
+        raise RootingPlanningError("pif_inventory_oversized", "PIF inventory output is oversized")
+    lines = tuple(line.strip() for line in stdout.splitlines() if line.strip())
+    if (
+        len(lines) < len(_PIF_PROFILE_SPECS) + 3
+        or lines[0] != f"{_PIF_INVENTORY_PREFIX}|schema|1"
+        or lines[-1] != f"{_PIF_INVENTORY_PREFIX}|complete|1"
+    ):
+        raise RootingPlanningError(
+            "pif_inventory_incomplete",
+            "PIF inventory is missing its schema or completion boundary",
+        )
+
+    root_verified = False
+    profiles: list[PifProfileInfo] = []
+    targets: dict[str, PifTargetInfo] = {}
+    for line in lines[1:-1]:
+        fields = line.split("|")
+        if not fields or fields[0] != _PIF_INVENTORY_PREFIX:
+            raise RootingPlanningError("pif_inventory_malformed", "PIF inventory prefix is invalid")
+        record_type = fields[1] if len(fields) > 1 else ""
+        if record_type == "root" and len(fields) == 3:
+            if root_verified or fields[2] != "verified":
+                raise RootingPlanningError(
+                    "pif_inventory_root_unverified",
+                    "PIF inventory root access was not verified",
+                )
+            root_verified = True
+            continue
+        if record_type == "profile" and len(fields) == 8:
+            profile_id, module, profile_format, state, raw_size, digest = fields[2:]
+            index = len(profiles)
+            if index >= len(_PIF_PROFILE_SPECS) or (
+                profile_id,
+                module,
+                profile_format,
+            ) != _PIF_PROFILE_SPECS[index]:
+                raise RootingPlanningError(
+                    "pif_inventory_malformed",
+                    "PIF profile identity or order is invalid",
+                )
+            if _PIF_PROFILE_ID_PATTERN.fullmatch(profile_id) is None:
+                raise RootingPlanningError("pif_inventory_malformed", "PIF profile id is invalid")
+            present, size, public_digest = _parse_pif_file_evidence(state, raw_size, digest)
+            profiles.append(
+                PifProfileInfo(
+                    profile_id,
+                    module,
+                    profile_format,
+                    present,
+                    size,
+                    public_digest,
+                )
+            )
+            continue
+        if record_type == "target" and len(fields) == 7:
+            package_name = _decode_pi_text(fields[2], "target package", 255)
+            identity = package_name.casefold()
+            if (
+                fields[3] != "json"
+                or _PACKAGE_NAME_PATTERN.fullmatch(package_name) is None
+                or identity in targets
+                or len(targets) >= _MAX_PIF_TARGETS
+            ):
+                raise RootingPlanningError("pif_inventory_malformed", "PIF target record is invalid")
+            present, size, public_digest = _parse_pif_file_evidence(*fields[4:])
+            targets[identity] = PifTargetInfo(package_name, present, size, public_digest)
+            continue
+        raise RootingPlanningError("pif_inventory_malformed", "PIF inventory contains an unknown record")
+
+    if not root_verified or len(profiles) != len(_PIF_PROFILE_SPECS):
+        raise RootingPlanningError("pif_inventory_incomplete", "PIF inventory evidence is incomplete")
+    return {
+        "schemaVersion": 1,
+        "rootAccess": "verified",
+        "bounded": True,
+        "count": len(profiles),
+        "profiles": [profile.to_dict() for profile in profiles],
+        "targetCount": len(targets),
+        "targets": [targets[key].to_dict() for key in sorted(targets)],
+    }
+
+
+def _parse_pif_file_evidence(state: str, raw_size: str, digest: str) -> tuple[bool, int, str | None]:
+    if state not in {"present", "absent"}:
+        raise RootingPlanningError("pif_inventory_malformed", "PIF file state is invalid")
+    size = _pi_count(raw_size, "PIF file size", 4 * 1024 * 1024)
+    if state == "absent":
+        if size != 0 or digest != "-":
+            raise RootingPlanningError("pif_inventory_malformed", "absent PIF file has metadata")
+        return False, 0, None
+    if _SHA256_PATTERN.fullmatch(digest) is None:
+        raise RootingPlanningError("pif_inventory_unverified", "PIF file hash is unavailable")
+    return True, size, digest
+
+
 def parse_pi_analysis(
     stdout: str,
     *,
@@ -1577,6 +1807,8 @@ def _pi_count(value: str, label: str, maximum: int) -> int:
 
 __all__ = [
     "ROOTING_COMMANDS",
+    "PifProfileInfo",
+    "PifTargetInfo",
     "RootApkInspector",
     "RootAppInfo",
     "RootAppSource",
@@ -1584,6 +1816,7 @@ __all__ = [
     "RootingCompilation",
     "RootingPlanningError",
     "RootingService",
+    "parse_pif_inventory",
     "parse_pi_analysis",
     "parse_root_module_list",
 ]

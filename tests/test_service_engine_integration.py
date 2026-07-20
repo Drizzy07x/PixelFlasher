@@ -106,6 +106,30 @@ def pi_analysis_record() -> str:
     return "\n".join(lines)
 
 
+def pif_inventory_record() -> str:
+    specs = (
+        ("pif.custom_json", "playintegrityfix", "json"),
+        ("pif.custom_prop", "playintegrityfix", "prop"),
+        ("pif.module_json", "playintegrityfix", "json"),
+        ("pif.legacy_json", "playintegrityfix", "json"),
+        ("pif.app_replace", "playintegrityfix", "list"),
+        ("pif.scripts_only", "playintegrityfix", "marker"),
+        ("tricky.spoof", "tricky_store", "prop"),
+        ("tricky.target", "tricky_store", "list"),
+        ("tricky.security_patch", "tricky_store", "text"),
+        ("tricky.tee", "tricky_store", "text"),
+        ("targeted.targets", "targetedfix", "list"),
+    )
+    lines = ["PF_PIF|schema|1", "PF_PIF|root|verified"]
+    lines.extend(
+        f"PF_PIF|profile|{profile_id}|{module}|{profile_format}|absent|0|-"
+        for profile_id, module, profile_format in specs
+    )
+    target = base64.b64encode(b"com.google.android.gms").decode()
+    lines.extend((f"PF_PIF|target|{target}|json|present|64|{'b' * 64}", "PF_PIF|complete|1"))
+    return "\n".join(lines)
+
+
 class RecordingLauncher:
     def __init__(self, *, error=None, terminate_result=True):
         self.error = error
@@ -2126,6 +2150,39 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertEqual("pi_analysis_incomplete", result.code)
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+        self.assertNotIn("PRIVATE_RAW_VALUE", repr(result))
+
+    def test_pif_inventory_returns_only_verified_metadata(self):
+        engine, transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0, pif_inventory_record())],
+            root=True,
+        )
+
+        result = engine.execute(command("root.pif.inventory", {"serial": "SERIAL"}))
+
+        self.assertTrue(result.ok)
+        self.assertEqual("pif_inventory_listed", result.code)
+        self.assertEqual(11, result.value["count"])
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+        self.assertNotIn("/data/adb", repr(result.value))
+        self.assertNotIn("keybox", repr(result.value).casefold())
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), transport.calls[0].argv[:6])
+
+    def test_pif_inventory_never_returns_partial_device_output(self):
+        engine, _transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0, "PF_PIF|schema|1\nPF_PIF|root|verified\nPRIVATE_RAW_VALUE")],
+            root=True,
+        )
+
+        result = engine.execute(command("root.pif.inventory", {"serial": "SERIAL"}))
+
+        self.assertFalse(result.ok)
+        self.assertEqual("pif_inventory_incomplete", result.code)
         self.assertEqual("", result.stdout)
         self.assertEqual("", result.stderr)
         self.assertNotIn("PRIVATE_RAW_VALUE", repr(result))

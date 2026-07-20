@@ -6037,3 +6037,37 @@ msgid ""
 "Sensitive identities, keybox certificates, raw configuration contents, "
 "target names, and logs were withheld at collection time."
 msgstr "敏感身分資訊、keybox 憑證、原始設定內容、目標名稱和記錄已在收集時排除。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifInventoryTitle"
+msgid "PIF and TargetedFix profiles"
+msgstr "PIF 與 TargetedFix 設定檔"
+
+msgctxt "web.root.pifInventoryDetail"
+msgid ""
+"Verified metadata for backend-owned integrity profiles. Paths, contents, and"
+" keybox material are never exposed."
+msgstr "後端管理的完整性設定檔之已驗證中繼資料。絕不公開路徑、內容或 keybox 資料。"
+
+msgctxt "web.root.pifInventoryInvalid"
+msgid "The backend returned an incomplete or unsafe profile inventory."
+msgstr "後端傳回了不完整或不安全的設定檔清單。"
+
+msgctxt "web.root.pifInventoryEmpty"
+msgid "No integrity profiles detected"
+msgstr "未偵測到完整性設定檔"
+
+msgctxt "web.root.pifPresent"
+msgid "Present"
+msgstr "存在"
+
+msgctxt "web.root.pifMissing"
+msgid "Profile missing"
+msgstr "設定檔遺失"
+
+msgctxt "web.root.pifTargetedFix"
+msgid "TargetedFix package profile"
+msgstr "TargetedFix 套件設定檔"

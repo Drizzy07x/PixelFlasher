@@ -122,6 +122,75 @@ interface PiAnalysisReport {
   withheld: string[];
 }
 
+interface PifInventory {
+  schemaVersion: 1;
+  rootAccess: 'verified';
+  bounded: true;
+  count: number;
+  profiles: { id: string; module: string; format: string; present: boolean; size: number; sha256: string | null }[];
+  targetCount: number;
+  targets: { packageName: string; format: 'json'; present: boolean; size: number; sha256: string | null }[];
+}
+
+const pifProfileSpecs = [
+  ['pif.custom_json', 'playintegrityfix', 'json'],
+  ['pif.custom_prop', 'playintegrityfix', 'prop'],
+  ['pif.module_json', 'playintegrityfix', 'json'],
+  ['pif.legacy_json', 'playintegrityfix', 'json'],
+  ['pif.app_replace', 'playintegrityfix', 'list'],
+  ['pif.scripts_only', 'playintegrityfix', 'marker'],
+  ['tricky.spoof', 'tricky_store', 'prop'],
+  ['tricky.target', 'tricky_store', 'list'],
+  ['tricky.security_patch', 'tricky_store', 'text'],
+  ['tricky.tee', 'tricky_store', 'text'],
+  ['targeted.targets', 'targetedfix', 'list'],
+] as const;
+
+function validPifFile(item: Record<string, unknown>) {
+  return typeof item.present === 'boolean'
+    && boundedCount(item.size, 4 * 1024 * 1024)
+    && (item.present
+      ? typeof item.sha256 === 'string' && /^[0-9a-f]{64}$/.test(item.sha256)
+      : item.size === 0 && item.sha256 === null);
+}
+
+function parsePifInventory(value: unknown): PifInventory | null {
+  const inventory = record(value);
+  if (
+    !exactKeys(inventory, ['schemaVersion', 'rootAccess', 'bounded', 'count', 'profiles', 'targetCount', 'targets'])
+    || inventory.schemaVersion !== 1 || inventory.rootAccess !== 'verified' || inventory.bounded !== true
+    || inventory.count !== pifProfileSpecs.length || !Array.isArray(inventory.profiles)
+    || inventory.profiles.length !== pifProfileSpecs.length || !boundedCount(inventory.targetCount, 256)
+    || !Array.isArray(inventory.targets) || inventory.targets.length !== inventory.targetCount
+  ) return null;
+  const profiles = inventory.profiles.flatMap((raw, index) => {
+    const item = record(raw);
+    const expected = pifProfileSpecs[index];
+    if (
+      !exactKeys(item, ['id', 'module', 'format', 'present', 'size', 'sha256'])
+      || item.id !== expected[0] || item.module !== expected[1] || item.format !== expected[2]
+      || !validPifFile(item)
+    ) return [];
+    return [item as unknown as PifInventory['profiles'][number]];
+  });
+  const targets = inventory.targets.flatMap((raw) => {
+    const item = record(raw);
+    if (
+      !exactKeys(item, ['packageName', 'format', 'present', 'size', 'sha256'])
+      || typeof item.packageName !== 'string'
+      || !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(item.packageName)
+      || item.format !== 'json' || !validPifFile(item)
+    ) return [];
+    return [item as unknown as PifInventory['targets'][number]];
+  });
+  const targetIds = targets.map((item) => item.packageName.toLowerCase());
+  if (
+    profiles.length !== pifProfileSpecs.length || targets.length !== inventory.targets.length
+    || targetIds.join(',') !== [...new Set(targetIds)].sort().join(',')
+  ) return null;
+  return { ...inventory, profiles, targets } as PifInventory;
+}
+
 const piConfigKinds = [
   'pif_custom_json', 'pif_custom_prop', 'pif_module_json', 'pif_legacy_json',
   'pif_app_replace', 'pif_scripts_only', 'tricky_spoof', 'tricky_target',
@@ -336,6 +405,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [sosConfirmation, setSosConfirmation] = useState('');
   const [piAnalysis, setPiAnalysis] = useState<PiAnalysisReport | null>(null);
   const [piAnalysisInvalid, setPiAnalysisInvalid] = useState(false);
+  const [pifInventory, setPifInventory] = useState<PifInventory | null>(null);
+  const [pifInventoryInvalid, setPifInventoryInvalid] = useState(false);
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -564,6 +635,25 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         return;
       }
       setPiAnalysis(parsed);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const refreshPifInventory = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    setBusy('pif-inventory');
+    setPifInventoryInvalid(false);
+    try {
+      const response = await onCommand(commands.rootPifInventory, { serial: primary.serial });
+      if (!operationSucceeded(response)) return;
+      const parsed = parsePifInventory(record(response?.result).value);
+      if (!parsed) {
+        setPifInventory(null);
+        setPifInventoryInvalid(true);
+        return;
+      }
+      setPifInventory(parsed);
     } finally {
       setBusy('');
     }
@@ -876,6 +966,39 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           </div>
         </Card>
       </div>
+      <Card className="root-manager" aria-busy={busy === 'pif-inventory'}>
+        <CardTitle icon="shield" after={(
+          <Button icon="scan" onClick={() => void refreshPifInventory()} disabled={Boolean(busy) || !rootedAdb}>
+            {t('common.refresh')}
+          </Button>
+        )}>{t('root.pifInventoryTitle')}</CardTitle>
+        <p className="root-manager__detail">{t('root.pifInventoryDetail')}</p>
+        {!rootedAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.moduleDeviceRequired')}</p> : null}
+        {pifInventoryInvalid ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('root.pifInventoryInvalid')}</p> : null}
+        {pifInventory ? (
+          <div className="root-inventory" role="list" aria-label={t('root.pifInventoryTitle')}>
+            {pifInventory.profiles.filter((item) => item.present).map((item) => (
+              <div className="root-inventory__row" role="listitem" key={item.id}>
+                <span className="root-inventory__icon"><Icon name="shield" size={24} /></span>
+                <span className="root-inventory__copy">
+                  <strong>{item.id}</strong>
+                  <span><Badge tone="success">{t('root.pifPresent')}</Badge><Badge tone="neutral">{item.module}</Badge><Badge tone="neutral">{item.format}</Badge></span>
+                  <small>{item.size.toLocaleString()} · <code title={item.sha256 ?? undefined}>{item.sha256?.slice(0, 12)}…</code></small>
+                </span>
+              </div>
+            ))}
+            {pifInventory.targets.map((item) => (
+              <div className="root-inventory__row" role="listitem" key={item.packageName}>
+                <span className="root-inventory__icon"><Icon name="androidPng" size={24} /></span>
+                <span className="root-inventory__copy"><strong>{item.packageName}</strong><small>{t('root.pifTargetedFix')}</small></span>
+                <Badge tone={item.present ? 'success' : 'warning'}>{item.present ? t('root.pifPresent') : t('root.pifMissing')}</Badge>
+              </div>
+            ))}
+            {!pifInventory.profiles.some((item) => item.present) && !pifInventory.targets.length
+              ? <EmptyState icon="shield" title={t('common.none')} detail={t('root.pifInventoryEmpty')} /> : null}
+          </div>
+        ) : <EmptyState icon="shield" title={t('root.pifInventoryEmpty')} detail={t('root.pifInventoryDetail')} />}
+      </Card>
       <Card className="root-manager" aria-busy={busy === 'pi-analysis'}>
         <CardTitle icon="shield" after={(
           <Button

@@ -27,6 +27,7 @@ from pixelflasher_core.rooting import (
     RootingPlanningError,
     RootingService,
     parse_pi_analysis,
+    parse_pif_inventory,
     parse_root_module_list,
 )
 from tests.apk_test_helpers import FakeVerifiedApkInspector
@@ -94,6 +95,33 @@ def pi_analysis_output(*, keybox_present: bool = True) -> str:
             "PF_PI|complete|1",
         )
     )
+    return "\n".join(lines)
+
+
+def pif_inventory_output(*, targets: tuple[str, ...] = ("com.google.android.gms",)) -> str:
+    specs = (
+        ("pif.custom_json", "playintegrityfix", "json"),
+        ("pif.custom_prop", "playintegrityfix", "prop"),
+        ("pif.module_json", "playintegrityfix", "json"),
+        ("pif.legacy_json", "playintegrityfix", "json"),
+        ("pif.app_replace", "playintegrityfix", "list"),
+        ("pif.scripts_only", "playintegrityfix", "marker"),
+        ("tricky.spoof", "tricky_store", "prop"),
+        ("tricky.target", "tricky_store", "list"),
+        ("tricky.security_patch", "tricky_store", "text"),
+        ("tricky.tee", "tricky_store", "text"),
+        ("targeted.targets", "targetedfix", "list"),
+    )
+    lines = ["PF_PIF|schema|1", "PF_PIF|root|verified"]
+    for index, (profile_id, module, profile_format) in enumerate(specs):
+        state, size, digest = ("present", "128", "a" * 64) if index == 0 else ("absent", "0", "-")
+        lines.append(
+            f"PF_PIF|profile|{profile_id}|{module}|{profile_format}|{state}|{size}|{digest}"
+        )
+    for package_name in targets:
+        encoded = base64.b64encode(package_name.encode()).decode()
+        lines.append(f"PF_PIF|target|{encoded}|json|present|64|{'b' * 64}")
+    lines.append("PF_PIF|complete|1")
     return "\n".join(lines)
 
 
@@ -306,6 +334,45 @@ class RootingServiceTests(unittest.TestCase):
                 rootless,
             )
         self.assertEqual("root_access_required", raised.exception.code)
+
+    def test_pif_inventory_is_fixed_read_only_and_excludes_keybox(self):
+        compilation = RootingService().compile(
+            self.command("root.pif.inventory", {"serial": "SERIAL"}),
+            self.snapshot,
+        )
+
+        self.assertEqual("pif.inventory", compilation.action)
+        self.assertFalse(compilation.device_write)
+        assert compilation.plan is not None
+        request = compilation.plan.request
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertEqual(128 * 1024, request.output_limit_bytes)
+        script = request.argv[6]
+        self.assertIn("PF_PIF|schema|1", script)
+        self.assertIn("/data/adb/modules/targetedfix/config/target.txt", script)
+        self.assertNotIn("keybox", script.casefold())
+        self.assertNotIn("cat ", script)
+
+    def test_pif_inventory_parser_is_closed_ordered_and_hash_verified(self):
+        value = parse_pif_inventory(pif_inventory_output())
+
+        self.assertEqual(11, value["count"])
+        self.assertEqual(1, value["targetCount"])
+        self.assertEqual("pif.custom_json", value["profiles"][0]["id"])
+        self.assertEqual("com.google.android.gms", value["targets"][0]["packageName"])
+        self.assertNotIn("path", repr(value).casefold())
+
+        malformed = (
+            pif_inventory_output().replace("pif.custom_json", "pif.legacy_json", 1),
+            pif_inventory_output(targets=("../private",)),
+            pif_inventory_output(targets=("com.example.app", "COM.EXAMPLE.APP")),
+            pif_inventory_output().replace("PF_PIF|complete|1", "PRIVATE_RAW"),
+            pif_inventory_output().replace("a" * 64, "-", 1),
+        )
+        for output in malformed:
+            with self.subTest(output=output[-80:]):
+                with self.assertRaises(RootingPlanningError):
+                    parse_pif_inventory(output)
 
     def test_local_root_app_inventory_has_hash_and_provenance(self):
         with tempfile.TemporaryDirectory() as directory:

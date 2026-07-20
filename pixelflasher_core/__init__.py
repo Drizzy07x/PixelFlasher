@@ -370,6 +370,8 @@ from .root_app_catalog import (
 )
 from .rooting import (
     ROOTING_COMMANDS,
+    PifProfileInfo,
+    PifTargetInfo,
     RootApkInspector,
     RootAppInfo,
     RootAppSource,
@@ -378,6 +380,7 @@ from .rooting import (
     RootingService,
     RootModuleInfo,
     parse_pi_analysis,
+    parse_pif_inventory,
     parse_root_module_list,
 )
 from .runtime import ApplicationRuntime, RuntimeListener
@@ -646,6 +649,8 @@ __all__ = [
     "PAYLOAD_MAJOR_VERSION",
     "PAYLOAD_OPERATION_TYPES",
     "PARTITION_COMMANDS",
+    "PifProfileInfo",
+    "PifTargetInfo",
     "PackageCompilation",
     "PackageInfo",
     "PackagePlanningError",
@@ -798,6 +803,7 @@ __all__ = [
     "parse_package_list",
     "parse_package_permissions",
     "parse_platform_tools_version",
+    "parse_pif_inventory",
     "parse_pi_analysis",
     "parse_root_module_list",
     "paused_device_management",
