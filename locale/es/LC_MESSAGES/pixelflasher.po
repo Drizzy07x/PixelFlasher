@@ -6258,3 +6258,87 @@ msgstr "Recargar contenido verificado"
 msgctxt "web.root.pifEditorSave"
 msgid "Save and verify profile"
 msgstr "Guardar y verificar perfil"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifTransformTitle"
+msgid "Profile transformations"
+msgstr "Transformaciones de perfiles"
+
+msgctxt "web.root.pifTransformDetail"
+msgid ""
+"Normalize bounded JSON or PROP locally in the backend, or generate a "
+"FrameworkPatcher preview."
+msgstr ""
+"Normaliza JSON o PROP limitados localmente en el backend, o genera una vista "
+"previa de FrameworkPatcher."
+
+msgctxt "web.root.pifKeepUnknown"
+msgid "Keep unknown keys"
+msgstr "Conservar claves desconocidas"
+
+msgctxt "web.root.pifSortKeys"
+msgid "Sort keys"
+msgstr "Ordenar claves"
+
+msgctxt "web.root.pifFirstApi"
+msgid "First API"
+msgstr "Primera API"
+
+msgctxt "web.root.pifNormalize"
+msgid "Normalize editor"
+msgstr "Normalizar editor"
+
+msgctxt "web.root.pifFrameworkPatcher"
+msgid "FrameworkPatcher preview"
+msgstr "Vista previa de FrameworkPatcher"
+
+msgctxt "web.root.pifTransformPreview"
+msgid "FrameworkPatcher output"
+msgstr "Salida de FrameworkPatcher"
+
+msgctxt "web.root.pifFavoritesTitle"
+msgid "PIF favorites"
+msgstr "Favoritos PIF"
+
+msgctxt "web.root.pifFavoritesDetail"
+msgid ""
+"Hash-verified local profiles migrated from PixelFlasher 9.x without device "
+"paths."
+msgstr ""
+"Perfiles locales verificados por hash y migrados desde PixelFlasher 9.x sin "
+"rutas del dispositivo."
+
+msgctxt "web.root.pifLibraryInvalid"
+msgid "The backend returned an invalid transformation or favorites result."
+msgstr "El backend devolvió una transformación o un resultado de favoritos no válido."
+
+msgctxt "web.root.pifFavoriteLabel"
+msgid "Favorite label"
+msgstr "Etiqueta del favorito"
+
+msgctxt "web.root.pifFavoriteSave"
+msgid "Save favorite"
+msgstr "Guardar favorito"
+
+msgctxt "web.root.pifFavoritesRefresh"
+msgid "Refresh favorites"
+msgstr "Actualizar favoritos"
+
+msgctxt "web.root.pifFavoritesEmpty"
+msgid "No saved PIF favorites."
+msgstr "No hay favoritos PIF guardados."
+
+msgctxt "web.root.pifFavoriteLoad"
+msgid "Load favorite"
+msgstr "Cargar favorito"
+
+msgctxt "web.root.pifFavoriteDelete"
+msgid "Delete favorite"
+msgstr "Eliminar favorito"
+
+msgctxt "web.root.pifFavoriteDeleteConfirm"
+msgid "Confirm favorite deletion"
+msgstr "Confirmar eliminación del favorito"

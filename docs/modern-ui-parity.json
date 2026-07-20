@@ -2222,6 +2222,8 @@
         "pixelflasher_core/rooting.py:RootingService._compile_pif_action",
         "pixelflasher_core/rooting.py:RootingService._compile_integrity_check_launch",
         "pixelflasher_core/pif_profiles.py:PifProfileTransformer/PifFavoritesRepository",
+        "pixelflasher_core/runtime.py:PixelFlasherEngine._pif_profile_command",
+        "pixelflasher_core/runtime.py:PixelFlasherEngine._mutate_pif_favorite",
         "pixelflasher_core/rooting.py:inspect_pif_profile_stream",
         "pixelflasher_core/rooting.py:parse_pif_inventory",
         "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._pif_profile_states",
@@ -2233,10 +2235,13 @@
         "ui/core_command_factory.py:CoreCommandFactory._stage_pif_editor_content",
         "ui/public_bridge.py:_project_pif_inventory",
         "ui/public_bridge.py:_project_pif_document",
+        "ui/public_bridge.py:_project_pif_transformation",
+        "ui/public_bridge.py:_project_pif_favorites",
+        "ui/public_bridge.py:_project_pif_favorite",
         "ui/public_bridge.py:_project_pi_analysis",
         "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion/import and TargetedFix add/delete/import are serial-confirmed and independently observed. The React editor reads eight canonical bounded documents on demand, keeps routes backend-only, validates each format, stages content privately, rejects stale base hashes and verifies the final remote SHA-256. A headless transformation and favorites foundation now covers bounded JSON/PROP normalization, First API, FrameworkPatcher output, atomic storage and idempotent 9.x import; bridge and React integration remain. Per-package JSON/PROP import uses its own purpose-bound grant, strict validation, confined staging, alternate-format removal and a single-active-file SHA-256 observation. DroidGuard cleanup is a fixed backend mutation with an exact serial phrase and independent absence proof for its canonical cache and database files. Interactive integrity checks are limited to four backend-owned package identities, use exact argv and confirmation, and require a running-process postcondition. Packaged rooted-device validation also remains.",
+      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion/import and TargetedFix add/delete/import are serial-confirmed and independently observed. The React editor reads eight canonical bounded documents on demand, keeps routes backend-only, validates each format, stages content privately, rejects stale base hashes and verifies the final remote SHA-256. Bounded JSON/PROP normalization, First API, FrameworkPatcher output and hash-verified favorites now cross the versioned bridge with mandatory revisions, closed DTOs, atomic storage and idempotent 9.x migration; React exposes the complete flow without arbitrary paths. Per-package JSON/PROP import uses its own purpose-bound grant, strict validation, confined staging, alternate-format removal and a single-active-file SHA-256 observation. DroidGuard cleanup is a fixed backend mutation with an exact serial phrase and independent absence proof for its canonical cache and database files. Interactive integrity checks are limited to four backend-owned package identities, use exact argv and confirmation, and require a running-process postcondition. Only packaged rooted-device validation remains.",
       "exitCriteria": [
         "PIF/TargetedFix management and Play Integrity analysis is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -2275,8 +2280,10 @@
         "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_pif_editor_content_is_staged_privately_and_removed_from_the_command",
         "tests/test_pi_analysis_public_contract.py:PiAnalysisPublicContractTests",
         "tests/test_pif_inventory_public_contract.py:PifInventoryPublicContractTests",
+        "tests/test_runtime_pif_profiles.py:RuntimePifProfileTests",
+        "tests/test_pif_profiles_public_contract.py:PifProfilesPublicContractTests",
         "ui/web/src/test/pi-analysis.test.tsx:redacted Play Integrity analysis",
-        "ui/web/src/test/pif-inventory.test.tsx:PIF and TargetedFix inventory"
+        "ui/web/src/test/pif-inventory.test.tsx:PIF, TargetedFix, transformations and favorites"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -2286,7 +2293,12 @@
       "modernActionIds": [],
       "modernCommandIds": [
         "root.pif.document",
+        "root.pif.favorites.delete",
+        "root.pif.favorites.get",
+        "root.pif.favorites.list",
+        "root.pif.favorites.save",
         "root.pif.inventory",
+        "root.pif.transform",
         "tools.pif",
         "tools.piAnalysis"
       ]

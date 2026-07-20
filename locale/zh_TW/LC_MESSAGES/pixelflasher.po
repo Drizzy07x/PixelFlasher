@@ -6253,3 +6253,83 @@ msgstr "重新載入已驗證內容"
 msgctxt "web.root.pifEditorSave"
 msgid "Save and verify profile"
 msgstr "儲存並驗證設定檔"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.pifTransformTitle"
+msgid "Profile transformations"
+msgstr "設定檔轉換"
+
+msgctxt "web.root.pifTransformDetail"
+msgid ""
+"Normalize bounded JSON or PROP locally in the backend, or generate a "
+"FrameworkPatcher preview."
+msgstr "在後端本機正規化受限的 JSON 或 PROP，或產生 FrameworkPatcher 預覽。"
+
+msgctxt "web.root.pifKeepUnknown"
+msgid "Keep unknown keys"
+msgstr "保留未知鍵"
+
+msgctxt "web.root.pifSortKeys"
+msgid "Sort keys"
+msgstr "排序鍵"
+
+msgctxt "web.root.pifFirstApi"
+msgid "First API"
+msgstr "第一個 API"
+
+msgctxt "web.root.pifNormalize"
+msgid "Normalize editor"
+msgstr "正規化編輯器"
+
+msgctxt "web.root.pifFrameworkPatcher"
+msgid "FrameworkPatcher preview"
+msgstr "FrameworkPatcher 預覽"
+
+msgctxt "web.root.pifTransformPreview"
+msgid "FrameworkPatcher output"
+msgstr "FrameworkPatcher 輸出"
+
+msgctxt "web.root.pifFavoritesTitle"
+msgid "PIF favorites"
+msgstr "PIF 收藏"
+
+msgctxt "web.root.pifFavoritesDetail"
+msgid ""
+"Hash-verified local profiles migrated from PixelFlasher 9.x without device "
+"paths."
+msgstr "從 PixelFlasher 9.x 遷移並經雜湊驗證的本機設定檔，不包含裝置路徑。"
+
+msgctxt "web.root.pifLibraryInvalid"
+msgid "The backend returned an invalid transformation or favorites result."
+msgstr "後端傳回了無效的轉換或收藏結果。"
+
+msgctxt "web.root.pifFavoriteLabel"
+msgid "Favorite label"
+msgstr "收藏標籤"
+
+msgctxt "web.root.pifFavoriteSave"
+msgid "Save favorite"
+msgstr "儲存收藏"
+
+msgctxt "web.root.pifFavoritesRefresh"
+msgid "Refresh favorites"
+msgstr "重新整理收藏"
+
+msgctxt "web.root.pifFavoritesEmpty"
+msgid "No saved PIF favorites."
+msgstr "沒有已儲存的 PIF 收藏。"
+
+msgctxt "web.root.pifFavoriteLoad"
+msgid "Load favorite"
+msgstr "載入收藏"
+
+msgctxt "web.root.pifFavoriteDelete"
+msgid "Delete favorite"
+msgstr "刪除收藏"
+
+msgctxt "web.root.pifFavoriteDeleteConfirm"
+msgid "Confirm favorite deletion"
+msgstr "確認刪除收藏"

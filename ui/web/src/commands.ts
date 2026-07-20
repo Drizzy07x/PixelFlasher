@@ -62,7 +62,12 @@ export const commands = {
   rootModulesAction: "root.modules.action",
   rootModulesList: "root.modules.list",
   rootPifDocument: "root.pif.document",
+  rootPifFavoritesDelete: "root.pif.favorites.delete",
+  rootPifFavoritesGet: "root.pif.favorites.get",
+  rootPifFavoritesList: "root.pif.favorites.list",
+  rootPifFavoritesSave: "root.pif.favorites.save",
   rootPifInventory: "root.pif.inventory",
+  rootPifTransform: "root.pif.transform",
   secretIssue: "secret.issue",
   settingsGet: "settings.get",
   settingsUpdate: "settings.update",
@@ -330,8 +335,28 @@ export interface BridgePayloadByCommand {
     "profileId": string;
     "serial": string;
   };
+  "root.pif.favorites.delete": {
+    "favoriteId": string;
+  };
+  "root.pif.favorites.get": {
+    "favoriteId": string;
+  };
+  "root.pif.favorites.list": Record<string, never>;
+  "root.pif.favorites.save": {
+    "content": string;
+    "label": string;
+  };
   "root.pif.inventory": {
     "serial": string;
+  };
+  "root.pif.transform": {
+    "content": string;
+    "firstApi"?: number;
+    "inputFormat": string;
+    "keepUnknown": boolean;
+    "normalize": boolean;
+    "outputFormat": string;
+    "sortKeys": boolean;
   };
   "secret.issue": {
     "purpose": string;
@@ -508,7 +533,12 @@ export const allowedCommands = [
   commands.rootModulesAction,
   commands.rootModulesList,
   commands.rootPifDocument,
+  commands.rootPifFavoritesDelete,
+  commands.rootPifFavoritesGet,
+  commands.rootPifFavoritesList,
+  commands.rootPifFavoritesSave,
   commands.rootPifInventory,
+  commands.rootPifTransform,
   commands.secretIssue,
   commands.settingsGet,
   commands.settingsUpdate,
@@ -596,7 +626,12 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.rootModulesAction]: 1800000,
   [commands.rootModulesList]: 300000,
   [commands.rootPifDocument]: 120000,
+  [commands.rootPifFavoritesDelete]: 30000,
+  [commands.rootPifFavoritesGet]: 30000,
+  [commands.rootPifFavoritesList]: 30000,
+  [commands.rootPifFavoritesSave]: 30000,
   [commands.rootPifInventory]: 120000,
+  [commands.rootPifTransform]: 30000,
   [commands.secretIssue]: 60000,
   [commands.settingsGet]: 60000,
   [commands.settingsUpdate]: 60000,
@@ -678,7 +713,12 @@ export const bridgeCommandMetadata = {
   [commands.rootModulesAction]: {"owner":"root","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.module_action","confirmation":"standard","postconditions":["root_module_state_verified"]},
   [commands.rootModulesList]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.modules_inventory","confirmation":"none","postconditions":["root_modules_returned"]},
   [commands.rootPifDocument]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.document","confirmation":"none","postconditions":["bounded_pif_document_returned"]},
+  [commands.rootPifFavoritesDelete]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.favorites.delete","confirmation":"none","postconditions":["pif_favorite_deleted"]},
+  [commands.rootPifFavoritesGet]: {"owner":"root","mutability":"read_only","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.favorites.get","confirmation":"none","postconditions":["bounded_pif_favorite_returned"]},
+  [commands.rootPifFavoritesList]: {"owner":"root","mutability":"read_only","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.favorites.list","confirmation":"none","postconditions":["bounded_pif_favorites_returned"]},
+  [commands.rootPifFavoritesSave]: {"owner":"root","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.favorites.save","confirmation":"none","postconditions":["pif_favorite_persisted"]},
   [commands.rootPifInventory]: {"owner":"root","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"root.pif.inventory","confirmation":"none","postconditions":["bounded_pif_inventory_returned"]},
+  [commands.rootPifTransform]: {"owner":"root","mutability":"read_only","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"root.pif.transform","confirmation":"none","postconditions":["bounded_pif_transformation_returned"]},
   [commands.secretIssue]: {"owner":"native_host","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.secret_grant","confirmation":"none","postconditions":["secret_grant_issued"]},
   [commands.settingsGet]: {"owner":"settings","mutability":"read_only","risk":"host_read","expectedRevision":"optional","validDeviceStates":["*"],"planner":"runtime.settings_get","confirmation":"none","postconditions":["preferences_returned"]},
   [commands.settingsUpdate]: {"owner":"settings","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"runtime.settings_update","confirmation":"none","postconditions":["preferences_persisted"]},
@@ -791,7 +831,12 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.rootModulesAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"moduleId":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.rootModulesList]: {"serial":{"kind":"string","required":false}},
   [commands.rootPifDocument]: {"profileId":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
+  [commands.rootPifFavoritesDelete]: {"favoriteId":{"kind":"string","required":true}},
+  [commands.rootPifFavoritesGet]: {"favoriteId":{"kind":"string","required":true}},
+  [commands.rootPifFavoritesList]: {},
+  [commands.rootPifFavoritesSave]: {"content":{"kind":"string","required":true},"label":{"kind":"string","required":true}},
   [commands.rootPifInventory]: {"serial":{"kind":"string","required":true}},
+  [commands.rootPifTransform]: {"content":{"kind":"string","required":true},"firstApi":{"kind":"integer","required":false},"inputFormat":{"kind":"string","required":true},"keepUnknown":{"kind":"boolean","required":true},"normalize":{"kind":"boolean","required":true},"outputFormat":{"kind":"string","required":true},"sortKeys":{"kind":"boolean","required":true}},
   [commands.secretIssue]: {"purpose":{"kind":"string","required":true},"secret":{"kind":"string","required":true}},
   [commands.settingsGet]: {},
   [commands.settingsUpdate]: {"highContrast":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"reducedMotion":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"zoom":{"kind":"integer","required":false}},

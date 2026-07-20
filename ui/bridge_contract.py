@@ -356,6 +356,45 @@ def _validate_payload_values(
             "pif.app_replace", "tricky.spoof", "tricky.target", "tricky.security_patch",
         }:
             _payload_error("root.pif.document profileId is invalid", request_id)
+    elif command == "root.pif.transform":
+        first_api = payload.get("firstApi")
+        if (
+            not _bounded_utf8_string(payload.get("content"), limit=32 * 1024)
+            or payload.get("inputFormat") not in {"json", "prop"}
+            or payload.get("outputFormat")
+            not in {"json", "prop", "framework_patcher"}
+            or not isinstance(payload.get("normalize"), bool)
+            or not isinstance(payload.get("keepUnknown"), bool)
+            or not isinstance(payload.get("sortKeys"), bool)
+            or (
+                first_api is not None
+                and (
+                    not isinstance(first_api, int)
+                    or isinstance(first_api, bool)
+                    or not 1 <= first_api <= 99
+                )
+            )
+        ):
+            _payload_error("root.pif.transform payload is invalid", request_id)
+    elif command in {
+        "root.pif.favorites.get",
+        "root.pif.favorites.delete",
+    }:
+        favorite_id = payload.get("favoriteId")
+        if not isinstance(favorite_id, str) or re.fullmatch(
+            r"[0-9a-f]{64}", favorite_id
+        ) is None:
+            _payload_error(f"{command} favoriteId is invalid", request_id)
+    elif command == "root.pif.favorites.save":
+        label = payload.get("label")
+        if (
+            not isinstance(label, str)
+            or label != label.strip()
+            or not 1 <= len(label) <= 128
+            or any(ord(character) < 32 or ord(character) == 127 for character in label)
+            or not _bounded_utf8_string(payload.get("content"), limit=32 * 1024)
+        ):
+            _payload_error("root.pif.favorites.save payload is invalid", request_id)
     elif command == "tools.pif":
         serial = payload.get("serial")
         profile_id = payload.get("profileId")

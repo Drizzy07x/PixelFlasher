@@ -290,7 +290,7 @@ describe('PIF and TargetedFix inventory', () => {
     if (!card) throw new Error('PIF inventory card missing');
 
     await user.click(within(card as HTMLElement).getByRole('button', { name: 'Edit profile' }));
-    expect(onCommand).toHaveBeenLastCalledWith('root.pif.document', {
+    expect(onCommand).toHaveBeenCalledWith('root.pif.document', {
       serial: snapshot.devices[0].serial,
       profileId: 'pif.custom_json',
     });
@@ -314,6 +314,69 @@ describe('PIF and TargetedFix inventory', () => {
       confirmationText: phrase,
     });
     expect(within(card as HTMLElement).getByText('Unchanged')).toBeVisible();
+    expect((await axe.run(container)).violations).toEqual([]);
+  });
+
+  it('normalizes profiles and manages revisioned local favorites through closed commands', async () => {
+    const user = userEvent.setup();
+    const original = '{"BRAND":"google","MODEL":"Pixel 9"}';
+    const normalized = '{\n  "BRAND": "google",\n  "MODEL": "Pixel 9"\n}\n';
+    const favoriteId = 'c'.repeat(64);
+    const favorite = {
+      favoriteId, label: 'Pixel 9 stable', createdAt: '2026-07-20T12:00:00+00:00',
+      sha256: favoriteId, size: new TextEncoder().encode(normalized).length,
+    };
+    const onCommand = vi.fn(async (command: BridgeCommand, payload?: Record<string, unknown>) => {
+      if (command === 'root.pif.document') return { result: { status: 'SUCCESS', value: {
+        schemaVersion: 1, profileId: 'pif.custom_json', format: 'json', present: true,
+        content: original, size: new TextEncoder().encode(original).length,
+        sha256: 'a'.repeat(64), editable: true, bounded: true,
+      } } };
+      if (command === 'root.pif.favorites.list') return { result: { status: 'SUCCESS', value: {
+        schemaVersion: 1, revision: 0, count: 0, favorites: [], bounded: true,
+      } } };
+      if (command === 'root.pif.transform') return { result: { status: 'SUCCESS', value: {
+        schemaVersion: 1, format: payload?.outputFormat ?? 'json', content: normalized,
+        sha256: 'b'.repeat(64), size: new TextEncoder().encode(normalized).length,
+        fieldCount: 2, bounded: true,
+      } } };
+      if (command === 'root.pif.favorites.save') return { revision: 8, result: { status: 'SUCCESS', value: {
+        schemaVersion: 1, action: 'saved', revision: 1, snapshotRevision: 8,
+        favorite, bounded: true,
+      } } };
+      if (command === 'root.pif.favorites.get') return { result: { status: 'SUCCESS', value: {
+        schemaVersion: 1, revision: 1, favorite: { ...favorite, content: normalized }, bounded: true,
+      } } };
+      if (command === 'root.pif.favorites.delete') return { revision: 9, result: { status: 'SUCCESS', value: {
+        schemaVersion: 1, action: 'deleted', revision: 2, snapshotRevision: 9,
+        favorite, bounded: true,
+      } } };
+      return { result: { status: 'FAILED' } };
+    });
+    const { container } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Edit profile' }));
+    expect(await within(card as HTMLElement).findByRole('button', { name: 'Normalize editor' })).toBeVisible();
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Normalize editor' }));
+    expect(onCommand).toHaveBeenCalledWith('root.pif.transform', {
+      content: original, inputFormat: 'json', outputFormat: 'json', normalize: true,
+      keepUnknown: true, sortKeys: true,
+    });
+    expect(within(card as HTMLElement).getByLabelText('PIF profile content')).toHaveValue(normalized);
+
+    await user.type(within(card as HTMLElement).getByLabelText('Favorite label'), 'Pixel 9 stable');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Save favorite' }));
+    expect(onCommand).toHaveBeenCalledWith('root.pif.favorites.save', {
+      label: 'Pixel 9 stable', content: normalized,
+    });
+    expect(await within(card as HTMLElement).findByText('Pixel 9 stable')).toBeVisible();
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Load favorite' }));
+    expect(onCommand).toHaveBeenCalledWith('root.pif.favorites.get', { favoriteId });
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Delete favorite' }));
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Confirm favorite deletion' }));
+    expect(onCommand).toHaveBeenCalledWith('root.pif.favorites.delete', { favoriteId });
+    expect(within(card as HTMLElement).queryByText('Pixel 9 stable')).not.toBeInTheDocument();
     expect((await axe.run(container)).violations).toEqual([]);
   });
 });

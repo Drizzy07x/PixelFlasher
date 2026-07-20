@@ -46,6 +46,11 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.download",
         "root.modules.list",
         "root.pif.document",
+        "root.pif.transform",
+        "root.pif.favorites.list",
+        "root.pif.favorites.get",
+        "root.pif.favorites.save",
+        "root.pif.favorites.delete",
         "root.pif.inventory",
         "tools.pif",
         "root.dataAdb.backup",
@@ -3120,6 +3125,161 @@ def _project_pif_document(value: object) -> JSONValue:
     return ensure_public_json(dict(source))
 
 
+def _project_pif_transformation(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"schemaVersion", "format", "content", "sha256", "size", "fieldCount", "bounded"}
+        ),
+    )
+    content = source["content"]
+    size = source["size"]
+    field_count = source["fieldCount"]
+    digest = source["sha256"]
+    if (
+        source["schemaVersion"] != 1
+        or source["format"] not in {"json", "prop", "framework_patcher"}
+        or not isinstance(content, str)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 1 <= size <= 32 * 1024
+        or not isinstance(field_count, int)
+        or isinstance(field_count, bool)
+        or not 1 <= field_count <= 1024
+        or not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        or source["bounded"] is not True
+    ):
+        raise PublicProjectionError("PIF transformation boundary is invalid")
+    try:
+        encoded = content.encode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise PublicProjectionError("PIF transformation content is invalid") from error
+    if (
+        len(encoded) != size
+        or not hmac.compare_digest(hashlib.sha256(encoded).hexdigest(), digest)
+        or any(
+            ord(character) < 32 and character not in {"\n", "\r", "\t"}
+            for character in content
+        )
+    ):
+        raise PublicProjectionError("PIF transformation content is unverified")
+    return ensure_public_json(dict(source))
+
+
+def _project_pif_favorite_metadata(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset({"favoriteId", "label", "createdAt", "sha256", "size"}),
+    )
+    favorite_id = source["favoriteId"]
+    label = source["label"]
+    created_at = source["createdAt"]
+    size = source["size"]
+    if (
+        not isinstance(favorite_id, str)
+        or re.fullmatch(r"[0-9a-f]{64}", favorite_id) is None
+        or source["sha256"] != favorite_id
+        or not isinstance(label, str)
+        or label != label.strip()
+        or not 1 <= len(label) <= 128
+        or any(ord(character) < 32 or ord(character) == 127 for character in label)
+        or not isinstance(created_at, str)
+        or not 1 <= len(created_at) <= 64
+        or any(ord(character) < 32 or ord(character) == 127 for character in created_at)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 1 <= size <= 32 * 1024
+    ):
+        raise PublicProjectionError("PIF favorite metadata is invalid")
+    return cast(dict[str, JSONValue], ensure_public_json(dict(source)))
+
+
+def _project_pif_favorites(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"schemaVersion", "revision", "count", "favorites", "bounded"}),
+    )
+    revision = source["revision"]
+    count = source["count"]
+    raw_favorites = source["favorites"]
+    if (
+        source["schemaVersion"] != 1
+        or not isinstance(revision, int)
+        or isinstance(revision, bool)
+        or revision < 0
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or not 0 <= count <= 512
+        or not isinstance(raw_favorites, list)
+        or len(raw_favorites) != count
+        or source["bounded"] is not True
+    ):
+        raise PublicProjectionError("PIF favorites boundary is invalid")
+    favorites = [
+        _project_pif_favorite_metadata(item)
+        for item in cast("list[object]", raw_favorites)
+    ]
+    identities = [cast(str, item["favoriteId"]) for item in favorites]
+    if len(identities) != len(set(identities)):
+        raise PublicProjectionError("PIF favorites contain duplicate identities")
+    return ensure_public_json({**dict(source), "favorites": favorites})
+
+
+def _project_pif_favorite(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"schemaVersion", "revision", "favorite", "bounded"}),
+    )
+    raw_favorite = _closed_record(
+        source["favorite"],
+        fields=frozenset({"favoriteId", "label", "createdAt", "sha256", "size", "content"}),
+    )
+    metadata = _project_pif_favorite_metadata(
+        {key: item for key, item in raw_favorite.items() if key != "content"}
+    )
+    content = raw_favorite["content"]
+    if not isinstance(content, str):
+        raise PublicProjectionError("PIF favorite content is invalid")
+    try:
+        encoded = content.encode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise PublicProjectionError("PIF favorite content is invalid") from error
+    if (
+        len(encoded) != metadata["size"]
+        or not hmac.compare_digest(hashlib.sha256(encoded).hexdigest(), cast(str, metadata["sha256"]))
+    ):
+        raise PublicProjectionError("PIF favorite content is unverified")
+    if (
+        source["schemaVersion"] != 1
+        or not isinstance(source["revision"], int)
+        or isinstance(source["revision"], bool)
+        or cast(int, source["revision"]) < 0
+        or source["bounded"] is not True
+    ):
+        raise PublicProjectionError("PIF favorite boundary is invalid")
+    return ensure_public_json({**dict(source), "favorite": {**metadata, "content": content}})
+
+
+def _project_pif_favorite_mutation(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {"schemaVersion", "action", "revision", "favorite", "bounded", "snapshotRevision"}
+        ),
+    )
+    if source["action"] not in {"saved", "deleted"}:
+        raise PublicProjectionError("PIF favorite mutation action is invalid")
+    favorite = _project_pif_favorite_metadata(source["favorite"])
+    for field in ("revision", "snapshotRevision"):
+        revision = source[field]
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise PublicProjectionError("PIF favorite mutation revision is invalid")
+    if source["schemaVersion"] != 1 or source["bounded"] is not True:
+        raise PublicProjectionError("PIF favorite mutation boundary is invalid")
+    return ensure_public_json({**dict(source), "favorite": favorite})
+
+
 def _project_pif_action(value: object) -> JSONValue:
     if not isinstance(value, Mapping):
         raise PublicProjectionError("PIF action receipt is invalid")
@@ -3461,6 +3621,11 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "root.modules.action": _project_root_module_action,
     "root.modules.list": _project_root_modules,
     "root.pif.document": _project_pif_document,
+    "root.pif.transform": _project_pif_transformation,
+    "root.pif.favorites.list": _project_pif_favorites,
+    "root.pif.favorites.get": _project_pif_favorite,
+    "root.pif.favorites.save": _project_pif_favorite_mutation,
+    "root.pif.favorites.delete": _project_pif_favorite_mutation,
     "root.pif.inventory": _project_pif_inventory,
     "secret.issue": _project_native_grant,
     "settings.get": _project_preferences,

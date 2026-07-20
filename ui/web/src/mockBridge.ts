@@ -145,6 +145,10 @@ export function installDevelopmentBridge() {
   let pendingGuarded: { request: BridgeRequest; operationId: string; complete: () => void } | null = null;
   let mockRootModules = ['play_integrity_fix', 'zygisk_next'];
   let mockDisabledRootModules = new Set<string>();
+  let mockPifFavoriteRevision = 0;
+  let mockPifFavorites: Array<{
+    favoriteId: string; label: string; createdAt: string; sha256: string; size: number; content: string;
+  }> = [];
   let mockBootImages: Array<{
     bootId: string;
     sha256: string;
@@ -1145,6 +1149,93 @@ export function installDevelopmentBridge() {
                 }],
               },
             });
+            break;
+          }
+          case 'root.pif.transform': {
+            const source = typeof request.payload.content === 'string' ? request.payload.content : '';
+            try {
+              const values = request.payload.inputFormat === 'json'
+                ? JSON.parse(source) as Record<string, unknown>
+                : Object.fromEntries(source.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith('#')).map((line) => {
+                  const separator = line.indexOf('=');
+                  if (separator < 1) throw new Error('invalid property');
+                  return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+                }));
+              if (request.payload.firstApi !== undefined) values.FIRST_API_LEVEL = String(request.payload.firstApi);
+              const entries = Object.entries(values);
+              if (request.payload.sortKeys === true) entries.sort(([left], [right]) => left.localeCompare(right));
+              const outputFormat = String(request.payload.outputFormat);
+              const content = outputFormat === 'json'
+                ? `${JSON.stringify(Object.fromEntries(entries), null, 2)}\n`
+                : outputFormat === 'prop'
+                  ? `${entries.map(([key, value]) => `${key}=${String(value)}`).join('\n')}\n`
+                  : `// PixelFlasher FrameworkPatcher profile\n${['MANUFACTURER', 'MODEL', 'FINGERPRINT', 'BRAND', 'PRODUCT', 'DEVICE', 'RELEASE', 'ID', 'INCREMENTAL', 'TYPE', 'TAGS', 'SECURITY_PATCH'].map((key) => `map.put("${key}", "${String(values[key] ?? '')}");`).join('\n')}\n`;
+              const sha256 = content.length.toString(16).padStart(64, '0').slice(-64);
+              respond(request, success('PIF profile transformed.', {
+                schemaVersion: 1, format: outputFormat, content, sha256,
+                size: new TextEncoder().encode(content).length, fieldCount: entries.length,
+                bounded: true,
+              }));
+            } catch {
+              emit(errorMessage('PIF transformation is invalid.', request));
+            }
+            break;
+          }
+          case 'root.pif.favorites.list': {
+            respond(request, success('PIF favorites loaded.', {
+              schemaVersion: 1, revision: mockPifFavoriteRevision,
+              count: mockPifFavorites.length,
+              favorites: mockPifFavorites.map(({ content: _content, ...item }) => item),
+              bounded: true,
+            }));
+            break;
+          }
+          case 'root.pif.favorites.get': {
+            const favorite = mockPifFavorites.find((item) => item.favoriteId === request.payload.favoriteId);
+            if (!favorite) {
+              emit(errorMessage('PIF favorite was not found.', request));
+              break;
+            }
+            respond(request, success('PIF favorite loaded.', {
+              schemaVersion: 1, revision: mockPifFavoriteRevision,
+              favorite, bounded: true,
+            }));
+            break;
+          }
+          case 'root.pif.favorites.save': {
+            const content = typeof request.payload.content === 'string' ? request.payload.content : '';
+            const label = typeof request.payload.label === 'string' ? request.payload.label : '';
+            const favoriteId = content.length.toString(16).padStart(64, '0').slice(-64);
+            const favorite = {
+              favoriteId, label, createdAt: new Date().toISOString(), sha256: favoriteId,
+              size: new TextEncoder().encode(content).length, content,
+            };
+            mockPifFavorites = [...mockPifFavorites.filter((item) => item.favoriteId !== favoriteId), favorite];
+            mockPifFavoriteRevision += 1;
+            snapshot = { ...snapshot, revision: snapshot.revision + 1 };
+            respond(request, success('PIF favorite saved.', {
+              schemaVersion: 1, action: 'saved', revision: mockPifFavoriteRevision,
+              snapshotRevision: snapshot.revision,
+              favorite: (({ content: _content, ...item }) => item)(favorite), bounded: true,
+            }));
+            publishSnapshot();
+            break;
+          }
+          case 'root.pif.favorites.delete': {
+            const index = mockPifFavorites.findIndex((item) => item.favoriteId === request.payload.favoriteId);
+            if (index < 0) {
+              emit(errorMessage('PIF favorite was not found.', request));
+              break;
+            }
+            const [favorite] = mockPifFavorites.splice(index, 1);
+            mockPifFavoriteRevision += 1;
+            snapshot = { ...snapshot, revision: snapshot.revision + 1 };
+            respond(request, success('PIF favorite deleted.', {
+              schemaVersion: 1, action: 'deleted', revision: mockPifFavoriteRevision,
+              snapshotRevision: snapshot.revision,
+              favorite: (({ content: _content, ...item }) => item)(favorite), bounded: true,
+            }));
+            publishSnapshot();
             break;
           }
           case 'root.pif.document': {

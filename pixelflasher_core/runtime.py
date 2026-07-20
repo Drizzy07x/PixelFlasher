@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 from uuid import uuid4
 
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -87,6 +87,11 @@ from .packages import PackageService
 from .partitions import PartitionService
 from .payload_extractor import BuiltinPayloadExtractor
 from .persistent_artifacts import PersistentProcessedArtifactRepository
+from .pif_profiles import (
+    PifFavoritesRepository,
+    PifProfileError,
+    PifProfileTransformer,
+)
 from .planner import OperationPlanner
 from .platform_tools import PlatformToolsInstaller
 from .platform_tools_setup import (
@@ -175,6 +180,11 @@ class ApplicationRuntime:
         self.config_store = config_store
         self.config_document = config_document
         self.firmware_artifact_cache_root = self._firmware_artifact_cache_path(config_store.path)
+        self.pif_profile_transformer = PifProfileTransformer()
+        self.pif_favorites_repository = PifFavoritesRepository(
+            self._pif_favorites_path(config_store.path),
+            legacy_path=config_store.path.parent / "favorite_pifs.json",
+        )
         self.artifact_repository = ArtifactRepository(
             self._content_artifact_repository_path(config_store.path)
         )
@@ -476,11 +486,182 @@ class ApplicationRuntime:
             return self._get_preferences(command)
         if command.kind == "settings.update":
             return self._update_preferences(command)
+        if command.kind in {
+            "root.pif.transform",
+            "root.pif.favorites.list",
+            "root.pif.favorites.get",
+            "root.pif.favorites.save",
+            "root.pif.favorites.delete",
+        }:
+            return self._pif_profile_command(command)
         if command.kind == "device.select":
             return self._select_devices(command)
         if command.kind in DEVICE_MANAGER_COMMANDS:
             return self._update_device_manager(command)
         return self.command_engine.execute(command)
+
+    def _pif_profile_command(self, command: AppCommand) -> OperationResult:
+        snapshot = self.store.snapshot()
+        if command.expected_revision is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="revision_required",
+                message="expected_revision is required",
+            )
+        if command.expected_revision != snapshot.revision:
+            return OperationResult.failed(
+                command.operation_id,
+                code="stale_revision",
+                message=(
+                    f"expected revision {command.expected_revision}, "
+                    f"current revision is {snapshot.revision}"
+                ),
+            )
+        payload = command.payload
+        try:
+            if command.kind == "root.pif.transform":
+                allowed = {
+                    "content", "inputFormat", "outputFormat", "normalize",
+                    "keepUnknown", "sortKeys", "firstApi",
+                }
+                if set(payload) - allowed or not {
+                    "content", "inputFormat", "outputFormat", "normalize",
+                    "keepUnknown", "sortKeys",
+                }.issubset(payload):
+                    raise PifProfileError("PIF transformation payload is invalid")
+                if (
+                    not isinstance(payload["content"], str)
+                    or payload["inputFormat"] not in {"json", "prop"}
+                    or payload["outputFormat"]
+                    not in {"json", "prop", "framework_patcher"}
+                    or not isinstance(payload["normalize"], bool)
+                    or not isinstance(payload["keepUnknown"], bool)
+                    or not isinstance(payload["sortKeys"], bool)
+                ):
+                    raise PifProfileError("PIF transformation payload types are invalid")
+                first_api = payload.get("firstApi")
+                if first_api is not None and (
+                    not isinstance(first_api, int) or isinstance(first_api, bool)
+                ):
+                    raise PifProfileError("first API level must be an integer")
+                result = self.pif_profile_transformer.transform(
+                    payload["content"],
+                    input_format=cast("Literal['json', 'prop']", payload["inputFormat"]),
+                    output_format=cast(
+                        "Literal['json', 'prop', 'framework_patcher']",
+                        payload["outputFormat"],
+                    ),
+                    normalize=payload["normalize"],
+                    keep_unknown=payload["keepUnknown"],
+                    sort_keys=payload["sortKeys"],
+                    first_api=first_api,
+                )
+                return OperationResult.success(
+                    command.operation_id,
+                    code="pif_transformed",
+                    message="PIF profile transformed.",
+                    value=result.to_public_dict(),
+                )
+            if command.kind == "root.pif.favorites.list":
+                if payload:
+                    raise PifProfileError("PIF favorites list does not accept payload fields")
+                favorites = self.pif_favorites_repository.list()
+                return OperationResult.success(
+                    command.operation_id,
+                    code="pif_favorites_listed",
+                    message="PIF favorites loaded.",
+                    value={
+                        "schemaVersion": 1,
+                        "revision": self.pif_favorites_repository.revision,
+                        "count": len(favorites),
+                        "favorites": [item.to_metadata_dict() for item in favorites],
+                        "bounded": True,
+                    },
+                )
+            if command.kind == "root.pif.favorites.get":
+                if set(payload) != {"favoriteId"} or not isinstance(
+                    payload["favoriteId"], str
+                ):
+                    raise PifProfileError("PIF favorite get payload is invalid")
+                item = self.pif_favorites_repository.get(payload["favoriteId"])
+                return OperationResult.success(
+                    command.operation_id,
+                    code="pif_favorite_loaded",
+                    message="PIF favorite loaded.",
+                    value={
+                        "schemaVersion": 1,
+                        "revision": self.pif_favorites_repository.revision,
+                        "favorite": item.to_public_dict(),
+                        "bounded": True,
+                    },
+                )
+            return self._mutate_pif_favorite(command)
+        except PifProfileError as error:
+            return OperationResult.failed(
+                command.operation_id,
+                code="pif_profile_invalid",
+                message=str(error),
+            )
+
+    def _mutate_pif_favorite(self, command: AppCommand) -> OperationResult:
+        result_value: dict[str, object] = {}
+
+        def prepare(current: AppSnapshot) -> Mapping[str, object]:
+            return {"preferences": current.preferences}
+
+        def persist(_current: AppSnapshot, _updated: AppSnapshot) -> None:
+            nonlocal result_value
+            if command.kind == "root.pif.favorites.save":
+                if (
+                    set(command.payload) != {"label", "content"}
+                    or not isinstance(command.payload["label"], str)
+                    or not isinstance(command.payload["content"], str)
+                ):
+                    raise PifProfileError("PIF favorite save payload is invalid")
+                item = self.pif_favorites_repository.save(
+                    command.payload["label"],
+                    command.payload["content"],
+                )
+                action = "saved"
+            elif command.kind == "root.pif.favorites.delete":
+                if set(command.payload) != {"favoriteId"} or not isinstance(
+                    command.payload["favoriteId"], str
+                ):
+                    raise PifProfileError("PIF favorite delete payload is invalid")
+                item = self.pif_favorites_repository.delete(
+                    command.payload["favoriteId"]
+                )
+                action = "deleted"
+            else:
+                raise PifProfileError("PIF favorite action is invalid")
+            result_value = {
+                "schemaVersion": 1,
+                "action": action,
+                "revision": self.pif_favorites_repository.revision,
+                "favorite": item.to_metadata_dict(),
+                "bounded": True,
+            }
+
+        try:
+            updated = self.store.transactional_update(
+                expected_revision=command.expected_revision,
+                prepare=prepare,
+                side_effect=persist,
+            )
+        except StaleRevisionError as error:
+            return OperationResult.failed(
+                command.operation_id, code="stale_revision", message=str(error)
+            )
+        except PifProfileError as error:
+            return OperationResult.failed(
+                command.operation_id, code="pif_profile_invalid", message=str(error)
+            )
+        return OperationResult.success(
+            command.operation_id,
+            code=f"pif_favorite_{result_value['action']}",
+            message=f"PIF favorite {result_value['action']}.",
+            value={**result_value, "snapshotRevision": updated.revision},
+        )
 
     def _get_preferences(self, command: AppCommand) -> OperationResult:
         if command.payload:
@@ -1563,6 +1744,11 @@ class ApplicationRuntime:
     def _backup_repository_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "backup-repository"
+
+    @staticmethod
+    def _pif_favorites_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "pif-favorites.json"
 
     @staticmethod
     def _legacy_v9_database_path(config_path: str | Path) -> Path:

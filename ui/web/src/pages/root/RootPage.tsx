@@ -144,6 +144,24 @@ interface PifDocument {
   bounded: true;
 }
 
+interface PifFavoriteMetadata {
+  favoriteId: string;
+  label: string;
+  createdAt: string;
+  sha256: string;
+  size: number;
+}
+
+interface PifTransformation {
+  schemaVersion: 1;
+  format: 'json' | 'prop' | 'framework_patcher';
+  content: string;
+  sha256: string;
+  size: number;
+  fieldCount: number;
+  bounded: true;
+}
+
 const pifProfileSpecs = [
   ['pif.custom_json', 'playintegrityfix', 'json'],
   ['pif.custom_prop', 'playintegrityfix', 'prop'],
@@ -190,6 +208,52 @@ function parsePifDocument(value: unknown): PifDocument | null {
     if (encodedSize !== document.size || typeof document.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(document.sha256)) return null;
   } else if (document.content || document.size !== 0 || document.sha256 !== null) return null;
   return document as unknown as PifDocument;
+}
+
+function parsePifFavoriteMetadata(value: unknown): PifFavoriteMetadata | null {
+  const item = record(value);
+  if (
+    !exactKeys(item, ['favoriteId', 'label', 'createdAt', 'sha256', 'size'])
+    || typeof item.favoriteId !== 'string' || !/^[0-9a-f]{64}$/.test(item.favoriteId)
+    || item.sha256 !== item.favoriteId || typeof item.label !== 'string'
+    || !item.label.trim() || item.label.length > 128 || typeof item.createdAt !== 'string'
+    || !item.createdAt || item.createdAt.length > 64 || !boundedCount(item.size, 32 * 1024)
+  ) return null;
+  return item as unknown as PifFavoriteMetadata;
+}
+
+function parsePifFavorites(value: unknown): PifFavoriteMetadata[] | null {
+  const library = record(value);
+  if (
+    !exactKeys(library, ['schemaVersion', 'revision', 'count', 'favorites', 'bounded'])
+    || library.schemaVersion !== 1 || !boundedCount(library.revision, Number.MAX_SAFE_INTEGER)
+    || !boundedCount(library.count, 512) || !Array.isArray(library.favorites)
+    || library.favorites.length !== library.count || library.bounded !== true
+  ) return null;
+  const favorites = library.favorites.flatMap((item) => {
+    const parsed = parsePifFavoriteMetadata(item);
+    return parsed ? [parsed] : [];
+  });
+  const identities = favorites.map((item) => item.favoriteId);
+  return favorites.length === library.favorites.length && identities.length === new Set(identities).size
+    ? favorites
+    : null;
+}
+
+function parsePifTransformation(value: unknown): PifTransformation | null {
+  const transformed = record(value);
+  if (
+    !exactKeys(transformed, ['schemaVersion', 'format', 'content', 'sha256', 'size', 'fieldCount', 'bounded'])
+    || transformed.schemaVersion !== 1
+    || !['json', 'prop', 'framework_patcher'].includes(String(transformed.format))
+    || typeof transformed.content !== 'string' || !transformed.content
+    || typeof transformed.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(transformed.sha256)
+    || typeof transformed.size !== 'number' || !boundedCount(transformed.size, 32 * 1024) || transformed.size < 1
+    || new TextEncoder().encode(transformed.content).length !== transformed.size
+    || typeof transformed.fieldCount !== 'number' || !boundedCount(transformed.fieldCount, 1024) || transformed.fieldCount < 1
+    || transformed.bounded !== true
+  ) return null;
+  return transformed as unknown as PifTransformation;
 }
 
 function validPifEditorContent(format: PifDocument['format'], content: string) {
@@ -483,6 +547,16 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [pifEditorContent, setPifEditorContent] = useState('');
   const [pifEditorConfirmation, setPifEditorConfirmation] = useState('');
   const [pifEditorInvalid, setPifEditorInvalid] = useState(false);
+  const [pifFavorites, setPifFavorites] = useState<PifFavoriteMetadata[]>([]);
+  const [pifFavoritesLoaded, setPifFavoritesLoaded] = useState(false);
+  const [pifLibraryInvalid, setPifLibraryInvalid] = useState(false);
+  const [pifLibraryBusy, setPifLibraryBusy] = useState('');
+  const [pifFavoriteLabel, setPifFavoriteLabel] = useState('');
+  const [pifFavoriteDeleteId, setPifFavoriteDeleteId] = useState('');
+  const [pifKeepUnknown, setPifKeepUnknown] = useState(true);
+  const [pifSortKeys, setPifSortKeys] = useState(true);
+  const [pifFirstApi, setPifFirstApi] = useState('');
+  const [pifTransformPreview, setPifTransformPreview] = useState<PifTransformation | null>(null);
   const [targetedFixPackage, setTargetedFixPackage] = useState('');
   const [targetedFixAction, setTargetedFixAction] = useState<'addTarget' | 'deleteTarget' | ''>('');
   const [targetedFixConfirmation, setTargetedFixConfirmation] = useState('');
@@ -534,6 +608,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     setPifEditorContent('');
     setPifEditorConfirmation('');
     setPifEditorInvalid(false);
+    setPifTransformPreview(null);
   }, [primary?.serial]);
 
   useEffect(() => () => {
@@ -780,6 +855,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       setPifDocument(parsed);
       setPifEditorContent(parsed.content);
       setPifEditorConfirmation('');
+      if (!pifFavoritesLoaded) void refreshPifFavorites();
     } finally {
       setBusy('');
     }
@@ -834,6 +910,160 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       } : current);
     } finally {
       setBusy('');
+    }
+  };
+
+  const requestPifTransformation = async (
+    content: string,
+    inputFormat: 'json' | 'prop',
+    outputFormat: 'json' | 'prop' | 'framework_patcher',
+    normalize: boolean,
+  ) => {
+    const firstApi = pifFirstApi ? Number(pifFirstApi) : undefined;
+    if (firstApi !== undefined && (!Number.isInteger(firstApi) || firstApi < 1 || firstApi > 99)) return null;
+    const response = await onCommand(commands.rootPifTransform, {
+      content,
+      inputFormat,
+      outputFormat,
+      normalize,
+      keepUnknown: pifKeepUnknown,
+      sortKeys: pifSortKeys,
+      ...(firstApi === undefined ? {} : { firstApi }),
+    });
+    if (!operationSucceeded(response)) return null;
+    return parsePifTransformation(record(response?.result).value);
+  };
+
+  const transformPifEditor = async (outputFormat: 'json' | 'prop' | 'framework_patcher') => {
+    if (!pifDocument || !['json', 'prop'].includes(pifDocument.format) || pifLibraryBusy) return;
+    setPifLibraryBusy(`transform:${outputFormat}`);
+    setPifLibraryInvalid(false);
+    try {
+      const transformed = await requestPifTransformation(
+        pifEditorContent,
+        pifDocument.format as 'json' | 'prop',
+        outputFormat,
+        true,
+      );
+      if (!transformed) {
+        setPifLibraryInvalid(true);
+        return;
+      }
+      setPifTransformPreview(transformed);
+      if (outputFormat === pifDocument.format) {
+        setPifEditorContent(transformed.content);
+        setPifEditorConfirmation('');
+      }
+    } finally {
+      setPifLibraryBusy('');
+    }
+  };
+
+  const refreshPifFavorites = async () => {
+    if (pifLibraryBusy) return;
+    setPifLibraryBusy('favorites-list');
+    setPifLibraryInvalid(false);
+    try {
+      const response = await onCommand(commands.rootPifFavoritesList);
+      if (!operationSucceeded(response)) return;
+      const parsed = parsePifFavorites(record(response?.result).value);
+      if (!parsed) {
+        setPifFavorites([]);
+        setPifLibraryInvalid(true);
+        return;
+      }
+      setPifFavorites(parsed);
+      setPifFavoritesLoaded(true);
+    } finally {
+      setPifLibraryBusy('');
+    }
+  };
+
+  const savePifFavorite = async () => {
+    if (!pifDocument || !['json', 'prop'].includes(pifDocument.format) || pifLibraryBusy) return;
+    const label = pifFavoriteLabel.trim();
+    if (!label || label.length > 128 || /[\u0000-\u001f\u007f]/.test(label)) return;
+    setPifLibraryBusy('favorite-save');
+    setPifLibraryInvalid(false);
+    try {
+      let content = pifEditorContent;
+      if (pifDocument.format === 'prop') {
+        const transformed = await requestPifTransformation(content, 'prop', 'json', false);
+        if (!transformed) {
+          setPifLibraryInvalid(true);
+          return;
+        }
+        content = transformed.content;
+      }
+      const response = await onCommand(commands.rootPifFavoritesSave, { label, content });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      const favorite = parsePifFavoriteMetadata(value.favorite);
+      if (value.schemaVersion !== 1 || value.action !== 'saved' || !favorite || value.bounded !== true) {
+        setPifLibraryInvalid(true);
+        return;
+      }
+      setPifFavorites((current) => [...current.filter((item) => item.favoriteId !== favorite.favoriteId), favorite]
+        .sort((left, right) => left.label.localeCompare(right.label)));
+      setPifFavoritesLoaded(true);
+      setPifFavoriteLabel('');
+    } finally {
+      setPifLibraryBusy('');
+    }
+  };
+
+  const loadPifFavorite = async (favoriteId: string) => {
+    if (!pifDocument || !['json', 'prop'].includes(pifDocument.format) || pifLibraryBusy) return;
+    setPifLibraryBusy(`favorite-get:${favoriteId}`);
+    setPifLibraryInvalid(false);
+    try {
+      const response = await onCommand(commands.rootPifFavoritesGet, { favoriteId });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      const favorite = record(value.favorite);
+      const metadata = parsePifFavoriteMetadata(favorite);
+      if (
+        value.schemaVersion !== 1 || value.bounded !== true || !metadata
+        || typeof favorite.content !== 'string'
+        || new TextEncoder().encode(favorite.content).length !== metadata.size
+      ) {
+        setPifLibraryInvalid(true);
+        return;
+      }
+      let content = favorite.content;
+      if (pifDocument.format === 'prop') {
+        const transformed = await requestPifTransformation(content, 'json', 'prop', false);
+        if (!transformed) {
+          setPifLibraryInvalid(true);
+          return;
+        }
+        content = transformed.content;
+      }
+      setPifEditorContent(content);
+      setPifEditorConfirmation('');
+      setPifTransformPreview(null);
+    } finally {
+      setPifLibraryBusy('');
+    }
+  };
+
+  const deletePifFavorite = async (favoriteId: string) => {
+    if (pifFavoriteDeleteId !== favoriteId || pifLibraryBusy) return;
+    setPifLibraryBusy(`favorite-delete:${favoriteId}`);
+    setPifLibraryInvalid(false);
+    try {
+      const response = await onCommand(commands.rootPifFavoritesDelete, { favoriteId });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      const favorite = parsePifFavoriteMetadata(value.favorite);
+      if (value.schemaVersion !== 1 || value.action !== 'deleted' || favorite?.favoriteId !== favoriteId || value.bounded !== true) {
+        setPifLibraryInvalid(true);
+        return;
+      }
+      setPifFavorites((current) => current.filter((item) => item.favoriteId !== favoriteId));
+      setPifFavoriteDeleteId('');
+    } finally {
+      setPifLibraryBusy('');
     }
   };
 
@@ -1455,6 +1685,56 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               spellCheck={false}
               disabled={Boolean(busy)}
             />
+            {['json', 'prop'].includes(pifDocument.format) ? (
+              <div className="pif-library">
+                <section className="pif-library__panel" aria-label={t('root.pifTransformTitle')}>
+                  <header><strong>{t('root.pifTransformTitle')}</strong><small>{t('root.pifTransformDetail')}</small></header>
+                  <div className="root-footer root-footer--wrap">
+                    <label><input type="checkbox" checked={pifKeepUnknown} onChange={(event) => setPifKeepUnknown(event.currentTarget.checked)} disabled={Boolean(pifLibraryBusy)} />{t('root.pifKeepUnknown')}</label>
+                    <label><input type="checkbox" checked={pifSortKeys} onChange={(event) => setPifSortKeys(event.currentTarget.checked)} disabled={Boolean(pifLibraryBusy)} />{t('root.pifSortKeys')}</label>
+                    <label className="select-field select-field--compact">
+                      <span>{t('root.pifFirstApi')}</span>
+                      <input type="number" min={1} max={99} value={pifFirstApi} onChange={(event) => setPifFirstApi(event.currentTarget.value.slice(0, 2))} disabled={Boolean(pifLibraryBusy)} />
+                    </label>
+                    <Button variant="secondary" onClick={() => void transformPifEditor(pifDocument.format as 'json' | 'prop')} disabled={Boolean(pifLibraryBusy) || !validPifEditorContent(pifDocument.format, pifEditorContent)}>{t('root.pifNormalize')}</Button>
+                    <Button variant="ghost" onClick={() => void transformPifEditor('framework_patcher')} disabled={Boolean(pifLibraryBusy) || !validPifEditorContent(pifDocument.format, pifEditorContent)}>{t('root.pifFrameworkPatcher')}</Button>
+                  </div>
+                  {pifTransformPreview?.format === 'framework_patcher' ? (
+                    <textarea className="pif-editor__textarea pif-editor__textarea--preview" aria-label={t('root.pifTransformPreview')} value={pifTransformPreview.content} readOnly rows={8} wrap="off" spellCheck={false} />
+                  ) : null}
+                </section>
+                <section className="pif-library__panel" aria-label={t('root.pifFavoritesTitle')}>
+                  <header><strong>{t('root.pifFavoritesTitle')}</strong><small>{t('root.pifFavoritesDetail')}</small></header>
+                  {pifLibraryInvalid ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('root.pifLibraryInvalid')}</p> : null}
+                  <div className="root-footer root-footer--wrap">
+                    <label className="select-field">
+                      <span>{t('root.pifFavoriteLabel')}</span>
+                      <input value={pifFavoriteLabel} onChange={(event) => setPifFavoriteLabel(event.currentTarget.value.slice(0, 128))} disabled={Boolean(pifLibraryBusy)} />
+                    </label>
+                    <Button variant="secondary" onClick={() => void savePifFavorite()} disabled={Boolean(pifLibraryBusy) || !pifFavoriteLabel.trim() || !validPifEditorContent(pifDocument.format, pifEditorContent)}>{t('root.pifFavoriteSave')}</Button>
+                    <Button variant="ghost" onClick={() => void refreshPifFavorites()} disabled={Boolean(pifLibraryBusy)}>{t('root.pifFavoritesRefresh')}</Button>
+                  </div>
+                  {pifFavorites.length ? (
+                    <div className="pif-favorites" role="list" aria-label={t('root.pifFavoritesTitle')}>
+                      {pifFavorites.map((favorite) => (
+                        <div className="pif-favorites__row" role="listitem" key={favorite.favoriteId}>
+                          <span><strong>{favorite.label}</strong><small>{favorite.size.toLocaleString()} · <code>{favorite.sha256.slice(0, 12)}…</code></small></span>
+                          <span className="button-row">
+                            <Button variant="secondary" onClick={() => void loadPifFavorite(favorite.favoriteId)} disabled={Boolean(pifLibraryBusy)}>{t('root.pifFavoriteLoad')}</Button>
+                            {pifFavoriteDeleteId === favorite.favoriteId ? (
+                              <>
+                                <Button variant="danger" onClick={() => void deletePifFavorite(favorite.favoriteId)} disabled={Boolean(pifLibraryBusy)}>{t('root.pifFavoriteDeleteConfirm')}</Button>
+                                <Button variant="ghost" onClick={() => setPifFavoriteDeleteId('')} disabled={Boolean(pifLibraryBusy)}>{t('common.cancel')}</Button>
+                              </>
+                            ) : <Button variant="danger" onClick={() => setPifFavoriteDeleteId(favorite.favoriteId)} disabled={Boolean(pifLibraryBusy)}>{t('root.pifFavoriteDelete')}</Button>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : pifFavoritesLoaded ? <p className="root-manager__detail">{t('root.pifFavoritesEmpty')}</p> : null}
+                </section>
+              </div>
+            ) : null}
             <footer className="pif-editor__footer">
               <label className="select-field">
                 <span>{t('root.pifEditorConfirm')}</span>
