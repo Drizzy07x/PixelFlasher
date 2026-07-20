@@ -1106,9 +1106,13 @@
         "ui/pages/modern_webview_host.py:_register_support_destination_result",
         "pixelflasher_core/support_v2.py:SupportPackageV2Writer/SupportPackageReader",
         "pixelflasher_core/support_v2_service.py:SupportPackageV2Service",
-        "pixelflasher_core/runtime.py:ApplicationRuntime.register_support_destination"
+        "pixelflasher_core/runtime.py:ApplicationRuntime.register_support_destination",
+        "support_smoke_contract.py:packaged v1-read/v2-write/redaction/tamper smoke",
+        "scripts/verify_support_smoke.py:closed platform and architecture verifier",
+        ".github/workflows/windows.yml:packaged support smoke; delivery contract enforces all six targets",
+        "dist/PixelFlasher.exe:Windows x64 packaged receipt verified on 2026-07-20"
       ],
-      "gap": "Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation remain open.",
+      "gap": "The closed packaged smoke now proves v1 read, v2 AES-256-GCM/RSA-OAEP-SHA256 write/read, seeded redaction, tamper rejection and route-free receipts. Production recipient-key provisioning and remote Windows ARM64/macOS/Linux results remain open.",
       "exitCriteria": [
         "Create a sanitized support package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -1125,7 +1129,9 @@
         "tests/test_support_package_service.py",
         "tests/test_support_package_v2.py",
         "tests/test_support_v2_service.py",
-        "tests/test_modern_webview_host_contract.py"
+        "tests/test_modern_webview_host_contract.py",
+        "tests/test_support_smoke.py",
+        "tests/test_delivery_hardening.py:all artifact workflows run support smoke"
       ],
       "blockReason": null,
       "releaseGate": true,

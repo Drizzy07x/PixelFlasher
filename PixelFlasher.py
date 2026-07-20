@@ -71,11 +71,17 @@ def _run_cli_command(argv):
         or arg.startswith("--firmware-smoke-report=")
         for arg in argv[1:]
     )
+    support_smoke_requested = any(
+        arg == "--support-smoke-report"
+        or arg.startswith("--support-smoke-report=")
+        for arg in argv[1:]
+    )
     if len(argv) <= 1 or not (
         any(arg in cli_flags for arg in argv[1:])
         or pty_smoke_requested
         or legacy_raw_smoke_requested
         or firmware_smoke_requested
+        or support_smoke_requested
     ):
         return
 
@@ -90,6 +96,7 @@ def _run_cli_command(argv):
         print("  python PixelFlasher.py --pty-smoke-report PATH Prove packaged PTY startup")
         print("  python PixelFlasher.py --legacy-raw-smoke-report PATH Prove Legacy Raw shell")
         print("  python PixelFlasher.py --firmware-smoke-report PATH Prove packaged firmware processing")
+        print("  python PixelFlasher.py --support-smoke-report PATH Prove packaged support v1/v2")
         print("  python PixelFlasher.py --version       Print version")
         raise SystemExit(0)
 
@@ -119,6 +126,10 @@ def _run_cli_command(argv):
     if firmware_smoke_requested:
         from firmware_smoke_contract import main as firmware_smoke_main
         raise SystemExit(firmware_smoke_main(argv[1:]))
+
+    if support_smoke_requested:
+        from support_smoke_contract import main as support_smoke_main
+        raise SystemExit(support_smoke_main(argv[1:]))
 
 _run_cli_command(sys.argv)
 

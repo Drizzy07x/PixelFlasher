@@ -266,6 +266,13 @@ jobs:
             --report "$firmware_report" \
             --expect-platform linux \
             --expect-architecture x86_64
+          support_report="$RUNNER_TEMP/pixelflasher-appimage-support-smoke.json"
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/PixelFlasher-x86_64.AppImage \
+            --support-smoke-report "$support_report"
+          myenv/bin/python scripts/verify_support_smoke.py \
+            --report "$support_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
           if ! XDG_CONFIG_HOME="$config_dir" APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
             dist/PixelFlasher-x86_64.AppImage \
               --ui-smoke-report "$smoke_report" \

@@ -239,6 +239,16 @@ jobs:
           }
           & $env:PYTHON_EXE scripts/verify_firmware_smoke.py --report $firmwareReport --expect-platform windows --expect-architecture x86_64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $supportReport = Join-Path $env:RUNNER_TEMP "pixelflasher-support-smoke-windows.json"
+          $supportProcess = Start-Process -FilePath "dist/PixelFlasher.exe" -ArgumentList @(
+            "--support-smoke-report=$supportReport"
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($supportProcess.ExitCode -ne 0) {
+            Write-Error "Packaged PixelFlasher support smoke failed."
+            exit $supportProcess.ExitCode
+          }
+          & $env:PYTHON_EXE scripts/verify_support_smoke.py --report $supportReport --expect-platform windows --expect-architecture x86_64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $smokeReport = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows.json"
           $smokeConfig = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows\PixelFlasher.json"
           New-Item -ItemType Directory -Force -Path (Split-Path $smokeConfig) | Out-Null
