@@ -824,16 +824,29 @@ function PixelFlasherApp({
       return;
     }
     const value = objectValue(result.value);
+    const currentVersion = typeof value.currentVersion === 'string' ? value.currentVersion : '';
     const latestVersion = typeof value.latestVersion === 'string' ? value.latestVersion : '';
-    if (!latestVersion || typeof value.updateAvailable !== 'boolean') {
+    const channel = value.channel;
+    const releaseTarget = value.releaseTarget;
+    if (
+      !currentVersion
+      || !latestVersion
+      || (applicationVersion !== '' && currentVersion !== applicationVersion)
+      || (channel !== 'stable' && channel !== 'rc')
+      || releaseTarget !== 'releases'
+      || typeof value.updateAvailable !== 'boolean'
+    ) {
       setUpdateCheckState({ phase: 'failed' });
       return;
     }
     setUpdateCheckState({
       phase: value.updateAvailable ? 'available' : 'current',
+      currentVersion,
       latestVersion,
+      channel,
+      releaseTarget,
     });
-  }, [runCommand]);
+  }, [applicationVersion, runCommand]);
 
   useEffect(() => {
     if (

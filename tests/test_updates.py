@@ -103,8 +103,29 @@ class UpdateServiceTests(unittest.TestCase):
     def test_current_version_prerelease_ordering_is_semver_compliant(self):
         self.assertTrue(version_is_newer("10.0.0", "10.0.0-rc.2"))
         self.assertTrue(version_is_newer("10.0.0-rc.10", "10.0.0-rc.2"))
+        self.assertTrue(version_is_newer("10.0.0-rc.1", "10.0.0-dev"))
         self.assertFalse(version_is_newer("10.0.0-rc.1", "10.0.0"))
         self.assertFalse(version_is_newer("9.2.2", "9.2.2"))
+
+    def test_signed_stable_manifest_reports_current_stable_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = UpdateService(
+                "10.0.0",
+                Source(
+                    signed_manifest(
+                        version="10.0.0",
+                        channel="stable",
+                        releaseUrl="https://github.com/badabing2005/PixelFlasher/releases/tag/v10.0.0",
+                    )
+                ),
+                self.verifier(),
+                UpdateSequenceStore(Path(directory) / "state.json"),
+            ).check(Cancellation())
+
+            self.assertEqual(UpdateStatus.SUCCESS, result.status)
+            self.assertEqual("application_current", result.code)
+            self.assertFalse(result.update_available)
+            self.assertEqual("stable", result.channel)
 
     def test_expired_tampered_and_non_allowlisted_manifests_fail_closed(self):
         verifier = self.verifier()

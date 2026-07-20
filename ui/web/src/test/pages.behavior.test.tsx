@@ -451,7 +451,13 @@ describe('apps, backups and settings workflows', () => {
         preferences={demoSnapshot.preferences} onMaintenancePreferenceChange={callbacks.maintenance}
         onApplicationCommand={callbacks.application}
         applicationVersion="9.2.2"
-        updateCheckState={{ phase: 'current', latestVersion: '9.2.2' }}
+        updateCheckState={{
+          phase: 'current',
+          currentVersion: '9.2.2',
+          latestVersion: '9.2.2',
+          channel: 'stable',
+          releaseTarget: 'releases',
+        }}
         onUpdateCheck={callbacks.updateCheck}
         applicationConsoleLines={['[PROGRESS 50%] Processing firmware.']}
         onApplicationConsoleClear={callbacks.consoleClear}
@@ -511,6 +517,7 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.application).toHaveBeenCalledWith('openLink', 'source');
     expect(callbacks.application).toHaveBeenCalledWith('openLink', 'license');
     expect(screen.getAllByText('9.2.2')).toHaveLength(2);
+    expect(screen.getAllByText('Stable')).toHaveLength(2);
     expect(callbacks.consoleClear).toHaveBeenCalledOnce();
     expect(callbacks.consoleExport).toHaveBeenCalledOnce();
     expect(callbacks.updateCheck).toHaveBeenCalledOnce();
@@ -525,7 +532,7 @@ describe('apps, backups and settings workflows', () => {
       expertMode onExpertModeChange={callbacks.expert}
       preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
       onApplicationCommand={callbacks.application}
-      applicationVersion="9.2.2"
+      applicationVersion="10.0.0-rc.1"
       updateCheckState={{ phase: 'checking' }}
       onUpdateCheck={callbacks.updateCheck}
       applicationConsoleLines={[]}
@@ -539,5 +546,26 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.maintenance).toHaveBeenCalledWith('lowMemoryMode', true);
     expect(callbacks.zoom).toHaveBeenCalledWith(200);
     expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Release candidate')).toBeVisible();
+    expect(screen.getAllByText('Checking for updates...')).toHaveLength(2);
+
+    rerender(<I18nProvider locale="en"><SettingsPage
+      theme="light" onThemeChange={callbacks.theme}
+      locale="en" onLocaleChange={callbacks.locale}
+      highContrast onHighContrastChange={callbacks.contrast}
+      reducedMotion onReducedMotionChange={callbacks.motion}
+      zoom={200} onZoomChange={callbacks.zoom}
+      expertMode onExpertModeChange={callbacks.expert}
+      preferences={{ ...demoSnapshot.preferences, expertMode: true }} onMaintenancePreferenceChange={callbacks.maintenance}
+      onApplicationCommand={callbacks.application}
+      applicationVersion="9.2.2-dev"
+      updateCheckState={{ phase: 'failed' }}
+      onUpdateCheck={callbacks.updateCheck}
+      applicationConsoleLines={[]}
+      onApplicationConsoleClear={callbacks.consoleClear}
+      onApplicationConsoleExport={callbacks.consoleExport}
+    /></I18nProvider>);
+    expect(screen.getByText('Development')).toBeVisible();
+    expect(screen.getByText('Verified update information is unavailable.')).toBeVisible();
   });
 });

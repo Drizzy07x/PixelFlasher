@@ -7023,3 +7023,39 @@ msgstr "无 OTA 签名"
 msgctxt "web.firmware.signature.not_applicable"
 msgid "Catalog or package confirmation"
 msgstr "目录或软件包确认"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.buildChannel"
+msgid "Build channel"
+msgstr "构建渠道"
+
+msgctxt "web.settings.stableBuild"
+msgid "Stable"
+msgstr "稳定版"
+
+msgctxt "web.settings.releaseCandidateBuild"
+msgid "Release candidate"
+msgstr "候选发布版"
+
+msgctxt "web.settings.developmentBuild"
+msgid "Development"
+msgstr "开发版"
+
+msgctxt "web.settings.updateNotChecked"
+msgid "Not checked this session."
+msgstr "本次会话尚未检查。"
+
+msgctxt "web.settings.verifiedUpdateStatus"
+msgid "Verified update status"
+msgstr "已验证的更新状态"
+
+msgctxt "web.settings.releaseChannel"
+msgid "Release channel"
+msgstr "发布渠道"
+
+msgctxt "web.settings.latestVerifiedRelease"
+msgid "Latest verified release"
+msgstr "最新验证版本"

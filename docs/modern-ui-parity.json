@@ -387,14 +387,17 @@
       "area": "navigation",
       "capability": "Version, licensing and project information",
       "owner": "navigation",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
-        "ui/web/src/pages/settings/SettingsPage.tsx:About and help card",
+        "ui/web/src/pages/settings/SettingsPage.tsx:About and help card with packaged build channel and authenticated update evidence",
+        "ui/web/src/App.tsx:strict updates.check result validation",
         "ui/pages/modern_webview_host.py:_APPLICATION_LINKS/_handle_application_request",
         "tests/test_modern_webview_host_contract.py:fixed HTTPS targets and fail-closed browser launch",
-        "ui/web/src/test/pages.behavior.test.tsx:version and help-link controls"
+        "scripts/release_version.py:tag-derived stable and RC packaging metadata",
+        "ui/web/src/test/App.test.tsx:stable/RC/development/offline/invalid update states and axe",
+        "ui/web/src/test/pages.behavior.test.tsx:version, build channel and help-link controls"
       ],
-      "gap": "The accessible About/help surface and native allow-listed project links are live. Signed update status and packaged dev/RC version derivation remain open.",
+      "gap": "",
       "exitCriteria": [
         "A keyboard-accessible React About/help surface shows packaged version, licensing, updates, support and project information."
       ],
@@ -407,6 +410,9 @@
       ],
       "tests": [
         "tests/test_modern_webview_host_contract.py:application link allow-list",
+        "tests/test_release_version.py:stable and RC tag-derived metadata",
+        "tests/test_updates.py:signed stable/RC/development SemVer behavior",
+        "ui/web/src/test/App.test.tsx:authenticated About update states and axe",
         "ui/web/src/test/pages.behavior.test.tsx:About/help controls"
       ],
       "blockReason": null,

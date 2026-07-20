@@ -2,10 +2,23 @@ import { localeOptions, useI18n } from '../../i18n';
 import type { Locale, ModernPreferences, Theme, ToolbarPosition } from '../../types';
 import { Button, Card, CardTitle, Icon, PageHeader, Toggle } from '../../components/ui';
 
-export type UpdateCheckState = {
-  phase: 'idle' | 'checking' | 'current' | 'available' | 'failed';
-  latestVersion?: string;
-};
+export type UpdateCheckState =
+  | { phase: 'idle' | 'checking' | 'failed' }
+  | {
+    phase: 'current' | 'available';
+    currentVersion: string;
+    latestVersion: string;
+    channel: 'stable' | 'rc';
+    releaseTarget: 'releases';
+  };
+
+export type ApplicationBuildKind = 'stable' | 'releaseCandidate' | 'development' | 'unavailable';
+
+export function applicationBuildKind(version: string): ApplicationBuildKind {
+  if (/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version)) return 'stable';
+  if (/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.[1-9]\d*$/u.test(version)) return 'releaseCandidate';
+  return version ? 'development' : 'unavailable';
+}
 
 export function SettingsPage({
   theme,
@@ -59,6 +72,16 @@ export function SettingsPage({
   onApplicationConsoleExport: () => void;
 }) {
   const { t } = useI18n();
+  const buildKind = applicationBuildKind(applicationVersion);
+  const updateStatus = updateCheckState.phase === 'current'
+    ? t('settings.applicationCurrent')
+    : updateCheckState.phase === 'available'
+      ? t('settings.updateAvailable')
+      : updateCheckState.phase === 'failed'
+        ? t('settings.updateCheckFailed')
+        : updateCheckState.phase === 'checking'
+          ? t('settings.checkingUpdates')
+          : t('settings.updateNotChecked');
   const standardFontFaces = ['Courier', 'Cascadia Code', 'Consolas', 'SFMono-Regular', 'Menlo', 'Monaco', 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono'];
   const fontFaces = standardFontFaces.includes(preferences.fontFace)
     ? standardFontFaces
@@ -196,12 +219,6 @@ export function SettingsPage({
             <Button icon="download" disabled={updateCheckState.phase === 'checking'} onClick={onUpdateCheck}>
               {t(updateCheckState.phase === 'checking' ? 'settings.checkingUpdates' : 'settings.checkUpdates')}
             </Button>
-            <span role="status" aria-live="polite">
-              {updateCheckState.phase === 'current' ? t('settings.applicationCurrent') : null}
-              {updateCheckState.phase === 'available' ? t('settings.updateAvailable') : null}
-              {updateCheckState.phase === 'failed' ? t('settings.updateCheckFailed') : null}
-              {updateCheckState.latestVersion ? <strong>{updateCheckState.latestVersion}</strong> : null}
-            </span>
           </div>
         </Card>
         <Card className="settings-shortcuts">
@@ -227,7 +244,29 @@ export function SettingsPage({
           <p className="settings-card-detail">{t('settings.aboutDetail')}</p>
           <dl className="settings-about-details">
             <div><dt>{t('settings.version')}</dt><dd>{applicationVersion || t('settings.versionUnavailable')}</dd></div>
+            <div>
+              <dt>{t('settings.buildChannel')}</dt>
+              <dd>{t(
+                buildKind === 'stable'
+                  ? 'settings.stableBuild'
+                  : buildKind === 'releaseCandidate'
+                    ? 'settings.releaseCandidateBuild'
+                    : buildKind === 'development'
+                      ? 'settings.developmentBuild'
+                      : 'settings.versionUnavailable',
+              )}</dd>
+            </div>
             <div><dt>{t('settings.license')}</dt><dd>GNU GPL v3</dd></div>
+            <div className="settings-about-update-status">
+              <dt>{t('settings.verifiedUpdateStatus')}</dt>
+              <dd aria-live="polite">{updateStatus}</dd>
+            </div>
+            {updateCheckState.phase === 'current' || updateCheckState.phase === 'available' ? (
+              <>
+                <div><dt>{t('settings.releaseChannel')}</dt><dd>{t(updateCheckState.channel === 'rc' ? 'settings.releaseCandidateBuild' : 'settings.stableBuild')}</dd></div>
+                <div><dt>{t('settings.latestVerifiedRelease')}</dt><dd>{updateCheckState.latestVersion}</dd></div>
+              </>
+            ) : null}
           </dl>
           <div className="settings-shell-actions" aria-label={t('settings.helpLinks')}>
             <Button icon="tools" onClick={() => onApplicationCommand('openLink', 'documentation')}>{t('settings.documentation')}</Button>

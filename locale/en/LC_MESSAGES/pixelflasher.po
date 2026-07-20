@@ -6981,3 +6981,39 @@ msgstr ""
 msgctxt "web.firmware.signature.not_applicable"
 msgid "Catalog or package confirmation"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.buildChannel"
+msgid "Build channel"
+msgstr "Build channel"
+
+msgctxt "web.settings.stableBuild"
+msgid "Stable"
+msgstr "Stable"
+
+msgctxt "web.settings.releaseCandidateBuild"
+msgid "Release candidate"
+msgstr "Release candidate"
+
+msgctxt "web.settings.developmentBuild"
+msgid "Development"
+msgstr "Development"
+
+msgctxt "web.settings.updateNotChecked"
+msgid "Not checked this session."
+msgstr "Not checked this session."
+
+msgctxt "web.settings.verifiedUpdateStatus"
+msgid "Verified update status"
+msgstr "Verified update status"
+
+msgctxt "web.settings.releaseChannel"
+msgid "Release channel"
+msgstr "Release channel"
+
+msgctxt "web.settings.latestVerifiedRelease"
+msgid "Latest verified release"
+msgstr "Latest verified release"

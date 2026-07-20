@@ -42,7 +42,11 @@ const hostPreferences: ModernPreferences = {
 
 function installPreferencesHost(
   initial: ModernPreferences,
-  options: { failUpdate?: boolean } = {},
+  options: {
+    failUpdate?: boolean;
+    applicationVersion?: string;
+    updateResult?: Record<string, unknown>;
+  } = {},
 ) {
   let preferences = initial;
   const requests: BridgeRequest[] = [];
@@ -67,6 +71,10 @@ function installPreferencesHost(
             message: 'Preferences loaded.',
             value: { preferences },
           };
+        } else if (request.command === 'app.ready') {
+          result = { version: options.applicationVersion ?? '9.2.2' };
+        } else if (request.command === 'updates.check' && options.updateResult) {
+          result = options.updateResult;
         } else if (request.command === 'settings.update' && options.failUpdate) {
           result = {
             status: 'FAILED',
@@ -111,6 +119,85 @@ describe('PixelFlasher web workspace', () => {
     await waitFor(() => {
       expect(requests.filter((request) => request.command === 'updates.check')).toHaveLength(1);
     });
+  });
+
+  it.each([
+    {
+      name: 'current stable',
+      applicationVersion: '10.0.0',
+      updateResult: {
+        status: 'SUCCESS',
+        code: 'application_current',
+        value: {
+          currentVersion: '10.0.0', latestVersion: '10.0.0', channel: 'stable', updateAvailable: false, releaseTarget: 'releases',
+        },
+      },
+      status: 'PixelFlasher is up to date.',
+      channel: 'Stable',
+      latest: '10.0.0',
+    },
+    {
+      name: 'available release candidate',
+      applicationVersion: '9.2.2-dev',
+      updateResult: {
+        status: 'SUCCESS',
+        code: 'update_available',
+        value: {
+          currentVersion: '9.2.2-dev', latestVersion: '10.0.0-rc.1', channel: 'rc', updateAvailable: true, releaseTarget: 'releases',
+        },
+      },
+      status: 'A newer verified release is available.',
+      channel: 'Release candidate',
+      latest: '10.0.0-rc.1',
+    },
+  ])('shows authenticated $name update evidence in About', async ({ applicationVersion, updateResult, status, channel, latest }) => {
+    const user = userEvent.setup();
+    installPreferencesHost(
+      { ...hostPreferences, automaticUpdateCheck: true },
+      { applicationVersion, updateResult },
+    );
+    render(<App />);
+
+    const navigation = within(await screen.findByRole('navigation', { name: 'Tasks' }));
+    await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    expect(await screen.findByText(status)).toBeVisible();
+    expect(screen.getAllByText(latest).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(channel).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    {
+      name: 'offline failure',
+      updateResult: { status: 'FAILED', code: 'update_check_offline', message: 'Offline.' },
+    },
+    {
+      name: 'invalid success payload',
+      updateResult: {
+        status: 'SUCCESS',
+        code: 'application_current',
+        value: { currentVersion: '9.2.2', latestVersion: '9.2.2', channel: 'nightly', updateAvailable: false, releaseTarget: 'https://hostile.invalid' },
+      },
+    },
+    {
+      name: 'mismatched current version',
+      updateResult: {
+        status: 'SUCCESS',
+        code: 'application_current',
+        value: { currentVersion: '9.2.3', latestVersion: '9.2.3', channel: 'stable', updateAvailable: false, releaseTarget: 'releases' },
+      },
+    },
+  ])('fails closed in About for an $name', async ({ updateResult }) => {
+    const user = userEvent.setup();
+    installPreferencesHost(
+      { ...hostPreferences, automaticUpdateCheck: true },
+      { updateResult },
+    );
+    render(<App />);
+
+    const navigation = within(await screen.findByRole('navigation', { name: 'Tasks' }));
+    await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    expect(await screen.findByText('Verified update information is unavailable.')).toBeVisible();
+    expect(document.body.textContent).not.toContain('hostile.invalid');
   });
 
   it('renders the faithful dashboard and exposes all nine tasks', async () => {
@@ -648,6 +735,39 @@ describe('PixelFlasher web workspace', () => {
   it('has no automated accessibility violations on the primary dashboard', async () => {
     const { container } = render(<App />);
     await screen.findByRole('heading', { name: 'Modern UI' });
+    const results = await axe.run(container, {
+      rules: {
+        'color-contrast': { enabled: false },
+      },
+    });
+    expect(results.violations).toEqual([]);
+  });
+
+  it('has no automated accessibility violations in About and update status', async () => {
+    const user = userEvent.setup();
+    installPreferencesHost(
+      hostPreferences,
+      {
+        applicationVersion: '10.0.0-rc.1',
+        updateResult: {
+          status: 'SUCCESS',
+          code: 'application_current',
+          value: {
+            currentVersion: '10.0.0-rc.1',
+            latestVersion: '10.0.0-rc.1',
+            channel: 'rc',
+            updateAvailable: false,
+            releaseTarget: 'releases',
+          },
+        },
+      },
+    );
+    const { container } = render(<App />);
+    const navigation = within(await screen.findByRole('navigation', { name: 'Tasks' }));
+    await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }));
+    expect(await screen.findByText('PixelFlasher is up to date.')).toBeVisible();
+
     const results = await axe.run(container, {
       rules: {
         'color-contrast': { enabled: false },

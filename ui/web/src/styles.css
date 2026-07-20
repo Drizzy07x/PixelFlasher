@@ -4274,6 +4274,10 @@ code {
   gap: 0.2rem;
 }
 
+.settings-about-details .settings-about-update-status {
+  flex: 1 1 18rem;
+}
+
 .settings-about-details dt {
   color: var(--muted);
   font-size: 0.62rem;

@@ -30,6 +30,9 @@ class ReleaseVersionTests(unittest.TestCase):
         version = ReleaseVersion.parse("v10.0.0-rc.2")
         self.assertEqual("10.0.0-rc.2", version.text)
         self.assertEqual("(10,0,0,0)", version.windows_tuple)
+        stable = ReleaseVersion.parse("v10.0.0")
+        self.assertEqual("10.0.0", stable.text)
+        self.assertEqual("(10,0,0,0)", stable.windows_tuple)
         for invalid in ("10", "10.0", "10.0.0-beta.1", "10.0.0-rc.0", "v01.0.0"):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):

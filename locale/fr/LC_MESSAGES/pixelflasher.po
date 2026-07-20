@@ -7025,3 +7025,39 @@ msgstr "Aucune signature OTA"
 msgctxt "web.firmware.signature.not_applicable"
 msgid "Catalog or package confirmation"
 msgstr "Confirmation du catalogue ou du paquet"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.buildChannel"
+msgid "Build channel"
+msgstr "Canal de compilation"
+
+msgctxt "web.settings.stableBuild"
+msgid "Stable"
+msgstr "Stable"
+
+msgctxt "web.settings.releaseCandidateBuild"
+msgid "Release candidate"
+msgstr "Version candidate"
+
+msgctxt "web.settings.developmentBuild"
+msgid "Development"
+msgstr "Développement"
+
+msgctxt "web.settings.updateNotChecked"
+msgid "Not checked this session."
+msgstr "Non vérifié pendant cette session."
+
+msgctxt "web.settings.verifiedUpdateStatus"
+msgid "Verified update status"
+msgstr "État de mise à jour vérifié"
+
+msgctxt "web.settings.releaseChannel"
+msgid "Release channel"
+msgstr "Canal de publication"
+
+msgctxt "web.settings.latestVerifiedRelease"
+msgid "Latest verified release"
+msgstr "Dernière version vérifiée"
