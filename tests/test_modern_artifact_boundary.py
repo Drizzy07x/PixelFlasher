@@ -354,6 +354,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         },
                     )
                     if command in {
+                        "apps.action",
                         "backups.create",
                         "backups.delete",
                         "backups.list",

@@ -5692,3 +5692,59 @@ msgstr "Conferma eliminazione backup"
 msgctxt "web.backups.confirmDelete"
 msgid "Delete permanently"
 msgstr "Elimina definitivamente"
+
+msgctxt "web.apps.action.enable"
+msgid "Enable"
+msgstr "Abilita"
+
+msgctxt "web.apps.action.disable"
+msgid "Disable"
+msgstr "Disabilita"
+
+msgctxt "web.apps.action.launch"
+msgid "Launch"
+msgstr "Avvia"
+
+msgctxt "web.apps.action.forceStop"
+msgid "Force stop"
+msgstr "Forza arresto"
+
+msgctxt "web.apps.action.clearData"
+msgid "Clear app data"
+msgstr "Cancella dati app"
+
+msgctxt "web.apps.action.uninstall"
+msgid "Uninstall"
+msgstr "Disinstalla"
+
+msgctxt "web.apps.action.permissions"
+msgid "Inspect permissions"
+msgstr "Ispeziona autorizzazioni"
+
+msgctxt "web.apps.keepData"
+msgid "Keep app data"
+msgstr "Conserva dati app"
+
+msgctxt "web.apps.actionSucceeded"
+msgid "{action} completed and device state was verified."
+msgstr "{action} completato e stato del dispositivo verificato."
+
+msgctxt "web.apps.permissionsTitle"
+msgid "Package permissions"
+msgstr "Autorizzazioni del pacchetto"
+
+msgctxt "web.apps.permissions.requested"
+msgid "Requested permissions"
+msgstr "Autorizzazioni richieste"
+
+msgctxt "web.apps.permissions.runtimeGranted"
+msgid "Runtime permissions granted"
+msgstr "Autorizzazioni runtime concesse"
+
+msgctxt "web.apps.permissions.runtimeDenied"
+msgid "Runtime permissions denied"
+msgstr "Autorizzazioni runtime negate"
+
+msgctxt "web.apps.permissions.none"
+msgid "None reported"
+msgstr "Nessuna segnalata"

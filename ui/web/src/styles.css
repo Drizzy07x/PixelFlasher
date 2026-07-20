@@ -2131,6 +2131,22 @@ code {
   padding: 0 0.85rem 0.85rem;
 }
 
+.apps-permission-group {
+  margin-top: 0.9rem;
+}
+
+.apps-permission-group h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.75rem;
+}
+
+.apps-permission-group ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
 .apps-install-feedback {
   display: flex;
   align-items: center;

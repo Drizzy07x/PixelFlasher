@@ -1482,6 +1482,21 @@ export function installDevelopmentBridge() {
                   verified: true,
                 },
               }));
+            } else if (request.payload.action === 'permissions') {
+              const packages = Array.isArray(request.payload.packages) ? request.payload.packages : [];
+              const packageName = typeof packages[0] === 'string' ? packages[0] : 'com.example.selected';
+              respond(request, success('Permissions inspected.', {
+                action: 'permissions',
+                report: {
+                  package: packageName,
+                  requested: ['android.permission.POST_NOTIFICATIONS'],
+                  runtimeGranted: ['android.permission.POST_NOTIFICATIONS'],
+                  runtimeDenied: [],
+                  requestedCount: 1,
+                  runtimeCount: 1,
+                  bounded: true,
+                },
+              }));
             } else {
               respond(request, success('Command accepted.', { action: request.payload.action }));
             }

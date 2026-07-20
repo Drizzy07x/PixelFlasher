@@ -24,8 +24,10 @@ from pixelflasher_core.packages import (
     CancellationProbe,
     PackageCompilation,
     PackagePlanningError,
+    PackageResultError,
     PackageService,
     parse_package_list,
+    parse_package_permissions,
 )
 from pixelflasher_core.store import AppStateStore
 from tests.artifact_stage_assertions import assert_exact_or_staged_argv
@@ -238,6 +240,76 @@ class PackageServiceTests(unittest.TestCase):
             ),
             compilation.plan.request.argv,
         )
+
+    def test_permissions_requires_one_package_and_parses_a_bounded_report(self):
+        with self.assertRaises(PackagePlanningError) as multiple:
+            self.compile(
+                "apps.action",
+                {
+                    "action": "permissions",
+                    "packages": ["com.example.one", "com.example.two"],
+                },
+            )
+        self.assertEqual("package_permissions_target_invalid", multiple.exception.code)
+
+        output = """Packages:
+  Package [com.example.app] (123):
+    requested permissions:
+      android.permission.CAMERA
+      android.permission.POST_NOTIFICATIONS
+    runtime permissions:
+      android.permission.CAMERA: granted=true, flags=[ USER_SENSITIVE_WHEN_GRANTED ]
+      android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SENSITIVE_WHEN_DENIED ]
+"""
+        report = parse_package_permissions(output, "com.example.app")
+        self.assertEqual(
+            ("android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"),
+            report["requested"],
+        )
+        self.assertEqual(("android.permission.CAMERA",), report["runtimeGranted"])
+        self.assertEqual(
+            ("android.permission.POST_NOTIFICATIONS",), report["runtimeDenied"]
+        )
+        self.assertTrue(report["bounded"])
+
+        for hostile, code in (
+            (output.replace("com.example.app", "com.example.other", 1), "package_permissions_unverified"),
+            ("x" * (512 * 1024 + 1), "package_permissions_oversized"),
+        ):
+            with self.subTest(code=code), self.assertRaises(PackageResultError) as rejected:
+                parse_package_permissions(hostile, "com.example.app")
+            self.assertEqual(code, rejected.exception.code)
+
+    def test_permissions_engine_returns_only_the_typed_report(self):
+        output = """Packages:
+  Package [com.example.app] (123):
+    requested permissions:
+      android.permission.CAMERA
+    runtime permissions:
+      android.permission.CAMERA: granted=true, flags=[]
+"""
+        transport = FakeProcessTransport([TransportOutcome(0, stdout=output)])
+        engine = make_test_command_engine(
+            store=AppStateStore(self.snapshot),
+            executor=CommandExecutor(transport),
+            package_service=self.service,
+        )
+
+        result = engine.execute(
+            AppCommand(
+                "apps.action",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={"action": "permissions", "package": "com.example.app"},
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("package_permissions_returned", result.code)
+        self.assertEqual("permissions", result.value["action"])
+        self.assertEqual("com.example.app", result.value["report"]["package"])
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
 
     def test_install_hashes_canonical_apk_and_orders_allowlisted_flags(self):
         with tempfile.TemporaryDirectory() as directory:

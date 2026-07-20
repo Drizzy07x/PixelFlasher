@@ -117,8 +117,10 @@ from .packages import (
     PACKAGE_COMMANDS,
     PackageCompilation,
     PackagePlanningError,
+    PackageResultError,
     PackageService,
     parse_package_list,
+    parse_package_permissions,
 )
 from .partitions import (
     PARTITION_COMMANDS,
@@ -1411,20 +1413,33 @@ class CommandEngine:
                 },
             )
         if kind == "apps.action" and isinstance(compilation, PackageCompilation):
-            value: dict[str, object] = {}
-            raw_result_value = cast(object, result.value)
-            if isinstance(raw_result_value, Mapping):
-                value.update(
-                    {
-                        key: item
-                        for key, item in cast(
-                            Mapping[object, object],
-                            raw_result_value,
-                        ).items()
-                        if isinstance(key, str)
-                    }
+            if compilation.action == "permissions":
+                if len(compilation.packages) != 1:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code="package_permissions_target_invalid",
+                        message="permission inspection has no exact package target",
+                    )
+                try:
+                    report = parse_package_permissions(
+                        result.stdout,
+                        compilation.packages[0],
+                    )
+                except PackageResultError as error:
+                    return OperationResult.failed(
+                        result.operation_id,
+                        code=error.code,
+                        message=str(error),
+                    )
+                return replace(
+                    result,
+                    code="package_permissions_returned",
+                    message="bounded package permission report returned",
+                    value={"action": "permissions", "report": report},
+                    stdout="",
+                    stderr="",
                 )
-            value["action"] = compilation.action
+            value: dict[str, object] = {"action": compilation.action}
             if compilation.apk_identity is not None:
                 identity = compilation.apk_identity
                 value["apkIdentity"] = {

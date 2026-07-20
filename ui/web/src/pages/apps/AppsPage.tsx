@@ -22,6 +22,15 @@ type InstalledApkIdentity = {
   sha256: string;
 };
 
+type PackageAction = 'enable' | 'disable' | 'launch' | 'forceStop' | 'clearData' | 'uninstall' | 'permissions';
+
+type PermissionReport = {
+  package: string;
+  requested: string[];
+  runtimeGranted: string[];
+  runtimeDenied: string[];
+};
+
 type InstallState =
   | { phase: 'idle' }
   | { phase: 'picking' | 'installing' | 'cancelling' }
@@ -72,11 +81,32 @@ function packageRows(result: Record<string, unknown>): PackageRow[] | null {
   });
 }
 
+function permissionReport(result: Record<string, unknown>): PermissionReport | null {
+  if (operationStatus(result) !== 'success') return null;
+  const value = record(result.value);
+  const report = record(value.report);
+  const requested = report.requested;
+  const granted = report.runtimeGranted;
+  const denied = report.runtimeDenied;
+  if (
+    value.action !== 'permissions' || report.bounded !== true
+    || typeof report.package !== 'string' || !PACKAGE_NAME.test(report.package)
+    || !Array.isArray(requested) || !Array.isArray(granted) || !Array.isArray(denied)
+    || [requested, granted, denied].some((items) => items.length > 512 || items.some((item) => typeof item !== 'string'))
+    || report.requestedCount !== requested.length
+    || report.runtimeCount !== granted.length + denied.length
+  ) return null;
+  return { package: report.package, requested, runtimeGranted: granted, runtimeDenied: denied };
+}
+
 export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPageProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
-  const [action, setAction] = useState<'enable' | 'disable'>('disable');
+  const [action, setAction] = useState<PackageAction>('disable');
+  const [keepData, setKeepData] = useState(false);
+  const [actionNotice, setActionNotice] = useState<PackageAction | ''>('');
+  const [permissions, setPermissions] = useState<PermissionReport | null>(null);
   const [listedApps, setListedApps] = useState<PackageRow[]>([]);
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [installState, setInstallState] = useState<InstallState>({ phase: 'idle' });
@@ -147,15 +177,27 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   };
 
   const applyAction = async () => {
-    if (!deviceReady || !selected.length || inventoryBusy || installBusy) return;
+    if (!deviceReady || !selected.length || inventoryBusy || installBusy || (action === 'permissions' && selected.length !== 1)) return;
     setInventoryBusy(true);
+    setActionNotice('');
+    setPermissions(null);
     try {
-      const response = await onCommand(commands.appsAction, { serial, packages: selected, action });
-      if (!response || operationStatus(record(response.result)) !== 'success') return;
-      setListedApps((apps) => apps.map((app) => selected.includes(app.id)
-        ? { ...app, enabled: action === 'enable' }
-        : app));
-      setSelected([]);
+      const response = await onCommand(commands.appsAction, {
+        serial,
+        packages: selected,
+        action,
+        ...(action === 'uninstall' ? { options: { keepData } } : {}),
+      });
+      const result = record(response?.result);
+      if (!response || operationStatus(result) !== 'success') return;
+      if (action === 'permissions') {
+        const report = permissionReport(result);
+        if (!report) return;
+        setPermissions(report);
+      } else {
+        await refreshPackages(true);
+        setActionNotice(action);
+      }
     } finally {
       setInventoryBusy(false);
     }
@@ -240,12 +282,18 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             <Button icon="scan" onClick={() => void refreshPackages()} disabled={!deviceReady || inventoryBusy || installBusy}>{t('common.refresh')}</Button>
             <label className="toolbar-locale">
               <span className="sr-only">{t('common.apply')}</span>
-              <select value={action} onChange={(event) => setAction(event.currentTarget.value as 'enable' | 'disable')} disabled={inventoryBusy || installBusy}>
+              <select value={action} onChange={(event) => setAction(event.currentTarget.value as PackageAction)} disabled={inventoryBusy || installBusy}>
                 <option value="disable">{t('common.disabled')}</option>
                 <option value="enable">{t('common.enabled')}</option>
+                <option value="launch">{t('apps.action.launch')}</option>
+                <option value="forceStop">{t('apps.action.forceStop')}</option>
+                <option value="clearData">{t('apps.action.clearData')}</option>
+                <option value="uninstall">{t('apps.action.uninstall')}</option>
+                <option value="permissions">{t('apps.action.permissions')}</option>
               </select>
             </label>
-            <Button variant="primary" icon="check" onClick={() => void applyAction()} disabled={inventoryBusy || installBusy || !selected.length || !deviceReady || !available.length}>{t('common.apply')}</Button>
+            {action === 'uninstall' ? <label className="toolbar-locale"><input type="checkbox" checked={keepData} onChange={(event) => setKeepData(event.currentTarget.checked)} />{t('apps.keepData')}</label> : null}
+            <Button variant="primary" icon="check" onClick={() => void applyAction()} disabled={inventoryBusy || installBusy || !selected.length || !deviceReady || !available.length || (action === 'permissions' && selected.length !== 1)}>{t('common.apply')}</Button>
           </div>
         )}
       />
@@ -333,6 +381,23 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           {!available.length ? <EmptyState icon="android" title={t('common.none')} detail={t('apps.subtitle')} /> : null}
         </div>
       </Card>
+      {actionNotice ? <div className="inline-alert inline-alert--success" role="status">{t('apps.actionSucceeded', { action: t(`apps.action.${actionNotice}`) })}</div> : null}
+      {permissions ? (
+        <Card>
+          <CardTitle icon="shield">{t('apps.permissionsTitle')}</CardTitle>
+          <p><code>{permissions.package}</code></p>
+          {([
+            ['requested', permissions.requested],
+            ['runtimeGranted', permissions.runtimeGranted],
+            ['runtimeDenied', permissions.runtimeDenied],
+          ] as const).map(([label, items]) => (
+            <section key={label} className="apps-permission-group">
+              <h3>{t(`apps.permissions.${label}`)}</h3>
+              {items.length ? <ul>{items.map((item) => <li key={item}><code>{item}</code></li>)}</ul> : <p>{t('apps.permissions.none')}</p>}
+            </section>
+          ))}
+        </Card>
+      ) : null}
     </>
   );
 }

@@ -72,6 +72,12 @@ class PackagePlanningError(ValueError):
         self.code = code
 
 
+class PackageResultError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class ApkIdentityInspector(Protocol):
     def inspect(
         self,
@@ -101,6 +107,7 @@ class PackageCompilation:
     destructive: bool = False
     requires_confirmation: bool = False
     apk_identity: ApkIdentity | None = None
+    packages: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -232,6 +239,11 @@ class PackageService:
                 f"unsupported option for {action}: {sorted(unknown_options)[0]}",
             )
         packages = self._packages(command.payload)
+        if action == "permissions" and len(packages) != 1:
+            raise PackagePlanningError(
+                "package_permissions_target_invalid",
+                "permission inspection requires exactly one package",
+            )
         requests = tuple(
             ProcessRequest(
                 self._package_argv(adb, device.serial, action, package, options),
@@ -291,6 +303,7 @@ class PackageService:
             action,
             destructive=destructive,
             requires_confirmation=action != "permissions",
+            packages=packages,
         )
 
     def _compile_install(
@@ -384,6 +397,7 @@ class PackageService:
             "install",
             requires_confirmation=True,
             apk_identity=identity,
+            packages=(identity.package_name,),
         )
 
     @staticmethod
@@ -596,12 +610,89 @@ def parse_package_list(stdout: str) -> tuple[PackageInfo, ...]:
     return tuple(packages[key] for key in sorted(packages, key=str.casefold))
 
 
+_PERMISSION_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{1,255}$")
+_RUNTIME_PERMISSION = re.compile(
+    r"^([A-Za-z][A-Za-z0-9_.]{1,255}):\s+granted=(true|false)(?:,.*)?$"
+)
+
+
+def parse_package_permissions(stdout: str, package: str) -> dict[str, object]:
+    """Return a bounded permission report from one exact dumpsys package result."""
+
+    if not _PACKAGE_PATTERN.fullmatch(package):
+        raise PackageResultError(
+            "package_name_invalid", "permission report package name is invalid"
+        )
+    if len(stdout.encode("utf-8", errors="replace")) > 512 * 1024:
+        raise PackageResultError(
+            "package_permissions_oversized", "permission report exceeds its byte limit"
+        )
+    if re.search(rf"(?m)^\s*Package \[{re.escape(package)}\]", stdout) is None:
+        raise PackageResultError(
+            "package_permissions_unverified",
+            "dumpsys output does not identify the requested package",
+        )
+
+    requested: set[str] = set()
+    runtime_granted: set[str] = set()
+    runtime_denied: set[str] = set()
+    in_requested = False
+    requested_header = False
+    for raw_line in stdout.splitlines():
+        stripped = raw_line.strip()
+        if stripped == "requested permissions:":
+            requested_header = True
+            in_requested = True
+            continue
+        if in_requested:
+            if raw_line.startswith(("      ", "\t")) and _PERMISSION_PATTERN.fullmatch(
+                stripped
+            ):
+                requested.add(stripped)
+                if len(requested) > 512:
+                    raise PackageResultError(
+                        "package_permissions_oversized",
+                        "permission report contains too many requested permissions",
+                    )
+                continue
+            if stripped:
+                in_requested = False
+        match = _RUNTIME_PERMISSION.fullmatch(stripped)
+        if match:
+            target = runtime_granted if match.group(2) == "true" else runtime_denied
+            target.add(match.group(1))
+            if len(runtime_granted) + len(runtime_denied) > 512:
+                raise PackageResultError(
+                    "package_permissions_oversized",
+                    "permission report contains too many runtime permissions",
+                )
+    if not requested_header:
+        raise PackageResultError(
+            "package_permissions_unverified",
+            "dumpsys output has no requested-permissions section",
+        )
+    granted = tuple(sorted(runtime_granted, key=str.casefold))
+    denied = tuple(sorted(runtime_denied - runtime_granted, key=str.casefold))
+    requested_values = tuple(sorted(requested, key=str.casefold))
+    return {
+        "package": package,
+        "requested": requested_values,
+        "runtimeGranted": granted,
+        "runtimeDenied": denied,
+        "requestedCount": len(requested_values),
+        "runtimeCount": len(granted) + len(denied),
+        "bounded": True,
+    }
+
+
 __all__ = [
     "PACKAGE_COMMANDS",
     "PackageCompilation",
     "PackageInfo",
     "ApkIdentityInspector",
     "PackagePlanningError",
+    "PackageResultError",
     "PackageService",
     "parse_package_list",
+    "parse_package_permissions",
 ]

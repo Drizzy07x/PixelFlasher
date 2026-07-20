@@ -5653,3 +5653,59 @@ msgstr ""
 msgctxt "web.backups.confirmDelete"
 msgid "Delete permanently"
 msgstr ""
+
+msgctxt "web.apps.action.enable"
+msgid "Enable"
+msgstr ""
+
+msgctxt "web.apps.action.disable"
+msgid "Disable"
+msgstr ""
+
+msgctxt "web.apps.action.launch"
+msgid "Launch"
+msgstr ""
+
+msgctxt "web.apps.action.forceStop"
+msgid "Force stop"
+msgstr ""
+
+msgctxt "web.apps.action.clearData"
+msgid "Clear app data"
+msgstr ""
+
+msgctxt "web.apps.action.uninstall"
+msgid "Uninstall"
+msgstr ""
+
+msgctxt "web.apps.action.permissions"
+msgid "Inspect permissions"
+msgstr ""
+
+msgctxt "web.apps.keepData"
+msgid "Keep app data"
+msgstr ""
+
+msgctxt "web.apps.actionSucceeded"
+msgid "{action} completed and device state was verified."
+msgstr ""
+
+msgctxt "web.apps.permissionsTitle"
+msgid "Package permissions"
+msgstr ""
+
+msgctxt "web.apps.permissions.requested"
+msgid "Requested permissions"
+msgstr ""
+
+msgctxt "web.apps.permissions.runtimeGranted"
+msgid "Runtime permissions granted"
+msgstr ""
+
+msgctxt "web.apps.permissions.runtimeDenied"
+msgid "Runtime permissions denied"
+msgstr ""
+
+msgctxt "web.apps.permissions.none"
+msgid "None reported"
+msgstr ""

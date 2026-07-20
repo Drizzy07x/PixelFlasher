@@ -73,7 +73,7 @@ parity belongs to `flash.execute`. Downloads has one owner,
 | Patch boot images | partial | device write | React, bridge and backend contracts cover Magisk, APatch, KernelSU, KernelSU-Next, SukiSU, Wild_KSU and Legacy with a hash-pinned resource registry. APatch delivers its opaque one-use superkey only through the runner's stdin and redacts reflected output. Real provider APKs/runners and KMI/architecture-based kernel selection remain open. |
 | Flash/live-boot images | partial | device write/destructive | React controls and exact-argv, serial/hash-bound backend plans exist with unlocked-fastboot guards. Flash success requires bounded readback and SHA-256 verification of the slot-qualified target partition; live boot requires an observed ADB reconnection and `boot_completed`. Mismatch and unavailable evidence fail explicitly. Packaged-platform and real-device validation remain open. |
 | Raw boot-chain backup/restore | partial | device write | Safe backend create/restore and React path/partition/slot inputs exist; persisted inventory, provenance display and Magisk import/delete remain open. |
-| Application packages and APK install | partial | device write/destructive | PackageService and React now cover canonical listing, enable/disable and APK installation through an opaque native grant, all six admitted install flags, explicit terminal states and a success-gated inventory refresh. Play Store ownership and the remaining package actions stay open. |
+| Application packages and APK install | partial | device write/destructive | PackageService and React now cover canonical listing, enable/disable, uninstall with keep-data, clear-data, force-stop, launch, bounded typed permission reports and APK installation through an opaque native grant. All six admitted install flags, explicit terminal states and success-gated inventory refresh are enforced. APK export/download, denylist, SU controls and Play Store ownership remain open. |
 | Partition manager | partial | destructive | React list/read/write/erase controls, native pickers and the allow-listed guarded backend exist; device-side verification after write/erase and richer progress/retry remain open. |
 | Logcat and file push | native | destructive device write and host write | Logcat provides bounded snapshot and incremental stream modes, serial/revision binding, cancellation, all legacy format verbs/modifiers, typed tag/priority plus Expert regex/UID filters, configurable redaction and atomic export through a one-use native grant. Remote clearing is serialized and success-gated: backend command completion is combined with a differential sentinel in the main buffer, without claiming that every buffer remains empty. File push uses opaque superseding grants, private verified staging, closed destinations, bounded per-file progress, explicit cancellation/manual retry and batched remote SHA-256 verification with a bounded `toybox` fallback. |
 | Reboot and slot switch | native | device write | Reboot to system, bootloader, fastbootd, recovery, safe mode and sideload uses serial/revision-bound plans and observed mode, boot-completion or safe-mode postconditions. Vendor download mode is explicitly policy-absent and fails closed as `reboot_download_unverifiable` without starting a process. Slot switching verifies `fastboot getvar current-slot` after reconnection. |
@@ -162,9 +162,10 @@ atomic-operation boundaries:
   producer is trusted yet, so the real host keeps lock disabled by default.
 
 These are backend-native contracts, not claims of complete UI parity. The Apps
-page refreshes canonical rows through `apps.list`, exposes enable/disable and
-installs verified APKs without revealing host paths; Play Store ownership and
-the remaining manager actions stay open. The Tools page now owns the bounded logcat viewer, scrcpy,
+page refreshes canonical rows through `apps.list`, exposes enable/disable,
+uninstall, clear-data, force-stop, launch and bounded permission reports, and
+installs verified APKs without revealing host paths. APK export/download,
+denylist, SU controls and Play Store ownership stay open. The Tools page now owns the bounded logcat viewer, scrcpy,
 wireless ADB, file-push, partition and support-package flows, but each row stays
 partial until its documented packaging, postcondition, progress or legacy-data
 gap is closed. Backups now renders the canonical persisted raw-image inventory,
@@ -190,7 +191,7 @@ becomes implicit success.
 | Area | Missing or partial behaviors |
 |---|---|
 | Device connection | Bounded mDNS discovery is native without a selected device, and versioned scan/hotplug management is complete. Pair/connect without a selected ADB target and disconnected-device handoff remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
-| Applications | React APK install, download, denylist, SU controls and the remaining package actions. |
+| Applications | APK export/download, denylist, SU controls and Play Store ownership remain; listing, install and the other primary package actions are connected to React. |
 | Device tools | The explicit expert ADB shell decision, production Scrcpy manifests/smokes and a reproducibly sourced OTA cancel/reset runner. Scrcpy's authenticated installer, typed options and managed lifecycle are implemented. Safe HTTP(S) URL opening, independently verified per-slot bootloader inspection, read-only otacerts inspection, bounded Logcat snapshot/stream/export/redaction, typed legacy-compatible filters, verified remote buffer clearing, filtered logs, closed update_engine status/preflight and an independent bounded OTA-idle observer are now native. The opaque legacy OTA binaries are not admitted to the modern core. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, custom `payload.bin`, remaining runtime recovery/fastbootd validation, real patch APK/runner resources and KMI/architecture-based kernel selection. Stock-flash relock evidence and a firmware-bound AVB downgrade flow now exist; their packaged/hardware validation remains. |
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |

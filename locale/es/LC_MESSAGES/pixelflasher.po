@@ -5691,3 +5691,59 @@ msgstr "Confirmación de eliminación de copia"
 msgctxt "web.backups.confirmDelete"
 msgid "Delete permanently"
 msgstr "Eliminar permanentemente"
+
+msgctxt "web.apps.action.enable"
+msgid "Enable"
+msgstr "Habilitar"
+
+msgctxt "web.apps.action.disable"
+msgid "Disable"
+msgstr "Deshabilitar"
+
+msgctxt "web.apps.action.launch"
+msgid "Launch"
+msgstr "Abrir"
+
+msgctxt "web.apps.action.forceStop"
+msgid "Force stop"
+msgstr "Forzar detención"
+
+msgctxt "web.apps.action.clearData"
+msgid "Clear app data"
+msgstr "Borrar datos de la aplicación"
+
+msgctxt "web.apps.action.uninstall"
+msgid "Uninstall"
+msgstr "Desinstalar"
+
+msgctxt "web.apps.action.permissions"
+msgid "Inspect permissions"
+msgstr "Inspeccionar permisos"
+
+msgctxt "web.apps.keepData"
+msgid "Keep app data"
+msgstr "Conservar datos de la aplicación"
+
+msgctxt "web.apps.actionSucceeded"
+msgid "{action} completed and device state was verified."
+msgstr "{action} se completó y se verificó el estado del dispositivo."
+
+msgctxt "web.apps.permissionsTitle"
+msgid "Package permissions"
+msgstr "Permisos del paquete"
+
+msgctxt "web.apps.permissions.requested"
+msgid "Requested permissions"
+msgstr "Permisos solicitados"
+
+msgctxt "web.apps.permissions.runtimeGranted"
+msgid "Runtime permissions granted"
+msgstr "Permisos de ejecución concedidos"
+
+msgctxt "web.apps.permissions.runtimeDenied"
+msgid "Runtime permissions denied"
+msgstr "Permisos de ejecución denegados"
+
+msgctxt "web.apps.permissions.none"
+msgid "None reported"
+msgstr "Ninguno informado"

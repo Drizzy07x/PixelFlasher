@@ -267,8 +267,10 @@ from .packages import (
     PackageCompilation,
     PackageInfo,
     PackagePlanningError,
+    PackageResultError,
     PackageService,
     parse_package_list,
+    parse_package_permissions,
 )
 from .partitions import (
     ALLOWED_PARTITIONS,
@@ -632,6 +634,7 @@ __all__ = [
     "PackageCompilation",
     "PackageInfo",
     "PackagePlanningError",
+    "PackageResultError",
     "PackageService",
     "PayloadErrorCode",
     "PayloadExtractionError",
@@ -778,6 +781,7 @@ __all__ = [
     "parse_getprop",
     "parse_fastboot_partition_list",
     "parse_package_list",
+    "parse_package_permissions",
     "parse_platform_tools_version",
     "parse_root_module_list",
     "paused_device_management",

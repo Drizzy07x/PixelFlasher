@@ -26,6 +26,7 @@ JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
     {
+        "apps.action",
         "device.openUrl",
         "device.inspect",
         "boot.delete",
@@ -1043,18 +1044,100 @@ def _project_apps_list(value: object) -> JSONValue:
 
 
 def _project_apps_action(value: object) -> JSONValue:
-    source = _record(value)
-    result: dict[str, JSONValue] = {"action": _string(source.get("action"))}
-    if source.get("apkIdentity") is not None:
-        identity = _record(source.get("apkIdentity"))
-        result["apkIdentity"] = ensure_public_json({
-            "packageName": _string(identity.get("packageName")),
-            "sha256": _string(identity.get("sha256")),
-            "signerSha256": _strings(identity.get("signerSha256", [])),
-            "schemes": _strings(identity.get("schemes", [])),
-            "verified": _boolean(identity.get("verified")),
-        })
-    return result
+    raw = _record(value)
+    action = raw.get("action")
+    if action not in {
+        "enable",
+        "disable",
+        "uninstall",
+        "clearData",
+        "forceStop",
+        "launch",
+        "permissions",
+        "install",
+    }:
+        raise PublicProjectionError("package action is invalid")
+    if action == "permissions":
+        source = _closed_record(value, fields=frozenset({"action", "report"}))
+        report = _closed_record(
+            source["report"],
+            fields=frozenset(
+                {
+                    "package",
+                    "requested",
+                    "runtimeGranted",
+                    "runtimeDenied",
+                    "requestedCount",
+                    "runtimeCount",
+                    "bounded",
+                }
+            ),
+        )
+        package = report["package"]
+        requested = report["requested"]
+        granted = report["runtimeGranted"]
+        denied = report["runtimeDenied"]
+        counts = (report["requestedCount"], report["runtimeCount"])
+        if (
+            report["bounded"] is not True
+            or not isinstance(package, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", package)
+            is None
+            or not all(isinstance(items, (list, tuple)) for items in (requested, granted, denied))
+            or not all(
+                isinstance(item, str)
+                and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{1,255}", item) is not None
+                for items in (requested, granted, denied)
+                for item in cast("list[object] | tuple[object, ...]", items)
+            )
+            or any(len(cast("list[object] | tuple[object, ...]", items)) > 512 for items in (requested, granted, denied))
+            or any(
+                not isinstance(count, int) or isinstance(count, bool) or count < 0
+                for count in counts
+            )
+            or counts[0] != len(cast("list[object] | tuple[object, ...]", requested))
+            or counts[1]
+            != len(cast("list[object] | tuple[object, ...]", granted))
+            + len(cast("list[object] | tuple[object, ...]", denied))
+            or set(cast("list[object] | tuple[object, ...]", granted))
+            & set(cast("list[object] | tuple[object, ...]", denied))
+        ):
+            raise PublicProjectionError("package permission report is invalid")
+        return ensure_public_json({"action": "permissions", "report": dict(report)})
+    if action == "install":
+        source = _closed_record(value, fields=frozenset({"action", "apkIdentity"}))
+        identity = _closed_record(
+            source["apkIdentity"],
+            fields=frozenset(
+                {"packageName", "sha256", "signerSha256", "schemes", "verified"}
+            ),
+        )
+        signers = identity["signerSha256"]
+        schemes = identity["schemes"]
+        if (
+            identity["verified"] is not True
+            or not isinstance(identity["packageName"], str)
+            or re.fullmatch(
+                r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+",
+                identity["packageName"],
+            )
+            is None
+            or not isinstance(identity["sha256"], str)
+            or _LOWERCASE_SHA256.fullmatch(identity["sha256"]) is None
+            or not isinstance(signers, (list, tuple))
+            or not 1 <= len(signers) <= 16
+            or any(
+                not isinstance(item, str) or _LOWERCASE_SHA256.fullmatch(item) is None
+                for item in signers
+            )
+            or not isinstance(schemes, (list, tuple))
+            or not schemes
+            or any(item not in {"v1", "v2", "v3", "v4"} for item in schemes)
+        ):
+            raise PublicProjectionError("installed APK identity is invalid")
+        return ensure_public_json({"action": "install", "apkIdentity": dict(identity)})
+    source = _closed_record(value, fields=frozenset({"action"}))
+    return ensure_public_json(dict(source))
 
 
 _BOOT_ENTRY_FIELDS = (

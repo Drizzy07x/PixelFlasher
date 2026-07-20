@@ -5695,3 +5695,59 @@ msgstr "备份删除确认"
 msgctxt "web.backups.confirmDelete"
 msgid "Delete permanently"
 msgstr "永久删除"
+
+msgctxt "web.apps.action.enable"
+msgid "Enable"
+msgstr "启用"
+
+msgctxt "web.apps.action.disable"
+msgid "Disable"
+msgstr "停用"
+
+msgctxt "web.apps.action.launch"
+msgid "Launch"
+msgstr "启动"
+
+msgctxt "web.apps.action.forceStop"
+msgid "Force stop"
+msgstr "强制停止"
+
+msgctxt "web.apps.action.clearData"
+msgid "Clear app data"
+msgstr "清除应用数据"
+
+msgctxt "web.apps.action.uninstall"
+msgid "Uninstall"
+msgstr "卸载"
+
+msgctxt "web.apps.action.permissions"
+msgid "Inspect permissions"
+msgstr "检查权限"
+
+msgctxt "web.apps.keepData"
+msgid "Keep app data"
+msgstr "保留应用数据"
+
+msgctxt "web.apps.actionSucceeded"
+msgid "{action} completed and device state was verified."
+msgstr "{action}已完成，并已验证设备状态。"
+
+msgctxt "web.apps.permissionsTitle"
+msgid "Package permissions"
+msgstr "软件包权限"
+
+msgctxt "web.apps.permissions.requested"
+msgid "Requested permissions"
+msgstr "请求的权限"
+
+msgctxt "web.apps.permissions.runtimeGranted"
+msgid "Runtime permissions granted"
+msgstr "已授予的运行时权限"
+
+msgctxt "web.apps.permissions.runtimeDenied"
+msgid "Runtime permissions denied"
+msgstr "已拒绝的运行时权限"
+
+msgctxt "web.apps.permissions.none"
+msgid "None reported"
+msgstr "未报告"

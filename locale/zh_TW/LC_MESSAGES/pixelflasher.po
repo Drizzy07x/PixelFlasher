@@ -5686,3 +5686,59 @@ msgstr "備份刪除確認"
 msgctxt "web.backups.confirmDelete"
 msgid "Delete permanently"
 msgstr "永久刪除"
+
+msgctxt "web.apps.action.enable"
+msgid "Enable"
+msgstr "啟用"
+
+msgctxt "web.apps.action.disable"
+msgid "Disable"
+msgstr "停用"
+
+msgctxt "web.apps.action.launch"
+msgid "Launch"
+msgstr "啟動"
+
+msgctxt "web.apps.action.forceStop"
+msgid "Force stop"
+msgstr "強制停止"
+
+msgctxt "web.apps.action.clearData"
+msgid "Clear app data"
+msgstr "清除應用程式資料"
+
+msgctxt "web.apps.action.uninstall"
+msgid "Uninstall"
+msgstr "解除安裝"
+
+msgctxt "web.apps.action.permissions"
+msgid "Inspect permissions"
+msgstr "檢查權限"
+
+msgctxt "web.apps.keepData"
+msgid "Keep app data"
+msgstr "保留應用程式資料"
+
+msgctxt "web.apps.actionSucceeded"
+msgid "{action} completed and device state was verified."
+msgstr "{action}已完成，並已驗證裝置狀態。"
+
+msgctxt "web.apps.permissionsTitle"
+msgid "Package permissions"
+msgstr "套件權限"
+
+msgctxt "web.apps.permissions.requested"
+msgid "Requested permissions"
+msgstr "要求的權限"
+
+msgctxt "web.apps.permissions.runtimeGranted"
+msgid "Runtime permissions granted"
+msgstr "已授予的執行階段權限"
+
+msgctxt "web.apps.permissions.runtimeDenied"
+msgid "Runtime permissions denied"
+msgstr "已拒絕的執行階段權限"
+
+msgctxt "web.apps.permissions.none"
+msgid "None reported"
+msgstr "未回報"

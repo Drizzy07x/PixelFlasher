@@ -1588,10 +1588,12 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/packages.py:PackageService/parse_package_list",
+        "pixelflasher_core/packages.py:parse_package_permissions",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:AppsPage"
+        "ui/public_bridge.py:_project_apps_action",
+        "ui/web/src/pages/apps/AppsPage.tsx"
       ],
-      "gap": "Download, denylist, SU controls and most native package actions are not exposed by React.",
+      "gap": "React now exposes listing, enable/disable, uninstall with keep-data, clear-data, force-stop, launch and a bounded typed permission report. APK export/download, denylist and SU controls remain open.",
       "exitCriteria": [
         "Package listing, filtering, enable/disable, uninstall, download, launch, permissions, clear/kill, denylist and SU controls is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -1609,7 +1611,9 @@
       ],
       "tests": [
         "tests/test_package_service.py",
-        "tests/test_service_engine_integration.py:test_apps_list_runs_through_executor_and_stores_parsed_result"
+        "tests/test_package_public_contract.py",
+        "tests/test_service_engine_integration.py:test_apps_list_runs_through_executor_and_stores_parsed_result",
+        "ui/web/src/test/pages.behavior.test.tsx:runs extended package actions and renders a bounded permission report"
       ],
       "blockReason": null,
       "releaseGate": true,

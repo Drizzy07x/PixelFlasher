@@ -288,6 +288,49 @@ describe('apps, backups and settings workflows', () => {
     });
   });
 
+  it('runs extended package actions and renders a bounded permission report', async () => {
+    const user = userEvent.setup();
+    const snapshot = freshSnapshot();
+    const serial = snapshot.devices[0].serial;
+    const onCommand = commandHost((command, payload) => {
+      if (command === 'apps.list') return { result: { status: 'SUCCESS', value: { packages: [
+        { package: 'com.example.user', apk_path: '/data/app/example.apk' },
+      ] } } };
+      if (command === 'apps.action' && payload.action === 'permissions') return { result: {
+        status: 'SUCCESS',
+        value: {
+          action: 'permissions',
+          report: {
+            package: 'com.example.user',
+            requested: ['android.permission.CAMERA'],
+            runtimeGranted: ['android.permission.CAMERA'],
+            runtimeDenied: [],
+            requestedCount: 1,
+            runtimeCount: 1,
+            bounded: true,
+          },
+        },
+      } };
+      return { result: { status: 'SUCCESS', value: { action: payload.action } } };
+    });
+    page(
+      <AppsPage snapshot={snapshot} selectedSerials={[serial]} onSelectionChange={selection} onCommand={onCommand} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await user.click(await screen.findByRole('checkbox', { name: /com.example.user/ }));
+    await user.selectOptions(screen.getByLabelText('Apply changes'), 'permissions');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    expect(await screen.findByText('Package permissions')).toBeVisible();
+    expect(screen.getAllByText('android.permission.CAMERA')).toHaveLength(2);
+    expect(onCommand).toHaveBeenCalledWith('apps.action', {
+      serial,
+      packages: ['com.example.user'],
+      action: 'permissions',
+    });
+  });
+
   it('creates, restores and deletes route-free managed backups', async () => {
     const user = userEvent.setup();
     const snapshot = freshSnapshot();
