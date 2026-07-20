@@ -25,6 +25,7 @@ from .backups import (
     BackupPlanningError,
     BackupService,
 )
+from .binary_xml import BinaryXmlService, BinaryXmlStatus
 from .boot_inventory import (
     BOOT_DELETE_COMMAND,
     BOOT_INVENTORY_COMMAND,
@@ -245,6 +246,7 @@ class CommandEngine:
         firmware_catalog_service: FirmwareCatalogService,
         root_app_catalog_service: RootAppCatalogService,
         avb_downgrade_service: DowngradePatchService,
+        binary_xml_service: BinaryXmlService,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
@@ -298,6 +300,7 @@ class CommandEngine:
         self.firmware_catalog_service = firmware_catalog_service
         self.root_app_catalog_service = root_app_catalog_service
         self.avb_downgrade_service = avb_downgrade_service
+        self.binary_xml_service = binary_xml_service
         self.support_package_service = support_package_service
         self.snapshot_provider = snapshot_provider
         self.postcondition_observer = postcondition_observer
@@ -371,6 +374,8 @@ class CommandEngine:
             return self._preview_flash_plan(command)
         if command.kind == "tools.avb":
             return self._prepare_avb_downgrade(command)
+        if command.kind == "tools.xml":
+            return self._decode_binary_xml(command)
         return OperationResult.failed(
             command.operation_id,
             code="command_unknown",
@@ -588,6 +593,131 @@ class CommandEngine:
                         fallback = self._rollback_avb_downgrade(
                             command, processing, fallback
                         )
+                    self._abort_operation_safely(fallback)
+                    return fallback
+                return result
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _decode_binary_xml(self, command: AppCommand) -> OperationResult:
+        if (
+            set(command.payload) != {"action", "source"}
+            or command.payload.get("action") != "decodeBinary"
+            or not isinstance(command.payload.get("source"), BoundReadFile)
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="binary_xml_payload_invalid",
+                message="tools.xml requires one purpose-bound binary XML grant",
+            )
+        source = cast(BoundReadFile, command.payload["source"])
+        initial = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, initial)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="binary_xml_cancelled",
+                        cancelled_message="binary XML decoding was cancelled before it started",
+                        timeout_message="binary XML decoding timed out before it started",
+                    )
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                try:
+                    active = self.store.begin_operation(
+                        command.operation_id,
+                        expected_revision=snapshot.revision,
+                        kind="tools.xml",
+                        label="Decode Android binary XML",
+                    )
+                except StaleRevisionError as error:
+                    return self._denied(command, "stale_revision", str(error))
+                except ValueError as error:
+                    return self._denied(command, "operation_busy", str(error))
+                try:
+                    with source.open_verified() as input_stream:
+                        decoded = self.binary_xml_service.decode(
+                            input_stream,
+                            cancellation=token,
+                        )
+                except (GrantError, OSError) as error:
+                    result = OperationResult.failed(
+                        command.operation_id,
+                        code="binary_xml_source_unavailable",
+                        message=str(error),
+                    )
+                else:
+                    if decoded.status is BinaryXmlStatus.CANCELLED:
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=decoded.code.value,
+                            cancelled_message=decoded.message,
+                            timeout_message="binary XML decoding timed out",
+                        )
+                    elif not decoded.ok:
+                        result = OperationResult.failed(
+                            command.operation_id,
+                            code=decoded.code.value,
+                            message=decoded.message,
+                        )
+                    else:
+                        result = OperationResult.success(
+                            command.operation_id,
+                            code=decoded.code.value,
+                            message=decoded.message,
+                            value={
+                                "format": "android-binary-xml",
+                                "xml": decoded.xml,
+                                "sha256": decoded.sha256,
+                                "sizeBytes": decoded.size_bytes,
+                                "elementCount": decoded.element_count,
+                                "attributeCount": decoded.attribute_count,
+                                "bounded": True,
+                            },
+                        )
+                current = self.store.snapshot()
+                if result.ok and (
+                    token.cancelled
+                    or current.revision != active.revision
+                    or current.active_operation is None
+                    or current.active_operation.operation_id != command.operation_id
+                ):
+                    result = (
+                        self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="binary_xml_cancelled",
+                            cancelled_message="binary XML decoding was cancelled before completion",
+                            timeout_message="binary XML decoding timed out before completion",
+                        )
+                        if token.cancelled
+                        else OperationResult.failed(
+                            command.operation_id,
+                            code="binary_xml_context_changed",
+                            message="application state changed while decoding binary XML",
+                        )
+                    )
+                try:
+                    self.store.complete_operation(
+                        result,
+                        expected_revision=active.revision if result.ok else None,
+                    )
+                except (StaleRevisionError, TypeError, ValueError) as error:
+                    fallback = OperationResult.failed(
+                        command.operation_id,
+                        code="binary_xml_state_promotion_failed",
+                        message=str(error),
+                    )
                     self._abort_operation_safely(fallback)
                     return fallback
                 return result

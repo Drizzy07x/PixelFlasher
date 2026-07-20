@@ -77,6 +77,7 @@ class SafetyPolicy:
             "tools.wifi.status",
             "tools.wifi.discover",
             "tools.avb",
+            "tools.xml",
             "device.inspect",
             "device.openUrl",
             "backups.create",
@@ -147,6 +148,19 @@ class SafetyPolicy:
                     False,
                     "avb_target_not_allowed",
                     "AVB downgrade preparation is bound to canonical firmware state",
+                )
+        if command.kind == "tools.xml":
+            if command.operation_plan is not None:
+                return SafetyDecision(
+                    False,
+                    "untrusted_operation_plan",
+                    "binary XML decoding does not accept a process plan",
+                )
+            if command.target_serial is not None:
+                return SafetyDecision(
+                    False,
+                    "xml_target_not_allowed",
+                    "binary XML decoding is a local operation",
                 )
         if (
             command.kind == CommandKind.FLASH_EXECUTE.value

@@ -1305,6 +1305,22 @@ export function installDevelopmentBridge() {
               },
             });
             break;
+          case 'tools.xml':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'binary_xml_decoded',
+              message: 'Android binary XML decoded successfully.',
+              value: {
+                format: 'android-binary-xml',
+                xml: '<?xml version="1.0" encoding="utf-8"?>\n<manifest package="com.example.preview">\n</manifest>\n',
+                sha256: 'b'.repeat(64),
+                sizeBytes: 256,
+                elementCount: 1,
+                attributeCount: 1,
+                bounded: true,
+              },
+            });
+            break;
           case 'support.create':
             respond(request, success('Created redacted support package.', {
               displayName: 'PixelFlasher-support.zip',

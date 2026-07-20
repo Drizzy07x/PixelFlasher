@@ -192,7 +192,7 @@ becomes implicit success.
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
 | Backups | Persisted raw-backup inventory/results and complete Magisk list/import/delete behavior. |
 | Root and integrity | `/data/adb` backup/restore/clear, PIF/TargetedFix, PI analysis, Shizuku and SOS. |
-| Developer/personal tools | Keybox, binary XML, packaged/hardware validation of the native AVB downgrade flow, and arbitrary My Tools commands. |
+| Developer/personal tools | Keybox, packaged validation of the native AVB downgrade and bounded binary-XML flows, and arbitrary My Tools commands. |
 | Application shell | About/help, remaining 9.x/expert preferences, toolbar customization, folders, update/link actions and console controls. |
 
 The JSON inventory maps each individual menu/context-menu and primary-control

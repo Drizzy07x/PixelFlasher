@@ -17,7 +17,7 @@ import {
   type LogcatUiState,
 } from './LogcatPanel';
 
-type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | null;
+type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type WifiService = {
   id: string;
@@ -646,6 +646,30 @@ export function ToolsPage({
       setBusy('');
     }
   };
+  const decodeBinaryXml = async () => {
+    if (busy) return;
+    setBusy('binary-xml-picker');
+    try {
+      const picked = await onCommand(commands.nativePickFile, {
+        purpose: 'tools.xml.source',
+        title: t('tools.xmlChoose'),
+        filters: [{ label: t('tools.xmlFiles'), extensions: ['xml', 'axml'] }],
+      });
+      const grant = selectedGrant(picked);
+      if (!grant) return;
+      setBusy('');
+      await runTool(commands.toolsXml, {
+        action: 'decodeBinary',
+        grant,
+      }, {
+        expectedRevision: picked?.revision,
+        returnCancelled: true,
+        returnFailed: true,
+      });
+    } finally {
+      setBusy('');
+    }
+  };
 
   const openPanel = (next: ToolPanel) => {
     setPanel(next);
@@ -694,6 +718,7 @@ export function ToolsPage({
       { id: 'partition', icon: 'slot', title: t('tools.partition'), detail: t('tools.partitionDetail'), disabled: !fastbootReady, run: () => openPanel('partitions') },
       { id: 'bootloader', icon: 'bootloader', title: t('tools.bootloader'), detail: t('tools.bootloaderDetail'), disabled: !primary || !isToolchainReady(snapshot), run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'bootloader' }); } },
       { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), disabled: !avbFirmwareReady, run: () => openPanel('avb') },
+      { id: 'xml', icon: 'processFile', title: t('tools.xmlDecode'), detail: t('tools.xmlDecodeDetail'), disabled: false, run: () => openPanel('xml') },
     ] satisfies ToolCard[] : []),
   ];
   const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
@@ -716,6 +741,9 @@ export function ToolsPage({
     && !busy
     && !pushPending,
   );
+  const toolResultStatus = normalizeOperationStatus(result?.status);
+  const toolResultSucceeded = toolResultStatus === 'success';
+  const toolResultFailed = toolResultStatus === 'failed';
 
   return (
     <>
@@ -734,8 +762,8 @@ export function ToolsPage({
 
       {panel ? (
         <Card className="tool-workspace" aria-busy={Boolean(busy)}>
-          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' ? 'shield' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
-            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : t('tools.wifi')}
+          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' ? 'shield' : panel === 'xml' ? 'processFile' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
+            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : panel === 'xml' ? t('tools.xmlDecode') : t('tools.wifi')}
           </CardTitle>
           {panel === 'scrcpy' ? (
             <div className="tool-panel-body scrcpy-panel">
@@ -936,7 +964,30 @@ export function ToolsPage({
               ) : null}
             </div>
           ) : null}
-          {result && panel !== 'push' ? <div className="tool-result" role="status"><Icon name="check" size={18} /><span><strong>{t('tools.results')}</strong><small>{typeof result.message === 'string' ? result.message : t('status.ready')}</small></span></div> : null}
+          {panel === 'xml' ? (
+            <div className="tool-panel-body binary-xml-panel">
+              <div className="wifi-discovery-toolbar">
+                <div>
+                  <strong>{t('tools.xmlDecode')}</strong>
+                  <p>{t('tools.xmlDecodeDetail')}</p>
+                </div>
+                <Button variant="primary" icon="processFile" onClick={() => void decodeBinaryXml()} disabled={Boolean(busy)}>
+                  {t('tools.xmlChoose')}
+                </Button>
+              </div>
+              {typeof record(result?.value).xml === 'string' ? (
+                <>
+                  <dl className="device-inspection-meta">
+                    <div><dt>{t('tools.xmlInputDigest')}</dt><dd><code>{String(record(result?.value).sha256)}</code></dd></div>
+                    <div><dt>{t('tools.xmlElements')}</dt><dd>{String(record(result?.value).elementCount)}</dd></div>
+                    <div><dt>{t('tools.xmlAttributes')}</dt><dd>{String(record(result?.value).attributeCount)}</dd></div>
+                  </dl>
+                  <pre className="tool-log-viewer" aria-label={t('tools.xmlDecodedOutput')} tabIndex={0}>{String(record(result?.value).xml)}</pre>
+                </>
+              ) : <EmptyState icon="processFile" title={t('tools.xmlDecodedOutput')} detail={t('tools.xmlDecodeDetail')} />}
+            </div>
+          ) : null}
+          {result && panel !== 'push' ? <div className={`tool-result tool-result--${toolResultStatus}`} role={toolResultFailed ? 'alert' : 'status'}><Icon name={toolResultSucceeded ? 'check' : 'warningPng'} size={18} /><span><strong>{t('tools.results')}</strong><small>{typeof result.message === 'string' ? result.message : t('status.ready')}</small></span></div> : null}
         </Card>
       ) : null}
       {secretPromptOpen ? (

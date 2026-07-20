@@ -128,6 +128,13 @@ _NATIVE_GRANT_SPECS = (
         GrantAccess.READ,
     ),
     NativeGrantSpec(
+        "native.pickFile",
+        "tools.xml.source",
+        "tools.xml",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
         "native.pickFiles",
         "tools.pushFiles.sources",
         "tools.pushFiles",
@@ -454,6 +461,20 @@ class CoreCommandFactory:
                     )
                 except GrantError as exc:
                     raise CommandFactoryError(exc.code, str(exc)) from exc
+        elif command == "tools.xml":
+            token = payload.pop("grant", None)
+            if not isinstance(token, str):
+                raise CommandFactoryError(
+                    "grant_required", "A native binary-XML grant is required."
+                )
+            spec = _SPECS_BY_PURPOSE["tools.xml.source"]
+            try:
+                payload["source"] = self.path_grants.resolve_bound_file(
+                    token,
+                    purpose=spec.purpose,
+                )
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "tools.wifi":
             secret_token = payload.pop("secretGrant", None)
             if payload.get("action") == "pair":

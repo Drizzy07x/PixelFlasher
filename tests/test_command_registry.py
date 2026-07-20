@@ -92,6 +92,7 @@ class CommandRegistryTests(unittest.TestCase):
             # ten-minute process boundary, followed by postcondition checks.
             "tools.pushFiles": 330 * 60_000,
             "tools.avb": 30 * 60_000,
+            "tools.xml": 30_000,
         }
 
         for command, minimum in minimum_timeout_ms.items():
@@ -173,6 +174,23 @@ class CommandRegistryTests(unittest.TestCase):
         for index, payload in enumerate(invalid):
             with self.subTest(invalid=index), self.assertRaises(BridgeProtocolError) as error:
                 BridgeRequest.from_json(_request("tools.avb", payload))
+            self.assertEqual("invalid_payload", error.exception.code)
+
+    def test_binary_xml_payload_is_closed_and_requires_decode_action(self):
+        BridgeRequest.from_json(
+            _request(
+                "tools.xml",
+                {"action": "decodeBinary", "grant": "G" * 32},
+            )
+        )
+        for payload in (
+            {},
+            {"action": "decodeBinary"},
+            {"action": "inspect", "grant": "G" * 32},
+            {"action": "decodeBinary", "grant": "G" * 32, "path": "C:/private"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(BridgeProtocolError) as error:
+                BridgeRequest.from_json(_request("tools.xml", payload))
             self.assertEqual("invalid_payload", error.exception.code)
 
     def test_device_tools_accept_only_the_adb_state_supported_by_the_service(self):

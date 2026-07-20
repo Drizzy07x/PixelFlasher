@@ -39,6 +39,13 @@ from .backups import (
     BackupPlanningError,
     BackupService,
 )
+from .binary_xml import (
+    BinaryXmlCode,
+    BinaryXmlLimits,
+    BinaryXmlResult,
+    BinaryXmlService,
+    BinaryXmlStatus,
+)
 from .boot_patch import (
     BOOT_PATCH_COMMAND,
     SUPPORTED_BOOT_PATCH_FLAVORS,
@@ -437,6 +444,11 @@ __all__ = [
     "BackupCompilation",
     "BackupPlanningError",
     "BackupService",
+    "BinaryXmlCode",
+    "BinaryXmlLimits",
+    "BinaryXmlResult",
+    "BinaryXmlService",
+    "BinaryXmlStatus",
     "BOOT_PATCH_COMMAND",
     "BUILTIN_PAYLOAD_EXTRACTOR_NAME",
     "BUILTIN_PAYLOAD_EXTRACTOR_VERSION",

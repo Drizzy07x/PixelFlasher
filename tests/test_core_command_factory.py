@@ -416,6 +416,36 @@ class CoreCommandFactoryTests(unittest.TestCase):
                     request_id="avb-raw-path",
                 )
 
+    def test_binary_xml_grant_is_bound_and_never_exposes_its_host_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            selected = Path(directory) / "manifest.axml"
+            selected.write_bytes(b"binary xml")
+            factory = create_command_factory(lambda: AppSnapshot(revision=4))
+            issued = factory.issue_native_grants(
+                request(
+                    "native.pickFile",
+                    payload={"purpose": "tools.xml.source", "title": "Binary XML"},
+                ),
+                (selected,),
+            )
+
+            command = factory(
+                request(
+                    "tools.xml",
+                    payload={"action": "decodeBinary", "grant": issued["grant"]},
+                )
+            )
+
+            self.assertIsInstance(command.payload["source"], BoundReadFile)
+            self.assertNotIn("grant", command.payload)
+            self.assertNotIn(str(selected), repr(command))
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "tools.xml",
+                    payload={"action": "decodeBinary", "path": str(selected)},
+                    request_id="xml-raw-path",
+                )
+
     def test_wifi_secret_grant_is_one_use_and_never_serializes_plaintext(self):
         factory = create_command_factory(
             lambda: AppSnapshot(revision=4, selected_serial="SERIAL-WIFI")

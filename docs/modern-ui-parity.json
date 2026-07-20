@@ -2241,10 +2241,14 @@
         "pixelflasher_core/engine.py:CommandEngine._prepare_avb_downgrade",
         "ui/core_command_factory.py:CoreCommandFactory._resolve_native_grants",
         "ui/web/src/pages/tooling/ToolsPage.tsx:prepareAvbDowngrade",
+        "pixelflasher_core/binary_xml.py:BinaryXmlService",
+        "pixelflasher_core/engine.py:CommandEngine._decode_binary_xml",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:decodeBinaryXml",
         "tests/test_avb_downgrade.py:AvbDowngradeTests",
+        "tests/test_binary_xml_service.py",
         "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace"
       ],
-      "gap": "The AVB downgrade producer has a closed bridge contract, opaque native grant and React Expert flow; keybox/XML services plus packaged and hardware validation remain open.",
+      "gap": "AVB downgrade and bounded binary XML have closed bridge contracts, opaque native grants and React Expert flows; keybox validation plus packaged and hardware validation remain open.",
       "exitCriteria": [
         "Keybox validation, binary XML decode and AVB image/downgrade tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2261,7 +2265,10 @@
         "tests/test_avb_downgrade.py:AvbDowngradeTests",
         "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected",
         "tests/test_command_registry.py:CommandRegistryTests.test_avb_downgrade_payload_requires_one_verified_current_source",
-        "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace"
+        "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace",
+        "tests/test_binary_xml_service.py",
+        "tests/test_command_registry.py:CommandRegistryTests.test_binary_xml_payload_is_closed_and_requires_decode_action",
+        "ui/web/src/test/binary-xml.test.tsx:binary XML Expert workspace"
       ],
       "blockReason": null,
       "releaseGate": true,

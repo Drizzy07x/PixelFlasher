@@ -20,6 +20,7 @@ from .avb_downgrade import (
     DowngradePatchService,
 )
 from .backups import BackupService
+from .binary_xml import BinaryXmlService
 from .boot_inventory import BootInventoryService
 from .boot_patch import BootPatchService
 from .bootloader_inspection import load_bootloader_prefix_catalog
@@ -338,6 +339,7 @@ class ApplicationRuntime:
             firmware_catalog_service=self.firmware_catalog_service,
             root_app_catalog_service=self.root_app_catalog_service,
             avb_downgrade_service=avb_downgrade_service,
+            binary_xml_service=BinaryXmlService(),
         )
         self.engine = PixelFlasherEngine(
             command_engine=self.command_engine,

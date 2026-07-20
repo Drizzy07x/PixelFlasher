@@ -16,6 +16,7 @@ from pixelflasher_core.avb_downgrade import (
     DowngradePatchService,
 )
 from pixelflasher_core.backups import BackupService
+from pixelflasher_core.binary_xml import BinaryXmlService
 from pixelflasher_core.boot_inventory import BootInventoryService
 from pixelflasher_core.boot_patch import BootPatchService, PatchToolBundle
 from pixelflasher_core.contracts import (
@@ -91,6 +92,7 @@ def make_test_command_engine(
     firmware_catalog_service: FirmwareCatalogService | None = None,
     root_app_catalog_service: RootAppCatalogService | None = None,
     avb_downgrade_service: DowngradePatchService | None = None,
+    binary_xml_service: BinaryXmlService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
 
@@ -208,4 +210,5 @@ def make_test_command_engine(
         firmware_catalog_service=firmware_catalog_service,
         root_app_catalog_service=root_app_catalog_service,
         avb_downgrade_service=avb_downgrade_service,
+        binary_xml_service=binary_xml_service or BinaryXmlService(),
     )

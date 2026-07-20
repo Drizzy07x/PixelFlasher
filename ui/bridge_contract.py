@@ -279,6 +279,9 @@ def _validate_payload_values(
                 request_id,
             )
 
+    if command == "tools.xml" and payload.get("action") != "decodeBinary":
+        _payload_error("tools.xml action is invalid", request_id)
+
     if command == "interaction.respond":
         if not _nonempty_string(payload.get("operationId"), limit=128):
             _payload_error("interaction.respond operationId is required", request_id)

@@ -5542,3 +5542,35 @@ msgstr "Saisissez le correctif de sécurité du système actuel au format AAAA-M
 msgctxt "web.tools.avbVerified"
 msgid "Verified artifact"
 msgstr "Artefact vérifié"
+
+msgctxt "web.tools.xmlDecode"
+msgid "Decode binary XML"
+msgstr "Décoder le XML binaire"
+
+msgctxt "web.tools.xmlDecodeDetail"
+msgid "Decode bounded Android binary XML from a native file without external tools."
+msgstr "Décodez un XML binaire Android limité depuis un fichier natif sans outil externe."
+
+msgctxt "web.tools.xmlChoose"
+msgid "Choose binary XML"
+msgstr "Choisir un XML binaire"
+
+msgctxt "web.tools.xmlFiles"
+msgid "Binary XML files"
+msgstr "Fichiers XML binaires"
+
+msgctxt "web.tools.xmlDecodedOutput"
+msgid "Decoded XML"
+msgstr "XML décodé"
+
+msgctxt "web.tools.xmlInputDigest"
+msgid "Input digest"
+msgstr "Empreinte d'entrée"
+
+msgctxt "web.tools.xmlElements"
+msgid "Elements"
+msgstr "Éléments"
+
+msgctxt "web.tools.xmlAttributes"
+msgid "Attributes"
+msgstr "Attributs"

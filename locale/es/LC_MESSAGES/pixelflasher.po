@@ -5543,3 +5543,35 @@ msgstr "Introduce el parche de seguridad del sistema actual en formato AAAA-MM-D
 msgctxt "web.tools.avbVerified"
 msgid "Verified artifact"
 msgstr "Artefacto verificado"
+
+msgctxt "web.tools.xmlDecode"
+msgid "Decode binary XML"
+msgstr "Decodificar XML binario"
+
+msgctxt "web.tools.xmlDecodeDetail"
+msgid "Decode bounded Android binary XML from a native file without external tools."
+msgstr "Decodifica XML binario de Android acotado desde un archivo nativo sin herramientas externas."
+
+msgctxt "web.tools.xmlChoose"
+msgid "Choose binary XML"
+msgstr "Elegir XML binario"
+
+msgctxt "web.tools.xmlFiles"
+msgid "Binary XML files"
+msgstr "Archivos XML binarios"
+
+msgctxt "web.tools.xmlDecodedOutput"
+msgid "Decoded XML"
+msgstr "XML decodificado"
+
+msgctxt "web.tools.xmlInputDigest"
+msgid "Input digest"
+msgstr "Hash de entrada"
+
+msgctxt "web.tools.xmlElements"
+msgid "Elements"
+msgstr "Elementos"
+
+msgctxt "web.tools.xmlAttributes"
+msgid "Attributes"
+msgstr "Atributos"

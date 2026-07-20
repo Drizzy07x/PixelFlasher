@@ -39,6 +39,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.logcat.clear",
         "tools.pushFiles",
         "tools.avb",
+        "tools.xml",
         "tools.scrcpy.setup",
         "tools.wifi.discover",
     }
@@ -2118,6 +2119,57 @@ def _project_avb_downgrade(value: object) -> JSONValue:
     )
 
 
+def _project_binary_xml(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "format",
+                "xml",
+                "sha256",
+                "sizeBytes",
+                "elementCount",
+                "attributeCount",
+                "bounded",
+            }
+        ),
+    )
+    xml = source["xml"]
+    digest = source["sha256"]
+    size = source["sizeBytes"]
+    elements = source["elementCount"]
+    attributes = source["attributeCount"]
+    if (
+        source["format"] != "android-binary-xml"
+        or source["bounded"] is not True
+        or not isinstance(xml, str)
+        or not xml.startswith('<?xml version="1.0" encoding="utf-8"?>\n')
+        or not xml.endswith("\n")
+        or len(xml.encode("utf-8")) > 4 * 1024 * 1024
+        or not isinstance(digest, str)
+        or not _LOWERCASE_SHA256.fullmatch(digest)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or not 0 < size <= 8 * 1024 * 1024
+        or not isinstance(elements, int)
+        or isinstance(elements, bool)
+        or not 0 < elements <= 100_000
+        or not isinstance(attributes, int)
+        or isinstance(attributes, bool)
+        or not 0 <= attributes <= 200_000
+    ):
+        raise PublicProjectionError("binary XML decode receipt is invalid")
+    return ensure_public_json(
+        {
+            "format": "android-binary-xml",
+            "xml": xml,
+            "sha256": digest,
+            "sizeBytes": size,
+            "elementCount": elements,
+            "attributeCount": attributes,
+            "bounded": True,
+        }
+    )
 def _project_native_grant(value: object) -> JSONValue:
     source = _record(value)
     data = source.get("data", source)
@@ -2207,6 +2259,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.logcat.clear": _project_logcat_clear,
     "tools.pushFiles": _project_push_files,
     "tools.avb": _project_avb_downgrade,
+    "tools.xml": _project_binary_xml,
     "tools.scrcpy": _project_none,
     "tools.scrcpy.setup": _project_scrcpy_setup,
     "tools.wifi": _project_none,

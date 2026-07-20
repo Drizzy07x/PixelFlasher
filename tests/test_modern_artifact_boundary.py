@@ -367,6 +367,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.logcat.clear",
                         "tools.pushFiles",
                         "tools.avb",
+                        "tools.xml",
                         "tools.scrcpy.setup",
                         "tools.wifi.discover",
                     }:
@@ -805,6 +806,39 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 project_operation_result(
                     "tools.avb",
                     OperationResult.success("avb", value=hostile),
+                )
+
+    def test_binary_xml_receipt_is_bounded_closed_and_route_free(self):
+        value = {
+            "format": "android-binary-xml",
+            "xml": '<?xml version="1.0" encoding="utf-8"?>\n<manifest>\n</manifest>\n',
+            "sha256": "b" * 64,
+            "sizeBytes": 128,
+            "elementCount": 1,
+            "attributeCount": 0,
+            "bounded": True,
+        }
+        projected = project_operation_result(
+            "tools.xml",
+            OperationResult.success("xml", value=value),
+        )
+        self.assertEqual(value, projected["value"])
+        self.assert_route_free(projected)
+
+        hostile_values = (
+            {**value, "path": r"C:\\private\\manifest.axml"},
+            {**value, "xml": '<?xml version="1.0" encoding="utf-8"?>\nC:\\private\n'},
+            {**value, "sha256": "B" * 64},
+            {**value, "format": "text/xml"},
+            {**value, "bounded": False},
+            {**value, "elementCount": 0},
+            {**value, "attributeCount": -1},
+        )
+        for hostile in hostile_values:
+            with self.subTest(hostile=hostile), self.assertRaises(PublicProjectionError):
+                project_operation_result(
+                    "tools.xml",
+                    OperationResult.success("xml", value=hostile),
                 )
 
     def test_generic_host_serializer_rejects_python_paths_and_host_path_strings(self):

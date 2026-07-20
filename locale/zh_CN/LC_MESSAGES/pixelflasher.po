@@ -5547,3 +5547,35 @@ msgstr "请以 YYYY-MM-DD 格式输入当前系统安全补丁日期。"
 msgctxt "web.tools.avbVerified"
 msgid "Verified artifact"
 msgstr "已验证工件"
+
+msgctxt "web.tools.xmlDecode"
+msgid "Decode binary XML"
+msgstr "解码二进制 XML"
+
+msgctxt "web.tools.xmlDecodeDetail"
+msgid "Decode bounded Android binary XML from a native file without external tools."
+msgstr "无需外部工具，从本机文件解码有界的 Android 二进制 XML。"
+
+msgctxt "web.tools.xmlChoose"
+msgid "Choose binary XML"
+msgstr "选择二进制 XML"
+
+msgctxt "web.tools.xmlFiles"
+msgid "Binary XML files"
+msgstr "二进制 XML 文件"
+
+msgctxt "web.tools.xmlDecodedOutput"
+msgid "Decoded XML"
+msgstr "已解码 XML"
+
+msgctxt "web.tools.xmlInputDigest"
+msgid "Input digest"
+msgstr "输入摘要"
+
+msgctxt "web.tools.xmlElements"
+msgid "Elements"
+msgstr "元素"
+
+msgctxt "web.tools.xmlAttributes"
+msgid "Attributes"
+msgstr "属性"
