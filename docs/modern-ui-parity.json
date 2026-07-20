@@ -1344,11 +1344,13 @@
       "owner": "partitions",
       "modernStatus": "partial",
       "currentEvidence": [
-        "pixelflasher_core/partitions.py:PartitionService",
+        "pixelflasher_core/partitions.py:typed list/read/write/erase plans with immutable mutation postconditions",
+        "pixelflasher_core/operation_runner.py:partition_written/partition_erased postcondition binding",
+        "pixelflasher_core/observer.py:bounded confined fastboot fetch hash/erased-content observation",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "ui/web/src/pages/Pages.tsx:ToolsPage"
+        "ui/web/src/pages/tooling/ToolsPage.tsx:Expert partition workspace"
       ],
-      "gap": "Device-side post-write/erase verification and richer progress/retry behavior remain open.",
+      "gap": "The complete plan-execute-readback flow is implemented and zero-exit false successes fail closed. Packaged WebView smokes and physical-device coverage for fetch support, large partitions, disconnects and cancellation remain open.",
       "exitCriteria": [
         "List, dump and erase one or more partitions is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -1368,6 +1370,9 @@
       "tests": [
         "tests/test_partition_service.py",
         "tests/test_service_engine_integration.py:test_partition_list_parses_fastboot_stderr_after_success",
+        "tests/test_partition_engine_postconditions.py",
+        "tests/test_production_postcondition_observer.py:test_fastbootd_partition_hash_uses_bounded_confined_fetch",
+        "tests/test_production_postcondition_observer.py:test_erased_partition_requires_bounded_readback_content",
         "ui/web/src/test/App.test.tsx:Tools workspace"
       ],
       "blockReason": null,
