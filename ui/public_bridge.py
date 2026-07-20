@@ -55,6 +55,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.avb",
         "tools.xml",
         "tools.keybox",
+        "tools.piAnalysis",
         "tools.scrcpy.setup",
         "tools.wifi.discover",
     }
@@ -2973,6 +2974,176 @@ def _project_keybox_analysis(value: object) -> JSONValue:
             "bounded": True,
         }
     )
+
+
+def _project_pi_analysis(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "schemaVersion",
+                "redacted",
+                "complete",
+                "device",
+                "packages",
+                "modules",
+                "configs",
+                "signals",
+                "withheld",
+            }
+        ),
+    )
+    if source["schemaVersion"] != 1 or source["redacted"] is not True or source["complete"] is not True:
+        raise PublicProjectionError("Play Integrity analysis boundary is invalid")
+    device = _closed_record(
+        source["device"],
+        fields=frozenset({"codename", "build", "rootAccess", "testKeys", "overlayVisible"}),
+    )
+    if (
+        not isinstance(device["codename"], str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", device["codename"]) is None
+        or not isinstance(device["build"], str)
+        or len(device["build"]) > 256
+        or any(ord(character) < 32 or ord(character) == 127 for character in device["build"])
+        or device["rootAccess"] != "verified"
+        or not isinstance(device["testKeys"], bool)
+        or not isinstance(device["overlayVisible"], bool)
+    ):
+        raise PublicProjectionError("Play Integrity device report is invalid")
+
+    raw_packages = source["packages"]
+    if not isinstance(raw_packages, list) or len(raw_packages) != 2:
+        raise PublicProjectionError("Play Integrity package report is invalid")
+    packages: list[dict[str, JSONValue]] = []
+    package_ids: list[str] = []
+    for raw in cast("list[object]", raw_packages):
+        item = _closed_record(
+            raw,
+            fields=frozenset({"id", "installed", "version", "versionCode"}),
+        )
+        package_id = item["id"]
+        installed = item["installed"]
+        version = item["version"]
+        version_code = item["versionCode"]
+        if (
+            package_id not in {"gms", "play_store"}
+            or not isinstance(installed, bool)
+            or not isinstance(version, str)
+            or len(version) > 128
+            or any(ord(character) < 32 or ord(character) == 127 for character in version)
+            or not isinstance(version_code, int)
+            or isinstance(version_code, bool)
+            or not 0 <= version_code <= 9_223_372_036_854_775_807
+            or (not installed and (version or version_code))
+        ):
+            raise PublicProjectionError("Play Integrity package record is invalid")
+        package_ids.append(cast(str, package_id))
+        packages.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+    if package_ids != ["gms", "play_store"]:
+        raise PublicProjectionError("Play Integrity package identities are invalid")
+
+    raw_modules = source["modules"]
+    if not isinstance(raw_modules, list) or len(raw_modules) > 256:
+        raise PublicProjectionError("Play Integrity module report is invalid")
+    modules: list[dict[str, JSONValue]] = []
+    module_ids: list[str] = []
+    for raw in cast("list[object]", raw_modules):
+        item = _closed_record(raw, fields=frozenset({"id", "state"}))
+        module_id = item["id"]
+        if (
+            not isinstance(module_id, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", module_id) is None
+            or item["state"] not in {"enabled", "disabled", "pending_remove", "corrupt"}
+        ):
+            raise PublicProjectionError("Play Integrity module record is invalid")
+        module_ids.append(module_id.casefold())
+        modules.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+    if module_ids != sorted(set(module_ids)):
+        raise PublicProjectionError("Play Integrity module identities are invalid")
+
+    config_kinds = [
+        "pif_custom_json",
+        "pif_custom_prop",
+        "pif_module_json",
+        "pif_legacy_json",
+        "pif_app_replace",
+        "pif_scripts_only",
+        "tricky_spoof",
+        "tricky_target",
+        "tricky_security_patch",
+        "tricky_tee",
+        "targeted_targets",
+        "keybox",
+    ]
+    raw_configs = source["configs"]
+    if not isinstance(raw_configs, list) or len(raw_configs) != len(config_kinds):
+        raise PublicProjectionError("Play Integrity configuration report is invalid")
+    configs: list[dict[str, JSONValue]] = []
+    observed_kinds: list[str] = []
+    for raw in cast("list[object]", raw_configs):
+        item = _closed_record(raw, fields=frozenset({"kind", "present", "size", "sha256"}))
+        kind = item["kind"]
+        present = item["present"]
+        size = item["size"]
+        digest = item["sha256"]
+        if (
+            kind not in config_kinds
+            or not isinstance(present, bool)
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or not 0 <= size <= 4 * 1024 * 1024
+            or (
+                (not present or kind == "keybox")
+                and digest is not None
+            )
+            or (
+                present
+                and kind != "keybox"
+                and (not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None)
+            )
+            or (not present and size != 0)
+        ):
+            raise PublicProjectionError("Play Integrity configuration record is invalid")
+        observed_kinds.append(cast(str, kind))
+        configs.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+    if observed_kinds != config_kinds:
+        raise PublicProjectionError("Play Integrity configuration identities are invalid")
+
+    signals = _closed_record(
+        source["signals"],
+        fields=frozenset({"targetedFixTargetCount", "magiskDenylistCount", "droidGuardVmCount"}),
+    )
+    if any(
+        not isinstance(item, int) or isinstance(item, bool) or not 0 <= item <= 4096
+        for item in signals.values()
+    ):
+        raise PublicProjectionError("Play Integrity analysis signals are invalid")
+    withheld = source["withheld"]
+    expected_withheld = [
+        "android_ids",
+        "device_serial",
+        "keybox_material",
+        "raw_config_contents",
+        "raw_logs",
+        "target_package_names",
+    ]
+    if withheld != expected_withheld:
+        raise PublicProjectionError("Play Integrity redaction receipt is invalid")
+    return ensure_public_json(
+        {
+            "schemaVersion": 1,
+            "redacted": True,
+            "complete": True,
+            "device": dict(device),
+            "packages": packages,
+            "modules": modules,
+            "configs": configs,
+            "signals": dict(signals),
+            "withheld": expected_withheld,
+        }
+    )
+
+
 def _project_native_grant(value: object) -> JSONValue:
     source = _record(value)
     data = source.get("data", source)
@@ -3072,6 +3243,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.avb": _project_avb_downgrade,
     "tools.xml": _project_binary_xml,
     "tools.keybox": _project_keybox_analysis,
+    "tools.piAnalysis": _project_pi_analysis,
     "tools.shizuku": _project_shizuku_recovery,
     "tools.sos": _project_sos_recovery,
     "tools.scrcpy": _project_none,

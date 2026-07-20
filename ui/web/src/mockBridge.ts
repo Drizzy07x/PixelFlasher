@@ -1057,6 +1057,53 @@ export function installDevelopmentBridge() {
             );
             break;
           }
+          case 'tools.piAnalysis': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            if (!target || target.mode !== 'adb' || !target.rooted || request.payload.action !== 'analyze') {
+              emit(errorMessage('Play Integrity analysis requires one rooted ADB device.', request));
+              break;
+            }
+            const kinds = [
+              'pif_custom_json', 'pif_custom_prop', 'pif_module_json', 'pif_legacy_json',
+              'pif_app_replace', 'pif_scripts_only', 'tricky_spoof', 'tricky_target',
+              'tricky_security_patch', 'tricky_tee', 'targeted_targets', 'keybox',
+            ];
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'pi_analysis_completed',
+              message: 'redacted Play Integrity analysis completed',
+              value: {
+                schemaVersion: 1,
+                redacted: true,
+                complete: true,
+                device: {
+                  codename: target.codename || 'unknown',
+                  build: 'AP4A.260101.001',
+                  rootAccess: 'verified',
+                  testKeys: false,
+                  overlayVisible: false,
+                },
+                packages: [
+                  { id: 'gms', installed: true, version: '25.20.33', versionCode: 252033000 },
+                  { id: 'play_store', installed: true, version: '46.2.39', versionCode: 84623900 },
+                ],
+                modules: mockRootModules.slice().sort().map((id) => ({
+                  id,
+                  state: mockDisabledRootModules.has(id) ? 'disabled' : 'enabled',
+                })),
+                configs: kinds.map((kind) => ({
+                  kind,
+                  present: kind === 'pif_custom_json' || kind === 'keybox',
+                  size: kind === 'pif_custom_json' ? 512 : kind === 'keybox' ? 2048 : 0,
+                  sha256: kind === 'pif_custom_json' ? 'a'.repeat(64) : null,
+                })),
+                signals: { targetedFixTargetCount: 2, magiskDenylistCount: 3, droidGuardVmCount: 1 },
+                withheld: ['android_ids', 'device_serial', 'keybox_material', 'raw_config_contents', 'raw_logs', 'target_package_names'],
+              },
+            });
+            break;
+          }
           case 'tools.sos': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const target = snapshot.devices.find((device) => device.serial === serial);

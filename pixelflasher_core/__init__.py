@@ -377,6 +377,7 @@ from .rooting import (
     RootingPlanningError,
     RootingService,
     RootModuleInfo,
+    parse_pi_analysis,
     parse_root_module_list,
 )
 from .runtime import ApplicationRuntime, RuntimeListener
@@ -797,6 +798,7 @@ __all__ = [
     "parse_package_list",
     "parse_package_permissions",
     "parse_platform_tools_version",
+    "parse_pi_analysis",
     "parse_root_module_list",
     "paused_device_management",
     "platform_key",

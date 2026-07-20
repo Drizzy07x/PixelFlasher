@@ -1366,14 +1366,20 @@ _COMMAND_SPECS = (
     _command(
         "tools.piAnalysis",
         "toolsPiAnalysis",
-        _payload(("serial", PayloadKind.STRING), ("action", PayloadKind.STRING)),
+        _payload(
+            ("serial", PayloadKind.STRING, True),
+            ("action", PayloadKind.STRING, True),
+        ),
         owner=CommandOwner.ROOT,
-        **_FUTURE,
+        **_LIVE,
         mutability=CommandMutability.READ_ONLY,
         expected_revision=ExpectedRevision.REQUIRED,
         risk=CommandRisk.DEVICE_READ,
-        valid_device_states=ADB_DEVICE_STATES,
+        valid_device_states=frozenset({"adb"}),
         target_scope=TargetScope.SELECTED_DEVICE,
+        planner="root.pi_analysis",
+        timeout_ms=3 * 60_000,
+        postconditions=("bounded_redacted_analysis_returned",),
     ),
     _command(
         "tools.sos",

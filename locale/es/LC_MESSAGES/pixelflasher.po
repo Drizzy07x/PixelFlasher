@@ -5970,3 +5970,75 @@ msgstr "Se verificaron {count} elementos restaurados."
 msgctxt "web.backups.dataAdbClearSuccess"
 msgid "/data/adb is empty and verified."
 msgstr "/data/adb está vacío y verificado."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.piAnalysisTitle"
+msgid "Play Integrity analysis"
+msgstr "Análisis de Play Integrity"
+
+msgctxt "web.root.piAnalysisDetail"
+msgid ""
+"Collect a bounded diagnostic report without device IDs, keybox material, "
+"target package names, raw configurations, or logs."
+msgstr "Recopila un informe de diagnóstico acotado sin IDs del dispositivo, material keybox, nombres de paquetes objetivo, configuraciones sin procesar ni registros."
+
+msgctxt "web.root.piAnalysisRun"
+msgid "Run redacted analysis"
+msgstr "Ejecutar análisis redactado"
+
+msgctxt "web.root.piAnalysisGuard"
+msgid "Select exactly one rooted device in ADB mode."
+msgstr "Selecciona exactamente un dispositivo con root en modo ADB."
+
+msgctxt "web.root.piAnalysisInvalid"
+msgid "The backend returned an incomplete or unsafe analysis report."
+msgstr "El backend devolvió un informe de análisis incompleto o inseguro."
+
+msgctxt "web.root.piAnalysisEmpty"
+msgid "No analysis has been run"
+msgstr "No se ha ejecutado ningún análisis"
+
+msgctxt "web.root.piAnalysisRedacted"
+msgid "Redacted and complete"
+msgstr "Redactado y completo"
+
+msgctxt "web.root.piAnalysisTestKeys"
+msgid "Test keys detected"
+msgstr "Claves de prueba detectadas"
+
+msgctxt "web.root.piAnalysisReleaseKeys"
+msgid "No test keys detected"
+msgstr "No se detectaron claves de prueba"
+
+msgctxt "web.root.piAnalysisModules"
+msgid "{count} root modules"
+msgstr "{count} módulos root"
+
+msgctxt "web.root.piAnalysisConfigs"
+msgid "{count} integrity configurations detected"
+msgstr "{count} configuraciones de integridad detectadas"
+
+msgctxt "web.root.piAnalysisTargets"
+msgid "TargetedFix target count"
+msgstr "Número de objetivos de TargetedFix"
+
+msgctxt "web.root.piAnalysisDenylist"
+msgid "Magisk denylist entries"
+msgstr "Entradas de la denylist de Magisk"
+
+msgctxt "web.root.piAnalysisDroidGuard"
+msgid "DroidGuard VM directories"
+msgstr "Directorios de VM de DroidGuard"
+
+msgctxt "web.root.piAnalysisOverlay"
+msgid "Root overlay visible"
+msgstr "Overlay root visible"
+
+msgctxt "web.root.piAnalysisWithheld"
+msgid ""
+"Sensitive identities, keybox certificates, raw configuration contents, "
+"target names, and logs were withheld at collection time."
+msgstr "Las identidades sensibles, los certificados keybox, el contenido de configuración sin procesar, los nombres de objetivos y los registros se omitieron durante la recopilación."

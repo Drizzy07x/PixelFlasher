@@ -26,6 +26,7 @@ from pixelflasher_core.rooting import (
     RootAppSource,
     RootingPlanningError,
     RootingService,
+    parse_pi_analysis,
     parse_root_module_list,
 )
 from tests.apk_test_helpers import FakeVerifiedApkInspector
@@ -51,6 +52,51 @@ def module_record(
     )
 
 
+def pi_analysis_output(*, keybox_present: bool = True) -> str:
+    def encode(value: str) -> str:
+        return base64.b64encode(value.encode("utf-8")).decode("ascii")
+    config_kinds = (
+        "pif_custom_json",
+        "pif_custom_prop",
+        "pif_module_json",
+        "pif_legacy_json",
+        "pif_app_replace",
+        "pif_scripts_only",
+        "tricky_spoof",
+        "tricky_target",
+        "tricky_security_patch",
+        "tricky_tee",
+        "targeted_targets",
+        "keybox",
+    )
+    lines = [
+        "PF_PI|schema|1",
+        "PF_PI|root|verified",
+        "PF_PI|testKeys|false",
+        "PF_PI|overlayVisible|true",
+        f"PF_PI|package|gms|true|{encode('25.20.33')}|252033000",
+        "PF_PI|package|play_store|false||0",
+        f"PF_PI|module|{encode('playintegrityfix')}|enabled",
+        f"PF_PI|module|{encode('tricky_store')}|disabled",
+    ]
+    for kind in config_kinds:
+        if kind == "keybox" and keybox_present:
+            lines.append("PF_PI|config|keybox|present|2048|-")
+        elif kind == "pif_custom_json":
+            lines.append(f"PF_PI|config|{kind}|present|512|{'a' * 64}")
+        else:
+            lines.append(f"PF_PI|config|{kind}|absent|0|-")
+    lines.extend(
+        (
+            "PF_PI|targetCount|2",
+            "PF_PI|denylistCount|5",
+            "PF_PI|droidGuardVmCount|1",
+            "PF_PI|complete|1",
+        )
+    )
+    return "\n".join(lines)
+
+
 def write_apk(path: Path, payload: bytes = b"manifest") -> bytes:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("AndroidManifest.xml", payload)
@@ -74,7 +120,16 @@ class RootingServiceTests(unittest.TestCase):
     def setUp(self):
         self.snapshot = AppSnapshot(
             revision=9,
-            devices=(DeviceInfo("SERIAL", mode="adb", root=True, online=True),),
+            devices=(
+                DeviceInfo(
+                    "SERIAL",
+                    codename="akita",
+                    mode="adb",
+                    root=True,
+                    online=True,
+                    build="AP4A.260101.001",
+                ),
+            ),
             selected_serial="SERIAL",
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
@@ -193,6 +248,64 @@ class RootingServiceTests(unittest.TestCase):
                 rootless,
             )
         self.assertEqual("root_access_required", root.exception.code)
+
+    def test_pi_analysis_compiles_one_fixed_read_only_redacted_probe(self):
+        compilation = RootingService().compile(
+            self.command(
+                "tools.piAnalysis",
+                {"serial": "SERIAL", "action": "analyze"},
+            ),
+            self.snapshot,
+        )
+
+        self.assertEqual("pi_analysis", compilation.action)
+        self.assertEqual("AP4A.260101.001", compilation.device_build)
+        self.assertFalse(compilation.device_write)
+        self.assertFalse(compilation.destructive)
+        self.assertFalse(compilation.requires_confirmation)
+        assert compilation.plan is not None
+        request = compilation.plan.request
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertEqual(256 * 1024, request.output_limit_bytes)
+        script = request.argv[6]
+        self.assertIn("PF_PI|schema|1", script)
+        self.assertIn("/data/adb/tricky_store/keybox.xml", script)
+        self.assertIn("hash_allowed", script)
+        self.assertIn("targetCount", script)
+        self.assertNotIn("cat /data/adb/tricky_store/keybox.xml", script)
+        self.assertNotIn("android_id", script.casefold())
+        self.assertNotIn("logcat", script.casefold())
+        self.assertEqual((), compilation.plan.postconditions)
+
+    def test_pi_analysis_rejects_alias_unknown_fields_and_rootless_device(self):
+        service = RootingService()
+        for payload, code in (
+            ({"serial": "SERIAL", "action": "report"}, "pi_analysis_action_invalid"),
+            (
+                {"serial": "SERIAL", "action": "analyze", "includeSecrets": True},
+                "invalid_rooting_payload",
+            ),
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(RootingPlanningError) as raised:
+                    service.compile(self.command("tools.piAnalysis", payload), self.snapshot)
+                self.assertEqual(code, raised.exception.code)
+
+        rootless = AppSnapshot(
+            revision=9,
+            devices=(DeviceInfo("SERIAL", codename="akita", mode="adb", root=False),),
+            selected_serial="SERIAL",
+            toolchain=self.snapshot.toolchain,
+        )
+        with self.assertRaises(RootingPlanningError) as raised:
+            service.compile(
+                self.command(
+                    "tools.piAnalysis",
+                    {"serial": "SERIAL", "action": "analyze"},
+                ),
+                rootless,
+            )
+        self.assertEqual("root_access_required", raised.exception.code)
 
     def test_local_root_app_inventory_has_hash_and_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -829,10 +942,67 @@ class RootModuleParserTests(unittest.TestCase):
             with self.subTest(output=output):
                 with self.assertRaises(RootingPlanningError) as raised:
                     parse_root_module_list(output)
-                self.assertIn(
-                    raised.exception.code,
-                    {"root_module_list_malformed"},
-                )
+                self.assertEqual("root_module_list_malformed", raised.exception.code)
+
+
+class PiAnalysisParserTests(unittest.TestCase):
+    def test_parser_returns_closed_redacted_report_without_device_identity(self):
+        report = parse_pi_analysis(
+            pi_analysis_output(),
+            device_codename="akita",
+            build="AP4A.260101.001",
+        )
+
+        self.assertTrue(report["redacted"])
+        self.assertTrue(report["complete"])
+        self.assertNotIn("SERIAL", repr(report))
+        self.assertNotIn("targetSerial", repr(report))
+        self.assertNotIn("certificate", repr(report).casefold())
+        self.assertEqual(
+            {
+                "targetedFixTargetCount": 2,
+                "magiskDenylistCount": 5,
+                "droidGuardVmCount": 1,
+            },
+            report["signals"],
+        )
+        configs = {
+            str(item["kind"]): item
+            for item in report["configs"]  # type: ignore[union-attr]
+        }
+        self.assertIsNone(configs["keybox"]["sha256"])
+        self.assertEqual("a" * 64, configs["pif_custom_json"]["sha256"])
+        self.assertEqual(
+            ["playintegrityfix", "tricky_store"],
+            [item["id"] for item in report["modules"]],  # type: ignore[union-attr]
+        )
+
+    def test_parser_rejects_partial_unknown_duplicate_and_secret_keybox_digest(self):
+        valid = pi_analysis_output()
+        cases = (
+            valid.removesuffix("\nPF_PI|complete|1"),
+            valid.replace("PF_PI|targetCount|2", "PF_PI|unknown|2"),
+            valid.replace(
+                "PF_PI|denylistCount|5",
+                "PF_PI|denylistCount|5\nPF_PI|denylistCount|5",
+            ),
+            valid.replace(
+                "PF_PI|config|keybox|present|2048|-",
+                f"PF_PI|config|keybox|present|2048|{'b' * 64}",
+            ),
+            valid.replace(
+                "PF_PI|config|pif_custom_json|present|512|",
+                "PF_PI|config|pif_custom_json|present|4194305|",
+            ),
+        )
+        for output in cases:
+            with self.subTest(output=output[-120:]):
+                with self.assertRaises(RootingPlanningError):
+                    parse_pi_analysis(
+                        output,
+                        device_codename="akita",
+                        build="AP4A.260101.001",
+                    )
 
 
 if __name__ == "__main__":

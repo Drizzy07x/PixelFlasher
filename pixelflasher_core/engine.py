@@ -150,6 +150,7 @@ from .rooting import (
     RootingCompilation,
     RootingPlanningError,
     RootingService,
+    parse_pi_analysis,
     parse_root_module_list,
 )
 from .safety import SafetyPolicy
@@ -1768,6 +1769,38 @@ class CommandEngine:
                     "count": len(modules),
                     "modules": [module.to_dict() for module in modules],
                 },
+            )
+        if kind == "tools.piAnalysis":
+            if (
+                not isinstance(compilation, RootingCompilation)
+                or compilation.action != "pi_analysis"
+                or compilation.device_build is None
+                or plan.expected_codename is None
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="pi_analysis_compilation_invalid",
+                    message="Play Integrity analysis returned an invalid compilation",
+                )
+            try:
+                report = parse_pi_analysis(
+                    result.stdout,
+                    device_codename=plan.expected_codename,
+                    build=compilation.device_build,
+                )
+            except RootingPlanningError as error:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            return replace(
+                result,
+                code="pi_analysis_completed",
+                message="redacted Play Integrity analysis completed",
+                value=report,
+                stdout="",
+                stderr="",
             )
         if kind == "root.modules.action":
             if not isinstance(compilation, RootingCompilation) or not compilation.module_id:

@@ -5965,3 +5965,75 @@ msgstr "已驗證 {count} 個還原項目。"
 msgctxt "web.backups.dataAdbClearSuccess"
 msgid "/data/adb is empty and verified."
 msgstr "/data/adb 已清空並通過驗證。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.piAnalysisTitle"
+msgid "Play Integrity analysis"
+msgstr "Play Integrity 分析"
+
+msgctxt "web.root.piAnalysisDetail"
+msgid ""
+"Collect a bounded diagnostic report without device IDs, keybox material, "
+"target package names, raw configurations, or logs."
+msgstr "收集受限的診斷報告，不包含裝置 ID、keybox 資料、目標套件名稱、原始設定或記錄。"
+
+msgctxt "web.root.piAnalysisRun"
+msgid "Run redacted analysis"
+msgstr "執行去識別化分析"
+
+msgctxt "web.root.piAnalysisGuard"
+msgid "Select exactly one rooted device in ADB mode."
+msgstr "請只選擇一台處於 ADB 模式且已取得 root 的裝置。"
+
+msgctxt "web.root.piAnalysisInvalid"
+msgid "The backend returned an incomplete or unsafe analysis report."
+msgstr "後端傳回了不完整或不安全的分析報告。"
+
+msgctxt "web.root.piAnalysisEmpty"
+msgid "No analysis has been run"
+msgstr "尚未執行分析"
+
+msgctxt "web.root.piAnalysisRedacted"
+msgid "Redacted and complete"
+msgstr "已去識別化且完整"
+
+msgctxt "web.root.piAnalysisTestKeys"
+msgid "Test keys detected"
+msgstr "偵測到測試金鑰"
+
+msgctxt "web.root.piAnalysisReleaseKeys"
+msgid "No test keys detected"
+msgstr "未偵測到測試金鑰"
+
+msgctxt "web.root.piAnalysisModules"
+msgid "{count} root modules"
+msgstr "{count} 個 root 模組"
+
+msgctxt "web.root.piAnalysisConfigs"
+msgid "{count} integrity configurations detected"
+msgstr "偵測到 {count} 個完整性設定"
+
+msgctxt "web.root.piAnalysisTargets"
+msgid "TargetedFix target count"
+msgstr "TargetedFix 目標數量"
+
+msgctxt "web.root.piAnalysisDenylist"
+msgid "Magisk denylist entries"
+msgstr "Magisk 拒絕清單項目"
+
+msgctxt "web.root.piAnalysisDroidGuard"
+msgid "DroidGuard VM directories"
+msgstr "DroidGuard VM 目錄"
+
+msgctxt "web.root.piAnalysisOverlay"
+msgid "Root overlay visible"
+msgstr "root 覆蓋層可見"
+
+msgctxt "web.root.piAnalysisWithheld"
+msgid ""
+"Sensitive identities, keybox certificates, raw configuration contents, "
+"target names, and logs were withheld at collection time."
+msgstr "敏感身分資訊、keybox 憑證、原始設定內容、目標名稱和記錄已在收集時排除。"

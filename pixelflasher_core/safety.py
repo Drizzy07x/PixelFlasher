@@ -79,6 +79,7 @@ class SafetyPolicy:
             "tools.avb",
             "tools.xml",
             "tools.keybox",
+            "tools.piAnalysis",
             "device.inspect",
             "device.openUrl",
             "backups.create",

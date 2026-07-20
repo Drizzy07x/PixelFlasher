@@ -47,6 +47,7 @@ ROOTING_COMMANDS = frozenset(
         "root.apps.install",
         "root.modules.list",
         "root.modules.action",
+        "tools.piAnalysis",
         "tools.shizuku",
         "tools.sos",
     }
@@ -66,6 +67,33 @@ _MAX_ZIP_UNCOMPRESSED = 512 * 1024 * 1024
 _MODULE_LIST_PREFIX = "PF_RM"
 _MAX_MODULES = 256
 _MAX_MODULE_LIST_BYTES = 256 * 1024
+_PI_ANALYSIS_PREFIX = "PF_PI"
+_MAX_PI_ANALYSIS_BYTES = 256 * 1024
+_MAX_PI_MODULES = 256
+_PI_CONFIG_KINDS = (
+    "pif_custom_json",
+    "pif_custom_prop",
+    "pif_module_json",
+    "pif_legacy_json",
+    "pif_app_replace",
+    "pif_scripts_only",
+    "tricky_spoof",
+    "tricky_target",
+    "tricky_security_patch",
+    "tricky_tee",
+    "targeted_targets",
+    "keybox",
+)
+_PI_PACKAGE_IDS = frozenset({"gms", "play_store"})
+_PI_MODULE_STATE = frozenset({"enabled", "disabled", "pending_remove", "corrupt"})
+_PI_WITHHELD = (
+    "android_ids",
+    "device_serial",
+    "keybox_material",
+    "raw_config_contents",
+    "raw_logs",
+    "target_package_names",
+)
 
 
 class RootApkInspector(Protocol):
@@ -176,6 +204,7 @@ class RootingCompilation:
     plan: OperationPlan | None = None
     root_apps: tuple[RootAppInfo, ...] = ()
     module_id: str | None = None
+    device_build: str | None = None
     device_write: bool = False
     destructive: bool = False
     requires_confirmation: bool = False
@@ -186,6 +215,7 @@ class RootingCompilation:
             "plan": self.plan.to_dict() if self.plan is not None else None,
             "root_apps": [item.to_dict() for item in self.root_apps],
             "module_id": self.module_id,
+            "device_build": self.device_build,
             "device_write": self.device_write,
             "destructive": self.destructive,
             "requires_confirmation": self.requires_confirmation,
@@ -258,6 +288,13 @@ class RootingService:
                     "SOS module recovery requires a device reporting root access",
                 )
             return self._compile_sos(command, snapshot, device, adb)
+        if command.kind == "tools.piAnalysis":
+            if not device.root:
+                raise RootingPlanningError(
+                    "root_access_required",
+                    "Play Integrity analysis requires a device reporting root access",
+                )
+            return self._compile_pi_analysis(command, snapshot, device, adb)
         if not device.root:
             raise RootingPlanningError(
                 "root_access_required",
@@ -271,6 +308,109 @@ class RootingService:
             device,
             adb,
             cancellation,
+        )
+
+    def _compile_pi_analysis(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        """Compile one fixed, read-only and privacy-bounded integrity probe."""
+
+        self._validate_payload(command, {"serial", "action"})
+        if command.payload.get("action") != "analyze":
+            raise RootingPlanningError(
+                "pi_analysis_action_invalid",
+                "Play Integrity analysis action must be exactly analyze",
+            )
+        # Browser input never enters this script.  Raw configuration contents,
+        # Android identifiers, target package names, keybox certificates and
+        # logcat are deliberately excluded at the collection boundary.
+        config_specs = (
+            ("pif_custom_json", "/data/adb/modules/playintegrityfix/custom.pif.json", True),
+            ("pif_custom_prop", "/data/adb/modules/playintegrityfix/custom.pif.prop", True),
+            ("pif_module_json", "/data/adb/modules/playintegrityfix/pif.json", True),
+            ("pif_legacy_json", "/data/adb/pif.json", True),
+            ("pif_app_replace", "/data/adb/modules/playintegrityfix/custom.app_replace.list", True),
+            ("pif_scripts_only", "/data/adb/modules/playintegrityfix/scripts-only-mode", True),
+            ("tricky_spoof", "/data/adb/tricky_store/spoof_build_vars", True),
+            ("tricky_target", "/data/adb/tricky_store/target.txt", True),
+            ("tricky_security_patch", "/data/adb/tricky_store/security_patch.txt", True),
+            ("tricky_tee", "/data/adb/tricky_store/tee_status", True),
+            ("targeted_targets", "/data/adb/modules/targetedfix/config/target.txt", True),
+            # Even a keybox digest can identify privately shared material, so
+            # only presence and bounded size are returned for this entry.
+            ("keybox", "/data/adb/tricky_store/keybox.xml", False),
+        )
+        config_commands = " ".join(
+            f"pf_file {kind} {path} {'1' if include_hash else '0'};"
+            for kind, path, include_hash in config_specs
+        )
+        script = (
+            f"printf '{_PI_ANALYSIS_PREFIX}|schema|1\\n'; "
+            "uid=$(id -u 2>/dev/null); [ \"$uid\" = 0 ] || { "
+            f"printf '{_PI_ANALYSIS_PREFIX}|root|missing\\n'; exit 71; }}; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|root|verified\\n'; "
+            "tags=$(getprop ro.build.tags 2>/dev/null | head -c 128); "
+            "case \"$tags\" in *test-keys*) test_keys=true;; *) test_keys=false;; esac; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|testKeys|%s\\n' \"$test_keys\"; "
+            "if [ -r /debug_ramdisk/.magisk/rootdir/system/etc/hosts ] || "
+            "[ -r /debug_ramdisk/.magisk/rootdir ]; then overlay=true; else overlay=false; fi; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|overlayVisible|%s\\n' \"$overlay\"; "
+            "pf_b64() { printf '%s' \"$1\" | base64 | tr -d '\\r\\n'; }; "
+            "pf_pkg() { key=$1; pkg=$2; "
+            "dump=$(dumpsys package \"$pkg\" 2>/dev/null | head -c 262144); "
+            "version=$(printf '%s\\n' \"$dump\" | sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | head -c 128); "
+            "code=$(printf '%s\\n' \"$dump\" | sed -n 's/^[[:space:]]*versionCode=\\([0-9]*\\).*/\\1/p' | head -n 1); "
+            "case \"$code\" in ''|*[!0-9]*) code=0;; esac; "
+            "if [ -n \"$version\" ] || [ \"$code\" != 0 ]; then installed=true; else installed=false; fi; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|package|%s|%s|%s|%s\\n' \"$key\" \"$installed\" \"$(pf_b64 \"$version\")\" \"$code\"; }}; "
+            "pf_pkg gms com.google.android.gms; pf_pkg play_store com.android.vending; "
+            "count=0; for dir in /data/adb/modules/*; do [ -d \"$dir\" ] || continue; "
+            "id=${dir##*/}; case \"$id\" in *[!A-Za-z0-9._-]*|'') continue;; esac; "
+            "[ \"${#id}\" -le 64 ] || continue; "
+            "if [ -f \"$dir/remove\" ]; then state=pending_remove; "
+            "elif [ -f \"$dir/disable\" ]; then state=disabled; "
+            "elif [ -f \"$dir/module.prop\" ]; then state=enabled; else state=corrupt; fi; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|module|%s|%s\\n' \"$(pf_b64 \"$id\")\" \"$state\"; "
+            f"count=$((count + 1)); [ \"$count\" -lt {_MAX_PI_MODULES} ] || break; done; "
+            "pf_file() { key=$1; file=$2; hash_allowed=$3; "
+            "if [ -f \"$file\" ]; then size=$(wc -c < \"$file\" 2>/dev/null | tr -d ' '); "
+            "case \"$size\" in ''|*[!0-9]*) size=0;; esac; digest=-; "
+            "if [ \"$hash_allowed\" = 1 ]; then digest=$(sha256sum \"$file\" 2>/dev/null | cut -d ' ' -f 1); "
+            "case \"$digest\" in [0-9a-f][0-9a-f][0-9a-f]*) ;; *) digest=-;; esac; fi; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|config|%s|present|%s|%s\\n' \"$key\" \"$size\" \"$digest\"; "
+            f"else printf '{_PI_ANALYSIS_PREFIX}|config|%s|absent|0|-\\n' \"$key\"; fi; }}; "
+            f"{config_commands} "
+            "targets=0; if [ -f /data/adb/modules/targetedfix/config/target.txt ]; then "
+            "targets=$(sed -n '/^[A-Za-z][A-Za-z0-9_.]*$/p' /data/adb/modules/targetedfix/config/target.txt 2>/dev/null | head -n 256 | wc -l | tr -d ' '); fi; "
+            "case \"$targets\" in ''|*[!0-9]*) targets=0;; esac; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|targetCount|%s\\n' \"$targets\"; "
+            "deny=0; if command -v magisk >/dev/null 2>&1; then deny=$(magisk --denylist ls 2>/dev/null | head -n 2048 | wc -l | tr -d ' '); fi; "
+            "case \"$deny\" in ''|*[!0-9]*) deny=0;; esac; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|denylistCount|%s\\n' \"$deny\"; "
+            "droid=0; if [ -d /data/data/com.google.android.gms/app_dg_cache ]; then "
+            "droid=$(find /data/data/com.google.android.gms/app_dg_cache -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 512 | wc -l | tr -d ' '); fi; "
+            "case \"$droid\" in ''|*[!0-9]*) droid=0;; esac; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|droidGuardVmCount|%s\\n' \"$droid\"; "
+            f"printf '{_PI_ANALYSIS_PREFIX}|complete|1\\n'"
+        )
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            timeout_seconds=120.0,
+            output_limit_bytes=_MAX_PI_ANALYSIS_BYTES,
+        )
+        return RootingCompilation(
+            "pi_analysis",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Generate redacted Play Integrity analysis for {device.serial}",
+            ),
+            device_build=device.build,
         )
 
     def _compile_shizuku(
@@ -1266,6 +1406,175 @@ def _module_property(encoded: str, label: str, maximum: int) -> str:
     return value
 
 
+def parse_pi_analysis(
+    stdout: str,
+    *,
+    device_codename: str,
+    build: str,
+) -> dict[str, object]:
+    """Parse the fixed probe into a share-safe, closed analysis report."""
+
+    if not isinstance(stdout, str):
+        raise RootingPlanningError("pi_analysis_invalid", "analysis output must be text")
+    if len(stdout.encode("utf-8", errors="replace")) > _MAX_PI_ANALYSIS_BYTES:
+        raise RootingPlanningError("pi_analysis_oversized", "analysis output is oversized")
+    lines = tuple(line.strip() for line in stdout.splitlines() if line.strip())
+    if (
+        len(lines) < 10
+        or lines[0] != f"{_PI_ANALYSIS_PREFIX}|schema|1"
+        or lines[-1] != f"{_PI_ANALYSIS_PREFIX}|complete|1"
+    ):
+        raise RootingPlanningError(
+            "pi_analysis_incomplete",
+            "analysis output is missing its schema or completion boundary",
+        )
+    codename = _pi_public_text(device_codename, "device codename", 64)
+    build_value = _pi_public_text(build, "device build", 256)
+    singletons: dict[str, object] = {}
+    packages: dict[str, dict[str, object]] = {}
+    modules: dict[str, dict[str, object]] = {}
+    configs: dict[str, dict[str, object]] = {}
+
+    for line in lines[1:-1]:
+        fields = line.split("|")
+        if not fields or fields[0] != _PI_ANALYSIS_PREFIX:
+            raise RootingPlanningError("pi_analysis_malformed", "analysis record prefix is invalid")
+        record_type = fields[1] if len(fields) > 1 else ""
+        if record_type == "root" and len(fields) == 3:
+            if "rootAccess" in singletons or fields[2] != "verified":
+                raise RootingPlanningError("pi_analysis_root_unverified", "root analysis was not verified")
+            singletons["rootAccess"] = "verified"
+        elif record_type in {"testKeys", "overlayVisible"} and len(fields) == 3:
+            key = "testKeys" if record_type == "testKeys" else "overlayVisible"
+            if key in singletons or fields[2] not in {"true", "false"}:
+                raise RootingPlanningError("pi_analysis_malformed", f"{record_type} record is invalid")
+            singletons[key] = fields[2] == "true"
+        elif record_type == "package" and len(fields) == 6:
+            package_id = fields[2]
+            if package_id not in _PI_PACKAGE_IDS or package_id in packages:
+                raise RootingPlanningError("pi_analysis_malformed", "package record identity is invalid")
+            if fields[3] not in {"true", "false"}:
+                raise RootingPlanningError("pi_analysis_malformed", "package state is invalid")
+            version = _decode_pi_text(fields[4], "package version", 128)
+            version_code = _pi_count(fields[5], "package version code", 9_223_372_036_854_775_807)
+            installed = fields[3] == "true"
+            if not installed and (version or version_code):
+                raise RootingPlanningError("pi_analysis_malformed", "absent package has version metadata")
+            packages[package_id] = {
+                "id": package_id,
+                "installed": installed,
+                "version": version,
+                "versionCode": version_code,
+            }
+        elif record_type == "module" and len(fields) == 4:
+            module_id = _decode_pi_text(fields[2], "module id", 64)
+            identity = module_id.casefold()
+            if (
+                _MODULE_ID_PATTERN.fullmatch(module_id) is None
+                or identity in modules
+                or fields[3] not in _PI_MODULE_STATE
+                or len(modules) >= _MAX_PI_MODULES
+            ):
+                raise RootingPlanningError("pi_analysis_malformed", "module record is invalid")
+            modules[identity] = {"id": module_id, "state": fields[3]}
+        elif record_type == "config" and len(fields) == 6:
+            kind, state, raw_size, digest = fields[2:]
+            if kind not in _PI_CONFIG_KINDS or kind in configs or state not in {"present", "absent"}:
+                raise RootingPlanningError("pi_analysis_malformed", "configuration record is invalid")
+            size = _pi_count(raw_size, "configuration size", 4 * 1024 * 1024)
+            if state == "absent":
+                if size != 0 or digest != "-":
+                    raise RootingPlanningError("pi_analysis_malformed", "absent configuration has metadata")
+                public_digest: str | None = None
+            elif kind == "keybox":
+                if digest != "-":
+                    raise RootingPlanningError("pi_analysis_secret_exposed", "keybox fingerprint must be withheld")
+                public_digest = None
+            else:
+                if _SHA256_PATTERN.fullmatch(digest) is None:
+                    raise RootingPlanningError("pi_analysis_unverified", "configuration hash is unavailable")
+                public_digest = digest
+            configs[kind] = {
+                "kind": kind,
+                "present": state == "present",
+                "size": size,
+                "sha256": public_digest,
+            }
+        elif record_type in {"targetCount", "denylistCount", "droidGuardVmCount"} and len(fields) == 3:
+            key = {
+                "targetCount": "targetedFixTargetCount",
+                "denylistCount": "magiskDenylistCount",
+                "droidGuardVmCount": "droidGuardVmCount",
+            }[record_type]
+            if key in singletons:
+                raise RootingPlanningError("pi_analysis_malformed", f"duplicate {record_type} record")
+            singletons[key] = _pi_count(fields[2], record_type, 4096)
+        else:
+            raise RootingPlanningError("pi_analysis_malformed", "analysis contains an unknown record")
+
+    required_singletons = {
+        "rootAccess",
+        "testKeys",
+        "overlayVisible",
+        "targetedFixTargetCount",
+        "magiskDenylistCount",
+        "droidGuardVmCount",
+    }
+    if set(singletons) != required_singletons:
+        raise RootingPlanningError("pi_analysis_incomplete", "analysis signals are incomplete")
+    if set(packages) != _PI_PACKAGE_IDS:
+        raise RootingPlanningError("pi_analysis_incomplete", "package signals are incomplete")
+    if tuple(configs) != _PI_CONFIG_KINDS:
+        raise RootingPlanningError("pi_analysis_incomplete", "configuration signals are incomplete")
+    return {
+        "schemaVersion": 1,
+        "redacted": True,
+        "complete": True,
+        "device": {
+            "codename": codename,
+            "build": build_value,
+            "rootAccess": singletons["rootAccess"],
+            "testKeys": singletons["testKeys"],
+            "overlayVisible": singletons["overlayVisible"],
+        },
+        "packages": [packages[key] for key in sorted(packages)],
+        "modules": [modules[key] for key in sorted(modules)],
+        "configs": [configs[key] for key in _PI_CONFIG_KINDS],
+        "signals": {
+            "targetedFixTargetCount": singletons["targetedFixTargetCount"],
+            "magiskDenylistCount": singletons["magiskDenylistCount"],
+            "droidGuardVmCount": singletons["droidGuardVmCount"],
+        },
+        "withheld": list(_PI_WITHHELD),
+    }
+
+
+def _decode_pi_text(encoded: str, label: str, maximum: int) -> str:
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        value = raw.decode("utf-8", errors="strict").strip()
+    except (ValueError, UnicodeDecodeError) as error:
+        raise RootingPlanningError("pi_analysis_malformed", f"{label} is invalid") from error
+    return _pi_public_text(value, label, maximum)
+
+
+def _pi_public_text(value: str, label: str, maximum: int) -> str:
+    if not isinstance(value, str) or len(value) > maximum or any(
+        ord(character) < 32 or ord(character) == 127 for character in value
+    ):
+        raise RootingPlanningError("pi_analysis_malformed", f"{label} is outside its bounds")
+    return value
+
+
+def _pi_count(value: str, label: str, maximum: int) -> int:
+    if not value or not value.isascii() or not value.isdecimal():
+        raise RootingPlanningError("pi_analysis_malformed", f"{label} is invalid")
+    parsed = int(value, 10)
+    if parsed > maximum:
+        raise RootingPlanningError("pi_analysis_malformed", f"{label} is outside its bounds")
+    return parsed
+
+
 __all__ = [
     "ROOTING_COMMANDS",
     "RootApkInspector",
@@ -1275,5 +1584,6 @@ __all__ = [
     "RootingCompilation",
     "RootingPlanningError",
     "RootingService",
+    "parse_pi_analysis",
     "parse_root_module_list",
 ]

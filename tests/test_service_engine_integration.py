@@ -66,6 +66,46 @@ def root_module_record(module_id: str, name: str, state: str = "enabled") -> str
     )
 
 
+def pi_analysis_record() -> str:
+    def encode(value: str) -> str:
+        return base64.b64encode(value.encode()).decode()
+    config_kinds = (
+        "pif_custom_json",
+        "pif_custom_prop",
+        "pif_module_json",
+        "pif_legacy_json",
+        "pif_app_replace",
+        "pif_scripts_only",
+        "tricky_spoof",
+        "tricky_target",
+        "tricky_security_patch",
+        "tricky_tee",
+        "targeted_targets",
+        "keybox",
+    )
+    lines = [
+        "PF_PI|schema|1",
+        "PF_PI|root|verified",
+        "PF_PI|testKeys|false",
+        "PF_PI|overlayVisible|false",
+        f"PF_PI|package|gms|true|{encode('25.20.33')}|252033000",
+        "PF_PI|package|play_store|false||0",
+        f"PF_PI|module|{encode('playintegrityfix')}|enabled",
+    ]
+    lines.extend(
+        f"PF_PI|config|{kind}|absent|0|-" for kind in config_kinds
+    )
+    lines.extend(
+        (
+            "PF_PI|targetCount|0",
+            "PF_PI|denylistCount|3",
+            "PF_PI|droidGuardVmCount|1",
+            "PF_PI|complete|1",
+        )
+    )
+    return "\n".join(lines)
+
+
 class RecordingLauncher:
     def __init__(self, *, error=None, terminate_result=True):
         self.error = error
@@ -2047,6 +2087,48 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertNotEqual("root_modules_list_succeeded", result.code)
+
+    def test_pi_analysis_returns_only_closed_redacted_evidence(self):
+        engine, transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0, pi_analysis_record())],
+            root=True,
+        )
+
+        result = engine.execute(
+            command("tools.piAnalysis", {"serial": "SERIAL", "action": "analyze"})
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("pi_analysis_completed", result.code)
+        self.assertTrue(result.value["redacted"])
+        self.assertTrue(result.value["complete"])
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+        self.assertNotIn("SERIAL", repr(result.value))
+        self.assertNotIn("/data/adb", repr(result.value))
+        self.assertEqual(3, result.value["signals"]["magiskDenylistCount"])
+        self.assertEqual(
+            ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
+            transport.calls[0].argv[:6],
+        )
+
+    def test_pi_analysis_never_returns_partial_device_output(self):
+        engine, _transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0, "PF_PI|schema|1\nPF_PI|root|verified\nPRIVATE_RAW_VALUE")],
+            root=True,
+        )
+
+        result = engine.execute(
+            command("tools.piAnalysis", {"serial": "SERIAL", "action": "analyze"})
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual("pi_analysis_incomplete", result.code)
+        self.assertEqual("", result.stdout)
+        self.assertEqual("", result.stderr)
+        self.assertNotIn("PRIVATE_RAW_VALUE", repr(result))
 
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (

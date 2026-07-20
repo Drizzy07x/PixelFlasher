@@ -2213,9 +2213,15 @@
       "area": "root",
       "capability": "PIF/TargetedFix management and Play Integrity analysis",
       "owner": "root",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No modern PIF/TargetedFix, keybox or Play Integrity analysis flow exists.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/rooting.py:RootingService._compile_pi_analysis",
+        "pixelflasher_core/rooting.py:parse_pi_analysis",
+        "pixelflasher_core/engine.py:CommandEngine._parse_service_result",
+        "ui/public_bridge.py:_project_pi_analysis",
+        "ui/web/src/pages/root/RootPage.tsx:RootPage"
+      ],
+      "gap": "A native read-only PI Analysis report is implemented with fixed backend collection, strict parsing and explicit redaction of device IDs, keybox material, target package names, raw configurations and logs. PIF profile inventory/edit/push, TargetedFix target management, cleanup/check workflows and packaged rooted-device validation remain.",
       "exitCriteria": [
         "PIF/TargetedFix management and Play Integrity analysis is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -2230,7 +2236,13 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_rooting_service.py:PiAnalysisParserTests",
+        "tests/test_rooting_service.py:RootingServiceTests.test_pi_analysis_compiles_one_fixed_read_only_redacted_probe",
+        "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pi_analysis_returns_only_closed_redacted_evidence",
+        "tests/test_pi_analysis_public_contract.py:PiAnalysisPublicContractTests",
+        "ui/web/src/test/pi-analysis.test.tsx:redacted Play Integrity analysis"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [

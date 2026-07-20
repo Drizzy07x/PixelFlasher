@@ -340,6 +340,11 @@ def _validate_payload_values(
             _payload_error("tools.shizuku serial is invalid", request_id)
         if payload.get("action") != "start":
             _payload_error("tools.shizuku action is invalid", request_id)
+    elif command == "tools.piAnalysis":
+        if not _nonempty_string(payload.get("serial"), limit=256):
+            _payload_error("tools.piAnalysis serial is invalid", request_id)
+        if payload.get("action") != "analyze":
+            _payload_error("tools.piAnalysis action is invalid", request_id)
     elif command == "tools.sos":
         serial = payload.get("serial")
         if not _nonempty_string(serial, limit=256):

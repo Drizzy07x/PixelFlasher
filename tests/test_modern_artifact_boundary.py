@@ -377,6 +377,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "root.modules.list",
                         "tools.logcat",
                         "tools.logcat.clear",
+                        "tools.piAnalysis",
                         "tools.pushFiles",
                         "tools.avb",
                         "tools.keybox",

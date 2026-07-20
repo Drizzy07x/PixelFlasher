@@ -100,6 +100,114 @@ interface RootModuleEntry {
   updateMetadata: 'available' | 'absent';
 }
 
+interface PiAnalysisReport {
+  schemaVersion: 1;
+  redacted: true;
+  complete: true;
+  device: {
+    codename: string;
+    build: string;
+    rootAccess: 'verified';
+    testKeys: boolean;
+    overlayVisible: boolean;
+  };
+  packages: { id: 'gms' | 'play_store'; installed: boolean; version: string; versionCode: number }[];
+  modules: { id: string; state: RootModuleEntry['state'] }[];
+  configs: { kind: string; present: boolean; size: number; sha256: string | null }[];
+  signals: {
+    targetedFixTargetCount: number;
+    magiskDenylistCount: number;
+    droidGuardVmCount: number;
+  };
+  withheld: string[];
+}
+
+const piConfigKinds = [
+  'pif_custom_json', 'pif_custom_prop', 'pif_module_json', 'pif_legacy_json',
+  'pif_app_replace', 'pif_scripts_only', 'tricky_spoof', 'tricky_target',
+  'tricky_security_patch', 'tricky_tee', 'targeted_targets', 'keybox',
+] as const;
+
+const piWithheld = [
+  'android_ids', 'device_serial', 'keybox_material', 'raw_config_contents',
+  'raw_logs', 'target_package_names',
+] as const;
+
+function exactKeys(value: Record<string, unknown>, expected: readonly string[]) {
+  const keys = Object.keys(value).sort();
+  const sorted = [...expected].sort();
+  return keys.length === sorted.length && keys.every((key, index) => key === sorted[index]);
+}
+
+function boundedCount(value: unknown, maximum = 4096) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum;
+}
+
+function parsePiAnalysis(value: unknown): PiAnalysisReport | null {
+  const report = record(value);
+  if (
+    !exactKeys(report, ['schemaVersion', 'redacted', 'complete', 'device', 'packages', 'modules', 'configs', 'signals', 'withheld'])
+    || report.schemaVersion !== 1 || report.redacted !== true || report.complete !== true
+  ) return null;
+  const device = record(report.device);
+  if (
+    !exactKeys(device, ['codename', 'build', 'rootAccess', 'testKeys', 'overlayVisible'])
+    || typeof device.codename !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(device.codename)
+    || typeof device.build !== 'string' || device.build.length > 256
+    || device.rootAccess !== 'verified' || typeof device.testKeys !== 'boolean'
+    || typeof device.overlayVisible !== 'boolean'
+  ) return null;
+  if (!Array.isArray(report.packages) || report.packages.length !== 2) return null;
+  const packages = report.packages.flatMap((raw) => {
+    const item = record(raw);
+    if (
+      !exactKeys(item, ['id', 'installed', 'version', 'versionCode'])
+      || !['gms', 'play_store'].includes(String(item.id))
+      || typeof item.installed !== 'boolean' || typeof item.version !== 'string'
+      || item.version.length > 128 || !boundedCount(item.versionCode, Number.MAX_SAFE_INTEGER)
+      || (!item.installed && (item.version || item.versionCode !== 0))
+    ) return [];
+    return [item as unknown as PiAnalysisReport['packages'][number]];
+  });
+  if (packages.length !== 2 || packages.map((item) => item.id).join(',') !== 'gms,play_store') return null;
+  if (!Array.isArray(report.modules) || report.modules.length > 256) return null;
+  const modules = report.modules.flatMap((raw) => {
+    const item = record(raw);
+    if (
+      !exactKeys(item, ['id', 'state']) || typeof item.id !== 'string'
+      || !/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(item.id)
+      || !['enabled', 'disabled', 'pending_remove', 'corrupt'].includes(String(item.state))
+    ) return [];
+    return [item as unknown as PiAnalysisReport['modules'][number]];
+  });
+  const moduleIds = modules.map((item) => item.id.toLowerCase());
+  if (modules.length !== report.modules.length || moduleIds.join(',') !== [...new Set(moduleIds)].sort().join(',')) return null;
+  if (!Array.isArray(report.configs) || report.configs.length !== piConfigKinds.length) return null;
+  const configs = report.configs.flatMap((raw) => {
+    const item = record(raw);
+    if (
+      !exactKeys(item, ['kind', 'present', 'size', 'sha256'])
+      || !piConfigKinds.includes(item.kind as typeof piConfigKinds[number])
+      || typeof item.present !== 'boolean' || !boundedCount(item.size, 4 * 1024 * 1024)
+      || ((!item.present || item.kind === 'keybox') && item.sha256 !== null)
+      || (item.present && item.kind !== 'keybox' && (typeof item.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(item.sha256)))
+      || (!item.present && item.size !== 0)
+    ) return [];
+    return [item as unknown as PiAnalysisReport['configs'][number]];
+  });
+  if (configs.length !== piConfigKinds.length || configs.map((item) => item.kind).join(',') !== piConfigKinds.join(',')) return null;
+  const signals = record(report.signals);
+  if (
+    !exactKeys(signals, ['targetedFixTargetCount', 'magiskDenylistCount', 'droidGuardVmCount'])
+    || !boundedCount(signals.targetedFixTargetCount)
+    || !boundedCount(signals.magiskDenylistCount)
+    || !boundedCount(signals.droidGuardVmCount)
+    || !Array.isArray(report.withheld)
+    || report.withheld.join(',') !== piWithheld.join(',')
+  ) return null;
+  return { ...report, device, packages, modules, configs, signals, withheld: [...piWithheld] } as PiAnalysisReport;
+}
+
 function parseRootModule(value: unknown): RootModuleEntry | null {
   const module = record(value);
   const expected = ['author', 'description', 'id', 'name', 'state', 'updateMetadata', 'version', 'versionCode'];
@@ -226,6 +334,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [confirmBootDelete, setConfirmBootDelete] = useState('');
   const [bootDeleteNotice, setBootDeleteNotice] = useState<'failed' | 'deferred' | ''>('');
   const [sosConfirmation, setSosConfirmation] = useState('');
+  const [piAnalysis, setPiAnalysis] = useState<PiAnalysisReport | null>(null);
+  const [piAnalysisInvalid, setPiAnalysisInvalid] = useState(false);
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -437,6 +547,28 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     }
   };
 
+  const runPiAnalysis = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    setBusy('pi-analysis');
+    setPiAnalysisInvalid(false);
+    try {
+      const response = await onCommand(commands.toolsPiAnalysis, {
+        serial: primary.serial,
+        action: 'analyze',
+      });
+      if (!operationSucceeded(response)) return;
+      const parsed = parsePiAnalysis(record(response?.result).value);
+      if (!parsed) {
+        setPiAnalysis(null);
+        setPiAnalysisInvalid(true);
+        return;
+      }
+      setPiAnalysis(parsed);
+    } finally {
+      setBusy('');
+    }
+  };
+
   const refreshBootImages = async () => {
     if (busy) return;
     setBusy('boot:list');
@@ -586,7 +718,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
         <p className="root-manager__detail">{t('boot.inventoryDetail')}</p>
         {bootDeleteNotice === 'failed' ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('boot.deleteFailed')}</p> : null}
         {bootDeleteNotice === 'deferred' ? <p className="root-manager__guard" role="status"><Icon name="warningPng" size={16} />{t('boot.cleanupDeferred')}</p> : null}
-        <div className="root-inventory" role="list" aria-label={t('boot.inventoryTitle')}>
+        <div className="root-inventory" role={bootImages.length ? 'list' : undefined} aria-label={t('boot.inventoryTitle')}>
           {bootImages.map((entry) => {
             const selected = snapshot.boot?.id === entry.bootId;
             return (
@@ -672,7 +804,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           )}>{t('root.appsTitle')}</CardTitle>
           <p className="root-manager__detail">{t('root.appsDetail')}</p>
           {!singleAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.appDeviceRequired')}</p> : null}
-          <div className="root-inventory" role="list" aria-label={t('root.appsTitle')}>
+          <div className="root-inventory" role={rootApps.length || rootAppCatalog.length ? 'list' : undefined} aria-label={t('root.appsTitle')}>
             {rootAppCatalog.map((entry) => {
               const available = rootApps.some((app) => app.sha256 === entry.sha256);
               return (
@@ -719,7 +851,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           )}>{t('root.modulesTitle')}</CardTitle>
           <p className="root-manager__detail">{t('root.modulesDetail')}</p>
           {!rootedAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.moduleDeviceRequired')}</p> : null}
-          <div className="root-inventory" role="list" aria-label={t('root.modulesTitle')}>
+          <div className="root-inventory" role={modules.length ? 'list' : undefined} aria-label={t('root.modulesTitle')}>
             {modules.map((module) => (
               <article className="root-inventory__row root-inventory__row--module" role="listitem" key={module.id}>
                 <span className="root-inventory__icon"><Icon name="packages" size={24} /></span>
@@ -744,6 +876,42 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           </div>
         </Card>
       </div>
+      <Card className="root-manager" aria-busy={busy === 'pi-analysis'}>
+        <CardTitle icon="shield" after={(
+          <Button
+            variant="primary"
+            icon="scan"
+            onClick={() => void runPiAnalysis()}
+            disabled={Boolean(busy) || !rootedAdb}
+          >{t('root.piAnalysisRun')}</Button>
+        )}>{t('root.piAnalysisTitle')}</CardTitle>
+        <p className="root-manager__detail">{t('root.piAnalysisDetail')}</p>
+        {!rootedAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.piAnalysisGuard')}</p> : null}
+        {piAnalysisInvalid ? <p className="root-manager__guard" role="alert"><Icon name="warningPng" size={16} />{t('root.piAnalysisInvalid')}</p> : null}
+        {piAnalysis ? (
+          <div className="root-inventory" aria-label={t('root.piAnalysisTitle')}>
+            <div className="root-inventory__row">
+              <span className="root-inventory__icon"><Icon name="shield" size={24} /></span>
+              <span className="root-inventory__copy">
+                <strong>{piAnalysis.device.codename} · {piAnalysis.device.build || '—'}</strong>
+                <span>
+                  <Badge tone="success">{t('root.piAnalysisRedacted')}</Badge>
+                  <Badge tone={piAnalysis.device.testKeys ? 'danger' : 'success'}>{piAnalysis.device.testKeys ? t('root.piAnalysisTestKeys') : t('root.piAnalysisReleaseKeys')}</Badge>
+                  <Badge tone="neutral">{t('root.piAnalysisModules', { count: piAnalysis.modules.length })}</Badge>
+                </span>
+                <small>{t('root.piAnalysisConfigs', { count: piAnalysis.configs.filter((item) => item.present).length })}</small>
+              </span>
+            </div>
+            <dl className="device-inspection-profile">
+              <div><dt>{t('root.piAnalysisTargets')}</dt><dd>{piAnalysis.signals.targetedFixTargetCount}</dd></div>
+              <div><dt>{t('root.piAnalysisDenylist')}</dt><dd>{piAnalysis.signals.magiskDenylistCount}</dd></div>
+              <div><dt>{t('root.piAnalysisDroidGuard')}</dt><dd>{piAnalysis.signals.droidGuardVmCount}</dd></div>
+              <div><dt>{t('root.piAnalysisOverlay')}</dt><dd>{piAnalysis.device.overlayVisible ? t('common.enabled') : t('common.disabled')}</dd></div>
+            </dl>
+            <p className="root-manager__detail">{t('root.piAnalysisWithheld')}</p>
+          </div>
+        ) : <EmptyState icon="shield" title={t('root.piAnalysisEmpty')} detail={t('root.piAnalysisDetail')} />}
+      </Card>
       <Card className="root-manager" aria-busy={busy.startsWith('recovery:')}>
         <CardTitle icon="warningPng">{t('root.recoveryTitle')}</CardTitle>
         <p className="root-manager__detail">{t('root.recoveryDetail')}</p>
