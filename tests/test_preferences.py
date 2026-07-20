@@ -36,6 +36,9 @@ class ModernPreferencesValidationTests(unittest.TestCase):
         self.assertFalse(defaults.check_module_updates)
         self.assertFalse(defaults.show_notifications)
         self.assertEqual(90, defaults.reboot_timeout_seconds)
+        self.assertFalse(defaults.customize_font)
+        self.assertEqual("Courier", defaults.font_face)
+        self.assertEqual(12, defaults.font_size)
         self.assertEqual(80, MIN_ZOOM)
         self.assertEqual(200, MAX_ZOOM)
 
@@ -95,6 +98,13 @@ class ModernPreferencesValidationTests(unittest.TestCase):
             ({"rebootTimeoutSeconds": True}, "reboot_timeout_invalid"),
             ({"rebootTimeoutSeconds": 0}, "reboot_timeout_invalid"),
             ({"rebootTimeoutSeconds": 3601}, "reboot_timeout_invalid"),
+            ({"customizeFont": 1}, "maintenance_preference_invalid"),
+            ({"fontFace": ""}, "font_face_invalid"),
+            ({"fontFace": "Font; color: red"}, "font_face_invalid"),
+            ({"fontFace": "A" * 97}, "font_face_invalid"),
+            ({"fontSize": True}, "font_size_invalid"),
+            ({"fontSize": 5}, "font_size_invalid"),
+            ({"fontSize": 51}, "font_size_invalid"),
         )
         for values, code in cases:
             with self.subTest(values=values):
@@ -156,6 +166,9 @@ class PreferencePersistenceTests(unittest.TestCase):
                         "extra_img_extracts": True,
                         "show_custom_rom_options": True,
                         "kb_index": True,
+                        "customize_font": True,
+                        "pf_font_face": "Cascadia Code",
+                        "pf_font_size": 18,
                         "toolbar": {"visible": {"partition_manager": True}},
                     }
                 ),
@@ -187,6 +200,9 @@ class PreferencePersistenceTests(unittest.TestCase):
                     extra_image_extracts=True,
                     show_custom_rom_options=True,
                     keybox_index=True,
+                    customize_font=True,
+                    font_face="Cascadia Code",
+                    font_size=18,
                 ),
                 preferences,
             )

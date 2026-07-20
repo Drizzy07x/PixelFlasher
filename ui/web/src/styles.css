@@ -26,6 +26,7 @@
   --danger: #ef6262;
   --shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
   --focus: #8dd7ff;
+  --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 
 :root[data-theme="light"] {
@@ -756,8 +757,8 @@ img {
 
 code {
   color: var(--muted);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.66rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.66rem);
 }
 
 .spec-grid {
@@ -2626,8 +2627,8 @@ code {
   border-radius: 0.48rem;
   background: var(--surface-soft);
   color: var(--text);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.68rem);
 }
 
 .interaction-dialog__actions {
@@ -2917,8 +2918,8 @@ code {
   border-radius: 0.5rem;
   background: var(--bg-deep);
   color: var(--text);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.75rem);
   line-height: 1.5;
   tab-size: 2;
 }
@@ -3360,8 +3361,8 @@ code {
   border-radius: 0.55rem;
   background: rgba(2, 7, 18, 0.62);
   color: var(--text-soft);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.6rem);
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -3481,8 +3482,8 @@ code {
   border-radius: 0.42rem;
   background: var(--surface);
   color: var(--text-soft);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.58rem);
 }
 
 .logcat-option-group input {
@@ -3531,8 +3532,8 @@ code {
   border: 1px solid var(--border);
   background: var(--surface-soft);
   color: var(--text-soft);
-  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.58rem);
 }
 
 .logcat-buffers label:first-of-type {

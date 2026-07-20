@@ -37,6 +37,9 @@ const snapshotPreferences = {
   extraImageExtracts: false,
   showCustomRomOptions: false,
   keyboxIndex: false,
+  customizeFont: false,
+  fontFace: 'Courier',
+  fontSize: 12,
 };
 
 const originalBridge = window.pixelflasher;
@@ -82,6 +85,11 @@ describe('bridge v2 validation boundaries', () => {
     { ...snapshotPreferences, checkDiskSpace: 'yes' },
     { ...snapshotPreferences, rebootTimeoutSeconds: 0 },
     { ...snapshotPreferences, rebootTimeoutSeconds: 3601 },
+    { ...snapshotPreferences, customizeFont: 1 },
+    { ...snapshotPreferences, fontFace: '' },
+    { ...snapshotPreferences, fontFace: 'Font; color: red' },
+    { ...snapshotPreferences, fontSize: 5 },
+    { ...snapshotPreferences, fontSize: 51 },
   ])('rejects malformed preferences %#', (value) => {
     expect(() => normalizePreferences(value)).toThrow(BridgeError);
   });

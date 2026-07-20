@@ -26,6 +26,9 @@ const snapshotPreferences = {
   extraImageExtracts: false,
   showCustomRomOptions: false,
   keyboxIndex: false,
+  customizeFont: false,
+  fontFace: 'Courier',
+  fontSize: 12,
 };
 
 function hostFor(responseResult: (request: BridgeRequest) => Record<string, unknown>) {

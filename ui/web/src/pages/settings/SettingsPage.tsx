@@ -32,11 +32,15 @@ export function SettingsPage({
   onExpertModeChange: (value: boolean) => void;
   preferences: ModernPreferences;
   onMaintenancePreferenceChange: (
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex',
-    value: boolean | number,
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize',
+    value: boolean | number | string,
   ) => void;
 }) {
   const { t } = useI18n();
+  const standardFontFaces = ['Courier', 'Cascadia Code', 'Consolas', 'SFMono-Regular', 'Menlo', 'Monaco', 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono'];
+  const fontFaces = standardFontFaces.includes(preferences.fontFace)
+    ? standardFontFaces
+    : [preferences.fontFace, ...standardFontFaces];
   return (
     <>
       <PageHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
@@ -70,6 +74,31 @@ export function SettingsPage({
               </div>
             </div>
           </div>
+          <div className="toggle-stack">
+            <Toggle checked={preferences.customizeFont} onChange={(value) => onMaintenancePreferenceChange('customizeFont', value)} label={t('settings.customFont')} description={t('settings.customFontDetail')} />
+          </div>
+          <label className="select-field">
+            <span>{t('settings.fontFace')}</span>
+            <select disabled={!preferences.customizeFont} value={preferences.fontFace} onChange={(event) => onMaintenancePreferenceChange('fontFace', event.currentTarget.value)}>
+              {fontFaces.map((fontFace) => <option value={fontFace} key={fontFace}>{fontFace}</option>)}
+            </select>
+          </label>
+          <label className="select-field">
+            <span>{t('settings.fontSize')}</span>
+            <input
+              type="number"
+              min={6}
+              max={50}
+              disabled={!preferences.customizeFont}
+              value={preferences.fontSize}
+              onChange={(event) => {
+                const value = event.currentTarget.valueAsNumber;
+                if (Number.isInteger(value) && value >= 6 && value <= 50) onMaintenancePreferenceChange('fontSize', value);
+              }}
+              aria-describedby="font-size-detail"
+            />
+            <small id="font-size-detail">{t('settings.fontSizeDetail')}</small>
+          </label>
         </Card>
         <Card>
           <CardTitle icon="tools">{t('mode.expert')}</CardTitle>

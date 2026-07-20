@@ -391,6 +391,9 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "extraImageExtracts": _boolean(source.get("extraImageExtracts")),
         "showCustomRomOptions": _boolean(source.get("showCustomRomOptions")),
         "keyboxIndex": _boolean(source.get("keyboxIndex")),
+        "customizeFont": _boolean(source.get("customizeFont")),
+        "fontFace": _string(source.get("fontFace"), default="Courier"),
+        "fontSize": _integer(source.get("fontSize"), default=12),
     }
 
 

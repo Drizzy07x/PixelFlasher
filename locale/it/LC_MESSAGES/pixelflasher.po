@@ -6484,3 +6484,30 @@ msgstr "Indicizzazione keybox"
 msgctxt "web.settings.keyboxIndexDetail"
 msgid "Indexes verified keybox metadata locally for duplicate analysis."
 msgstr "Indicizza localmente i metadati keybox verificati per analizzare i duplicati."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.customFont"
+msgid "Custom monospace font"
+msgstr "Carattere monospaziato personalizzato"
+
+msgctxt "web.settings.customFontDetail"
+msgid ""
+"Apply a selected system font to logs, consoles, code and structured editors."
+msgstr ""
+"Applica un carattere di sistema selezionato a log, console, codice ed editor "
+"strutturati."
+
+msgctxt "web.settings.fontFace"
+msgid "Monospace font"
+msgstr "Carattere monospaziato"
+
+msgctxt "web.settings.fontSize"
+msgid "Monospace font size"
+msgstr "Dimensione del carattere monospaziato"
+
+msgctxt "web.settings.fontSizeDetail"
+msgid "Scale monospace workspaces from 6 to 50 points."
+msgstr "Ridimensiona le aree di lavoro monospaziate da 6 a 50 punti."

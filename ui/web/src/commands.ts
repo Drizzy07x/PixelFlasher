@@ -369,8 +369,11 @@ export interface BridgePayloadByCommand {
     "checkDiskSpace"?: boolean;
     "checkFirmwareHash"?: boolean;
     "checkModuleUpdates"?: boolean;
+    "customizeFont"?: boolean;
     "expertMode"?: boolean;
     "extraImageExtracts"?: boolean;
+    "fontFace"?: string;
+    "fontSize"?: number;
     "highContrast"?: boolean;
     "keepPatchTemporaryFiles"?: boolean;
     "keyboxIndex"?: boolean;
@@ -855,7 +858,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.rootPifTransform]: {"content":{"kind":"string","required":true},"firstApi":{"kind":"integer","required":false},"inputFormat":{"kind":"string","required":true},"keepUnknown":{"kind":"boolean","required":true},"normalize":{"kind":"boolean","required":true},"outputFormat":{"kind":"string","required":true},"sortKeys":{"kind":"boolean","required":true}},
   [commands.secretIssue]: {"purpose":{"kind":"string","required":true},"secret":{"kind":"string","required":true}},
   [commands.settingsGet]: {},
-  [commands.settingsUpdate]: {"automaticUpdateCheck":{"kind":"boolean","required":false},"checkBootloaderUnlocked":{"kind":"boolean","required":false},"checkDiskSpace":{"kind":"boolean","required":false},"checkFirmwareHash":{"kind":"boolean","required":false},"checkModuleUpdates":{"kind":"boolean","required":false},"expertMode":{"kind":"boolean","required":false},"extraImageExtracts":{"kind":"boolean","required":false},"highContrast":{"kind":"boolean","required":false},"keepPatchTemporaryFiles":{"kind":"boolean","required":false},"keyboxIndex":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"lowMemoryMode":{"kind":"boolean","required":false},"offerPatchMethods":{"kind":"boolean","required":false},"rebootTimeoutSeconds":{"kind":"integer","required":false},"reducedMotion":{"kind":"boolean","required":false},"showCustomRomOptions":{"kind":"boolean","required":false},"showNotifications":{"kind":"boolean","required":false},"showRecoveryPatching":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"useBusyboxShell":{"kind":"boolean","required":false},"zoom":{"kind":"integer","required":false}},
+  [commands.settingsUpdate]: {"automaticUpdateCheck":{"kind":"boolean","required":false},"checkBootloaderUnlocked":{"kind":"boolean","required":false},"checkDiskSpace":{"kind":"boolean","required":false},"checkFirmwareHash":{"kind":"boolean","required":false},"checkModuleUpdates":{"kind":"boolean","required":false},"customizeFont":{"kind":"boolean","required":false},"expertMode":{"kind":"boolean","required":false},"extraImageExtracts":{"kind":"boolean","required":false},"fontFace":{"kind":"string","required":false},"fontSize":{"kind":"integer","required":false},"highContrast":{"kind":"boolean","required":false},"keepPatchTemporaryFiles":{"kind":"boolean","required":false},"keyboxIndex":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"lowMemoryMode":{"kind":"boolean","required":false},"offerPatchMethods":{"kind":"boolean","required":false},"rebootTimeoutSeconds":{"kind":"integer","required":false},"reducedMotion":{"kind":"boolean","required":false},"showCustomRomOptions":{"kind":"boolean","required":false},"showNotifications":{"kind":"boolean","required":false},"showRecoveryPatching":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"useBusyboxShell":{"kind":"boolean","required":false},"zoom":{"kind":"integer","required":false}},
   [commands.snapshotGet]: {},
   [commands.supportCreate]: {"grant":{"kind":"string","required":true},"includeConfig":{"kind":"boolean","required":false},"includeLogs":{"kind":"boolean","required":false},"includeState":{"kind":"boolean","required":false},"includeSystemInfo":{"kind":"boolean","required":false}},
   [commands.toolsAvb]: {"action":{"kind":"string","required":true},"currentSecurityPatch":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"patchFingerprint":{"kind":"boolean","required":false}},

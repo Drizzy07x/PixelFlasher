@@ -117,6 +117,9 @@ class RuntimePreferencesTests(unittest.TestCase):
                         "extraImageExtracts": True,
                         "showCustomRomOptions": True,
                         "keyboxIndex": True,
+                        "customizeFont": True,
+                        "fontFace": "Cascadia Code",
+                        "fontSize": 18,
                     },
                 )
             )
@@ -143,6 +146,9 @@ class RuntimePreferencesTests(unittest.TestCase):
                 extra_image_extracts=True,
                 show_custom_rom_options=True,
                 keybox_index=True,
+                customize_font=True,
+                font_face="Cascadia Code",
+                font_size=18,
             )
             self.assertTrue(result.ok)
             self.assertEqual("settings_updated", result.code)
@@ -170,6 +176,9 @@ class RuntimePreferencesTests(unittest.TestCase):
             self.assertTrue(payload["extra_img_extracts"])
             self.assertTrue(payload["show_custom_rom_options"])
             self.assertTrue(payload["kb_index"])
+            self.assertTrue(payload["customize_font"])
+            self.assertEqual("Cascadia Code", payload["pf_font_face"])
+            self.assertEqual(18, payload["pf_font_size"])
             self.assertEqual(
                 expected.to_dict(),
                 runtime.config_document.values[PREFERENCES_KEY],

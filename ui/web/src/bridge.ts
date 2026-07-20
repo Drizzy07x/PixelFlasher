@@ -39,6 +39,11 @@ export class BridgeError extends Error {
 }
 
 const supportedLocales = new Set(['en', 'es', 'fr', 'it', 'zh_CN', 'zh_TW']);
+const validFontFace = (value: unknown): value is string => typeof value === 'string'
+  && value.length >= 1
+  && value.length <= 96
+  && value === value.trim()
+  && !/[\u0000-\u001f\u007f"'\\,;{}()]/u.test(value);
 const defaultPreferences: ModernPreferences = {
   schemaVersion: 1,
   theme: 'dark',
@@ -62,6 +67,9 @@ const defaultPreferences: ModernPreferences = {
   extraImageExtracts: false,
   showCustomRomOptions: false,
   keyboxIndex: false,
+  customizeFont: false,
+  fontFace: 'Courier',
+  fontSize: 12,
 };
 
 export function commandTimeoutMs(command: BridgeCommand) {
@@ -103,6 +111,12 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     || typeof raw.extraImageExtracts !== 'boolean'
     || typeof raw.showCustomRomOptions !== 'boolean'
     || typeof raw.keyboxIndex !== 'boolean'
+    || typeof raw.customizeFont !== 'boolean'
+    || !validFontFace(raw.fontFace)
+    || typeof raw.fontSize !== 'number'
+    || !Number.isInteger(raw.fontSize)
+    || raw.fontSize < 6
+    || raw.fontSize > 50
   ) {
     throw new BridgeError('Host returned invalid preferences.');
   }
@@ -129,6 +143,9 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     extraImageExtracts: raw.extraImageExtracts,
     showCustomRomOptions: raw.showCustomRomOptions,
     keyboxIndex: raw.keyboxIndex,
+    customizeFont: raw.customizeFont,
+    fontFace: raw.fontFace,
+    fontSize: raw.fontSize,
   };
 }
 

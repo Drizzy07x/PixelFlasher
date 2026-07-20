@@ -24,6 +24,9 @@ export interface ModernPreferences {
   extraImageExtracts: boolean;
   showCustomRomOptions: boolean;
   keyboxIndex: boolean;
+  customizeFont: boolean;
+  fontFace: string;
+  fontSize: number;
 }
 export type RouteId =
   | 'dashboard'

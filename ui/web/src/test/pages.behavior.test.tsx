@@ -454,6 +454,8 @@ describe('apps, backups and settings workflows', () => {
     await user.click(screen.getByRole('checkbox', { name: /Expert Mode/ }));
     await user.click(screen.getByRole('checkbox', { name: /Require minimum disk space/ }));
     await user.click(screen.getByRole('checkbox', { name: /Automatic application update checks/ }));
+    expect(screen.getByLabelText('Monospace font')).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: /Custom monospace font/ }));
     fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });
     await user.click(screen.getByRole('button', { name: 'Zoom out' }));
     await user.click(screen.getByRole('button', { name: 'Reset zoom' }));
@@ -464,6 +466,7 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.expert).toHaveBeenCalledWith(true);
     expect(callbacks.maintenance).toHaveBeenCalledWith('checkDiskSpace', false);
     expect(callbacks.maintenance).toHaveBeenCalledWith('automaticUpdateCheck', true);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('customizeFont', true);
     expect(callbacks.maintenance).toHaveBeenCalledWith('rebootTimeoutSeconds', 180);
     expect(callbacks.zoom).toHaveBeenCalledWith(80);
     expect(callbacks.zoom).toHaveBeenCalledWith(100);

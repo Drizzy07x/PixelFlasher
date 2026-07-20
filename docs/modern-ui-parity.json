@@ -260,7 +260,7 @@
         "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences"
       ],
-      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety, maintenance and the boolean patch/processing/keybox preferences are host-persisted through one revisioned settings contract. Expert controls remain undisclosed until the host confirms Expert Mode. Specialized string/path, toolbar, font and shell preferences plus packaged restart/accessibility smokes are not represented yet.",
+      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety, maintenance, patch/processing/keybox preferences and validated monospace font settings are host-persisted through one revisioned contract. Expert controls remain undisclosed until the host confirms Expert Mode. Specialized path, toolbar and shell preferences plus packaged restart/accessibility smokes are not represented yet.",
       "exitCriteria": [
         "The React Settings workspace exposes every supported versioned preference and persists it through ConfigStore."
       ],
@@ -1197,7 +1197,7 @@
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
         "ui/web/src/bridge.ts:getPreferences/updatePreferences"
       ],
-      "gap": "Presentation, Expert Mode, flash safety, maintenance and eight boolean patch/processing/keybox settings are validated, host-persisted, revisioned and mirrored to their 9.x keys. React applies changes only after confirmed success, hides expert controls until host confirmation and keeps network defaults opt-in. Specialized string/path, toolbar, font and shell settings remain absent or require an explicit 10.x policy classification.",
+      "gap": "Presentation, Expert Mode, flash safety, maintenance, eight boolean patch/processing/keybox settings and monospace family/size are validated, host-persisted, revisioned and mirrored to their 9.x keys. React applies changes only after confirmed success, updates shared console/editor font tokens and hides expert controls until host confirmation. Specialized path, toolbar and shell settings remain absent or require an explicit 10.x policy classification.",
       "exitCriteria": [
         "Edit PixelFlasher application settings is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],

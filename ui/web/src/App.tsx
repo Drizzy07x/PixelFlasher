@@ -97,6 +97,9 @@ const defaultPreferences: ModernPreferences = {
   extraImageExtracts: false,
   showCustomRomOptions: false,
   keyboxIndex: false,
+  customizeFont: false,
+  fontFace: 'Courier',
+  fontSize: 12,
 };
 
 function mockPreferences(): ModernPreferences {
@@ -121,6 +124,9 @@ function mockPreferences(): ModernPreferences {
   const extraImageExtracts = storedValue<unknown>('pf.extraImageExtracts', false);
   const showCustomRomOptions = storedValue<unknown>('pf.showCustomRomOptions', false);
   const keyboxIndex = storedValue<unknown>('pf.keyboxIndex', false);
+  const customizeFont = storedValue<unknown>('pf.customizeFont', false);
+  const fontFace = storedValue<unknown>('pf.fontFace', 'Courier');
+  const fontSize = storedValue<unknown>('pf.fontSize', 12);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -147,6 +153,10 @@ function mockPreferences(): ModernPreferences {
     extraImageExtracts: typeof extraImageExtracts === 'boolean' ? extraImageExtracts : false,
     showCustomRomOptions: typeof showCustomRomOptions === 'boolean' ? showCustomRomOptions : false,
     keyboxIndex: typeof keyboxIndex === 'boolean' ? keyboxIndex : false,
+    customizeFont: typeof customizeFont === 'boolean' ? customizeFont : false,
+    fontFace: typeof fontFace === 'string' && fontFace.length >= 1 && fontFace.length <= 96
+      && fontFace === fontFace.trim() && !/[\u0000-\u001f\u007f"'\\,;{}()]/u.test(fontFace) ? fontFace : 'Courier',
+    fontSize: typeof fontSize === 'number' && Number.isInteger(fontSize) && fontSize >= 6 && fontSize <= 50 ? fontSize : 12,
   };
 }
 
@@ -333,6 +343,17 @@ function PixelFlasherApp({
     document.documentElement.dataset.contrast = highContrast ? 'high' : 'normal';
     document.documentElement.dataset.motion = reducedMotion ? 'reduced' : 'full';
     document.documentElement.style.fontSize = `${zoom}%`;
+    document.documentElement.style.setProperty(
+      '--font-mono',
+      applicationPreferences.customizeFont
+        ? `"${applicationPreferences.fontFace}", monospace`
+        : '"Cascadia Code", "SFMono-Regular", Consolas, monospace',
+    );
+    if (applicationPreferences.customizeFont) {
+      document.documentElement.style.setProperty('--font-mono-size', `${applicationPreferences.fontSize / 12}rem`);
+    } else {
+      document.documentElement.style.removeProperty('--font-mono-size');
+    }
     if (isMockHost) {
       persist('pf.theme', theme);
       persist('pf.highContrast', highContrast);
@@ -340,8 +361,11 @@ function PixelFlasherApp({
       persist('pf.zoom', zoom);
       persist('pf.locale', locale);
       persist('pf.expertMode', expertMode);
+      persist('pf.customizeFont', applicationPreferences.customizeFont);
+      persist('pf.fontFace', applicationPreferences.fontFace);
+      persist('pf.fontSize', applicationPreferences.fontSize);
     }
-  }, [theme, highContrast, reducedMotion, zoom, locale, expertMode, isMockHost]);
+  }, [theme, highContrast, reducedMotion, zoom, locale, expertMode, applicationPreferences.customizeFont, applicationPreferences.fontFace, applicationPreferences.fontSize, isMockHost]);
 
   useEffect(() => {
     snapshotRevisionRef.current = snapshot.revision;
@@ -536,8 +560,8 @@ function PixelFlasherApp({
   }, [changePreferences]);
 
   const changeMaintenancePreference = useCallback((
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex',
-    value: boolean | number,
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize',
+    value: boolean | number | string,
   ) => {
     void changePreferences({ [field]: value });
   }, [changePreferences]);

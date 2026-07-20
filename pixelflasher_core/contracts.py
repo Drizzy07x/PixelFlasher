@@ -29,6 +29,9 @@ SUPPORTED_THEMES = ("dark", "light")
 SUPPORTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
 MIN_ZOOM = 80
 MAX_ZOOM = 200
+MIN_MONOSPACE_FONT_SIZE = 6
+MAX_MONOSPACE_FONT_SIZE = 50
+MAX_FONT_FACE_LENGTH = 96
 MAX_MANAGED_DEVICE_TIMESTAMP = 253_402_300_799
 _SUPPORTED_THEME_SET = frozenset(SUPPORTED_THEMES)
 _SUPPORTED_LOCALE_SET = frozenset(SUPPORTED_LOCALES)
@@ -56,6 +59,9 @@ _PREFERENCE_FIELDS = frozenset(
         "extraImageExtracts",
         "showCustomRomOptions",
         "keyboxIndex",
+        "customizeFont",
+        "fontFace",
+        "fontSize",
     }
 )
 
@@ -93,6 +99,9 @@ class ModernPreferences:
     extra_image_extracts: bool = False
     show_custom_rom_options: bool = False
     keybox_index: bool = False
+    customize_font: bool = False
+    font_face: str = "Courier"
+    font_size: int = 12
 
     def __post_init__(self) -> None:
         if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
@@ -145,6 +154,7 @@ class ModernPreferences:
             ("extraImageExtracts", self.extra_image_extracts),
             ("showCustomRomOptions", self.show_custom_rom_options),
             ("keyboxIndex", self.keybox_index),
+            ("customizeFont", self.customize_font),
         )
         for public_name, value in boolean_preferences:
             if not isinstance(value, bool):
@@ -160,6 +170,30 @@ class ModernPreferences:
             raise PreferencesError(
                 "reboot_timeout_invalid",
                 "rebootTimeoutSeconds must be an integer between 1 and 3600",
+            )
+        if (
+            not isinstance(self.font_face, str)
+            or self.font_face != self.font_face.strip()
+            or not self.font_face
+            or len(self.font_face) > MAX_FONT_FACE_LENGTH
+            or not self.font_face.isprintable()
+            or any(character in self.font_face for character in "\"'\\,;{}()")
+        ):
+            raise PreferencesError(
+                "font_face_invalid",
+                "fontFace must be a safe printable font-family name",
+            )
+        if (
+            not isinstance(self.font_size, int)
+            or isinstance(self.font_size, bool)
+            or not MIN_MONOSPACE_FONT_SIZE <= self.font_size <= MAX_MONOSPACE_FONT_SIZE
+        ):
+            raise PreferencesError(
+                "font_size_invalid",
+                (
+                    "fontSize must be an integer between "
+                    f"{MIN_MONOSPACE_FONT_SIZE} and {MAX_MONOSPACE_FONT_SIZE}"
+                ),
             )
 
     @classmethod
@@ -248,6 +282,9 @@ class ModernPreferences:
                 "showCustomRomOptions", defaults.show_custom_rom_options
             ),
             keybox_index=raw.get("keyboxIndex", defaults.keybox_index),
+            customize_font=raw.get("customizeFont", defaults.customize_font),
+            font_face=raw.get("fontFace", defaults.font_face),
+            font_size=raw.get("fontSize", defaults.font_size),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -274,6 +311,9 @@ class ModernPreferences:
             "extraImageExtracts": self.extra_image_extracts,
             "showCustomRomOptions": self.show_custom_rom_options,
             "keyboxIndex": self.keybox_index,
+            "customizeFont": self.customize_font,
+            "fontFace": self.font_face,
+            "fontSize": self.font_size,
         }
 
 

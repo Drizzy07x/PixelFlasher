@@ -60,6 +60,9 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "extraImageExtracts": ("extraImageExtracts", "extra_img_extracts"),
     "showCustomRomOptions": ("showCustomRomOptions", "show_custom_rom_options"),
     "keyboxIndex": ("keyboxIndex", "kb_index"),
+    "customizeFont": ("customizeFont", "customize_font"),
+    "fontFace": ("fontFace", "pf_font_face"),
+    "fontSize": ("fontSize", "pf_font_size"),
 }
 
 type StoreLike = ConfigStore | str | os.PathLike[str]
@@ -202,6 +205,9 @@ def _legacy_mirrors(
         "extraImageExtracts": preferences.extra_image_extracts,
         "showCustomRomOptions": preferences.show_custom_rom_options,
         "keyboxIndex": preferences.keybox_index,
+        "customizeFont": preferences.customize_font,
+        "fontFace": preferences.font_face,
+        "fontSize": preferences.font_size,
     }
     preferred_keys = {
         "theme": "theme",
@@ -225,6 +231,9 @@ def _legacy_mirrors(
         "extraImageExtracts": "extra_img_extracts",
         "showCustomRomOptions": "show_custom_rom_options",
         "keyboxIndex": "kb_index",
+        "customizeFont": "customize_font",
+        "fontFace": "pf_font_face",
+        "fontSize": "pf_font_size",
     }
     mirrors: dict[str, object] = {}
     for field, aliases in _LEGACY_ALIASES.items():

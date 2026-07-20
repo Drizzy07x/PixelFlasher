@@ -6482,3 +6482,30 @@ msgstr "Indexation des keybox"
 msgctxt "web.settings.keyboxIndexDetail"
 msgid "Indexes verified keybox metadata locally for duplicate analysis."
 msgstr "Indexe localement les métadonnées keybox vérifiées pour analyser les doublons."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.customFont"
+msgid "Custom monospace font"
+msgstr "Police à chasse fixe personnalisée"
+
+msgctxt "web.settings.customFontDetail"
+msgid ""
+"Apply a selected system font to logs, consoles, code and structured editors."
+msgstr ""
+"Applique une police système sélectionnée aux journaux, consoles, au code et "
+"aux éditeurs structurés."
+
+msgctxt "web.settings.fontFace"
+msgid "Monospace font"
+msgstr "Police à chasse fixe"
+
+msgctxt "web.settings.fontSize"
+msgid "Monospace font size"
+msgstr "Taille de la police à chasse fixe"
+
+msgctxt "web.settings.fontSizeDetail"
+msgid "Scale monospace workspaces from 6 to 50 points."
+msgstr "Ajuste les espaces de travail à chasse fixe de 6 à 50 points."

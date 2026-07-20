@@ -15,6 +15,8 @@ beforeEach(() => {
   document.documentElement.removeAttribute('data-contrast');
   document.documentElement.removeAttribute('data-motion');
   document.documentElement.style.fontSize = '';
+  document.documentElement.style.removeProperty('--font-mono');
+  document.documentElement.style.removeProperty('--font-mono-size');
   if (!window.requestAnimationFrame) {
     window.requestAnimationFrame = (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0);
   }

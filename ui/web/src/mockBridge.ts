@@ -4,6 +4,11 @@ import { demoApps, demoFirmwares } from './demoData';
 import type { ActiveOperation, BridgeRequest, BridgeResponse, HostSnapshot, Locale, ModernPreferences, Theme } from './types';
 
 const copySnapshot = (): HostSnapshot => structuredClone(demoSnapshot);
+const validFontFace = (value: unknown): value is string => typeof value === 'string'
+  && value.length >= 1
+  && value.length <= 96
+  && value === value.trim()
+  && !/[\u0000-\u001f\u007f"'\\,;{}()]/u.test(value);
 
 const mockRootApps = [
   { id: 'a'.repeat(64), provider: 'Magisk', flavor: 'stable', version: '30.7', sha256: '1'.repeat(64), provenance: 'official', packageName: 'com.topjohnwu.magisk', signerSha256: ['9'.repeat(64)], schemes: ['v2', 'v3'], architecture: 'universal' },
@@ -78,6 +83,9 @@ const defaultPreferences: ModernPreferences = {
   extraImageExtracts: false,
   showCustomRomOptions: false,
   keyboxIndex: false,
+  customizeFont: false,
+  fontFace: 'Courier',
+  fontSize: 12,
 };
 
 function storedValue<T>(key: string, fallback: T): T {
@@ -111,6 +119,9 @@ function mockPreferences(): ModernPreferences {
   const extraImageExtracts = storedValue('pf.extraImageExtracts', false);
   const showCustomRomOptions = storedValue('pf.showCustomRomOptions', false);
   const keyboxIndex = storedValue('pf.keyboxIndex', false);
+  const customizeFont = storedValue('pf.customizeFont', false);
+  const fontFace = storedValue('pf.fontFace', 'Courier');
+  const fontSize = storedValue('pf.fontSize', 12);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -135,6 +146,9 @@ function mockPreferences(): ModernPreferences {
     extraImageExtracts: typeof extraImageExtracts === 'boolean' ? extraImageExtracts : false,
     showCustomRomOptions: typeof showCustomRomOptions === 'boolean' ? showCustomRomOptions : false,
     keyboxIndex: typeof keyboxIndex === 'boolean' ? keyboxIndex : false,
+    customizeFont: typeof customizeFont === 'boolean' ? customizeFont : false,
+    fontFace: validFontFace(fontFace) ? fontFace : 'Courier',
+    fontSize: typeof fontSize === 'number' && Number.isInteger(fontSize) && fontSize >= 6 && fontSize <= 50 ? fontSize : 12,
   };
 }
 
@@ -161,6 +175,9 @@ function persistMockPreferences(preferences: ModernPreferences) {
     ['pf.extraImageExtracts', preferences.extraImageExtracts],
     ['pf.showCustomRomOptions', preferences.showCustomRomOptions],
     ['pf.keyboxIndex', preferences.keyboxIndex],
+    ['pf.customizeFont', preferences.customizeFont],
+    ['pf.fontFace', preferences.fontFace],
+    ['pf.fontSize', preferences.fontSize],
   ];
   try {
     entries.forEach(([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)));
@@ -176,6 +193,7 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     'checkModuleUpdates', 'showNotifications', 'rebootTimeoutSeconds',
     'offerPatchMethods', 'showRecoveryPatching', 'keepPatchTemporaryFiles', 'useBusyboxShell',
     'lowMemoryMode', 'extraImageExtracts', 'showCustomRomOptions', 'keyboxIndex',
+    'customizeFont', 'fontFace', 'fontSize',
   ]);
   if (Object.keys(payload).some((key) => !allowed.has(key))) return null;
   const current = mockPreferences();
@@ -210,6 +228,12 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     || typeof next.extraImageExtracts !== 'boolean'
     || typeof next.showCustomRomOptions !== 'boolean'
     || typeof next.keyboxIndex !== 'boolean'
+    || typeof next.customizeFont !== 'boolean'
+    || !validFontFace(next.fontFace)
+    || typeof next.fontSize !== 'number'
+    || !Number.isInteger(next.fontSize)
+    || next.fontSize < 6
+    || next.fontSize > 50
   ) return null;
   return next as unknown as ModernPreferences;
 }

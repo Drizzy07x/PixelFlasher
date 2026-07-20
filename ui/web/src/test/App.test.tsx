@@ -30,6 +30,9 @@ const hostPreferences: ModernPreferences = {
   extraImageExtracts: false,
   showCustomRomOptions: false,
   keyboxIndex: false,
+  customizeFont: false,
+  fontFace: 'Courier',
+  fontSize: 12,
 };
 
 function installPreferencesHost(
@@ -683,6 +686,9 @@ describe('PixelFlasher web workspace', () => {
       reducedMotion: true,
       zoom: 200,
       expertMode: true,
+      customizeFont: true,
+      fontFace: 'Cascadia Code',
+      fontSize: 18,
     });
 
     render(<App />);
@@ -693,6 +699,8 @@ describe('PixelFlasher web workspace', () => {
       expect(document.documentElement.style.fontSize).toBe('200%');
       expect(document.documentElement.lang).toBe('fr');
       expect(document.querySelector<HTMLInputElement>('.expert-toggle input')).toBeChecked();
+      expect(document.documentElement.style.getPropertyValue('--font-mono')).toContain('Cascadia Code');
+      expect(document.documentElement.style.getPropertyValue('--font-mono-size')).toBe('1.5rem');
     });
     expect(requests.some((request) => request.command === 'settings.get')).toBe(true);
     expect(requests.some((request) => request.command === 'settings.update')).toBe(false);
@@ -721,6 +729,10 @@ describe('PixelFlasher web workspace', () => {
     });
     const navigation = within(screen.getByRole('navigation', { name: 'Tasks' }));
     await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('checkbox', { name: /Custom monospace font/ }));
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.customizeFont === true)).toBe(true));
+    await user.selectOptions(screen.getByLabelText('Monospace font'), 'Consolas');
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.fontFace === 'Consolas')).toBe(true));
     await user.click(screen.getByRole('checkbox', { name: /Low-memory processing/ }));
     await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.lowMemoryMode === true)).toBe(true));
     await user.click(screen.getByRole('checkbox', { name: /Automatic application update checks/ }));
