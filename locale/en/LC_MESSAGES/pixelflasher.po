@@ -6784,3 +6784,43 @@ msgstr "Cancel/reset is available only for a currently rooted ADB device."
 msgctxt "web.device.otaResetSucceeded"
 msgid "update_engine is independently verified as idle."
 msgstr "update_engine is independently verified as idle."
+
+msgctxt "web.tools.partitionRunning"
+msgid "Partition operation in progress"
+msgstr "Partition operation in progress"
+
+msgctxt "web.tools.partitionCancelling"
+msgid "Cancelling partition operation…"
+msgstr "Cancelling partition operation…"
+
+msgctxt "web.tools.partitionProgress"
+msgid "Partition operation progress"
+msgstr "Partition operation progress"
+
+msgctxt "web.tools.partitionFailed"
+msgid "Partition operation failed. Review the device state before retrying."
+msgstr "Partition operation failed. Review the device state before retrying."
+
+msgctxt "web.tools.partitionInvalidReceipt"
+msgid "The backend did not return a valid verification receipt."
+msgstr "The backend did not return a valid verification receipt."
+
+msgctxt "web.tools.partitionVerified"
+msgid "Partition result verified"
+msgstr "Partition result verified"
+
+msgctxt "web.tools.partitionCancelled"
+msgid "Partition operation cancelled before a verified result."
+msgstr "Partition operation cancelled before a verified result."
+
+msgctxt "web.tools.partitionUnknown"
+msgid "The connection or host write changed after mutation began. Inspect the device and destination before retrying."
+msgstr "The connection or host write changed after mutation began. Inspect the device and destination before retrying."
+
+msgctxt "web.tools.partitionUnknownTitle"
+msgid "Partition outcome unknown"
+msgstr "Partition outcome unknown"
+
+msgctxt "web.tools.partitionRetry"
+msgid "Retry with a new plan"
+msgstr "Retry with a new plan"

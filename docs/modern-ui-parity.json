@@ -1358,9 +1358,11 @@
         "pixelflasher_core/operation_runner.py:partition_written/partition_erased postcondition binding",
         "pixelflasher_core/observer.py:bounded confined fastboot fetch hash/erased-content observation",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
-        "ui/web/src/pages/tooling/ToolsPage.tsx:Expert partition workspace"
+        "ui/core_command_factory.py:purpose-bound BoundReadFile/BoundWriteFile resolution",
+        "ui/public_bridge.py:closed partition receipts and reinforced confirmation",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:progress, cancellation, receipts and manual-only retry"
       ],
-      "gap": "The complete plan-execute-readback flow is implemented and zero-exit false successes fail closed. Packaged WebView smokes and physical-device coverage for fetch support, large partitions, disconnects and cancellation remain open.",
+      "gap": "The complete opaque-grant, private-fetch, atomic-publication and device-readback flow is implemented; zero-exit false successes and malformed receipts fail closed. Packaged WebView smokes and physical-device coverage for fetch support, large partitions and disconnects remain open.",
       "exitCriteria": [
         "List, dump and erase one or more partitions is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -1379,11 +1381,14 @@
       ],
       "tests": [
         "tests/test_partition_service.py",
+        "tests/test_core_command_factory.py:test_partition_grants_stay_bound_and_write_destination_is_one_use",
         "tests/test_service_engine_integration.py:test_partition_list_parses_fastboot_stderr_after_success",
         "tests/test_partition_engine_postconditions.py",
+        "tests/test_partition_public_contract.py",
         "tests/test_production_postcondition_observer.py:test_fastbootd_partition_hash_uses_bounded_confined_fetch",
         "tests/test_production_postcondition_observer.py:test_erased_partition_requires_bounded_readback_content",
-        "ui/web/src/test/App.test.tsx:Tools workspace"
+        "ui/web/src/test/App.test.tsx:Tools workspace",
+        "ui/web/src/test/partition-operations.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,

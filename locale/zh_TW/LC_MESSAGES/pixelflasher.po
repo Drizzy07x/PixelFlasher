@@ -6817,3 +6817,43 @@ msgstr "取消/重設僅適用於目前已取得 root 權限的 ADB 裝置。"
 msgctxt "web.device.otaResetSucceeded"
 msgid "update_engine is independently verified as idle."
 msgstr "已獨立驗證 update_engine 處於閒置狀態。"
+
+msgctxt "web.tools.partitionRunning"
+msgid "Partition operation in progress"
+msgstr "分割區操作正在進行"
+
+msgctxt "web.tools.partitionCancelling"
+msgid "Cancelling partition operation…"
+msgstr "正在取消分割區操作…"
+
+msgctxt "web.tools.partitionProgress"
+msgid "Partition operation progress"
+msgstr "分割區操作進度"
+
+msgctxt "web.tools.partitionFailed"
+msgid "Partition operation failed. Review the device state before retrying."
+msgstr "分割區操作失敗。重試前請檢查裝置狀態。"
+
+msgctxt "web.tools.partitionInvalidReceipt"
+msgid "The backend did not return a valid verification receipt."
+msgstr "後端未傳回有效的驗證憑據。"
+
+msgctxt "web.tools.partitionVerified"
+msgid "Partition result verified"
+msgstr "分割區結果已驗證"
+
+msgctxt "web.tools.partitionCancelled"
+msgid "Partition operation cancelled before a verified result."
+msgstr "分割區操作在取得已驗證結果前已取消。"
+
+msgctxt "web.tools.partitionUnknown"
+msgid "The connection or host write changed after mutation began. Inspect the device and destination before retrying."
+msgstr "變更開始後，連線或主機寫入狀態發生變化。重試前請檢查裝置和目的地。"
+
+msgctxt "web.tools.partitionUnknownTitle"
+msgid "Partition outcome unknown"
+msgstr "分割區結果未知"
+
+msgctxt "web.tools.partitionRetry"
+msgid "Retry with a new plan"
+msgstr "使用新計畫重試"

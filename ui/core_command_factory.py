@@ -248,9 +248,7 @@ _NATIVE_GRANT_SPECS = (
     ),
 )
 
-_SPECS_BY_PICKER = {
-    (spec.picker_command, spec.purpose): spec for spec in _NATIVE_GRANT_SPECS
-}
+_SPECS_BY_PICKER = {(spec.picker_command, spec.purpose): spec for spec in _NATIVE_GRANT_SPECS}
 _SPECS_BY_PURPOSE = {spec.purpose: spec for spec in _NATIVE_GRANT_SPECS}
 _SECRET_PURPOSES = frozenset({"wifi.pairingCode", "apatch.superkey"})
 
@@ -288,9 +286,7 @@ class CoreCommandFactory:
     def validate_native_request(self, request: BridgeRequest) -> NativeGrantSpec:
         request.validate()
         purpose = request.payload.get("purpose")
-        spec = _SPECS_BY_PICKER.get(
-            (request.command, purpose if isinstance(purpose, str) else "")
-        )
+        spec = _SPECS_BY_PICKER.get((request.command, purpose if isinstance(purpose, str) else ""))
         if spec is None:
             raise CommandFactoryError(
                 "native_purpose_not_allowed",
@@ -348,8 +344,7 @@ class CoreCommandFactory:
             raise
 
         public = [
-            {**grant.to_public_dict(), "displayName": path.name}
-            for grant, path in zip(issued, paths, strict=True)
+            {**grant.to_public_dict(), "displayName": path.name} for grant, path in zip(issued, paths, strict=True)
         ]
         if spec.multiple:
             return {"grants": public, "purpose": spec.purpose}
@@ -392,16 +387,10 @@ class CoreCommandFactory:
         secret = request.payload.get("secret")
         if not isinstance(secret, str):
             raise CommandFactoryError("secret_invalid", "The secret value is invalid.")
-        if purpose == "wifi.pairingCode" and (
-            len(secret) != 6 or not secret.isascii() or not secret.isdecimal()
-        ):
-            raise CommandFactoryError(
-                "native_secret_invalid", "The Wi-Fi pairing code must contain six digits."
-            )
+        if purpose == "wifi.pairingCode" and (len(secret) != 6 or not secret.isascii() or not secret.isdecimal()):
+            raise CommandFactoryError("native_secret_invalid", "The Wi-Fi pairing code must contain six digits.")
         if purpose == "apatch.superkey" and not 8 <= len(secret) <= 128:
-            raise CommandFactoryError(
-                "native_secret_invalid", "The APatch superkey length is invalid."
-            )
+            raise CommandFactoryError("native_secret_invalid", "The APatch superkey length is invalid.")
         return self.secret_grants.issue(secret, purpose=purpose).to_public_dict()
 
     def __call__(self, request: BridgeRequest) -> AppCommand:
@@ -426,9 +415,7 @@ class CoreCommandFactory:
             # Reserve five percent for the host to serialize the terminal
             # bridge response.  The absolute budget starts here, before the
             # command can wait in the native FIFO.
-            execution_timeout_seconds=(
-                COMMAND_REGISTRY[request.command].timeout_ms / 1000.0 * 0.95
-            ),
+            execution_timeout_seconds=(COMMAND_REGISTRY[request.command].timeout_ms / 1000.0 * 0.95),
             _accepted_monotonic=accepted_monotonic,
         )
 
@@ -453,9 +440,7 @@ class CoreCommandFactory:
                 self._resolve_one(payload, "firmware.select", "path")
         elif command == "boot.select" and "grant" in payload:
             if "bootId" in payload:
-                raise CommandFactoryError(
-                    "resource_target_ambiguous", "Choose a boot ID or a native file, not both."
-                )
+                raise CommandFactoryError("resource_target_ambiguous", "Choose a boot ID or a native file, not both.")
             self._resolve_one(payload, "boot.select.source", "path")
         elif command == "boot.patch":
             self._resolve_one(payload, "boot.patch.destination", "destination")
@@ -467,18 +452,14 @@ class CoreCommandFactory:
                         "An APatch secret grant is valid only for APatch patching.",
                     )
                 try:
-                    payload["superKey"] = self.secret_grants.consume(
-                        str(secret_token), purpose="apatch.superkey"
-                    )
+                    payload["superKey"] = self.secret_grants.consume(str(secret_token), purpose="apatch.superkey")
                 except GrantError as exc:
                     raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "root.modules.action":
             if payload.get("action") == "install":
                 self._resolve_one(payload, "root.modules.install", "path")
             elif "grant" in payload:
-                raise CommandFactoryError(
-                    "grant_not_applicable", "This module action does not accept a file grant."
-                )
+                raise CommandFactoryError("grant_not_applicable", "This module action does not accept a file grant.")
         elif command == "tools.pif":
             if payload.get("action") == "importProfile":
                 self._resolve_one(payload, "root.pif.import", "path")
@@ -495,9 +476,7 @@ class CoreCommandFactory:
                     payload.pop("content", None),
                 )
             elif "grant" in payload:
-                raise CommandFactoryError(
-                    "grant_not_applicable", "This PIF action does not accept a file grant."
-                )
+                raise CommandFactoryError("grant_not_applicable", "This PIF action does not accept a file grant.")
         elif command == "apps.action":
             if payload.get("action") == "install":
                 self._resolve_one(payload, "apps.install.source", "path")
@@ -510,18 +489,14 @@ class CoreCommandFactory:
                     )
                 spec = _SPECS_BY_PURPOSE["apps.export.destination"]
                 try:
-                    payload["exportDestination"] = (
-                        self.path_grants.resolve_bound_write_file(
-                            token,
-                            purpose=spec.purpose,
-                        )
+                    payload["exportDestination"] = self.path_grants.resolve_bound_write_file(
+                        token,
+                        purpose=spec.purpose,
                     )
                 except GrantError as exc:
                     raise CommandFactoryError(exc.code, str(exc)) from exc
             elif "grant" in payload:
-                raise CommandFactoryError(
-                    "grant_not_applicable", "This package action does not accept a file grant."
-                )
+                raise CommandFactoryError("grant_not_applicable", "This package action does not accept a file grant.")
         elif command == "backups.create":
             self._resolve_one(payload, "backups.create.destination", "destination")
         elif command == "backups.restore":
@@ -532,9 +507,7 @@ class CoreCommandFactory:
         elif command == "root.dataAdb.backup":
             token = payload.pop("grant", None)
             if not isinstance(token, str):
-                raise CommandFactoryError(
-                    "grant_required", "A native /data/adb backup destination is required."
-                )
+                raise CommandFactoryError("grant_required", "A native /data/adb backup destination is required.")
             spec = _SPECS_BY_PURPOSE["root.dataAdb.backup.destination"]
             try:
                 payload["destination"] = self.path_grants.resolve_bound_write_file(
@@ -546,9 +519,7 @@ class CoreCommandFactory:
         elif command == "root.dataAdb.restore":
             token = payload.pop("grant", None)
             if not isinstance(token, str):
-                raise CommandFactoryError(
-                    "grant_required", "A native /data/adb restore source is required."
-                )
+                raise CommandFactoryError("grant_required", "A native /data/adb restore source is required.")
             spec = _SPECS_BY_PURPOSE["root.dataAdb.restore.source"]
             try:
                 payload["source"] = self.path_grants.resolve_bound_file(
@@ -558,23 +529,42 @@ class CoreCommandFactory:
             except GrantError as exc:
                 raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "partitions.read":
-            self._resolve_one(payload, "partitions.read.destination", "destination")
+            token = payload.pop("grant", None)
+            if not isinstance(token, str):
+                raise CommandFactoryError(
+                    "grant_required",
+                    "A native partition destination grant is required.",
+                )
+            spec = _SPECS_BY_PURPOSE["partitions.read.destination"]
+            try:
+                payload["destination"] = self.path_grants.resolve_bound_write_file(
+                    token,
+                    purpose=spec.purpose,
+                )
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "partitions.write":
-            self._resolve_one(payload, "partitions.write.source", "path")
+            token = payload.pop("grant", None)
+            if not isinstance(token, str):
+                raise CommandFactoryError(
+                    "grant_required",
+                    "A native partition image grant is required.",
+                )
+            spec = _SPECS_BY_PURPOSE["partitions.write.source"]
+            try:
+                payload["path"] = self.path_grants.resolve_bound_file(
+                    token,
+                    purpose=spec.purpose,
+                )
+            except GrantError as exc:
+                raise CommandFactoryError(exc.code, str(exc)) from exc
         elif command == "tools.pushFiles":
             raw_grants = payload.pop("grants", None)
             if not isinstance(raw_grants, list):
-                raise CommandFactoryError(
-                    "grant_required", "Native file grants are required for this command."
-                )
+                raise CommandFactoryError("grant_required", "Native file grants are required for this command.")
             grants = cast("list[object]", raw_grants)
-            if (
-                not 1 <= len(grants) <= 32
-                or any(not isinstance(token, str) or not token for token in grants)
-            ):
-                raise CommandFactoryError(
-                    "grant_required", "Native file grants are required for this command."
-                )
+            if not 1 <= len(grants) <= 32 or any(not isinstance(token, str) or not token for token in grants):
+                raise CommandFactoryError("grant_required", "Native file grants are required for this command.")
             spec = _SPECS_BY_PURPOSE["tools.pushFiles.sources"]
             try:
                 bound_paths: list[BoundReadFile] = [
@@ -591,16 +581,12 @@ class CoreCommandFactory:
             token = payload.pop("grant", None)
             if token is not None:
                 if not isinstance(token, str):
-                    raise CommandFactoryError(
-                        "grant_required", "A native export grant is required."
-                    )
+                    raise CommandFactoryError("grant_required", "A native export grant is required.")
                 spec = _SPECS_BY_PURPOSE["tools.logcat.export"]
                 try:
-                    destination: BoundWriteFile = (
-                        self.path_grants.resolve_bound_write_file(
-                            token,
-                            purpose=spec.purpose,
-                        )
+                    destination: BoundWriteFile = self.path_grants.resolve_bound_write_file(
+                        token,
+                        purpose=spec.purpose,
                     )
                 except GrantError as exc:
                     raise CommandFactoryError(exc.code, str(exc)) from exc
@@ -609,9 +595,7 @@ class CoreCommandFactory:
             token = payload.pop("grant", None)
             if token is not None:
                 if not isinstance(token, str):
-                    raise CommandFactoryError(
-                        "grant_required", "A native current-boot grant is required."
-                    )
+                    raise CommandFactoryError("grant_required", "A native current-boot grant is required.")
                 spec = _SPECS_BY_PURPOSE["tools.avb.currentBoot"]
                 try:
                     payload["currentBoot"] = self.path_grants.resolve_bound_file(
@@ -623,9 +607,7 @@ class CoreCommandFactory:
         elif command == "tools.xml":
             token = payload.pop("grant", None)
             if not isinstance(token, str):
-                raise CommandFactoryError(
-                    "grant_required", "A native binary-XML grant is required."
-                )
+                raise CommandFactoryError("grant_required", "A native binary-XML grant is required.")
             spec = _SPECS_BY_PURPOSE["tools.xml.source"]
             try:
                 payload["source"] = self.path_grants.resolve_bound_file(
@@ -647,17 +629,10 @@ class CoreCommandFactory:
         elif command == "tools.keybox":
             raw_grants = payload.pop("grants", None)
             if not isinstance(raw_grants, list):
-                raise CommandFactoryError(
-                    "grant_required", "Native keybox file grants are required."
-                )
+                raise CommandFactoryError("grant_required", "Native keybox file grants are required.")
             grants = cast("list[object]", raw_grants)
-            if (
-                not 1 <= len(grants) <= 32
-                or any(not isinstance(token, str) or not token for token in grants)
-            ):
-                raise CommandFactoryError(
-                    "grant_required", "Native keybox file grants are required."
-                )
+            if not 1 <= len(grants) <= 32 or any(not isinstance(token, str) or not token for token in grants):
+                raise CommandFactoryError("grant_required", "Native keybox file grants are required.")
             spec = _SPECS_BY_PURPOSE["tools.keybox.sources"]
             try:
                 payload["sources"] = [
@@ -705,8 +680,14 @@ class CoreCommandFactory:
 
     def _stage_pif_editor_content(self, profile_id: object, content: object) -> str:
         editable = {
-            "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
-            "pif.app_replace", "tricky.spoof", "tricky.target", "tricky.security_patch",
+            "pif.custom_json",
+            "pif.custom_prop",
+            "pif.module_json",
+            "pif.legacy_json",
+            "pif.app_replace",
+            "tricky.spoof",
+            "tricky.target",
+            "tricky.security_patch",
         }
         if profile_id not in editable or not isinstance(profile_id, str):
             raise CommandFactoryError("pif_editor_profile_invalid", "PIF profile is not editable.")
@@ -753,9 +734,7 @@ class CoreCommandFactory:
     def _pop_and_resolve(self, payload: dict[str, Any], purpose: str) -> Path:
         token = payload.pop("grant", None)
         if not isinstance(token, str):
-            raise CommandFactoryError(
-                "grant_required", "A native resource grant is required for this command."
-            )
+            raise CommandFactoryError("grant_required", "A native resource grant is required for this command.")
         spec = _SPECS_BY_PURPOSE[purpose]
         try:
             return self.path_grants.resolve(
@@ -791,17 +770,11 @@ def _target_serial(
     raw = payload.get("serial")
     if raw is not None and (not isinstance(raw, str) or not raw.strip()):
         raise CommandFactoryError("target_serial_invalid", "payload.serial must be a non-empty string")
-    if (
-        raw is None
-        and command in {"flash.plan.preview", "flash.execute"}
-        and len(snapshot.selected_serials) > 1
-    ):
+    if raw is None and command in {"flash.plan.preview", "flash.execute"} and len(snapshot.selected_serials) > 1:
         return None
     serial = raw.strip() if isinstance(raw, str) else snapshot.selected_serial
     if not serial:
-        raise CommandFactoryError(
-            "target_serial_required", "A target serial is required for this command"
-        )
+        raise CommandFactoryError("target_serial_required", "A target serial is required for this command")
     return serial
 
 

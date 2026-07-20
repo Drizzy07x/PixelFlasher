@@ -14,6 +14,7 @@ from pixelflasher_core.executor import (
     FakeProcessTransport,
     TransportOutcome,
 )
+from pixelflasher_core.grants import GrantAccess, GrantError, PathGrantStore
 from pixelflasher_core.partitions import (
     PartitionPlanningError,
     PartitionService,
@@ -30,6 +31,32 @@ class PartitionServiceTests(unittest.TestCase):
             toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
         )
         self.service = PartitionService(hash_chunk_size=2)
+        self.grants = PathGrantStore()
+
+    def tearDown(self):
+        self.service.shutdown()
+
+    def read_grant(self, path):
+        grant = self.grants.issue_file(
+            path,
+            purpose="partitions.write.source",
+            access=GrantAccess.READ,
+        )
+        return self.grants.resolve_bound_file(
+            grant.token,
+            purpose="partitions.write.source",
+        )
+
+    def write_grant(self, path):
+        grant = self.grants.issue_file(
+            path,
+            purpose="partitions.read.destination",
+            access=GrantAccess.WRITE,
+        )
+        return self.grants.resolve_bound_write_file(
+            grant.token,
+            purpose="partitions.read.destination",
+        )
 
     def compile(self, kind, payload):
         return self.service.compile(
@@ -64,12 +91,12 @@ class PartitionServiceTests(unittest.TestCase):
 
     def test_read_uses_fetch_and_canonical_safe_destination(self):
         with tempfile.TemporaryDirectory() as directory:
-            destination = Path(directory) / "nested" / ".." / "boot.img"
+            destination = Path(directory) / "boot.img"
             compilation = self.compile(
                 "partitions.read",
                 {
                     "partition": "BOOT_A",
-                    "destination": str(destination),
+                    "destination": self.write_grant(destination),
                 },
             )
 
@@ -80,12 +107,15 @@ class PartitionServiceTests(unittest.TestCase):
                     "SERIAL",
                     "fetch",
                     "boot_a",
-                    str((Path(directory) / "boot.img").resolve()),
+                    str(compilation.local_payload),
                 ),
                 compilation.plan.request.argv,
             )
             self.assertEqual(("boot_a",), compilation.plan.partitions)
             self.assertFalse(compilation.requires_confirmation)
+            self.assertEqual(destination.name, compilation.destination.name)
+            self.assertEqual(self.service.temporary_root, compilation.local_payload.parent)
+            self.assertNotEqual(destination.resolve(), compilation.local_payload)
 
     def test_read_never_overwrites_without_explicit_boolean_semantics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -95,7 +125,10 @@ class PartitionServiceTests(unittest.TestCase):
             with self.assertRaises(PartitionPlanningError) as raised:
                 self.compile(
                     "partitions.read",
-                    {"partition": "boot", "destination": str(destination)},
+                    {
+                        "partition": "boot",
+                        "destination": self.write_grant(destination),
+                    },
                 )
             self.assertEqual("partition_destination_exists", raised.exception.code)
 
@@ -103,18 +136,18 @@ class PartitionServiceTests(unittest.TestCase):
                 "partitions.read",
                 {
                     "partition": "boot",
-                    "destination": str(destination),
+                    "destination": self.write_grant(destination),
                     "overwrite": True,
                 },
             )
-            self.assertEqual(str(destination.resolve()), compilation.plan.request.argv[-1])
+            self.assertEqual(str(compilation.local_payload), compilation.plan.request.argv[-1])
 
             with self.assertRaises(PartitionPlanningError) as raised:
                 self.compile(
                     "partitions.read",
                     {
                         "partition": "boot",
-                        "destination": str(destination),
+                        "destination": self.write_grant(destination),
                         "overwrite": "yes",
                     },
                 )
@@ -141,7 +174,7 @@ class PartitionServiceTests(unittest.TestCase):
                         "partitions.write",
                         expected_revision=7,
                         target_serial="SERIAL",
-                        payload={"partition": "boot", "path": str(source)},
+                        payload={"partition": "boot", "path": self.read_grant(source)},
                     ),
                     self.snapshot,
                     probe,
@@ -150,21 +183,42 @@ class PartitionServiceTests(unittest.TestCase):
         self.assertEqual("partition_cancelled", raised.exception.code)
         self.assertEqual(3, probe.checks)
 
-    def test_read_rejects_missing_parent_and_directory_destination(self):
+    def test_read_staging_hash_cancellation_remains_pre_publication_cancelled(self):
+        class Cancelled:
+            @property
+            def cancelled(self):
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            compilation = self.compile(
+                "partitions.read",
+                {
+                    "partition": "boot",
+                    "destination": self.write_grant(Path(directory) / "boot.img"),
+                },
+            )
+            compilation.local_payload.write_bytes(b"fetched partition")
+
+            decision = self.service.validate_read_preflight(
+                compilation,
+                TransportOutcome(0),
+                Cancelled(),
+            )
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual("partition_read_preflight_cancelled", decision.code)
+
+    def test_native_grant_boundary_rejects_missing_parent_and_directory_destination(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for destination in (root / "missing" / "boot.img", root):
                 with self.subTest(destination=destination):
-                    with self.assertRaises(PartitionPlanningError) as raised:
-                        self.compile(
-                            "partitions.read",
-                            {
-                                "partition": "boot",
-                                "destination": str(destination),
-                                "overwrite": True,
-                            },
+                    with self.assertRaises(GrantError):
+                        self.grants.issue_file(
+                            destination,
+                            purpose="partitions.read.destination",
+                            access=GrantAccess.WRITE,
                         )
-                    self.assertEqual("partition_destination_invalid", raised.exception.code)
 
     def test_write_hashes_canonical_image_and_keeps_path_as_one_argument(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -174,7 +228,7 @@ class PartitionServiceTests(unittest.TestCase):
 
             compilation = self.compile(
                 "partitions.write",
-                {"partition": "vendor_boot", "path": str(image)},
+                {"partition": "vendor_boot", "path": self.read_grant(image)},
             )
 
             self.assertEqual(
@@ -243,16 +297,22 @@ class PartitionServiceTests(unittest.TestCase):
             )
         self.assertEqual("invalid_partition_payload", raised.exception.code)
 
-    def test_write_rejects_missing_and_non_regular_images(self):
+    def test_write_rejects_raw_paths_and_native_boundary_rejects_invalid_images(self):
         with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(PartitionPlanningError) as raised:
+                self.compile(
+                    "partitions.write",
+                    {"partition": "boot", "path": str(Path(directory) / "boot.img")},
+                )
+            self.assertEqual("partition_image_grant_required", raised.exception.code)
             for path in (Path(directory) / "missing.img", Path(directory)):
                 with self.subTest(path=path):
-                    with self.assertRaises(PartitionPlanningError) as raised:
-                        self.compile(
-                            "partitions.write",
-                            {"partition": "boot", "path": str(path)},
+                    with self.assertRaises(GrantError):
+                        self.grants.issue_file(
+                            path,
+                            purpose="partitions.write.source",
+                            access=GrantAccess.READ,
                         )
-                    self.assertEqual("partition_image_path_invalid", raised.exception.code)
 
     def test_requires_current_revision_selected_fastboot_device_and_toolchain(self):
         cases = (
@@ -318,12 +378,30 @@ class PartitionServiceTests(unittest.TestCase):
             )
         self.assertEqual("ambiguous_target_serial", raised.exception.code)
 
+    def test_fastbootd_matches_the_public_command_registry(self):
+        fastbootd = AppSnapshot(
+            revision=7,
+            devices=(DeviceInfo("SERIAL", mode="fastbootd", online=True),),
+            selected_serial="SERIAL",
+            toolchain=self.snapshot.toolchain,
+        )
+
+        compilation = self.service.compile(
+            AppCommand(
+                "partitions.list",
+                expected_revision=7,
+                target_serial="SERIAL",
+            ),
+            fastbootd,
+        )
+
+        self.assertEqual("fastbootd", compilation.plan.expected_device_state)
+
 
 class FastbootPartitionParserTests(unittest.TestCase):
     def test_parser_combines_stdout_stderr_and_ignores_untrusted_names(self):
         partitions = parse_fastboot_partition_list(
-            "(bootloader) partition-size:boot_a: 0x00001000\n"
-            "(bootloader) partition-type:boot_a: raw\n",
+            "(bootloader) partition-size:boot_a: 0x00001000\n(bootloader) partition-type:boot_a: raw\n",
             "partition-size:userdata: 8192\n"
             "partition-size:boot;erase: 0x999\n"
             "partition-size:not_a_real_partition: 0x123\n"

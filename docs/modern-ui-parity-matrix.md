@@ -119,7 +119,10 @@ atomic-operation boundaries:
 - `PackageService` lists package scopes and compiles enable, disable,
   uninstall, clear-data, force-stop, launch, permissions and APK install.
 - `PartitionService` lists, fetches, flashes and erases only allow-listed
-  fastboot partitions; erase uses reinforced confirmation.
+  Fastboot/Fastbootd partitions. Reads fetch into private staging and publish
+  atomically through a one-use native grant; writes and erases require bounded
+  device-side readback. React exposes typed receipts, progress, cancellation
+  and manual-only retry; erase uses reinforced confirmation.
 - `DeviceToolsService` supports managed scrcpy launch, secret-safe wireless ADB
   pairing/connectivity, bounded logcat snapshots and fixed-destination file
   push. File-push success requires a device-observed SHA-256 match for every

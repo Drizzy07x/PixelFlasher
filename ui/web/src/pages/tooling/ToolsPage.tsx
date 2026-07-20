@@ -24,6 +24,22 @@ const AdbShellPanel = lazy(async () => {
 
 type ToolPanel = 'scrcpy' | 'wifi' | 'shell' | 'logcat' | 'partitions' | 'push' | 'avb' | 'xml' | 'keybox' | 'mytools' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
+type PartitionAction = 'read' | 'write' | 'erase';
+type PartitionReceipt = {
+  action: PartitionAction;
+  targetSerial: string;
+  partition: string;
+  fileName?: string;
+  sha256?: string;
+  sizeBytes?: number;
+};
+type PartitionOutcome = {
+  status: 'idle' | 'running' | 'cancelling' | 'success' | 'cancelled' | 'failed' | 'unknown';
+  action: PartitionAction | null;
+  targetSerial: string | null;
+  message: string;
+  receipt: PartitionReceipt | null;
+};
 type WifiService = {
   id: string;
   instance: string;
@@ -215,6 +231,56 @@ function parsePushReceipts(value: unknown, expectedSerial: string): PushReceipt[
   return receipts;
 }
 
+function parsePartitionReceipt(
+  value: unknown,
+  action: PartitionAction,
+  expectedSerial: string,
+  expectedPartition: string,
+): PartitionReceipt | null {
+  const source = record(value);
+  const common = source.action === action
+    && source.targetSerial === expectedSerial
+    && validTargetSerial(expectedSerial)
+    && source.partition === expectedPartition
+    && typeof source.partition === 'string'
+    && /^[a-z0-9][a-z0-9_.-]{0,63}$/.test(source.partition)
+    && source.verified === true;
+  if (!common) return null;
+  if (action === 'read') {
+    if (!hasExactKeys(source, ['action', 'fileName', 'partition', 'sha256', 'sizeBytes', 'targetSerial', 'verified'])
+      || typeof source.fileName !== 'string'
+      || !/^[A-Za-z0-9][A-Za-z0-9._ +@=-]{0,191}$/.test(source.fileName)
+      || typeof source.sha256 !== 'string'
+      || !/^[0-9a-f]{64}$/.test(source.sha256)
+      || typeof source.sizeBytes !== 'number'
+      || !Number.isSafeInteger(source.sizeBytes)
+      || source.sizeBytes < 1
+      || source.sizeBytes > 16 * 1024 * 1024 * 1024) return null;
+    return {
+      action,
+      targetSerial: expectedSerial,
+      partition: expectedPartition,
+      fileName: source.fileName,
+      sha256: source.sha256,
+      sizeBytes: source.sizeBytes,
+    };
+  }
+  if (action === 'write') {
+    if (!hasExactKeys(source, ['action', 'partition', 'sha256', 'targetSerial', 'verified'])
+      || typeof source.sha256 !== 'string'
+      || !/^[0-9a-f]{64}$/.test(source.sha256)) return null;
+    return {
+      action,
+      targetSerial: expectedSerial,
+      partition: expectedPartition,
+      sha256: source.sha256,
+    };
+  }
+  if (!hasExactKeys(source, ['action', 'erased', 'partition', 'targetSerial', 'verified'])
+    || source.erased !== true) return null;
+  return { action, targetSerial: expectedSerial, partition: expectedPartition };
+}
+
 function formatBytes(sizeBytes: number) {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KiB`;
@@ -244,7 +310,7 @@ export function ToolsPage({
     ? snapshot.devices.find((device) => device.serial === selectedSerials[0])
     : undefined;
   const adbReady = primary?.mode === 'adb' && isToolchainReady(snapshot);
-  const fastbootReady = primary?.mode === 'fastboot' && isToolchainReady(snapshot);
+  const fastbootReady = ['fastboot', 'fastbootd'].includes(primary?.mode ?? '') && isToolchainReady(snapshot);
   const toolchainReady = isToolchainReady(snapshot);
   const [panel, setPanel] = useState<ToolPanel>(() => (
     pushUiState?.outcome.status !== 'idle'
@@ -256,6 +322,15 @@ export function ToolsPage({
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [partitions, setPartitions] = useState<PartitionRow[]>([]);
   const [partition, setPartition] = useState('');
+  const [partitionOutcome, setPartitionOutcome] = useState<PartitionOutcome>({
+    status: 'idle',
+    action: null,
+    targetSerial: null,
+    message: '',
+    receipt: null,
+  });
+  const [partitionRetry, setPartitionRetry] = useState<PartitionAction | null>(null);
+  const [partitionOperationId, setPartitionOperationId] = useState<string | null>(null);
   const [scrcpyMaxSize, setScrcpyMaxSize] = useState(1920);
   const [scrcpyMaxFps, setScrcpyMaxFps] = useState(60);
   const [scrcpyVideoBitRate, setScrcpyVideoBitRate] = useState(12);
@@ -315,6 +390,18 @@ export function ToolsPage({
     && (activePushCandidate.targetSerial ?? activePushCandidate.target_serial) === primary.serial
     ? activePushCandidate
     : null;
+  const activePartitionCandidate = snapshot.activeOperation
+    && [commands.partitionsRead, commands.partitionsWrite, commands.partitionsErase]
+      .includes(snapshot.activeOperation.kind as typeof commands.partitionsRead)
+    && ['pending', 'running'].includes(normalizeOperationStatus(snapshot.activeOperation.status))
+      ? snapshot.activeOperation
+      : null;
+  const activePartition = activePartitionCandidate
+    && primary
+    && ['fastboot', 'fastbootd'].includes(primary.mode)
+    && (activePartitionCandidate.targetSerial ?? activePartitionCandidate.target_serial) === primary.serial
+      ? activePartitionCandidate
+      : null;
 
   useEffect(() => {
     if (!secretPromptOpen) return;
@@ -340,6 +427,18 @@ export function ToolsPage({
             contextMode: primary?.mode ?? null,
           }
     ));
+  }, [primary?.mode, primary?.serial]);
+
+  useEffect(() => {
+    setPartitionOutcome({
+      status: 'idle',
+      action: null,
+      targetSerial: null,
+      message: '',
+      receipt: null,
+    });
+    setPartitionRetry(null);
+    setPartitionOperationId(null);
   }, [primary?.mode, primary?.serial]);
 
   const requestPairingCode = () => new Promise<string | null>((resolve) => {
@@ -392,6 +491,98 @@ export function ToolsPage({
     setPartition((current) => parsed.some((entry) => entry.name === current) ? current : parsed[0]?.name ?? '');
   };
 
+  const runPartition = async (
+    action: PartitionAction,
+    payload: Record<string, unknown>,
+    expectedRevision?: number,
+  ) => {
+    if (!primary || !fastbootReady || busy) return;
+    const expectedPartition = partition;
+    const expectedSerial = primary.serial;
+    setPartitionRetry(action);
+    setPartitionOutcome({
+      status: 'running',
+      action,
+      targetSerial: expectedSerial,
+      message: t('tools.partitionRunning'),
+      receipt: null,
+    });
+    const response = await runTool(
+      action === 'read'
+        ? commands.partitionsRead
+        : action === 'write'
+          ? commands.partitionsWrite
+          : commands.partitionsErase,
+      payload,
+      {
+        returnCancelled: true,
+        returnFailed: true,
+        suppressNotice: true,
+        onOperationAccepted: setPartitionOperationId,
+        ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      },
+    );
+    setPartitionOperationId(null);
+    if (!response) {
+      setPartitionOutcome({
+        status: 'failed',
+        action,
+        targetSerial: expectedSerial,
+        message: t('tools.partitionFailed'),
+        receipt: null,
+      });
+      return;
+    }
+    const operation = record(response.result);
+    const status = normalizeOperationStatus(operation.status);
+    if (status === 'success') {
+      const receipt = parsePartitionReceipt(
+        operation.value,
+        action,
+        expectedSerial,
+        expectedPartition,
+      );
+      if (receipt === null) {
+        setPartitionOutcome({
+          status: 'failed',
+          action,
+          targetSerial: expectedSerial,
+          message: t('tools.partitionInvalidReceipt'),
+          receipt: null,
+        });
+        return;
+      }
+      setPartitionRetry(null);
+      setPartitionOutcome({
+        status: 'success',
+        action,
+        targetSerial: expectedSerial,
+        message: t('tools.partitionVerified'),
+        receipt,
+      });
+      return;
+    }
+    if (status === 'cancelled') {
+      setPartitionOutcome({
+        status: 'cancelled',
+        action,
+        targetSerial: expectedSerial,
+        message: t('tools.partitionCancelled'),
+        receipt: null,
+      });
+      return;
+    }
+    setPartitionOutcome({
+      status: operation.code === 'outcome_unknown' ? 'unknown' : 'failed',
+      action,
+      targetSerial: expectedSerial,
+      message: operation.code === 'outcome_unknown'
+        ? t('tools.partitionUnknown')
+        : t('tools.partitionFailed'),
+      receipt: null,
+    });
+  };
+
   const readPartition = async () => {
     if (!primary || !fastbootReady || !partition || busy) return;
     setBusy('partition-read-picker');
@@ -405,7 +596,11 @@ export function ToolsPage({
       const grant = selectedGrant(picked);
       if (!grant) return;
       setBusy('');
-      await runTool(commands.partitionsRead, { serial: primary.serial, partition, grant, overwrite: true });
+      await runPartition(
+        'read',
+        { serial: primary.serial, partition, grant, overwrite: true },
+        picked?.revision,
+      );
     } finally {
       setBusy('');
     }
@@ -423,10 +618,44 @@ export function ToolsPage({
       const grant = selectedGrant(picked);
       if (!grant) return;
       setBusy('');
-      await runTool(commands.partitionsWrite, { serial: primary.serial, partition, grant });
+      await runPartition(
+        'write',
+        { serial: primary.serial, partition, grant },
+        picked?.revision,
+      );
     } finally {
       setBusy('');
     }
+  };
+
+  const erasePartition = async () => {
+    if (!primary || !fastbootReady || !partition || busy) return;
+    await runPartition('erase', { serial: primary.serial, partition });
+  };
+
+  const cancelPartition = async () => {
+    const operationId = activePartition?.id ?? partitionOperationId;
+    if (!operationId || partitionOutcome.status === 'cancelling') return;
+    setPartitionOutcome((current) => ({
+      ...current,
+      status: 'cancelling',
+      message: t('tools.partitionCancelling'),
+    }));
+    const response = await onCommand(commands.operationCancel, { operationId });
+    if (!response) {
+      setPartitionOutcome((current) => ({
+        ...current,
+        status: 'running',
+        message: t('tools.partitionRunning'),
+      }));
+    }
+  };
+
+  const retryPartition = async () => {
+    if (!partitionRetry || busy || !fastbootReady) return;
+    if (partitionRetry === 'read') await readPartition();
+    else if (partitionRetry === 'write') await writePartition();
+    else await erasePartition();
   };
 
   const runPush = async (payload: PushPayload, expectedRevision?: number) => {
@@ -879,6 +1108,23 @@ export function ToolsPage({
   const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
     ? Math.max(0, Math.min(100, activePush.progress))
     : null;
+  const partitionProgress = typeof activePartition?.progress === 'number'
+    && Number.isFinite(activePartition.progress)
+      ? Math.max(0, Math.min(100, activePartition.progress))
+      : null;
+  const partitionPending = Boolean(
+    activePartition
+    || (
+      partitionOperationId
+      && primary
+      && ['fastboot', 'fastbootd'].includes(primary.mode)
+      && partitionOutcome.targetSerial === primary.serial
+      && ['running', 'cancelling'].includes(partitionOutcome.status)
+    ),
+  );
+  const canRetryPartition = Boolean(
+    partitionRetry && fastbootReady && !busy && !partitionPending,
+  );
   const pushPending = Boolean(
     activePush
     || (
@@ -993,8 +1239,35 @@ export function ToolsPage({
           ) : null}
           {panel === 'partitions' ? (
             <div className="tool-panel-body">
-              <div className="tool-form-grid tool-form-grid--partition"><label><span>{t('tools.selectPartition')}</span><select value={partition} onChange={(event) => setPartition(event.currentTarget.value)} disabled={!partitions.length || Boolean(busy)}><option value="">—</option>{partitions.map((entry) => <option value={entry.name} key={entry.name}>{entry.name}</option>)}</select></label><Button icon="scan" onClick={() => void listPartitions()} disabled={Boolean(busy) || !fastbootReady}>{t('common.refresh')}</Button><Button icon="download" onClick={() => void readPartition()} disabled={Boolean(busy) || !partition}>{t('tools.partitionRead')}</Button><Button variant="primary" icon="flash" onClick={() => void writePartition()} disabled={Boolean(busy) || !partition}>{t('tools.partitionWrite')}</Button><Button variant="danger" icon="warningPng" onClick={() => primary && void runTool(commands.partitionsErase, { serial: primary.serial, partition })} disabled={Boolean(busy) || !partition}>{t('tools.partitionErase')}</Button></div>
-              {partitions.length ? <div className="partition-results" role="table" aria-label={t('tools.partition')}>{partitions.map((entry) => <button type="button" role="row" className={partition === entry.name ? 'is-selected' : ''} onClick={() => setPartition(entry.name)} key={entry.name}><strong role="cell">{entry.name}</strong><span role="cell">{entry.partitionType || '—'}</span><span role="cell">{entry.sizeBytes === null ? '—' : `${Math.ceil(entry.sizeBytes / 1024 / 1024)} MiB`}</span></button>)}</div> : <EmptyState icon="slot" title={t('common.none')} detail={t('tools.partitionDetail')} />}
+              <div className="tool-form-grid tool-form-grid--partition"><label><span>{t('tools.selectPartition')}</span><select value={partition} onChange={(event) => setPartition(event.currentTarget.value)} disabled={!partitions.length || Boolean(busy) || partitionPending}><option value="">—</option>{partitions.map((entry) => <option value={entry.name} key={entry.name}>{entry.name}</option>)}</select></label><Button icon="scan" onClick={() => void listPartitions()} disabled={Boolean(busy) || partitionPending || !fastbootReady}>{t('common.refresh')}</Button><Button icon="download" onClick={() => void readPartition()} disabled={Boolean(busy) || partitionPending || !partition}>{t('tools.partitionRead')}</Button><Button variant="primary" icon="flash" onClick={() => void writePartition()} disabled={Boolean(busy) || partitionPending || !partition}>{t('tools.partitionWrite')}</Button><Button variant="danger" icon="warningPng" onClick={() => void erasePartition()} disabled={Boolean(busy) || partitionPending || !partition}>{t('tools.partitionErase')}</Button></div>
+              {partitionPending ? (
+                <div className="push-progress">
+                  <div className="push-progress__copy" role="status" aria-live="polite">
+                    <strong>{partitionOutcome.status === 'cancelling' ? t('tools.partitionCancelling') : t('tools.partitionRunning')}</strong>
+                    <span>{activePartition?.detail || partitionOutcome.message}</span>
+                  </div>
+                  {partitionProgress !== null ? <progress aria-label={t('tools.partitionProgress')} max={100} value={partitionProgress} /> : null}
+                  <Button variant="ghost" onClick={() => void cancelPartition()} disabled={partitionOutcome.status === 'cancelling'}>{t('common.cancel')}</Button>
+                </div>
+              ) : null}
+              {!partitionPending && partitionOutcome.status !== 'idle' ? (
+                <div className={`push-outcome push-outcome--${partitionOutcome.status}`}>
+                  <Icon name={partitionOutcome.status === 'success' ? 'check' : 'warningPng'} size={18} />
+                  <span role={partitionOutcome.status === 'failed' || partitionOutcome.status === 'unknown' ? 'alert' : 'status'} aria-live={partitionOutcome.status === 'failed' || partitionOutcome.status === 'unknown' ? 'assertive' : 'polite'}>
+                    <strong>{partitionOutcome.status === 'success' ? t('tools.partitionVerified') : partitionOutcome.status === 'unknown' ? t('tools.partitionUnknownTitle') : t('tools.results')}</strong>
+                    <small>{partitionOutcome.message}</small>
+                  </span>
+                  {partitionRetry ? <Button variant="ghost" onClick={() => void retryPartition()} disabled={!canRetryPartition}>{t('tools.partitionRetry')}</Button> : null}
+                </div>
+              ) : null}
+              {partitionOutcome.receipt ? (
+                <div className="artifact-hash" aria-label={t('tools.partitionVerified')}>
+                  <Badge tone="success">{partitionOutcome.receipt.action === 'read' ? t('tools.partitionRead') : partitionOutcome.receipt.action === 'write' ? t('tools.partitionWrite') : t('tools.partitionErase')}</Badge>
+                  <span>{partitionOutcome.receipt.fileName ? `${partitionOutcome.receipt.fileName} · ` : ''}{partitionOutcome.receipt.sizeBytes ? formatBytes(partitionOutcome.receipt.sizeBytes) : partitionOutcome.receipt.partition}</span>
+                  {partitionOutcome.receipt.sha256 ? <code title={partitionOutcome.receipt.sha256}>{partitionOutcome.receipt.sha256}</code> : null}
+                </div>
+              ) : null}
+              {partitions.length ? <div className="partition-results" aria-label={t('tools.partition')}>{partitions.map((entry) => <button type="button" className={partition === entry.name ? 'is-selected' : ''} onClick={() => setPartition(entry.name)} key={entry.name}><strong>{entry.name}</strong><span>{entry.partitionType || '—'}</span><span>{entry.sizeBytes === null ? '—' : `${Math.ceil(entry.sizeBytes / 1024 / 1024)} MiB`}</span></button>)}</div> : <EmptyState icon="slot" title={t('common.none')} detail={t('tools.partitionDetail')} />}
             </div>
           ) : null}
           {panel === 'push' ? (

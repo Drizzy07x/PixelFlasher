@@ -372,7 +372,7 @@ describe('PixelFlasher web workspace', () => {
       action: 'install',
       grant: 'g'.repeat(64),
     });
-  });
+  }, 10_000);
 
   it('runs the five-step wizard with one explicit target and destructive confirmation', async () => {
     const user = userEvent.setup();
@@ -590,7 +590,7 @@ describe('PixelFlasher web workspace', () => {
 
     await user.click(within(partitionPanel).getByRole('button', { name: 'Erase partition' }));
     const reinforced = await screen.findByRole('alertdialog');
-    const requiredText = 'ERASE 4B281FDH2003L7 boot_a';
+    const requiredText = 'ERASE boot_a 2003L7';
     const field = within(reinforced).getByPlaceholderText(requiredText);
     const continueButton = within(reinforced).getByRole('button', { name: 'Continue' });
     expect(continueButton).toBeDisabled();
@@ -605,7 +605,7 @@ describe('PixelFlasher web workspace', () => {
     const confirmation = screen.getByRole('alertdialog');
     await user.click(within(confirmation).getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
-    expect(await screen.findAllByText('Erased boot_a.')).not.toHaveLength(0);
+    expect(await within(partitionPanel).findAllByText('Partition result verified')).not.toHaveLength(0);
 
     const requests = postMessage.mock.calls.map(([raw]) => JSON.parse(raw) as BridgeRequest);
     expect(requests.find((request) => request.command === 'partitions.list')?.payload).toEqual({

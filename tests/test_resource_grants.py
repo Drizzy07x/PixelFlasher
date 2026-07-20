@@ -28,6 +28,34 @@ class MutableClock:
 
 
 class PathGrantStoreTests(unittest.TestCase):
+    def test_invalid_picker_resources_fail_with_closed_grant_errors(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = PathGrantStore()
+
+            with self.assertRaises(GrantError) as missing_read:
+                store.issue_file(root / "missing.bin", purpose="partition.source")
+            self.assertEqual("grant_resource_invalid", missing_read.exception.code)
+
+            with self.assertRaises(GrantError) as missing_parent:
+                store.issue_file(
+                    root / "missing" / "partition.img",
+                    purpose="partition.destination",
+                    access=GrantAccess.WRITE,
+                )
+            self.assertEqual("grant_parent_invalid", missing_parent.exception.code)
+
+            with self.assertRaises(GrantError) as directory_destination:
+                store.issue_file(
+                    root,
+                    purpose="partition.destination",
+                    access=GrantAccess.WRITE,
+                )
+            self.assertEqual(
+                "grant_target_mismatch",
+                directory_destination.exception.code,
+            )
+
     def test_target_serial_validation_covers_scoped_ipv6_and_port_bounds(self):
         self.assertTrue(is_valid_target_serial("SERIAL-123"))
         self.assertTrue(is_valid_target_serial("[2001:db8::1]:5555"))
@@ -49,18 +77,24 @@ class PathGrantStoreTests(unittest.TestCase):
 
             self.assertNotIn(str(source), repr(grant))
             self.assertNotIn("path", public)
-            self.assertEqual(source.resolve(), store.resolve(
-                grant.token,
-                purpose="firmware.import",
-                target=GrantTarget.FILE,
-                access=GrantAccess.READ,
-            ))
-            self.assertEqual(source.resolve(), store.resolve(
-                grant.token,
-                purpose="firmware.import",
-                target=GrantTarget.FILE,
-                access=GrantAccess.READ,
-            ))
+            self.assertEqual(
+                source.resolve(),
+                store.resolve(
+                    grant.token,
+                    purpose="firmware.import",
+                    target=GrantTarget.FILE,
+                    access=GrantAccess.READ,
+                ),
+            )
+            self.assertEqual(
+                source.resolve(),
+                store.resolve(
+                    grant.token,
+                    purpose="firmware.import",
+                    target=GrantTarget.FILE,
+                    access=GrantAccess.READ,
+                ),
+            )
 
     def test_grants_are_bound_to_purpose_scope_and_resource_identity(self):
         with TemporaryDirectory() as directory:
@@ -129,10 +163,7 @@ class PathGrantStoreTests(unittest.TestCase):
             for path in (first, second, firmware):
                 path.write_bytes(path.name.encode())
             store = PathGrantStore()
-            push_grants = [
-                store.issue_file(path, purpose="tools.pushFiles.sources")
-                for path in (first, second)
-            ]
+            push_grants = [store.issue_file(path, purpose="tools.pushFiles.sources") for path in (first, second)]
             firmware_grant = store.issue_file(firmware, purpose="firmware.select")
 
             self.assertEqual(2, store.revoke_purpose("tools.pushFiles.sources"))
@@ -164,12 +195,15 @@ class PathGrantStoreTests(unittest.TestCase):
                 access=GrantAccess.WRITE,
             )
 
-            self.assertEqual(destination.resolve(), store.resolve(
-                grant.token,
-                purpose="support.export",
-                target=GrantTarget.FILE,
-                access=GrantAccess.WRITE,
-            ))
+            self.assertEqual(
+                destination.resolve(),
+                store.resolve(
+                    grant.token,
+                    purpose="support.export",
+                    target=GrantTarget.FILE,
+                    access=GrantAccess.WRITE,
+                ),
+            )
             with self.assertRaises(GrantError) as replay:
                 store.resolve(
                     grant.token,
@@ -470,10 +504,13 @@ class PathGrantStoreTests(unittest.TestCase):
                 return real_exchange(source_fd, source_name, destination_fd, destination_name)
 
             with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
-                with patch(
-                    "pixelflasher_core.grants._posix_exchange",
-                    side_effect=attack_then_exchange,
-                ), bound.begin_atomic_replace() as transaction:
+                with (
+                    patch(
+                        "pixelflasher_core.grants._posix_exchange",
+                        side_effect=attack_then_exchange,
+                    ),
+                    bound.begin_atomic_replace() as transaction,
+                ):
                     transaction.stream.write(b"new approved contents")
                     transaction.stream.flush()
                     os.fsync(transaction.stream.fileno())
@@ -514,10 +551,13 @@ class PathGrantStoreTests(unittest.TestCase):
                 raise OSError("rollback blocked")
 
             with self.assertRaises(AtomicWriteOutcomeUnknownError) as raised:
-                with patch(
-                    "pixelflasher_core.grants._posix_exchange",
-                    side_effect=block_rollback,
-                ), bound.begin_atomic_replace() as transaction:
+                with (
+                    patch(
+                        "pixelflasher_core.grants._posix_exchange",
+                        side_effect=block_rollback,
+                    ),
+                    bound.begin_atomic_replace() as transaction,
+                ):
                     transaction.stream.write(b"new approved contents")
                     transaction.stream.flush()
                     os.fsync(transaction.stream.fileno())

@@ -6829,3 +6829,43 @@ msgstr "Cancelar/restablecer solo está disponible para un dispositivo ADB con r
 msgctxt "web.device.otaResetSucceeded"
 msgid "update_engine is independently verified as idle."
 msgstr "Se verificó de forma independiente que update_engine está inactivo."
+
+msgctxt "web.tools.partitionRunning"
+msgid "Partition operation in progress"
+msgstr "Operación de partición en curso"
+
+msgctxt "web.tools.partitionCancelling"
+msgid "Cancelling partition operation…"
+msgstr "Cancelando la operación de partición…"
+
+msgctxt "web.tools.partitionProgress"
+msgid "Partition operation progress"
+msgstr "Progreso de la operación de partición"
+
+msgctxt "web.tools.partitionFailed"
+msgid "Partition operation failed. Review the device state before retrying."
+msgstr "La operación de partición falló. Revisa el estado del dispositivo antes de reintentar."
+
+msgctxt "web.tools.partitionInvalidReceipt"
+msgid "The backend did not return a valid verification receipt."
+msgstr "El backend no devolvió un recibo de verificación válido."
+
+msgctxt "web.tools.partitionVerified"
+msgid "Partition result verified"
+msgstr "Resultado de partición verificado"
+
+msgctxt "web.tools.partitionCancelled"
+msgid "Partition operation cancelled before a verified result."
+msgstr "La operación de partición se canceló antes de obtener un resultado verificado."
+
+msgctxt "web.tools.partitionUnknown"
+msgid "The connection or host write changed after mutation began. Inspect the device and destination before retrying."
+msgstr "La conexión o la escritura del host cambió después de comenzar la mutación. Revisa el dispositivo y el destino antes de reintentar."
+
+msgctxt "web.tools.partitionUnknownTitle"
+msgid "Partition outcome unknown"
+msgstr "Resultado de partición desconocido"
+
+msgctxt "web.tools.partitionRetry"
+msgid "Retry with a new plan"
+msgstr "Reintentar con un plan nuevo"

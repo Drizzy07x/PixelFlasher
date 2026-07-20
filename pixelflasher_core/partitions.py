@@ -16,9 +16,10 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from tempfile import TemporaryDirectory
+from typing import BinaryIO, Protocol
 
 from .contracts import (
     AppCommand,
@@ -27,8 +28,16 @@ from .contracts import (
     FileArtifact,
     OperationPlan,
     OperationPostcondition,
+    OperationResult,
     OperationRisk,
     ProcessRequest,
+)
+from .executor import CancellationToken, TransportOutcome
+from .grants import (
+    AtomicWriteOutcomeUnknownError,
+    BoundReadFile,
+    BoundWriteFile,
+    GrantError,
 )
 
 PARTITION_COMMANDS = frozenset(
@@ -116,11 +125,7 @@ _SLOT_CAPABLE_PARTITIONS = frozenset(
 ALLOWED_PARTITIONS = frozenset(
     _UNSLOTTED_PARTITIONS
     | _SLOT_CAPABLE_PARTITIONS
-    | {
-        f"{partition}_{slot}"
-        for partition in _SLOT_CAPABLE_PARTITIONS
-        for slot in ("a", "b")
-    }
+    | {f"{partition}_{slot}" for partition in _SLOT_CAPABLE_PARTITIONS for slot in ("a", "b")}
 )
 
 _PARTITION_VARIABLE = re.compile(
@@ -128,6 +133,9 @@ _PARTITION_VARIABLE = re.compile(
     r"(?P<partition>[A-Za-z0-9_.-]+):\s*(?P<value>\S+)",
     re.IGNORECASE,
 )
+_OUTPUT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ +@=-]{0,191}$")
+_MAX_PARTITION_BYTES = 16 * 1024 * 1024 * 1024
+_COPY_CHUNK = 1024 * 1024
 
 
 class PartitionPlanningError(ValueError):
@@ -164,6 +172,9 @@ class PartitionCompilation:
     destructive: bool = False
     requires_confirmation: bool = False
     reinforced_confirmation: bool = False
+    partition: str = ""
+    destination: BoundWriteFile | None = field(default=None, repr=False)
+    local_payload: Path | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -175,13 +186,41 @@ class PartitionCompilation:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class PartitionReadEvidence:
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionReadDecision:
+    allowed: bool
+    code: str
+    message: str
+    evidence: PartitionReadEvidence | None = None
+
+
 class PartitionService:
     """Compile trusted fastboot partition plans from canonical app state."""
 
-    def __init__(self, *, hash_chunk_size: int = 1024 * 1024) -> None:
+    def __init__(
+        self,
+        *,
+        hash_chunk_size: int = 1024 * 1024,
+        temporary_root: str | Path | None = None,
+    ) -> None:
         if hash_chunk_size <= 0:
             raise ValueError("hash_chunk_size must be positive")
         self.hash_chunk_size = hash_chunk_size
+        self._owned_temporary_root: TemporaryDirectory[str] | None = None
+        if temporary_root is None:
+            self._owned_temporary_root = TemporaryDirectory(prefix="pixelflasher-partitions-")
+            root = Path(self._owned_temporary_root.name)
+        else:
+            root = Path(temporary_root).expanduser().resolve(strict=True)
+        if not root.is_dir():
+            raise ValueError("partition temporary root must be a directory")
+        self.temporary_root = root
 
     def compile(
         self,
@@ -253,13 +292,17 @@ class PartitionService:
                 "partition_overwrite_invalid",
                 "overwrite must be a boolean",
             )
-        destination = self._output_path(
+        destination = self._output_grant(
             command.payload.get("destination"),
             overwrite=overwrite,
         )
+        nonce = hashlib.sha256(command.operation_id.encode("utf-8")).hexdigest()[:24]
+        local_payload = self.temporary_root / f"{nonce}-{partition}.img"
+        local_payload.unlink(missing_ok=True)
         request = ProcessRequest(
-            (fastboot, "-s", device.serial, "fetch", partition, str(destination)),
+            (fastboot, "-s", device.serial, "fetch", partition, str(local_payload)),
             timeout_seconds=900.0,
+            output_limit_bytes=64 * 1024,
         )
         return PartitionCompilation(
             self._base_plan(
@@ -268,8 +311,24 @@ class PartitionService:
                 (request,),
                 label=f"Read {partition} from {device.serial}",
                 partitions=(partition,),
+                data_behavior="partition_read",
+                risk=OperationRisk.MUTATING,
+                postconditions=(
+                    OperationPostcondition(
+                        "partition_read_verified",
+                        {
+                            "targetSerial": device.serial,
+                            "partition": partition,
+                            "fileName": destination.name,
+                        },
+                        "the fetched image was hashed and atomically published",
+                    ),
+                ),
             ),
             "read",
+            partition=partition,
+            destination=destination,
+            local_payload=local_payload,
         )
 
     def _compile_write(
@@ -282,15 +341,12 @@ class PartitionService:
     ) -> PartitionCompilation:
         self._validate_payload(command, {"serial", "partition", "path"})
         partition = self._partition(command.payload.get("partition"))
-        path = self._input_path(command.payload.get("path"))
-        artifact = FileArtifact(
-            str(path),
-            self._sha256(path, cancellation),
-            f"partition:{partition}",
-        )
+        source = self._input_grant(command.payload.get("path"))
+        artifact = self._source_artifact(source, partition, cancellation)
         request = ProcessRequest(
-            (fastboot, "-s", device.serial, "flash", partition, str(path)),
+            (fastboot, "-s", device.serial, "flash", partition, str(source.path)),
             timeout_seconds=900.0,
+            output_limit_bytes=64 * 1024,
         )
         return PartitionCompilation(
             self._base_plan(
@@ -317,6 +373,7 @@ class PartitionService:
             "write",
             destructive=True,
             requires_confirmation=True,
+            partition=partition,
         )
 
     def _compile_erase(
@@ -353,28 +410,233 @@ class PartitionService:
             destructive=True,
             requires_confirmation=True,
             reinforced_confirmation=True,
+            partition=partition,
         )
 
-    def _sha256(
+    def validate_read_preflight(
+        self,
+        compilation: PartitionCompilation,
+        outcome: TransportOutcome,
+        cancellation: CancellationProbe | None,
+    ) -> PartitionReadDecision:
+        local_payload = compilation.local_payload
+        if (
+            compilation.action != "read"
+            or compilation.destination is None
+            or local_payload is None
+            or len(compilation.plan.requests) != 1
+        ):
+            return PartitionReadDecision(
+                False,
+                "partition_read_plan_invalid",
+                "partition read did not produce its closed staging plan",
+            )
+        if outcome.timed_out:
+            return PartitionReadDecision(
+                False,
+                "partition_read_preflight_timed_out",
+                "partition read timed out before destination publication",
+            )
+        if outcome.cancelled:
+            return PartitionReadDecision(
+                False,
+                "partition_read_preflight_cancelled",
+                "partition read was cancelled before destination publication",
+            )
+        request = compilation.plan.requests[0]
+        captured = len(outcome.stdout.encode(request.encoding, errors="replace"))
+        captured += len(outcome.stderr.encode(request.encoding, errors="replace"))
+        if outcome.output_limited or (request.output_limit_bytes is not None and captured > request.output_limit_bytes):
+            return PartitionReadDecision(
+                False,
+                "partition_read_output_oversized",
+                "partition read output exceeded its safety limit",
+            )
+        if outcome.returncode != 0:
+            return PartitionReadDecision(
+                False,
+                "partition_read_failed",
+                "fastboot could not fetch the selected partition",
+            )
+        try:
+            staged = local_payload.resolve(strict=True)
+            if staged.parent != self.temporary_root or staged.is_symlink() or not staged.is_file():
+                raise PartitionPlanningError(
+                    "partition_read_staging_invalid",
+                    "partition read staging is outside its private directory",
+                )
+            digest, size = self._hash_path(staged, cancellation)
+            if not 1 <= size <= _MAX_PARTITION_BYTES:
+                raise PartitionPlanningError(
+                    "partition_read_size_invalid",
+                    "fetched partition image is outside its size limit",
+                )
+        except (OSError, PartitionPlanningError) as error:
+            code = getattr(error, "code", "partition_read_staging_invalid")
+            return PartitionReadDecision(
+                False,
+                (
+                    "partition_read_preflight_cancelled"
+                    if code == "partition_cancelled"
+                    else code
+                ),
+                (
+                    "partition read was cancelled before destination publication"
+                    if code == "partition_cancelled"
+                    else str(error)
+                ),
+            )
+        return PartitionReadDecision(
+            True,
+            "partition_read_preflight_verified",
+            "partition image staging hash was verified",
+            PartitionReadEvidence(digest, size),
+        )
+
+    def publish_read(
+        self,
+        compilation: PartitionCompilation,
+        evidence: PartitionReadEvidence,
+        operation_id: str,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        destination = compilation.destination
+        local_payload = compilation.local_payload
+        if destination is None or local_payload is None or compilation.action != "read":
+            return OperationResult.failed(
+                operation_id,
+                code="partition_read_plan_invalid",
+                message="partition read publication has no verified destination",
+            )
+        try:
+            digest, size = self._hash_path(local_payload, cancellation)
+            if digest != evidence.sha256 or size != evidence.size_bytes:
+                raise PartitionPlanningError(
+                    "partition_read_staging_changed",
+                    "fetched partition staging changed before publication",
+                )
+            with destination.begin_atomic_replace() as transaction:
+                with local_payload.open("rb") as source:
+                    while True:
+                        self._check_cancelled(cancellation)
+                        chunk = source.read(_COPY_CHUNK)
+                        if not chunk:
+                            break
+                        transaction.stream.write(chunk)
+                transaction.stream.flush()
+                os.fsync(transaction.stream.fileno())
+                self._check_cancelled(cancellation)
+                transaction.commit()
+                with transaction.open_committed() as committed:
+                    committed_digest, committed_size = self._hash_stream(
+                        committed,
+                        cancellation,
+                    )
+            if committed_digest != digest or committed_size != size:
+                raise AtomicWriteOutcomeUnknownError("published partition image differs from verified staging")
+        except AtomicWriteOutcomeUnknownError as error:
+            return OperationResult.failed(
+                operation_id,
+                code="outcome_unknown",
+                message=str(error),
+            )
+        except PartitionPlanningError as error:
+            if error.code == "partition_cancelled":
+                return OperationResult.cancelled(
+                    operation_id,
+                    code="partition_read_cancelled",
+                    message="partition read publication was cancelled",
+                )
+            return OperationResult.failed(
+                operation_id,
+                code=error.code,
+                message=str(error),
+            )
+        except (GrantError, OSError) as error:
+            return OperationResult.failed(
+                operation_id,
+                code=getattr(error, "code", "partition_read_publish_failed"),
+                message=str(error),
+            )
+        return OperationResult.success(
+            operation_id,
+            code="partition_read_verified",
+            message="partition image was hashed and atomically published",
+            value={
+                "action": "read",
+                "targetSerial": compilation.plan.target_serial,
+                "partition": compilation.partition,
+                "fileName": destination.name,
+                "sha256": digest,
+                "sizeBytes": size,
+                "verified": True,
+            },
+        )
+
+    def cleanup_read(self, compilation: PartitionCompilation) -> None:
+        local_payload = compilation.local_payload
+        if local_payload is not None:
+            try:
+                if local_payload.parent == self.temporary_root:
+                    local_payload.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _source_artifact(
+        self,
+        source: BoundReadFile,
+        partition: str,
+        cancellation: CancellationProbe | None,
+    ) -> FileArtifact:
+        try:
+            with source.open_verified() as stream:
+                digest, size = self._hash_stream(stream, cancellation)
+        except (GrantError, OSError) as error:
+            raise PartitionPlanningError(
+                "partition_image_read_failed",
+                str(error),
+            ) from error
+        if not 1 <= size <= _MAX_PARTITION_BYTES:
+            raise PartitionPlanningError(
+                "partition_image_size_invalid",
+                "the selected partition image is outside its size limit",
+            )
+        return FileArtifact(str(source.path), digest, f"partition:{partition}")
+
+    def _hash_path(
         self,
         path: Path,
         cancellation: CancellationProbe | None,
-    ) -> str:
-        digest = hashlib.sha256()
+    ) -> tuple[str, int]:
         try:
             with path.open("rb") as stream:
-                while True:
-                    self._check_cancelled(cancellation)
-                    chunk = stream.read(self.hash_chunk_size)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
+                return self._hash_stream(stream, cancellation)
         except OSError as error:
             raise PartitionPlanningError(
                 "partition_image_read_failed",
                 str(error),
             ) from error
-        return digest.hexdigest()
+
+    def _hash_stream(
+        self,
+        stream: BinaryIO,
+        cancellation: CancellationProbe | None,
+    ) -> tuple[str, int]:
+        digest = hashlib.sha256()
+        size = 0
+        while True:
+            self._check_cancelled(cancellation)
+            chunk = stream.read(self.hash_chunk_size)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > _MAX_PARTITION_BYTES:
+                raise PartitionPlanningError(
+                    "partition_image_size_invalid",
+                    "partition image exceeds its size limit",
+                )
+            digest.update(chunk)
+        return digest.hexdigest(), size
 
     @staticmethod
     def _check_cancelled(cancellation: CancellationProbe | None) -> None:
@@ -394,18 +656,13 @@ class PartitionService:
         if command.expected_revision != snapshot.revision:
             raise PartitionPlanningError(
                 "stale_revision",
-                (
-                    f"state revision changed: expected {command.expected_revision}, "
-                    f"current {snapshot.revision}"
-                ),
+                (f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
             )
 
     @staticmethod
     def _device(command: AppCommand, snapshot: AppSnapshot) -> DeviceInfo:
         raw_serial = command.payload.get("serial")
-        if raw_serial is not None and (
-            not isinstance(raw_serial, str) or not raw_serial.strip()
-        ):
+        if raw_serial is not None and (not isinstance(raw_serial, str) or not raw_serial.strip()):
             raise PartitionPlanningError(
                 "target_serial_invalid",
                 "payload.serial must be a non-empty string",
@@ -433,10 +690,10 @@ class PartitionService:
                 "device_disconnected",
                 "target device is not online",
             )
-        if device.mode != "fastboot":
+        if device.mode not in {"fastboot", "fastbootd"}:
             raise PartitionPlanningError(
                 "fastboot_required",
-                "partition operations require the target in fastboot mode",
+                "partition operations require the target in fastboot or fastbootd mode",
             )
         return device
 
@@ -465,73 +722,37 @@ class PartitionService:
         return partition
 
     @staticmethod
-    def _input_path(raw_path: object) -> Path:
-        if not isinstance(raw_path, str) or not raw_path.strip():
+    def _input_grant(raw_path: object) -> BoundReadFile:
+        if not isinstance(raw_path, BoundReadFile):
             raise PartitionPlanningError(
-                "partition_image_path_required",
-                "an existing local image path is required",
+                "partition_image_grant_required",
+                "an opaque native image grant is required",
             )
-        try:
-            path = Path(raw_path).expanduser().resolve(strict=True)
-        except (OSError, RuntimeError, ValueError) as error:
-            raise PartitionPlanningError(
-                "partition_image_path_invalid",
-                str(error),
-            ) from error
-        if not path.is_file():
-            raise PartitionPlanningError(
-                "partition_image_path_invalid",
-                "the selected partition image must be an existing regular file",
-            )
-        return path
+        return raw_path
 
     @staticmethod
-    def _output_path(raw_path: object, *, overwrite: bool) -> Path:
-        if not isinstance(raw_path, str) or not raw_path.strip():
+    def _output_grant(raw_path: object, *, overwrite: bool) -> BoundWriteFile:
+        if not isinstance(raw_path, BoundWriteFile):
             raise PartitionPlanningError(
-                "partition_destination_required",
-                "a local destination path is required",
+                "partition_destination_grant_required",
+                "an opaque native destination grant is required",
             )
-        try:
-            path = Path(raw_path).expanduser().resolve(strict=False)
-            parent = path.parent.resolve(strict=True)
-        except (OSError, RuntimeError, ValueError) as error:
+        if _OUTPUT_NAME.fullmatch(raw_path.name) is None:
             raise PartitionPlanningError(
                 "partition_destination_invalid",
-                str(error),
-            ) from error
-        # Resolve the final parent independently so a missing/symlinked parent
-        # can never redirect fastboot outside the path validated here.
-        canonical = parent / path.name
-        if not path.name or not parent.is_dir():
-            raise PartitionPlanningError(
-                "partition_destination_invalid",
-                "the destination parent must be an existing local directory",
+                "the selected destination name is invalid",
             )
-        if canonical.exists():
-            if not canonical.is_file():
-                raise PartitionPlanningError(
-                    "partition_destination_invalid",
-                    "the destination must be a regular file",
-                )
-            if not overwrite:
-                raise PartitionPlanningError(
-                    "partition_destination_exists",
-                    "destination exists; explicit overwrite=true is required",
-                )
-        elif canonical.is_symlink():
-            # Broken links are not safe output targets and ``exists`` is false
-            # for them.
+        if raw_path.path.exists() and not overwrite:
             raise PartitionPlanningError(
-                "partition_destination_invalid",
-                "the destination cannot be a broken symbolic link",
+                "partition_destination_exists",
+                "destination exists; explicit overwrite=true is required",
             )
-        if not os.access(parent, os.W_OK):
-            raise PartitionPlanningError(
-                "partition_destination_not_writable",
-                "the destination directory is not writable",
-            )
-        return canonical
+        return raw_path
+
+    def shutdown(self) -> None:
+        if self._owned_temporary_root is not None:
+            self._owned_temporary_root.cleanup()
+            self._owned_temporary_root = None
 
     @staticmethod
     def _base_plan(
@@ -625,6 +846,8 @@ __all__ = [
     "PartitionCompilation",
     "PartitionInfo",
     "PartitionPlanningError",
+    "PartitionReadDecision",
+    "PartitionReadEvidence",
     "PartitionService",
     "parse_fastboot_partition_list",
 ]

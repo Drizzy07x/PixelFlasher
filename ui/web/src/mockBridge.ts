@@ -1765,20 +1765,34 @@ export function installDevelopmentBridge() {
             }));
             break;
           case 'partitions.read':
-            respond(request, success(`Read ${String(request.payload.partition)} image.`));
+            respond(request, success(`Read ${String(request.payload.partition)} image.`, {
+              action: 'read',
+              targetSerial: String(request.payload.serial),
+              partition: String(request.payload.partition),
+              fileName: `${String(request.payload.partition)}.img`,
+              sha256: 'c'.repeat(64),
+              sizeBytes: 67108864,
+              verified: true,
+            }));
             break;
           case 'partitions.write':
             requestGuardedConfirmation(
               request,
               `Write ${String(request.payload.partition)} on ${String(request.payload.serial)}?`,
               true,
-              () => finishGuarded(request, success(`Wrote ${String(request.payload.partition)} image.`)),
+              () => finishGuarded(request, success(`Wrote ${String(request.payload.partition)} image.`, {
+                action: 'write',
+                targetSerial: String(request.payload.serial),
+                partition: String(request.payload.partition),
+                sha256: 'd'.repeat(64),
+                verified: true,
+              })),
             );
             break;
           case 'partitions.erase': {
             const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
             const selectedPartition = typeof request.payload.partition === 'string' ? request.payload.partition : '';
-            const requiredText = `ERASE ${serial} ${selectedPartition}`;
+            const requiredText = `ERASE ${selectedPartition} ${serial.slice(-6).toUpperCase()}`;
             if (!selectedPartition || request.payload.confirmationText !== requiredText) {
               requireConfirmationText(request, requiredText);
               break;
@@ -1787,7 +1801,13 @@ export function installDevelopmentBridge() {
               request,
               `Erase ${selectedPartition} on ${serial}?`,
               true,
-              () => finishGuarded(request, success(`Erased ${selectedPartition}.`)),
+              () => finishGuarded(request, success(`Erased ${selectedPartition}.`, {
+                action: 'erase',
+                targetSerial: serial,
+                partition: selectedPartition,
+                erased: true,
+                verified: true,
+              })),
               true,
             );
             break;

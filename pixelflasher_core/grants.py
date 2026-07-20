@@ -211,6 +211,7 @@ class BoundWriteFile:
             raise
         return BoundWriteTransaction(backend)
 
+
 class _WriteAnchor(Protocol):
     def create_transaction(
         self,
@@ -318,10 +319,7 @@ class _PosixWriteAnchor:
                 _stat_identity(staging_info) != staging_identity
                 or not stat.S_ISDIR(staging_info.st_mode)
                 or stat.S_IMODE(staging_info.st_mode) & 0o077
-                or (
-                    get_effective_user_id is not None
-                    and int(staging_info.st_uid) != int(get_effective_user_id())
-                )
+                or (get_effective_user_id is not None and int(staging_info.st_uid) != int(get_effective_user_id()))
             ):
                 raise GrantError(
                     "grant_resource_changed",
@@ -455,10 +453,8 @@ class _PosixAtomicWrite:
             except OSError as error:
                 if error.errno in {errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EINVAL}:
                     if (
-                        _relative_target_identity(self._staging_fd, self._temporary_name)
-                        == self._temporary_identity
-                        and _relative_target_identity(self._directory_fd, self._leaf_name)
-                        == self._target_identity
+                        _relative_target_identity(self._staging_fd, self._temporary_name) == self._temporary_identity
+                        and _relative_target_identity(self._directory_fd, self._leaf_name) == self._target_identity
                     ):
                         self._staged_cleanup_identity = self._temporary_identity
                         raise
@@ -469,9 +465,7 @@ class _PosixAtomicWrite:
         try:
             installed = _relative_target_identity(self._directory_fd, self._leaf_name)
             if installed != self._temporary_identity:
-                raise AtomicWriteOutcomeUnknownError(
-                    "published destination changed before it could be verified"
-                )
+                raise AtomicWriteOutcomeUnknownError("published destination changed before it could be verified")
             if self._target_identity is not None:
                 displaced = _relative_target_identity(self._staging_fd, self._temporary_name)
                 if displaced != self._target_identity:
@@ -479,21 +473,14 @@ class _PosixAtomicWrite:
                         raise AtomicWriteOutcomeUnknownError(
                             "destination changed at publication; the exchange was rolled back"
                         )
-                    raise AtomicWriteOutcomeUnknownError(
-                        "approved destination changed at the atomic exchange boundary"
-                    )
+                    raise AtomicWriteOutcomeUnknownError("approved destination changed at the atomic exchange boundary")
                 self._staged_cleanup_identity = self._target_identity
             os.unlink(self._temporary_name, dir_fd=self._staging_fd)
             self._staged_cleanup_identity = None
             os.fsync(self._staging_fd)
             os.fsync(self._directory_fd)
-            if (
-                _relative_target_identity(self._directory_fd, self._leaf_name)
-                != self._temporary_identity
-            ):
-                raise AtomicWriteOutcomeUnknownError(
-                    "published destination changed before durability was confirmed"
-                )
+            if _relative_target_identity(self._directory_fd, self._leaf_name) != self._temporary_identity:
+                raise AtomicWriteOutcomeUnknownError("published destination changed before durability was confirmed")
         except AtomicWriteOutcomeUnknownError:
             raise
         except Exception as error:
@@ -505,10 +492,8 @@ class _PosixAtomicWrite:
             return False
         try:
             if (
-                _relative_target_identity(self._directory_fd, self._leaf_name)
-                != self._temporary_identity
-                or _relative_target_identity(self._staging_fd, self._temporary_name)
-                != displaced_identity
+                _relative_target_identity(self._directory_fd, self._leaf_name) != self._temporary_identity
+                or _relative_target_identity(self._staging_fd, self._temporary_name) != displaced_identity
             ):
                 return False
             _posix_exchange(
@@ -518,10 +503,8 @@ class _PosixAtomicWrite:
                 self._leaf_name,
             )
             if (
-                _relative_target_identity(self._directory_fd, self._leaf_name)
-                != displaced_identity
-                or _relative_target_identity(self._staging_fd, self._temporary_name)
-                != self._temporary_identity
+                _relative_target_identity(self._directory_fd, self._leaf_name) != displaced_identity
+                or _relative_target_identity(self._staging_fd, self._temporary_name) != self._temporary_identity
             ):
                 return False
         except OSError:
@@ -568,8 +551,7 @@ class _PosixAtomicWrite:
             cleanup_identity = self._staged_cleanup_identity
             if (
                 cleanup_identity is not None
-                and _relative_target_identity(self._staging_fd, self._temporary_name)
-                == cleanup_identity
+                and _relative_target_identity(self._staging_fd, self._temporary_name) == cleanup_identity
             ):
                 os.unlink(self._temporary_name, dir_fd=self._staging_fd)
                 self._staged_cleanup_identity = None
@@ -918,11 +900,7 @@ class _Win32Api:
                 attributes,
                 share_access,
                 disposition,
-                (
-                    self._FILE_SYNCHRONOUS_IO_NONALERT
-                    | self._FILE_NON_DIRECTORY_FILE
-                    | self._FILE_OPEN_REPARSE_POINT
-                ),
+                (self._FILE_SYNCHRONOUS_IO_NONALERT | self._FILE_NON_DIRECTORY_FILE | self._FILE_OPEN_REPARSE_POINT),
                 None,
                 0,
             )
@@ -1319,7 +1297,13 @@ class PathGrantStore:
         supplied = Path(path).expanduser()
 
         if access is GrantAccess.READ:
-            resolved = supplied.resolve(strict=True)
+            try:
+                resolved = supplied.resolve(strict=True)
+            except (OSError, RuntimeError, ValueError) as error:
+                raise GrantError(
+                    "grant_resource_invalid",
+                    "selected resource is unavailable",
+                ) from error
             if target is GrantTarget.FILE and not resolved.is_file():
                 raise GrantError("grant_target_mismatch", "selected resource is not a file")
             if target is GrantTarget.DIRECTORY and not resolved.is_dir():
@@ -1330,16 +1314,33 @@ class PathGrantStore:
             consume_once = False
         else:
             if target is GrantTarget.DIRECTORY:
-                resolved = supplied.resolve(strict=True)
+                try:
+                    resolved = supplied.resolve(strict=True)
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise GrantError(
+                        "grant_resource_invalid",
+                        "selected resource is unavailable",
+                    ) from error
                 if not resolved.is_dir():
                     raise GrantError("grant_target_mismatch", "selected resource is not a directory")
                 anchor = resolved
                 target_identity = _identity(resolved)
             else:
-                parent = supplied.parent.resolve(strict=True)
+                try:
+                    parent = supplied.parent.resolve(strict=True)
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise GrantError(
+                        "grant_parent_invalid",
+                        "selected destination has no valid parent",
+                    ) from error
                 if not parent.is_dir():
                     raise GrantError("grant_parent_invalid", "selected destination has no valid parent")
                 resolved = parent / supplied.name
+                if resolved.exists() and not resolved.is_file():
+                    raise GrantError(
+                        "grant_target_mismatch",
+                        "selected destination is not a file",
+                    )
                 anchor = parent
                 target_identity = _identity(resolved) if resolved.exists() else None
             expires_at = self._clock() + self._write_ttl_seconds
@@ -1450,11 +1451,7 @@ class PathGrantStore:
 
         normalized = _validate_purpose(purpose)
         with self._lock:
-            tokens = [
-                token
-                for token, grant in self._grants.items()
-                if grant.purpose == normalized
-            ]
+            tokens = [token for token, grant in self._grants.items() if grant.purpose == normalized]
             for token in tokens:
                 self._grants.pop(token, None)
         return len(tokens)
@@ -1491,9 +1488,7 @@ class PathGrantStore:
     def _purge_expired_locked(self) -> None:
         now = self._clock()
         expired = [
-            token
-            for token, grant in self._grants.items()
-            if grant.expires_at is not None and now >= grant.expires_at
+            token for token, grant in self._grants.items() if grant.expires_at is not None and now >= grant.expires_at
         ]
         for token in expired:
             self._grants.pop(token, None)

@@ -134,6 +134,7 @@ from .partitions import (
     PARTITION_COMMANDS,
     PartitionCompilation,
     PartitionPlanningError,
+    PartitionReadEvidence,
     PartitionService,
     parse_fastboot_partition_list,
 )
@@ -299,17 +300,13 @@ class CommandEngine:
         if toolchain_service.transport is not executor.transport:
             raise ValueError("toolchain service and command engine must share one process transport")
         if platform_tools_setup_service.toolchain_service is not toolchain_service:
-            raise ValueError(
-                "Platform Tools setup and command engine must share one toolchain service"
-            )
+            raise ValueError("Platform Tools setup and command engine must share one toolchain service")
         if device_service.transport is not executor.transport:
             raise ValueError("device service and command engine must share one process transport")
         if boot_patch_service.rooting_service is not rooting_service:
             raise ValueError("boot patch service and command engine must share one rooting service")
         if root_app_catalog_service.rooting_service is not rooting_service:
-            raise ValueError(
-                "root-app catalog and command engine must share one rooting service"
-            )
+            raise ValueError("root-app catalog and command engine must share one rooting service")
         self.store = store
         self.executor = executor
         self.safety_policy = safety_policy
@@ -691,9 +688,7 @@ class CommandEngine:
                         plan_fingerprint=snapshot.plan.fingerprint,
                         current_boot=current_artifact,
                         current_security_patch=(
-                            current_security_patch
-                            if isinstance(current_security_patch, str)
-                            else ""
+                            current_security_patch if isinstance(current_security_patch, str) else ""
                         ),
                         patch_fingerprint=patch_fingerprint,
                         cancellation=token,
@@ -787,9 +782,7 @@ class CommandEngine:
                         message=str(error),
                     )
                     if processing is not None and processing.ok and result.ok:
-                        fallback = self._rollback_avb_downgrade(
-                            command, processing, fallback
-                        )
+                        fallback = self._rollback_avb_downgrade(command, processing, fallback)
                     self._abort_operation_safely(fallback)
                     return fallback
                 return result
@@ -935,9 +928,7 @@ class CommandEngine:
                 message="tools.keybox requires one to 32 purpose-bound keybox grants",
             )
         source_values = cast("Sequence[object]", raw_sources)
-        if not 1 <= len(source_values) <= 32 or any(
-            not isinstance(source, BoundReadFile) for source in source_values
-        ):
+        if not 1 <= len(source_values) <= 32 or any(not isinstance(source, BoundReadFile) for source in source_values):
             return OperationResult.failed(
                 command.operation_id,
                 code="keybox_payload_invalid",
@@ -1014,9 +1005,7 @@ class CommandEngine:
                         )
                     else:
                         status_counts = {
-                            status.value: sum(
-                                report.get("status") == status.value for report in reports
-                            )
+                            status.value: sum(report.get("status") == status.value for report in reports)
                             for status in KeyboxStatus
                         }
                         result = OperationResult.success(
@@ -1031,9 +1020,7 @@ class CommandEngine:
                                     "unverified": status_counts[KeyboxStatus.UNVERIFIED.value],
                                     "revoked": status_counts[KeyboxStatus.REVOKED.value],
                                     "expired": status_counts[KeyboxStatus.EXPIRED.value],
-                                    "softwareAttestation": status_counts[
-                                        KeyboxStatus.SOFTWARE_ATTESTATION.value
-                                    ],
+                                    "softwareAttestation": status_counts[KeyboxStatus.SOFTWARE_ATTESTATION.value],
                                     "invalid": status_counts[KeyboxStatus.INVALID.value],
                                 },
                                 "revocationEvidence": (
@@ -1192,9 +1179,7 @@ class CommandEngine:
                 inventory_backup_id: str | None = None
                 if command.kind == "backups.restore" and inventory_id is not None:
                     if not isinstance(inventory_id, str):
-                        raise BackupRepositoryError(
-                            "backup_id_invalid", "backup ID must be a string"
-                        )
+                        raise BackupRepositoryError("backup_id_invalid", "backup ID must be a string")
                     record, artifact = self.backup_repository.resolve_verified(
                         inventory_id,
                         cancellation=planning_token,
@@ -1202,11 +1187,7 @@ class CommandEngine:
                     inventory_backup_id = record.backup_id
                     backup_command = replace(
                         command,
-                        payload={
-                            key: value
-                            for key, value in command.payload.items()
-                            if key != "backupId"
-                        }
+                        payload={key: value for key, value in command.payload.items() if key != "backupId"}
                         | {"path": artifact.path},
                     )
                 compilation = self.backup_service.compile(
@@ -1348,10 +1329,7 @@ class CommandEngine:
                     return self._denied(
                         command,
                         "stale_revision",
-                        (
-                            f"state revision changed: expected {snapshot.revision}, "
-                            f"current {current.revision}"
-                        ),
+                        (f"state revision changed: expected {snapshot.revision}, current {current.revision}"),
                     )
                 result = OperationResult.success(
                     command.operation_id,
@@ -1428,6 +1406,101 @@ class CommandEngine:
                 completion_boot=self._boot_info_from_patch_result,
                 cancellation=planning_token,
             )
+        if isinstance(compilation, PartitionCompilation) and compilation.action == "read":
+            read_evidence: PartitionReadEvidence | None = None
+
+            def partition_read_preflight(
+                _command: AppCommand,
+                boundary_plan: OperationPlan,
+                _boundary_snapshot: AppSnapshot,
+                boundary_token: CancellationToken,
+            ) -> ExecutionBoundaryAck:
+                nonlocal read_evidence
+                self._publish_progress(
+                    command,
+                    ProgressPhase.STARTED,
+                    "Fetching the selected partition into private staging.",
+                    0,
+                )
+                try:
+                    outcome = self.executor.transport.run(
+                        boundary_plan.requests[0],
+                        boundary_token,
+                    )
+                except Exception:
+                    return ExecutionBoundaryAck.rejected(
+                        "partition_read_preflight_cancelled"
+                        if boundary_token.cancelled
+                        else "partition_read_preflight_failed",
+                        "partition read stopped before destination publication"
+                        if boundary_token.cancelled
+                        else "partition read staging could not be verified",
+                    )
+                decision = self.partition_service.validate_read_preflight(
+                    compilation,
+                    outcome,
+                    boundary_token,
+                )
+                if not decision.allowed or decision.evidence is None:
+                    return ExecutionBoundaryAck.rejected(
+                        decision.code,
+                        decision.message,
+                    )
+                read_evidence = decision.evidence
+                self._publish_progress(
+                    command,
+                    ProgressPhase.RUNNING,
+                    "Partition staging was hashed; publishing atomically.",
+                    75,
+                )
+                return ExecutionBoundaryAck.accepted()
+
+            def publish_partition_read(
+                _command: AppCommand,
+                _plan: OperationPlan,
+                cancellation: CancellationToken,
+            ) -> OperationResult:
+                if read_evidence is None:
+                    return OperationResult.failed(
+                        command.operation_id,
+                        code="partition_read_evidence_missing",
+                        message="partition read publication lacks verified staging evidence",
+                    )
+                return self.partition_service.publish_read(
+                    compilation,
+                    read_evidence,
+                    command.operation_id,
+                    cancellation,
+                )
+
+            try:
+                result = self._execute_process(
+                    planned,
+                    self._strip_closed_execution_metadata,
+                    cancellation=planning_token,
+                    execution_preflight=partition_read_preflight,
+                    operation_executor=publish_partition_read,
+                    request_start_index=1,
+                )
+            finally:
+                self.partition_service.cleanup_read(compilation)
+            if result.code == "partition_read_preflight_cancelled":
+                result = OperationResult.cancelled(
+                    command.operation_id,
+                    code=result.code,
+                    message=result.message,
+                )
+            self._publish_progress(
+                command,
+                ProgressPhase.COMPLETED
+                if result.ok
+                else ProgressPhase.CANCELLED
+                if result.status is OperationStatus.CANCELLED
+                else ProgressPhase.FAILED,
+                result.message or "partition read finished",
+                100 if result.ok else None,
+            )
+            return result
         if isinstance(compilation, OtaDiagnosticCompilation):
             if compilation.mutating:
                 mutation_index = compilation.mutation_request_index
@@ -1507,11 +1580,7 @@ class CommandEngine:
         if isinstance(compilation, DeviceToolCompilation) and compilation.execution != "process":
             return self._execute_process(
                 planned,
-                result_parser=(
-                    self._strip_logcat_execution_metadata
-                    if compilation.action == "logcat"
-                    else None
-                ),
+                result_parser=(self._strip_logcat_execution_metadata if compilation.action == "logcat" else None),
                 operation_executor=(
                     lambda _command, _plan, cancellation: (
                         self.device_tools_service.execute_special(
@@ -1648,11 +1717,7 @@ class CommandEngine:
         if not result.ok or not isinstance(raw_value, dict):
             return result
         source = cast(dict[str, object], raw_value)
-        value = {
-            key: item
-            for key, item in source.items()
-            if key not in {"planId", "postconditions"}
-        }
+        value = {key: item for key, item in source.items() if key not in {"planId", "postconditions"}}
         return replace(result, value=value)
 
     def _parse_service_result(
@@ -1738,6 +1803,63 @@ class CommandEngine:
                     "partitions": [partition.to_dict() for partition in partitions],
                 },
             )
+        if kind == "partitions.write" and isinstance(
+            compilation,
+            PartitionCompilation,
+        ):
+            if (
+                compilation.action != "write"
+                or len(plan.artifacts) != 1
+                or len(plan.postconditions) != 1
+                or plan.postconditions[0].kind != "partition_written"
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="partition_write_receipt_unverified",
+                    message="partition write lacks its immutable hash proof",
+                )
+            return replace(
+                result,
+                code="partition_write_verified",
+                message="partition write and device-side hash were verified",
+                value={
+                    "action": "write",
+                    "targetSerial": plan.target_serial,
+                    "partition": compilation.partition,
+                    "sha256": plan.artifacts[0].sha256,
+                    "verified": True,
+                },
+                stdout="",
+                stderr="",
+            )
+        if kind == "partitions.erase" and isinstance(
+            compilation,
+            PartitionCompilation,
+        ):
+            if (
+                compilation.action != "erase"
+                or len(plan.postconditions) != 1
+                or plan.postconditions[0].kind != "partition_erased"
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="partition_erase_receipt_unverified",
+                    message="partition erase lacks its device-side proof",
+                )
+            return replace(
+                result,
+                code="partition_erase_verified",
+                message="partition erase was verified by bounded readback",
+                value={
+                    "action": "erase",
+                    "targetSerial": plan.target_serial,
+                    "partition": compilation.partition,
+                    "erased": True,
+                    "verified": True,
+                },
+                stdout="",
+                stderr="",
+            )
         if kind == "tools.pushFiles":
             if not isinstance(compilation, DeviceToolCompilation):
                 return OperationResult.failed(
@@ -1762,8 +1884,7 @@ class CommandEngine:
             if (
                 not isinstance(compilation, DeviceToolCompilation)
                 or compilation.action != "logcat.clear"
-                or tuple(item.kind for item in plan.postconditions)
-                != ("logcat_buffers_cleared",)
+                or tuple(item.kind for item in plan.postconditions) != ("logcat_buffers_cleared",)
             ):
                 return OperationResult.failed(
                     result.operation_id,
@@ -1773,10 +1894,7 @@ class CommandEngine:
             return replace(
                 result,
                 code="logcat_buffers_cleared",
-                message=(
-                    "the all-buffer clear control completed and main-buffer "
-                    "sentinel removal was verified"
-                ),
+                message=("the all-buffer clear control completed and main-buffer sentinel removal was verified"),
                 value={
                     "targetSerial": plan.target_serial,
                     "buffers": ["all"],
@@ -1829,10 +1947,7 @@ class CommandEngine:
                 stderr="",
             )
         if kind in {"backups.magisk.import", "backups.magisk.delete"}:
-            if (
-                not isinstance(compilation, BackupCompilation)
-                or compilation.magisk_sha1 is None
-            ):
+            if not isinstance(compilation, BackupCompilation) or compilation.magisk_sha1 is None:
                 return OperationResult.failed(
                     result.operation_id,
                     code="magisk_backup_compilation_invalid",
@@ -1888,8 +2003,7 @@ class CommandEngine:
                     result.operation_id,
                     code="backup_created_inventory_failed",
                     message=(
-                        "the raw backup was created, but its managed inventory "
-                        f"registration failed: {error.code}"
+                        f"the raw backup was created, but its managed inventory registration failed: {error.code}"
                     ),
                 )
             return replace(
@@ -1953,9 +2067,7 @@ class CommandEngine:
                     "partition": plan.partitions[0],
                     "slot": plan.slots[0],
                     "backup": (
-                        backup.to_public_dict(
-                            available=self.backup_repository.is_available(backup)
-                        )
+                        backup.to_public_dict(available=self.backup_repository.is_available(backup))
                         if backup is not None
                         else None
                     ),
@@ -2051,20 +2163,16 @@ class CommandEngine:
                 stderr="",
             )
         if kind == "tools.pif":
-            if (
-                not isinstance(compilation, RootingCompilation)
-                or compilation.action
-                not in {
-                    "pif.delete_profile",
-                    "pif.import_profile",
-                    "pif.update_profile",
-                    "pif.add_target",
-                    "pif.delete_target",
-                    "pif.import_target_profile",
-                    "pif.cleanup_droidguard",
-                    "pif.launch_integrity_check",
-                }
-            ):
+            if not isinstance(compilation, RootingCompilation) or compilation.action not in {
+                "pif.delete_profile",
+                "pif.import_profile",
+                "pif.update_profile",
+                "pif.add_target",
+                "pif.delete_target",
+                "pif.import_target_profile",
+                "pif.cleanup_droidguard",
+                "pif.launch_integrity_check",
+            }:
                 return OperationResult.failed(
                     result.operation_id,
                     code="pif_action_compilation_invalid",
@@ -2265,11 +2373,7 @@ class CommandEngine:
             return replace(
                 result,
                 code=("shizuku_started" if kind == "tools.shizuku" else "sos_modules_disabled"),
-                message=(
-                    "Shizuku is running"
-                    if kind == "tools.shizuku"
-                    else "every Magisk module is disabled"
-                ),
+                message=("Shizuku is running" if kind == "tools.shizuku" else "every Magisk module is disabled"),
                 value={
                     "action": action,
                     "targetSerial": plan.target_serial,
@@ -2311,6 +2415,7 @@ class CommandEngine:
         for token in tokens:
             token.cancel()
         self.package_service.shutdown()
+        self.partition_service.shutdown()
         self.data_adb_service.shutdown()
         self.device_tools_service.shutdown()
         self.support_package_service.shutdown()
@@ -2649,9 +2754,7 @@ class CommandEngine:
         if not downloaded.previous_sources and downloaded.app is None:
             return intended
         try:
-            service.rooting_service.restore_root_app_sources(
-                downloaded.previous_sources
-            )
+            service.rooting_service.restore_root_app_sources(downloaded.previous_sources)
         except (TypeError, ValueError, RootingPlanningError) as error:
             return OperationResult.failed(
                 command.operation_id,
@@ -2760,9 +2863,8 @@ class CommandEngine:
                 code=inspection.code,
                 message=inspection.message,
             )
-        if (
-            (expected_kind == "stock" and inspection.kind.value not in {"factory", "ota"})
-            or (expected_kind == "custom" and inspection.kind.value != "custom")
+        if (expected_kind == "stock" and inspection.kind.value not in {"factory", "ota"}) or (
+            expected_kind == "custom" and inspection.kind.value != "custom"
         ):
             return OperationResult.failed(
                 command.operation_id,
@@ -2771,9 +2873,7 @@ class CommandEngine:
             )
         if self.firmware_repository is not None:
             try:
-                existing_artifact_ids = {
-                    item.artifact_id for item in self.firmware_repository.list()
-                }
+                existing_artifact_ids = {item.artifact_id for item in self.firmware_repository.list()}
                 record = self.firmware_repository.import_selection(
                     inspection.path,
                     firmware_type=inspection.kind.value,
@@ -2980,10 +3080,7 @@ class CommandEngine:
                         "application state changed while listing backups",
                     )
                 public = [
-                    record.to_public_dict(
-                        available=self.backup_repository.is_available(record)
-                    )
-                    for record in records
+                    record.to_public_dict(available=self.backup_repository.is_available(record)) for record in records
                 ]
                 return OperationResult.success(
                     command.operation_id,
@@ -3414,10 +3511,7 @@ class CommandEngine:
                             promoted_boot,
                             promoted_boot_selection,
                         ) = self._firmware_processing_result(command, snapshot, processing, token)
-                        if (
-                            result.status is OperationStatus.CANCELLED
-                            and token.reason is CancellationReason.DEADLINE
-                        ):
+                        if result.status is OperationStatus.CANCELLED and token.reason is CancellationReason.DEADLINE:
                             result = self._stopped_result(
                                 command,
                                 token,
@@ -3513,11 +3607,7 @@ class CommandEngine:
         boot_selection: BootSelection | None = None,
     ) -> OperationResult:
         rollback_failed = False
-        if (
-            boot_selection is not None
-            and boot_selection.imported
-            and self.boot_inventory_service is not None
-        ):
+        if boot_selection is not None and boot_selection.imported and self.boot_inventory_service is not None:
             try:
                 self.boot_inventory_service.rollback_processed_import(
                     boot_selection.info.id,
@@ -3729,11 +3819,7 @@ class CommandEngine:
                 stock_boot,
             )
         except Exception:
-            if (
-                boot_selection is not None
-                and boot_selection.imported
-                and self.boot_inventory_service is not None
-            ):
+            if boot_selection is not None and boot_selection.imported and self.boot_inventory_service is not None:
                 self.boot_inventory_service.rollback_processed_import(
                     boot_selection.info.id,
                 )
@@ -3814,8 +3900,7 @@ class CommandEngine:
                         *(
                             device.codename
                             for device in selected_snapshot.devices
-                            if device.serial in selected_snapshot.selected_serials
-                            and device.codename
+                            if device.serial in selected_snapshot.selected_serials and device.codename
                         ),
                     }
                 )
@@ -3852,9 +3937,7 @@ class CommandEngine:
                 command,
                 "payload.source must be exactly official or directory",
             )
-        if source == "directory" and (
-            not isinstance(path, str) or not path.strip()
-        ):
+        if source == "directory" and (not isinstance(path, str) or not path.strip()):
             return self._invalid(
                 command,
                 "payload.path must contain the resolved native directory grant",
@@ -3923,9 +4006,7 @@ class CommandEngine:
                     result = self.toolchain_state_updater(command, setup.toolchain)
                 if not result.ok:
                     return result
-                self.toolchain_service.configured_path = Path(
-                    setup.toolchain.adb
-                ).parent
+                self.toolchain_service.configured_path = Path(setup.toolchain.adb).parent
                 return replace(
                     result,
                     code=setup.code,
@@ -4129,11 +4210,7 @@ class CommandEngine:
                 toolchain = check.info
             try:
                 excluded_serials: frozenset[str] = (
-                    frozenset(
-                        device.serial
-                        for device in snapshot.device_management.devices
-                        if not device.enabled
-                    )
+                    frozenset(device.serial for device in snapshot.device_management.devices if not device.enabled)
                     if snapshot.device_management.scan_scope == "enabled"
                     else frozenset()
                 )
@@ -4191,9 +4268,7 @@ class CommandEngine:
                 code="device_scan_failed",
                 message="; ".join(scan.warnings) or "adb and fastboot scans failed",
             )
-        scanned_devices = {
-            device.serial: device for device in scan.observed_devices
-        }
+        scanned_devices = {device.serial: device for device in scan.observed_devices}
         if "adb" not in scan.successful_sources:
             for device in snapshot.devices:
                 if device.mode not in {"fastboot", "fastbootd"}:
@@ -4217,9 +4292,7 @@ class CommandEngine:
                 online=True,
                 name=remembered.label or remembered.model or remembered.codename,
             )
-        raw_devices = tuple(
-            scanned_devices[key] for key in sorted(scanned_devices, key=str.casefold)
-        )
+        raw_devices = tuple(scanned_devices[key] for key in sorted(scanned_devices, key=str.casefold))
         try:
             management, devices = reconcile_device_management(
                 snapshot.device_management,
@@ -4278,9 +4351,7 @@ class CommandEngine:
         if not decision.allowed:
             return self._denied(command, decision.code, decision.message)
         batch_requested = (
-            command.target_serial is None
-            and "serial" not in command.payload
-            and len(snapshot.selected_serials) > 1
+            command.target_serial is None and "serial" not in command.payload and len(snapshot.selected_serials) > 1
         )
         target_serial = None if batch_requested else command.target_serial or snapshot.selected_serial
         synthetic = AppCommand(
@@ -4382,9 +4453,7 @@ class CommandEngine:
                 return OperationResult.success(
                     command.operation_id,
                     code="dry_run_batch_succeeded",
-                    message=(
-                        f"planned {len(compilation.preview.plans)} devices without launching a subprocess"
-                    ),
+                    message=(f"planned {len(compilation.preview.plans)} devices without launching a subprocess"),
                     value={"preview": compilation.preview.to_dict()},
                 )
             except Exception as error:
@@ -4806,9 +4875,7 @@ class CommandEngine:
         try:
             with self._operation_guard(token) as acquired:
                 if not acquired:
-                    return finalize(
-                        stopped_before_execution("operation stopped while queued")
-                    )
+                    return finalize(stopped_before_execution("operation stopped while queued"))
                 if token.cancelled:
                     return finalize(stopped_before_execution("operation stopped before execution"))
                 snapshot = self.store.snapshot()
@@ -4826,9 +4893,7 @@ class CommandEngine:
                     except InteractionTimeoutError:
                         if token.reason is CancellationReason.DEADLINE:
                             return finalize(
-                                stopped_before_execution(
-                                    "operation deadline expired while awaiting confirmation"
-                                )
+                                stopped_before_execution("operation deadline expired while awaiting confirmation")
                             )
                         return finalize(
                             OperationResult.failed(
@@ -4839,11 +4904,7 @@ class CommandEngine:
                         )
                     except Exception as error:
                         if token.cancelled:
-                            return finalize(
-                                stopped_before_execution(
-                                    "operation stopped while awaiting confirmation"
-                                )
-                            )
+                            return finalize(stopped_before_execution("operation stopped while awaiting confirmation"))
                         return finalize(
                             OperationResult.failed(
                                 command.operation_id,
@@ -4855,9 +4916,7 @@ class CommandEngine:
                     if not accepted:
                         if token.reason is CancellationReason.DEADLINE:
                             return finalize(
-                                stopped_before_execution(
-                                    "operation deadline expired while awaiting confirmation"
-                                )
+                                stopped_before_execution("operation deadline expired while awaiting confirmation")
                             )
                         return finalize(
                             OperationResult.cancelled(
@@ -4867,11 +4926,7 @@ class CommandEngine:
                             )
                         )
                     if token.cancelled:
-                        return finalize(
-                            stopped_before_execution(
-                                "operation stopped while awaiting confirmation"
-                            )
-                        )
+                        return finalize(stopped_before_execution("operation stopped while awaiting confirmation"))
                     # A prompt may take an arbitrary amount of time. Validate the
                     # revision and serial again before crossing the process boundary.
                     snapshot = self.store.snapshot()
@@ -4953,7 +5008,8 @@ class CommandEngine:
                         # request; never retain them in AppSnapshot or support data.
                         stored_result = (
                             replace(result, value=None, stdout="", stderr="")
-                            if command.kind in {
+                            if command.kind
+                            in {
                                 "tools.logcat",
                                 "tools.logcat.clear",
                                 "tools.wifi.discover",

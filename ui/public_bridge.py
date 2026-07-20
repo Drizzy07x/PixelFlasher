@@ -34,6 +34,9 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "device.openUrl",
         "device.ota.reset",
         "device.inspect",
+        "partitions.read",
+        "partitions.write",
+        "partitions.erase",
         "boot.delete",
         "backups.create",
         "backups.delete",
@@ -123,10 +126,7 @@ def _is_host_path_string(value: str) -> bool:
         return True
     for match in _POSIX_PATH.finditer(value):
         path = match.group(1)
-        if not any(
-            path == prefix[:-1] or path.startswith(prefix)
-            for prefix in _ANDROID_PATH_PREFIXES
-        ):
+        if not any(path == prefix[:-1] or path.startswith(prefix) for prefix in _ANDROID_PATH_PREFIXES):
             return True
     return False
 
@@ -192,18 +192,12 @@ def public_snapshot(value: object) -> dict[str, JSONValue]:
         "bootloader_lock_evidence",
         source.get("bootloaderLockEvidence", []),
     )
-    evidence = [
-        item
-        for raw in _array(evidence_source)
-        if (item := _public_lock_evidence(raw)) is not None
-    ]
+    evidence = [item for raw in _array(evidence_source) if (item := _public_lock_evidence(raw)) is not None]
     result: dict[str, object] = {
         "event_type": "snapshot",
         "revision": _integer(source.get("revision"), default=0),
         "preferences": _public_preferences(source.get("preferences")),
-        "device_management": _public_device_management(
-            source.get("device_management", source.get("deviceManagement"))
-        ),
+        "device_management": _public_device_management(source.get("device_management", source.get("deviceManagement"))),
         "devices": [_public_device(item) for item in _array(source.get("devices", []))],
         "selected_serials": _strings(source.get("selected_serials", source.get("selectedSerials", []))),
         "selected_serial": _optional_string(source.get("selected_serial", source.get("selectedSerial"))),
@@ -230,9 +224,7 @@ def project_operation_result(command: str, result: OperationResult) -> dict[str,
     summary = public_operation_summary(result)
     projected_value: JSONValue | None = None
     if result.ok and command in _STRICT_STRUCTURED_RESULTS and result.value is None:
-        raise PublicProjectionError(
-            f"successful {command} result is missing its public value"
-        )
+        raise PublicProjectionError(f"successful {command} result is missing its public value")
     if result.value is not None:
         try:
             projected_value = projector(result.value)
@@ -294,11 +286,7 @@ def _optional_string(value: object) -> str | None:
 
 
 def _target_serial(value: object) -> str | None:
-    return (
-        value
-        if isinstance(value, str) and is_valid_target_serial(value)
-        else None
-    )
+    return value if isinstance(value, str) and is_valid_target_serial(value) else None
 
 
 def _boolean(value: object, *, default: bool = False) -> bool:
@@ -350,12 +338,7 @@ def _closed_bounded_strings(
     result: list[str] = []
     total_utf8_bytes = 0
     for item in items:
-        if (
-            not isinstance(item, str)
-            or "\x00" in item
-            or "\r" in item
-            or "\n" in item
-        ):
+        if not isinstance(item, str) or "\x00" in item or "\r" in item or "\n" in item:
             raise PublicProjectionError("public result contains an invalid bounded string")
         item_utf8_bytes = len(item.encode("utf-8"))
         if item_utf8_bytes > maximum_item_utf8_bytes:
@@ -379,15 +362,11 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "expertMode": _boolean(source.get("expertMode")),
         "automaticUpdateCheck": _boolean(source.get("automaticUpdateCheck")),
         "checkDiskSpace": _boolean(source.get("checkDiskSpace"), default=True),
-        "checkBootloaderUnlocked": _boolean(
-            source.get("checkBootloaderUnlocked"), default=True
-        ),
+        "checkBootloaderUnlocked": _boolean(source.get("checkBootloaderUnlocked"), default=True),
         "checkFirmwareHash": _boolean(source.get("checkFirmwareHash"), default=True),
         "checkModuleUpdates": _boolean(source.get("checkModuleUpdates")),
         "showNotifications": _boolean(source.get("showNotifications")),
-        "rebootTimeoutSeconds": _integer(
-            source.get("rebootTimeoutSeconds"), default=90
-        ),
+        "rebootTimeoutSeconds": _integer(source.get("rebootTimeoutSeconds"), default=90),
         "offerPatchMethods": _boolean(source.get("offerPatchMethods")),
         "showRecoveryPatching": _boolean(source.get("showRecoveryPatching")),
         "keepPatchTemporaryFiles": _boolean(source.get("keepPatchTemporaryFiles")),
@@ -532,11 +511,7 @@ def _public_flash_plan(value: object) -> dict[str, JSONValue]:
         "dataBehavior",
         "data_behavior",
     }
-    options = {
-        key: ensure_public_json(item)
-        for key, item in options_source.items()
-        if key in allowed
-    }
+    options = {key: ensure_public_json(item) for key, item in options_source.items() if key in allowed}
     return {
         "mode": _string(source.get("mode"), default="images"),
         "options": options,
@@ -571,9 +546,7 @@ def _public_active_operation(value: object) -> dict[str, JSONValue] | None:
         "operation_id": operation_id,
         "kind": _string(source.get("kind")),
         "label": safe_public_message(source.get("label"), fallback="Operation in progress"),
-        "target_serial": _target_serial(
-            source.get("target_serial", source.get("targetSerial"))
-        ),
+        "target_serial": _target_serial(source.get("target_serial", source.get("targetSerial"))),
     }
 
 
@@ -584,22 +557,20 @@ def _public_result_summary(value: object) -> dict[str, JSONValue] | None:
         return _public_object(value.to_public_dict())
     source = _record(value)
     raw_exit_code = source.get("exit_code")
-    exit_code = (
-        raw_exit_code
-        if isinstance(raw_exit_code, int) and not isinstance(raw_exit_code, bool)
-        else None
+    exit_code = raw_exit_code if isinstance(raw_exit_code, int) and not isinstance(raw_exit_code, bool) else None
+    return _public_object(
+        {
+            "event_type": "runtime",
+            "operation_id": _string(source.get("operation_id", source.get("operationId"))),
+            "status": _string(source.get("status"), default="failed"),
+            "code": _string(source.get("code"), default="operation_failed"),
+            "message": safe_public_message(
+                source.get("message"),
+                fallback="The operation could not be completed.",
+            ),
+            "exit_code": exit_code,
+        }
     )
-    return _public_object({
-        "event_type": "runtime",
-        "operation_id": _string(source.get("operation_id", source.get("operationId"))),
-        "status": _string(source.get("status"), default="failed"),
-        "code": _string(source.get("code"), default="operation_failed"),
-        "message": safe_public_message(
-            source.get("message"),
-            fallback="The operation could not be completed.",
-        ),
-        "exit_code": exit_code,
-    })
 
 
 def _public_lock_evidence(value: object) -> dict[str, JSONValue] | None:
@@ -643,12 +614,14 @@ def _public_process_request(
         else:
             argv.append(argument)
     timeout = source.get("timeout_seconds")
-    return _public_object({
-        "argv": argv,
-        "timeout_seconds": timeout if isinstance(timeout, (int, float)) and not isinstance(timeout, bool) else None,
-        "encoding": _string(source.get("encoding"), default="utf-8"),
-        "stdin_secret_field": _optional_string(source.get("stdin_secret_field")),
-    })
+    return _public_object(
+        {
+            "argv": argv,
+            "timeout_seconds": timeout if isinstance(timeout, (int, float)) and not isinstance(timeout, bool) else None,
+            "encoding": _string(source.get("encoding"), default="utf-8"),
+            "stdin_secret_field": _optional_string(source.get("stdin_secret_field")),
+        }
+    )
 
 
 def _public_operation_plan(value: object) -> dict[str, JSONValue]:
@@ -666,10 +639,7 @@ def _public_operation_plan(value: object) -> dict[str, JSONValue]:
         display = _string(public.get("displayName"))
         if path and display:
             references[path] = display
-    requests = [
-        _public_process_request(item, references)
-        for item in _array(source.get("requests", []))
-    ]
+    requests = [_public_process_request(item, references) for item in _array(source.get("requests", []))]
     postconditions: list[dict[str, object]] = []
     for raw in _array(source.get("postconditions", [])):
         condition = _record(raw)
@@ -679,32 +649,34 @@ def _public_operation_plan(value: object) -> dict[str, JSONValue]:
                 "description": safe_public_message(condition.get("description"), fallback=""),
             }
         )
-    return _public_object({
-        "planId": _string(source.get("planId", source.get("plan_id"))),
-        "created": _number(source.get("created")),
-        "expires": _number(source.get("expires")),
-        "risk": _string(source.get("risk")),
-        "postconditions": postconditions,
-        "snapshot_revision": _integer(source.get("snapshot_revision")),
-        "execution_fingerprint": _string(source.get("execution_fingerprint")),
-        "requests": requests,
-        "request": requests[0] if len(requests) == 1 else None,
-        "label": safe_public_message(source.get("label"), fallback=""),
-        "target_serial": _optional_string(source.get("target_serial")),
-        "expected_codename": _optional_string(source.get("expected_codename")),
-        "expected_device_state": _optional_string(source.get("expected_device_state")),
-        "firmware_hash": _string(source.get("firmware_hash")),
-        "boot_hash": _string(source.get("boot_hash")),
-        "partitions": _strings(source.get("partitions", [])),
-        "slots": _strings(source.get("slots", [])),
-        "data_behavior": _string(source.get("data_behavior")),
-        "plan_revision": _integer(source.get("plan_revision")),
-        "fingerprint": _string(source.get("fingerprint")),
-        "confirmation_nonce": _optional_string(source.get("confirmation_nonce")),
-        "confirmation_token": None,
-        "artifacts": artifacts,
-        "dry_run": _boolean(source.get("dry_run")),
-    })
+    return _public_object(
+        {
+            "planId": _string(source.get("planId", source.get("plan_id"))),
+            "created": _number(source.get("created")),
+            "expires": _number(source.get("expires")),
+            "risk": _string(source.get("risk")),
+            "postconditions": postconditions,
+            "snapshot_revision": _integer(source.get("snapshot_revision")),
+            "execution_fingerprint": _string(source.get("execution_fingerprint")),
+            "requests": requests,
+            "request": requests[0] if len(requests) == 1 else None,
+            "label": safe_public_message(source.get("label"), fallback=""),
+            "target_serial": _optional_string(source.get("target_serial")),
+            "expected_codename": _optional_string(source.get("expected_codename")),
+            "expected_device_state": _optional_string(source.get("expected_device_state")),
+            "firmware_hash": _string(source.get("firmware_hash")),
+            "boot_hash": _string(source.get("boot_hash")),
+            "partitions": _strings(source.get("partitions", [])),
+            "slots": _strings(source.get("slots", [])),
+            "data_behavior": _string(source.get("data_behavior")),
+            "plan_revision": _integer(source.get("plan_revision")),
+            "fingerprint": _string(source.get("fingerprint")),
+            "confirmation_nonce": _optional_string(source.get("confirmation_nonce")),
+            "confirmation_token": None,
+            "artifacts": artifacts,
+            "dry_run": _boolean(source.get("dry_run")),
+        }
+    )
 
 
 def _project_none(value: object) -> None:
@@ -763,11 +735,7 @@ def _project_platform_tools_setup(value: object) -> JSONValue:
             raise PublicProjectionError("Platform Tools installation availability is invalid")
         if not isinstance(digest, str) or re.fullmatch(r"[0-9a-fA-F]{64}", digest) is None:
             raise PublicProjectionError("Platform Tools archive digest is invalid")
-        if (
-            isinstance(archive_size, bool)
-            or not isinstance(archive_size, int)
-            or archive_size < 0
-        ):
+        if isinstance(archive_size, bool) or not isinstance(archive_size, int) or archive_size < 0:
             raise PublicProjectionError("Platform Tools archive size is invalid")
         if not isinstance(installed_version, str) or len(installed_version) > 256:
             raise PublicProjectionError("Platform Tools installation version is invalid")
@@ -843,9 +811,7 @@ def _project_scrcpy_setup(value: object) -> JSONValue:
             "archiveSha256": digest,
             "archiveSize": archive_size,
         }
-    return ensure_public_json(
-        {"ready": ready, "installation": installation, "revision": revision}
-    )
+    return ensure_public_json({"ready": ready, "installation": installation, "revision": revision})
 
 
 def _project_preferences(value: object) -> JSONValue:
@@ -856,14 +822,16 @@ def _project_preferences(value: object) -> JSONValue:
 def _project_device_scan(value: object) -> JSONValue:
     source = _record(value)
     scan = _record(source.get("scan", {}))
-    return ensure_public_json({
-        "snapshot": public_snapshot(source.get("snapshot")),
-        "scan": {
-            "devices": [_public_device(item) for item in _array(scan.get("devices", []))],
-            "successful_sources": _strings(scan.get("successful_sources", [])),
-            "cancelled": _boolean(scan.get("cancelled")),
-        },
-    })
+    return ensure_public_json(
+        {
+            "snapshot": public_snapshot(source.get("snapshot")),
+            "scan": {
+                "devices": [_public_device(item) for item in _array(scan.get("devices", []))],
+                "successful_sources": _strings(scan.get("successful_sources", [])),
+                "cancelled": _boolean(scan.get("cancelled")),
+            },
+        }
+    )
 
 
 def _project_firmware_inspection(value: object) -> dict[str, JSONValue]:
@@ -945,10 +913,12 @@ def _project_firmware_select(value: object) -> JSONValue:
         value,
         fields=frozenset({"snapshot", "inspection"}),
     )
-    return ensure_public_json({
-        "snapshot": public_snapshot(source["snapshot"]),
-        "inspection": _project_firmware_inspection(source["inspection"]),
-    })
+    return ensure_public_json(
+        {
+            "snapshot": public_snapshot(source["snapshot"]),
+            "inspection": _project_firmware_inspection(source["inspection"]),
+        }
+    )
 
 
 def _project_firmware_process(value: object) -> JSONValue:
@@ -958,9 +928,7 @@ def _project_firmware_process(value: object) -> JSONValue:
     )
     processing = _closed_record(
         source["processing"],
-        fields=frozenset(
-            {"status", "code", "inspection", "artifacts", "detectedDevices", "registered"}
-        ),
+        fields=frozenset({"status", "code", "inspection", "artifacts", "detectedDevices", "registered"}),
     )
     if processing["status"] != "SUCCESS" or processing["code"] != "firmware_artifacts_ready":
         raise PublicProjectionError("firmware processing terminal evidence is invalid")
@@ -982,10 +950,7 @@ def _project_firmware_process(value: object) -> JSONValue:
             raise PublicProjectionError("firmware artifact digest is invalid")
         if not isinstance(role, str) or not role or len(role) > 128:
             raise PublicProjectionError("firmware artifact role is invalid")
-        if (
-            not isinstance(display_name, str)
-            or display_name != f"@artifact/{role}/{digest[:12]}"
-        ):
+        if not isinstance(display_name, str) or display_name != f"@artifact/{role}/{digest[:12]}":
             raise PublicProjectionError("firmware artifact display name is invalid")
         artifacts.append({"sha256": digest, "role": role, "displayName": display_name})
     detected_devices = _closed_bounded_strings(
@@ -994,18 +959,20 @@ def _project_firmware_process(value: object) -> JSONValue:
         maximum_item_utf8_bytes=64,
         maximum_utf8_bytes=2_048,
     )
-    return ensure_public_json({
-        "processing": {
-            "status": _string(processing["status"]),
-            "code": _string(processing["code"]),
-            "inspection": _project_firmware_inspection(processing["inspection"]),
-            "artifacts": artifacts,
-            "detectedDevices": detected_devices,
-            "registered": True,
-        },
-        "firmware": _public_firmware(source["firmware"]),
-        "boot": _public_boot(source["boot"]),
-    })
+    return ensure_public_json(
+        {
+            "processing": {
+                "status": _string(processing["status"]),
+                "code": _string(processing["code"]),
+                "inspection": _project_firmware_inspection(processing["inspection"]),
+                "artifacts": artifacts,
+                "detectedDevices": detected_devices,
+                "registered": True,
+            },
+            "firmware": _public_firmware(source["firmware"]),
+            "boot": _public_boot(source["boot"]),
+        }
+    )
 
 
 def _project_confirmation(value: object) -> JSONValue | None:
@@ -1018,6 +985,111 @@ def _project_confirmation(value: object) -> JSONValue | None:
     if not required:
         return None
     return ensure_public_json({"confirmation": {"required_text": required}})
+
+
+def _partition_identity(source: Mapping[str, object]) -> tuple[str, str]:
+    serial = _target_serial(source.get("targetSerial"))
+    partition = source.get("partition")
+    if serial is None:
+        raise PublicProjectionError("partition result target serial is invalid")
+    if not isinstance(partition, str) or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", partition) is None:
+        raise PublicProjectionError("partition result identity is invalid")
+    return serial, partition
+
+
+def _project_partition_read(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "action",
+                "targetSerial",
+                "partition",
+                "fileName",
+                "sha256",
+                "sizeBytes",
+                "verified",
+            }
+        ),
+    )
+    serial, partition = _partition_identity(source)
+    file_name = source["fileName"]
+    digest = source["sha256"]
+    size = source["sizeBytes"]
+    if (
+        source["action"] != "read"
+        or not isinstance(file_name, str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ +@=-]{0,191}", file_name) is None
+        or not isinstance(digest, str)
+        or _LOWERCASE_SHA256.fullmatch(digest) is None
+        or isinstance(size, bool)
+        or not isinstance(size, int)
+        or not 1 <= size <= 16 * 1024 * 1024 * 1024
+        or source["verified"] is not True
+    ):
+        raise PublicProjectionError("partition read receipt is invalid")
+    return ensure_public_json(
+        {
+            "action": "read",
+            "targetSerial": serial,
+            "partition": partition,
+            "fileName": file_name,
+            "sha256": digest,
+            "sizeBytes": size,
+            "verified": True,
+        }
+    )
+
+
+def _project_partition_mutation(value: object) -> JSONValue | None:
+    confirmation = _project_confirmation(value)
+    if confirmation is not None:
+        return confirmation
+    source = _record(value)
+    action = source.get("action")
+    serial, partition = _partition_identity(source)
+    if action == "write":
+        closed = _closed_record(
+            source,
+            fields=frozenset({"action", "targetSerial", "partition", "sha256", "verified"}),
+        )
+        digest = closed["sha256"]
+        if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None or closed["verified"] is not True:
+            raise PublicProjectionError("partition write receipt is invalid")
+        return ensure_public_json(
+            {
+                "action": "write",
+                "targetSerial": serial,
+                "partition": partition,
+                "sha256": digest,
+                "verified": True,
+            }
+        )
+    if action == "erase":
+        closed = _closed_record(
+            source,
+            fields=frozenset(
+                {
+                    "action",
+                    "targetSerial",
+                    "partition",
+                    "erased",
+                    "verified",
+                }
+            ),
+        )
+        if closed["erased"] is not True or closed["verified"] is not True:
+            raise PublicProjectionError("partition erase receipt is invalid")
+        return ensure_public_json(
+            {
+                "action": "erase",
+                "targetSerial": serial,
+                "partition": partition,
+                "erased": True,
+                "verified": True,
+            }
+        )
+    raise PublicProjectionError("partition mutation action is invalid")
 
 
 def _project_plan_preview(value: object) -> JSONValue:
@@ -1054,21 +1126,21 @@ def _public_preview_batch(value: object) -> dict[str, JSONValue]:
     target_serials = _strings(source.get("targetSerials", []))
     if not target_serials:
         target_serials = [
-            str(plan.get("target_serial"))
-            for plan in plans
-            if isinstance(plan.get("target_serial"), str)
+            str(plan.get("target_serial")) for plan in plans if isinstance(plan.get("target_serial"), str)
         ]
     if len(plans) < 2 or len(plans) != len(target_serials):
         raise PublicProjectionError("flash preview batch targets are invalid")
-    return _public_object({
-        "previewId": _string(source.get("previewId", source.get("batchId"))),
-        "created": _number(source.get("created")),
-        "expires": _number(source.get("expires")),
-        "fingerprint": _string(source.get("fingerprint")),
-        "targetSerials": target_serials,
-        "plans": plans,
-        "dry_run": _boolean(source.get("dry_run"), default=False),
-    })
+    return _public_object(
+        {
+            "previewId": _string(source.get("previewId", source.get("batchId"))),
+            "created": _number(source.get("created")),
+            "expires": _number(source.get("expires")),
+            "fingerprint": _string(source.get("fingerprint")),
+            "targetSerials": target_serials,
+            "plans": plans,
+            "dry_run": _boolean(source.get("dry_run"), default=False),
+        }
+    )
 
 
 def _project_flash_execute(value: object) -> JSONValue | None:
@@ -1136,20 +1208,17 @@ def _project_apps_action(value: object) -> JSONValue:
         if (
             report["bounded"] is not True
             or not isinstance(package, str)
-            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", package)
-            is None
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", package) is None
             or not all(isinstance(items, (list, tuple)) for items in (requested, granted, denied))
             or not all(
-                isinstance(item, str)
-                and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{1,255}", item) is not None
+                isinstance(item, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{1,255}", item) is not None
                 for items in (requested, granted, denied)
                 for item in cast("list[object] | tuple[object, ...]", items)
             )
-            or any(len(cast("list[object] | tuple[object, ...]", items)) > 512 for items in (requested, granted, denied))
             or any(
-                not isinstance(count, int) or isinstance(count, bool) or count < 0
-                for count in counts
+                len(cast("list[object] | tuple[object, ...]", items)) > 512 for items in (requested, granted, denied)
             )
+            or any(not isinstance(count, int) or isinstance(count, bool) or count < 0 for count in counts)
             or counts[0] != len(cast("list[object] | tuple[object, ...]", requested))
             or counts[1]
             != len(cast("list[object] | tuple[object, ...]", granted))
@@ -1163,9 +1232,7 @@ def _project_apps_action(value: object) -> JSONValue:
         source = _closed_record(value, fields=frozenset({"action", "apkIdentity"}))
         identity = _closed_record(
             source["apkIdentity"],
-            fields=frozenset(
-                {"packageName", "sha256", "signerSha256", "schemes", "verified"}
-            ),
+            fields=frozenset({"packageName", "sha256", "signerSha256", "schemes", "verified"}),
         )
         signers = identity["signerSha256"]
         schemes = identity["schemes"]
@@ -1181,10 +1248,7 @@ def _project_apps_action(value: object) -> JSONValue:
             or _LOWERCASE_SHA256.fullmatch(identity["sha256"]) is None
             or not isinstance(signers, (list, tuple))
             or not 1 <= len(signers) <= 16
-            or any(
-                not isinstance(item, str) or _LOWERCASE_SHA256.fullmatch(item) is None
-                for item in signers
-            )
+            or any(not isinstance(item, str) or _LOWERCASE_SHA256.fullmatch(item) is None for item in signers)
             or not isinstance(schemes, (list, tuple))
             or not schemes
             or any(item not in {"v1", "v2", "v3", "v4"} for item in schemes)
@@ -1214,11 +1278,9 @@ def _project_apps_action(value: object) -> JSONValue:
             receipt["verified"] is not True
             or receipt["remoteCleaned"] is not True
             or not isinstance(package, str)
-            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", package)
-            is None
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", package) is None
             or not isinstance(file_name, str)
-            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk", file_name, re.I)
-            is None
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk", file_name, re.I) is None
             or not isinstance(digest, str)
             or _LOWERCASE_SHA256.fullmatch(digest) is None
             or not isinstance(size, int)
@@ -1250,46 +1312,50 @@ _BOOT_ENTRY_FIELDS = (
 
 def _public_boot_entry(value: object) -> dict[str, JSONValue]:
     source = _record(value)
-    return _public_object({
-        "bootId": _string(source.get("bootId")),
-        "sha256": _string(source.get("sha256")),
-        "size": _integer(source.get("size")),
-        "provenance": _string(source.get("provenance")),
-        "createdAt": _integer(source.get("createdAt")),
-        "partition": _string(source.get("partition")),
-        "deviceCodenames": _strings(source.get("deviceCodenames", [])),
-        "patcher": _string(source.get("patcher")),
-        "patcherVersion": _string(source.get("patcherVersion")),
-        "signature": _string(source.get("signature")),
-        "sourceHash": _string(source.get("sourceHash")),
-        "patched": _boolean(source.get("patched")),
-        "verified": _boolean(source.get("verified")),
-    })
+    return _public_object(
+        {
+            "bootId": _string(source.get("bootId")),
+            "sha256": _string(source.get("sha256")),
+            "size": _integer(source.get("size")),
+            "provenance": _string(source.get("provenance")),
+            "createdAt": _integer(source.get("createdAt")),
+            "partition": _string(source.get("partition")),
+            "deviceCodenames": _strings(source.get("deviceCodenames", [])),
+            "patcher": _string(source.get("patcher")),
+            "patcherVersion": _string(source.get("patcherVersion")),
+            "signature": _string(source.get("signature")),
+            "sourceHash": _string(source.get("sourceHash")),
+            "patched": _boolean(source.get("patched")),
+            "verified": _boolean(source.get("verified")),
+        }
+    )
 
 
 def _project_boot_inventory(value: object) -> JSONValue:
     source = _record(value)
-    return ensure_public_json({
-        "boots": [_public_boot_entry(item) for item in _array(source.get("boots", []))],
-        "selectedBootId": _optional_string(source.get("selectedBootId")),
-        "revision": _integer(source.get("revision")),
-    })
+    return ensure_public_json(
+        {
+            "boots": [_public_boot_entry(item) for item in _array(source.get("boots", []))],
+            "selectedBootId": _optional_string(source.get("selectedBootId")),
+            "revision": _integer(source.get("revision")),
+        }
+    )
 
 
 def _project_boot_select(value: object) -> JSONValue:
     source = _record(value)
-    return ensure_public_json({
-        "selected": _public_boot_entry(source.get("selected")),
-        "revision": _integer(source.get("revision")),
-    })
+    return ensure_public_json(
+        {
+            "selected": _public_boot_entry(source.get("selected")),
+            "revision": _integer(source.get("revision")),
+        }
+    )
 
 
 def _project_boot_delete(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"bootId", "sha256", "objectRetained", "cleanupDeferred", "revision"}
-        ),
+        fields=frozenset({"bootId", "sha256", "objectRetained", "cleanupDeferred", "revision"}),
     )
     boot_id = source["bootId"]
     digest = source["sha256"]
@@ -1298,9 +1364,7 @@ def _project_boot_delete(value: object) -> JSONValue:
         raise PublicProjectionError("boot deletion id is invalid")
     if not isinstance(digest, str) or _LOWERCASE_SHA256.fullmatch(digest) is None:
         raise PublicProjectionError("boot deletion digest is invalid")
-    if not isinstance(source["objectRetained"], bool) or not isinstance(
-        source["cleanupDeferred"], bool
-    ):
+    if not isinstance(source["objectRetained"], bool) or not isinstance(source["cleanupDeferred"], bool):
         raise PublicProjectionError("boot deletion storage evidence is invalid")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
         raise PublicProjectionError("boot deletion revision is invalid")
@@ -1310,15 +1374,17 @@ def _project_boot_delete(value: object) -> JSONValue:
 def _project_boot_patch(value: object) -> JSONValue:
     source = _record(value)
     patched = _record(source.get("patchedBoot", {}))
-    return ensure_public_json({
-        "patchedBoot": {
-            "artifact": _public_artifact(patched.get("artifact")),
-            "sourceSha256": _string(patched.get("sourceSha256")),
-            "flavor": _string(patched.get("flavor")),
-            "partition": _string(patched.get("partition")),
-        },
-        "boot": _public_boot(source.get("boot")),
-    })
+    return ensure_public_json(
+        {
+            "patchedBoot": {
+                "artifact": _public_artifact(patched.get("artifact")),
+                "sourceSha256": _string(patched.get("sourceSha256")),
+                "flavor": _string(patched.get("flavor")),
+                "partition": _string(patched.get("partition")),
+            },
+            "boot": _public_boot(source.get("boot")),
+        }
+    )
 
 
 def _public_root_app(value: object) -> dict[str, JSONValue]:
@@ -1435,10 +1501,7 @@ def _project_root_app_catalog(value: object) -> JSONValue:
         value,
         fields=frozenset({"count", "entries", "channel", "revision"}),
     )
-    entries = [
-        _public_root_app_catalog_entry(raw)
-        for raw in _array(source["entries"])
-    ]
+    entries = [_public_root_app_catalog_entry(raw) for raw in _array(source["entries"])]
     if source["count"] != len(entries):
         raise PublicProjectionError("root-app catalog count is invalid")
     if source["channel"] not in {"stable", "beta", "canary"}:
@@ -1491,8 +1554,14 @@ def _project_root_modules(value: object) -> JSONValue:
         raise PublicProjectionError("root module inventory count is invalid")
     fields = frozenset(
         {
-            "id", "name", "version", "versionCode", "author", "description",
-            "state", "updateMetadata",
+            "id",
+            "name",
+            "version",
+            "versionCode",
+            "author",
+            "description",
+            "state",
+            "updateMetadata",
         }
     )
     modules: list[dict[str, JSONValue]] = []
@@ -1501,10 +1570,7 @@ def _project_root_modules(value: object) -> JSONValue:
         module = _closed_record(raw, fields=fields)
         module_id = module["id"]
         version_code = module["versionCode"]
-        strings = {
-            key: module[key]
-            for key in ("name", "version", "author", "description")
-        }
+        strings = {key: module[key] for key in ("name", "version", "author", "description")}
         if (
             not isinstance(module_id, str)
             or re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", module_id) is None
@@ -1514,10 +1580,7 @@ def _project_root_modules(value: object) -> JSONValue:
             or len(cast(str, strings["version"])) > 128
             or len(cast(str, strings["author"])) > 256
             or len(cast(str, strings["description"])) > 1024
-            or any(
-                any(ord(character) < 32 for character in cast(str, item))
-                for item in strings.values()
-            )
+            or any(any(ord(character) < 32 for character in cast(str, item)) for item in strings.values())
             or (
                 version_code is not None
                 and (
@@ -1537,11 +1600,13 @@ def _project_root_modules(value: object) -> JSONValue:
 
 def _project_root_module_action(value: object) -> JSONValue:
     source = _record(value)
-    return ensure_public_json({
-        "action": _string(source.get("action")),
-        "targetSerial": _optional_string(source.get("targetSerial")),
-        "moduleId": _string(source.get("moduleId")),
-    })
+    return ensure_public_json(
+        {
+            "action": _string(source.get("action")),
+            "targetSerial": _optional_string(source.get("targetSerial")),
+            "moduleId": _string(source.get("moduleId")),
+        }
+    )
 
 
 def _project_root_recovery(value: object, *, expected_action: str) -> JSONValue:
@@ -1593,8 +1658,7 @@ def _project_data_adb_backup(value: object) -> JSONValue:
         or not is_valid_target_serial(source["targetSerial"])
         or not isinstance(file_name, str)
         or ntpath.basename(posixpath.basename(file_name.replace("\\", "/"))) != file_name
-        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,191}\.pfdataadb", file_name, re.I)
-        is None
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,191}\.pfdataadb", file_name, re.I) is None
         or not isinstance(size, int)
         or isinstance(size, bool)
         or not 1 <= size <= 2 * 1024 * 1024 * 1024 + 32 * 1024 * 1024
@@ -1681,9 +1745,7 @@ def _project_partitions(value: object) -> JSONValue:
 
 
 def _project_wifi_discovery(value: object) -> JSONValue:
-    fields = frozenset(
-        {"action", "count", "services", "discardedCount", "bounded"}
-    )
+    fields = frozenset({"action", "count", "services", "discardedCount", "bounded"})
     source = _closed_record(value, fields=fields)
     if source["action"] != "discover" or source["bounded"] is not True:
         raise PublicProjectionError("Wi-Fi discovery result is not bounded")
@@ -1752,9 +1814,7 @@ def _project_wifi_discovery(value: object) -> JSONValue:
             or not any(address in network for network in _MDNS_LOCAL_NETWORKS)
         ):
             raise PublicProjectionError("Wi-Fi discovery host is unsafe")
-        expected_id = hashlib.sha256(
-            f"{service_type}\0{endpoint}".encode("ascii")
-        ).hexdigest()
+        expected_id = hashlib.sha256(f"{service_type}\0{endpoint}".encode("ascii")).hexdigest()
         identity = (cast(str, service_type), cast(str, endpoint))
         if service_id != expected_id or identity in identities:
             raise PublicProjectionError("Wi-Fi discovery identity is invalid")
@@ -1802,9 +1862,7 @@ def _project_push_files(value: object) -> JSONValue:
     if len(file_values) != count:
         raise PublicProjectionError("push result count is invalid")
 
-    item_fields = frozenset(
-        {"displayName", "destination", "sha256", "sizeBytes", "verified"}
-    )
+    item_fields = frozenset({"displayName", "destination", "sha256", "sizeBytes", "verified"})
     files: list[dict[str, JSONValue]] = []
     destinations: set[str] = set()
     display_names: set[str] = set()
@@ -1816,8 +1874,7 @@ def _project_push_files(value: object) -> JSONValue:
         size_bytes = item["sizeBytes"]
         if (
             not isinstance(display_name, str)
-            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", display_name)
-            is None
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", display_name) is None
             or not isinstance(destination, str)
             or destination
             not in {
@@ -1846,9 +1903,7 @@ def _project_push_files(value: object) -> JSONValue:
                 "verified": True,
             }
         )
-    return ensure_public_json(
-        {"targetSerial": target_serial, "count": count, "files": files}
-    )
+    return ensure_public_json({"targetSerial": target_serial, "count": count, "files": files})
 
 
 def _project_device_inspect(value: object) -> JSONValue:
@@ -1860,30 +1915,36 @@ def _project_device_inspect(value: object) -> JSONValue:
     }
     if action == "properties":
         result.update(
-            _public_object({
-                "properties": _string_map(source.get("properties", {})),
-                "redactedKeys": _strings(source.get("redactedKeys", [])),
-                "count": _integer(source.get("count")),
-                "summary": _string_map(source.get("summary", {})),
-            })
+            _public_object(
+                {
+                    "properties": _string_map(source.get("properties", {})),
+                    "redactedKeys": _strings(source.get("redactedKeys", [])),
+                    "count": _integer(source.get("count")),
+                    "summary": _string_map(source.get("summary", {})),
+                }
+            )
         )
     elif action == "screenXml":
         result.update(
-            _public_object({
-                "xml": _string(source.get("xml")),
-                "sha256": _string(source.get("sha256")),
-                "nodeCount": _integer(source.get("nodeCount")),
-                "redactedFields": _integer(source.get("redactedFields")),
-            })
+            _public_object(
+                {
+                    "xml": _string(source.get("xml")),
+                    "sha256": _string(source.get("sha256")),
+                    "nodeCount": _integer(source.get("nodeCount")),
+                    "redactedFields": _integer(source.get("redactedFields")),
+                }
+            )
         )
     elif action == "bootloaderVersions":
         return _project_bootloader_versions(value)
     elif action == "pifPrint":
         result.update(
-            _public_object({
-                "format": _string(source.get("format")),
-                "profile": _string_map(source.get("profile", {})),
-            })
+            _public_object(
+                {
+                    "format": _string(source.get("format")),
+                    "profile": _string_map(source.get("profile", {})),
+                }
+            )
         )
     else:
         raise PublicProjectionError("device inspection action is invalid")
@@ -1916,15 +1977,9 @@ def _project_bootloader_versions(value: object) -> JSONValue:
         raise PublicProjectionError("bootloader inspection active slot is invalid")
     if source["activeMatchesReported"] is not True:
         raise PublicProjectionError("bootloader inspection is not verified")
-    if (
-        not isinstance(bootloader_codename, str)
-        or _BOOTLOADER_CODENAME.fullmatch(bootloader_codename) is None
-    ):
+    if not isinstance(bootloader_codename, str) or _BOOTLOADER_CODENAME.fullmatch(bootloader_codename) is None:
         raise PublicProjectionError("bootloader inspection codename is invalid")
-    if (
-        not isinstance(current, str)
-        or _BOOTLOADER_FULL_VERSION.fullmatch(current) is None
-    ):
+    if not isinstance(current, str) or _BOOTLOADER_FULL_VERSION.fullmatch(current) is None:
         raise PublicProjectionError("reported bootloader version is invalid")
 
     raw_slots = _closed_record(source["slots"], fields=frozenset({"a", "b"}))
@@ -1961,9 +2016,7 @@ def _project_bootloader_slot(
 ) -> dict[str, JSONValue]:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"partition", "version", "fullVersion", "sha256", "sizeBytes"}
-        ),
+        fields=frozenset({"partition", "version", "fullVersion", "sha256", "sizeBytes"}),
     )
     version = source["version"]
     full_version = source["fullVersion"]
@@ -2020,13 +2073,7 @@ def _project_device_open_url(value: object) -> JSONValue:
         raise PublicProjectionError("browser intent target serial is invalid")
     if scheme not in {"http", "https"}:
         raise PublicProjectionError("browser intent scheme is invalid")
-    if (
-        not isinstance(host, str)
-        or not host
-        or not host.isascii()
-        or host != host.casefold()
-        or len(host) > 253
-    ):
+    if not isinstance(host, str) or not host or not host.isascii() or host != host.casefold() or len(host) > 253:
         raise PublicProjectionError("browser intent host is invalid")
     try:
         ipaddress.ip_address(host)
@@ -2048,9 +2095,7 @@ def _project_device_open_url(value: object) -> JSONValue:
 def _project_ota_status(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"action", "state", "progress", "idle", "lastAttemptError", "bounded"}
-        ),
+        fields=frozenset({"action", "state", "progress", "idle", "lastAttemptError", "bounded"}),
     )
     if source["action"] != "status" or source["bounded"] is not True:
         raise PublicProjectionError("OTA status result is not bounded")
@@ -2070,36 +2115,31 @@ def _project_ota_status(value: object) -> JSONValue:
     if not isinstance(state, str) or state not in allowed_states:
         raise PublicProjectionError("OTA status state is invalid")
     progress = source["progress"]
-    if (
-        not isinstance(progress, (int, float))
-        or isinstance(progress, bool)
-        or not 0 <= progress <= 1
-    ):
+    if not isinstance(progress, (int, float)) or isinstance(progress, bool) or not 0 <= progress <= 1:
         raise PublicProjectionError("OTA status progress is invalid")
     if source["idle"] is not (state == "idle"):
         raise PublicProjectionError("OTA status idle evidence is inconsistent")
     last_error = source["lastAttemptError"]
     if last_error is not None and (
-        not isinstance(last_error, str)
-        or re.fullmatch(r"[A-Za-z0-9_.:+-]{1,128}", last_error) is None
+        not isinstance(last_error, str) or re.fullmatch(r"[A-Za-z0-9_.:+-]{1,128}", last_error) is None
     ):
         raise PublicProjectionError("OTA status error evidence is invalid")
-    return ensure_public_json({
-        "action": "status",
-        "state": state,
-        "progress": progress,
-        "idle": source["idle"],
-        "lastAttemptError": last_error,
-        "bounded": True,
-    })
+    return ensure_public_json(
+        {
+            "action": "status",
+            "state": state,
+            "progress": progress,
+            "idle": source["idle"],
+            "lastAttemptError": last_error,
+            "bounded": True,
+        }
+    )
 
 
 def _project_ota_reset(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"action", "idle", "bounded", "planId", "postconditions"}
-        ),
+        fields=frozenset({"action", "idle", "bounded", "planId", "postconditions"}),
     )
     if (
         source["action"] != "reset"
@@ -2110,9 +2150,7 @@ def _project_ota_reset(value: object) -> JSONValue:
         or not isinstance(source["postconditions"], list)
     ):
         raise PublicProjectionError("OTA reset evidence is invalid")
-    return ensure_public_json(
-        {"action": "reset", "idle": True, "bounded": True}
-    )
+    return ensure_public_json({"action": "reset", "idle": True, "bounded": True})
 
 
 def _project_firmware_catalog_entry(value: object) -> dict[str, JSONValue]:
@@ -2191,21 +2229,21 @@ def _project_firmware_download(value: object) -> JSONValue:
     revision = source["revision"]
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
         raise PublicProjectionError("firmware download revision is invalid")
-    return ensure_public_json({
-        "artifact": _project_firmware_catalog_entry(source["artifact"]),
-        "cacheHit": source["cacheHit"],
-        "resumed": source["resumed"],
-        "revision": revision,
-        "inspection": _project_firmware_inspection(source["inspection"]),
-    })
+    return ensure_public_json(
+        {
+            "artifact": _project_firmware_catalog_entry(source["artifact"]),
+            "cacheHit": source["cacheHit"],
+            "resumed": source["resumed"],
+            "revision": revision,
+            "inspection": _project_firmware_inspection(source["inspection"]),
+        }
+    )
 
 
 def _project_ota_certificates(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"action", "archivePresent", "count", "entries", "bounded"}
-        ),
+        fields=frozenset({"action", "archivePresent", "count", "entries", "bounded"}),
     )
     if source["action"] != "certificates":
         raise PublicProjectionError("OTA certificate result action is invalid")
@@ -2231,21 +2269,21 @@ def _project_ota_certificates(value: object) -> JSONValue:
             or any(part in {"", ".", ".."} for part in entry.split("/"))
         ):
             raise PublicProjectionError("OTA certificate entry is invalid")
-    return ensure_public_json({
-        "action": "certificates",
-        "archivePresent": True,
-        "count": count,
-        "entries": entries,
-        "bounded": True,
-    })
+    return ensure_public_json(
+        {
+            "action": "certificates",
+            "archivePresent": True,
+            "count": count,
+            "entries": entries,
+            "bounded": True,
+        }
+    )
 
 
 def _project_ota_logs(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"action", "lineCount", "lines", "redactedCount", "bounded"}
-        ),
+        fields=frozenset({"action", "lineCount", "lines", "redactedCount", "bounded"}),
     )
     if source["action"] != "logs" or source["bounded"] is not True:
         raise PublicProjectionError("OTA log result is not a bounded log response")
@@ -2268,19 +2306,17 @@ def _project_ota_logs(value: object) -> JSONValue:
     )
     if line_count != len(lines):
         raise PublicProjectionError("OTA log result count does not match")
-    if any(
-        _UNSAFE_LOG_CONTROL.search(line)
-        or "update_engine" not in line.casefold()
-        for line in lines
-    ):
+    if any(_UNSAFE_LOG_CONTROL.search(line) or "update_engine" not in line.casefold() for line in lines):
         raise PublicProjectionError("OTA log result contains an invalid line")
-    return ensure_public_json({
-        "action": "logs",
-        "lineCount": line_count,
-        "lines": lines,
-        "redactedCount": redacted_count,
-        "bounded": True,
-    })
+    return ensure_public_json(
+        {
+            "action": "logs",
+            "lineCount": line_count,
+            "lines": lines,
+            "redactedCount": redacted_count,
+            "bounded": True,
+        }
+    )
 
 
 def _string_map(value: object, *, maximum: int = 4096) -> dict[str, JSONValue]:
@@ -2373,8 +2409,7 @@ def _project_logcat(value: object) -> JSONValue:
             not isinstance(file_name, str)
             or not 1 <= len(file_name) <= 255
             or not file_name.isprintable()
-            or ntpath.basename(posixpath.basename(file_name.replace("\\", "/")))
-            != file_name
+            or ntpath.basename(posixpath.basename(file_name.replace("\\", "/"))) != file_name
             or not isinstance(digest, str)
             or not re.fullmatch(r"[0-9a-f]{64}", digest)
             or digest != hashlib.sha256(text_bytes).hexdigest()
@@ -2431,17 +2466,19 @@ def _project_logcat_clear(value: object) -> JSONValue:
 
 def _project_support(value: object) -> JSONValue:
     source = _record(value)
-    return ensure_public_json({
-        "status": _string(source.get("status")),
-        "code": _string(source.get("code")),
-        "fileName": ntpath.basename(posixpath.basename(_string(source.get("fileName")).replace("\\", "/"))),
-        "sha256": _string(source.get("sha256")),
-        "size": _integer(source.get("size")),
-        "includedCount": _integer(source.get("includedCount")),
-        "omittedCount": _integer(source.get("omittedCount")),
-        "schemaVersion": _integer(source.get("schemaVersion"), default=2),
-        "keyId": _string(source.get("keyId")),
-    })
+    return ensure_public_json(
+        {
+            "status": _string(source.get("status")),
+            "code": _string(source.get("code")),
+            "fileName": ntpath.basename(posixpath.basename(_string(source.get("fileName")).replace("\\", "/"))),
+            "sha256": _string(source.get("sha256")),
+            "size": _integer(source.get("size")),
+            "includedCount": _integer(source.get("includedCount")),
+            "omittedCount": _integer(source.get("omittedCount")),
+            "schemaVersion": _integer(source.get("schemaVersion"), default=2),
+            "keyId": _string(source.get("keyId")),
+        }
+    )
 
 
 def _project_avb_downgrade(value: object) -> JSONValue:
@@ -2656,22 +2693,14 @@ def _project_backup_inventory(value: object) -> JSONValue:
         or isinstance(total, bool)
         or total < count
         or source["truncated"] is not (total > count)
-        or (
-            filtered is not None
-            and (not isinstance(filtered, str) or not is_valid_target_serial(filtered))
-        )
+        or (filtered is not None and (not isinstance(filtered, str) or not is_valid_target_serial(filtered)))
         or not isinstance(source["revision"], int)
         or isinstance(source["revision"], bool)
         or source["revision"] < 0
     ):
         raise PublicProjectionError("backup inventory is invalid")
-    backups = [
-        _project_backup_record(item)
-        for item in cast("list[object]", raw_backups)
-    ]
-    if filtered is not None and any(
-        backup["targetSerial"] != filtered for backup in backups
-    ):
+    backups = [_project_backup_record(item) for item in cast("list[object]", raw_backups)]
+    if filtered is not None and any(backup["targetSerial"] != filtered for backup in backups):
         raise PublicProjectionError("filtered backup inventory is invalid")
     return ensure_public_json(
         {
@@ -2724,10 +2753,7 @@ def _project_backup_result(value: object) -> JSONValue:
     issue = source.get("inventoryIssue")
     if action == "restore" and (
         (registered and (backup is None or issue is not None))
-        or (
-            not registered
-            and (backup is not None or issue not in _BACKUP_INVENTORY_ISSUES)
-        )
+        or (not registered and (backup is not None or issue not in _BACKUP_INVENTORY_ISSUES))
     ):
         raise PublicProjectionError("restored backup inventory receipt is invalid")
     result: dict[str, JSONValue] = {
@@ -2852,9 +2878,7 @@ def _project_magisk_backup_mutation(value: object) -> JSONValue:
     return ensure_public_json(dict(source))
 
 
-_KEYBOX_STATUSES = frozenset(
-    {"valid", "unverified", "revoked", "expired", "software_attestation", "invalid"}
-)
+_KEYBOX_STATUSES = frozenset({"valid", "unverified", "revoked", "expired", "software_attestation", "invalid"})
 _KEYBOX_ISSUES = frozenset(
     {
         "algorithm_key_type_mismatch",
@@ -2970,9 +2994,7 @@ def _project_keybox_analysis(value: object) -> JSONValue:
             or item["revocationStatus"] not in {"clear", "revoked", "unverified"}
             or not isinstance(issues, list)
             or len(cast("list[object]", issues)) > 32
-            or any(
-                issue not in _KEYBOX_ISSUES for issue in cast("list[object]", issues)
-            )
+            or any(issue not in _KEYBOX_ISSUES for issue in cast("list[object]", issues))
         ):
             raise PublicProjectionError("keybox report is invalid")
         computed[cast(str, status)] += 1
@@ -2980,9 +3002,7 @@ def _project_keybox_analysis(value: object) -> JSONValue:
 
     summary = _closed_record(
         source["summary"],
-        fields=frozenset(
-            {"valid", "unverified", "revoked", "expired", "softwareAttestation", "invalid"}
-        ),
+        fields=frozenset({"valid", "unverified", "revoked", "expired", "softwareAttestation", "invalid"}),
     )
     expected_summary = {
         "valid": computed["valid"],
@@ -3041,9 +3061,7 @@ def _project_keybox_analysis(value: object) -> JSONValue:
 def _project_pif_inventory(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"schemaVersion", "rootAccess", "bounded", "count", "profiles", "targetCount", "targets"}
-        ),
+        fields=frozenset({"schemaVersion", "rootAccess", "bounded", "count", "profiles", "targetCount", "targets"}),
     )
     profile_specs = [
         ("pif.custom_json", "playintegrityfix", "json"),
@@ -3124,8 +3142,15 @@ def _project_pif_document(value: object) -> JSONValue:
         value,
         fields=frozenset(
             {
-                "schemaVersion", "profileId", "format", "present", "content",
-                "size", "sha256", "editable", "bounded",
+                "schemaVersion",
+                "profileId",
+                "format",
+                "present",
+                "content",
+                "size",
+                "sha256",
+                "editable",
+                "bounded",
             }
         ),
     )
@@ -3167,10 +3192,7 @@ def _project_pif_document(value: object) -> JSONValue:
             or re.fullmatch(r"[0-9a-f]{64}", digest) is None
             or not hmac.compare_digest(hashlib.sha256(encoded).hexdigest(), digest)
             or "\x00" in content
-            or any(
-                ord(character) < 32 and character not in {"\n", "\r", "\t"}
-                for character in content
-            )
+            or any(ord(character) < 32 and character not in {"\n", "\r", "\t"} for character in content)
         ):
             raise PublicProjectionError("PIF document content is unverified")
     elif content or size != 0 or source["sha256"] is not None:
@@ -3181,9 +3203,7 @@ def _project_pif_document(value: object) -> JSONValue:
 def _project_pif_transformation(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"schemaVersion", "format", "content", "sha256", "size", "fieldCount", "bounded"}
-        ),
+        fields=frozenset({"schemaVersion", "format", "content", "sha256", "size", "fieldCount", "bounded"}),
     )
     content = source["content"]
     size = source["size"]
@@ -3211,10 +3231,7 @@ def _project_pif_transformation(value: object) -> JSONValue:
     if (
         len(encoded) != size
         or not hmac.compare_digest(hashlib.sha256(encoded).hexdigest(), digest)
-        or any(
-            ord(character) < 32 and character not in {"\n", "\r", "\t"}
-            for character in content
-        )
+        or any(ord(character) < 32 and character not in {"\n", "\r", "\t"} for character in content)
     ):
         raise PublicProjectionError("PIF transformation content is unverified")
     return ensure_public_json(dict(source))
@@ -3269,10 +3286,7 @@ def _project_pif_favorites(value: object) -> JSONValue:
         or source["bounded"] is not True
     ):
         raise PublicProjectionError("PIF favorites boundary is invalid")
-    favorites = [
-        _project_pif_favorite_metadata(item)
-        for item in cast("list[object]", raw_favorites)
-    ]
+    favorites = [_project_pif_favorite_metadata(item) for item in cast("list[object]", raw_favorites)]
     identities = [cast(str, item["favoriteId"]) for item in favorites]
     if len(identities) != len(set(identities)):
         raise PublicProjectionError("PIF favorites contain duplicate identities")
@@ -3288,9 +3302,7 @@ def _project_pif_favorite(value: object) -> JSONValue:
         source["favorite"],
         fields=frozenset({"favoriteId", "label", "createdAt", "sha256", "size", "content"}),
     )
-    metadata = _project_pif_favorite_metadata(
-        {key: item for key, item in raw_favorite.items() if key != "content"}
-    )
+    metadata = _project_pif_favorite_metadata({key: item for key, item in raw_favorite.items() if key != "content"})
     content = raw_favorite["content"]
     if not isinstance(content, str):
         raise PublicProjectionError("PIF favorite content is invalid")
@@ -3298,9 +3310,8 @@ def _project_pif_favorite(value: object) -> JSONValue:
         encoded = content.encode("utf-8", errors="strict")
     except UnicodeError as error:
         raise PublicProjectionError("PIF favorite content is invalid") from error
-    if (
-        len(encoded) != metadata["size"]
-        or not hmac.compare_digest(hashlib.sha256(encoded).hexdigest(), cast(str, metadata["sha256"]))
+    if len(encoded) != metadata["size"] or not hmac.compare_digest(
+        hashlib.sha256(encoded).hexdigest(), cast(str, metadata["sha256"])
     ):
         raise PublicProjectionError("PIF favorite content is unverified")
     if (
@@ -3317,9 +3328,7 @@ def _project_pif_favorite(value: object) -> JSONValue:
 def _project_pif_favorite_mutation(value: object) -> JSONValue:
     source = _closed_record(
         value,
-        fields=frozenset(
-            {"schemaVersion", "action", "revision", "favorite", "bounded", "snapshotRevision"}
-        ),
+        fields=frozenset({"schemaVersion", "action", "revision", "favorite", "bounded", "snapshotRevision"}),
     )
     if source["action"] not in {"saved", "deleted"}:
         raise PublicProjectionError("PIF favorite mutation action is invalid")
@@ -3348,28 +3357,35 @@ def _project_pif_action(value: object) -> JSONValue:
     elif action in {"addTarget", "deleteTarget"}:
         fields = frozenset({"action", "targetPackage"})
     elif action == "importTargetProfile":
-        fields = frozenset(
-            {"action", "targetPackage", "targetFormat", "sha256", "size"}
-        )
+        fields = frozenset({"action", "targetPackage", "targetFormat", "sha256", "size"})
     else:
         raise PublicProjectionError("PIF action receipt is invalid")
     source = _closed_record(value, fields=fields)
     if action == "launchIntegrityCheck" and (
-        source["checker"] not in {"piac", "spic", "aic", "playStore"}
-        or source["verified"] is not True
+        source["checker"] not in {"piac", "spic", "aic", "playStore"} or source["verified"] is not True
     ):
         raise PublicProjectionError("integrity checker launch receipt is invalid")
     if action == "cleanupDroidGuard" and source["verified"] is not True:
         raise PublicProjectionError("DroidGuard cleanup receipt is invalid")
     profile_ids = {
-        "pif.custom_json", "pif.custom_prop", "pif.module_json", "pif.legacy_json",
-        "pif.app_replace", "pif.scripts_only", "tricky.spoof", "tricky.target",
-        "tricky.security_patch", "tricky.tee", "targeted.targets",
+        "pif.custom_json",
+        "pif.custom_prop",
+        "pif.module_json",
+        "pif.legacy_json",
+        "pif.app_replace",
+        "pif.scripts_only",
+        "tricky.spoof",
+        "tricky.target",
+        "tricky.security_patch",
+        "tricky.tee",
+        "targeted.targets",
     }
     if action in {"deleteProfile", "importProfile", "updateProfile"} and source["profileId"] not in profile_ids:
         raise PublicProjectionError("PIF profile action receipt is invalid")
     if action == "updateProfile" and source["profileId"] in {
-        "pif.scripts_only", "tricky.tee", "targeted.targets",
+        "pif.scripts_only",
+        "tricky.tee",
+        "targeted.targets",
     }:
         raise PublicProjectionError("PIF profile is not editable")
     if action in {"addTarget", "deleteTarget", "importTargetProfile"} and (
@@ -3533,10 +3549,7 @@ def _project_pi_analysis(value: object) -> JSONValue:
             or not isinstance(size, int)
             or isinstance(size, bool)
             or not 0 <= size <= 4 * 1024 * 1024
-            or (
-                (not present or kind == "keybox")
-                and digest is not None
-            )
+            or ((not present or kind == "keybox") and digest is not None)
             or (
                 present
                 and kind != "keybox"
@@ -3554,10 +3567,7 @@ def _project_pi_analysis(value: object) -> JSONValue:
         source["signals"],
         fields=frozenset({"targetedFixTargetCount", "magiskDenylistCount", "droidGuardVmCount"}),
     )
-    if any(
-        not isinstance(item, int) or isinstance(item, bool) or not 0 <= item <= 4096
-        for item in signals.values()
-    ):
+    if any(not isinstance(item, int) or isinstance(item, bool) or not 0 <= item <= 4096 for item in signals.values()):
         raise PublicProjectionError("Play Integrity analysis signals are invalid")
     withheld = source["withheld"]
     expected_withheld = [
@@ -3670,8 +3680,7 @@ def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONVa
         ):
             raise PublicProjectionError("legacy personal tool boundary is invalid")
     elif source["mode"] != "safeArgv" or (
-        not isinstance(source["sha256"], str)
-        or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
+        not isinstance(source["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
     ):
         raise PublicProjectionError("safe personal tool boundary is invalid")
     projected = ensure_public_json(source)
@@ -3716,15 +3725,17 @@ def _public_grant(value: object) -> dict[str, JSONValue]:
     source = _record(value)
     raw_expiry = source.get("expiresInSeconds")
     expiry = raw_expiry if isinstance(raw_expiry, int) and not isinstance(raw_expiry, bool) else None
-    return _public_object({
-        "grant": _string(source.get("grant")),
-        "purpose": _string(source.get("purpose")),
-        "target": _string(source.get("target")),
-        "access": _string(source.get("access")),
-        "consumeOnce": _boolean(source.get("consumeOnce")),
-        "expiresInSeconds": expiry,
-        "displayName": ntpath.basename(posixpath.basename(_string(source.get("displayName")).replace("\\", "/"))),
-    })
+    return _public_object(
+        {
+            "grant": _string(source.get("grant")),
+            "purpose": _string(source.get("purpose")),
+            "target": _string(source.get("target")),
+            "access": _string(source.get("access")),
+            "consumeOnce": _boolean(source.get("consumeOnce")),
+            "expiresInSeconds": expiry,
+            "displayName": ntpath.basename(posixpath.basename(_string(source.get("displayName")).replace("\\", "/"))),
+        }
+    )
 
 
 # Every callable command has an explicit owner at the output boundary.  Reusing
@@ -3779,10 +3790,10 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "native.pickFiles": _project_native_grant,
     "native.saveFile": _project_native_grant,
     "operation.cancel": _project_none,
-    "partitions.erase": _project_confirmation,
+    "partitions.erase": _project_partition_mutation,
     "partitions.list": _project_partitions,
-    "partitions.read": _project_none,
-    "partitions.write": _project_none,
+    "partitions.read": _project_partition_read,
+    "partitions.write": _project_partition_mutation,
     "platformTools.setup": _project_platform_tools_setup,
     "root.apps.install": _project_none,
     "root.apps.catalog.refresh": _project_root_app_catalog,

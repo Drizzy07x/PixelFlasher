@@ -183,18 +183,22 @@ class OperationRunner:
             isinstance(request_start_index, bool)
             or not isinstance(request_start_index, int)
             or request_start_index < 0
-            or request_start_index >= len(execution_plan.requests)
+            or request_start_index > len(execution_plan.requests)
         ):
             return OperationResult.failed(
                 command.operation_id,
                 code="request_start_invalid",
                 message="operation runner request boundary is invalid",
             )
-        if request_start_index and operation_executor is not None:
+        if (
+            request_start_index
+            and operation_executor is not None
+            and request_start_index != len(execution_plan.requests)
+        ):
             return OperationResult.failed(
                 command.operation_id,
                 code="request_start_conflict",
-                message="a request boundary cannot be combined with a custom executor",
+                message=("a partial request boundary cannot be combined with a custom executor"),
             )
         token = cancellation or CancellationToken()
         provider = snapshot_provider or self.snapshot_provider
@@ -724,7 +728,7 @@ class OperationRunner:
             )
         process_plan = plan
         process_command = command
-        if request_start_index:
+        if request_start_index and request_start_index < len(plan.requests):
             process_plan = replace(
                 plan,
                 requests=plan.requests[request_start_index:],
@@ -835,10 +839,7 @@ class OperationRunner:
                 result = cleaned_result
                 if result.status is OperationStatus.FAILED:
                     return result
-            if (
-                result.status is OperationStatus.FAILED
-                and result.code == "managed_process_termination_failed"
-            ):
+            if result.status is OperationStatus.FAILED and result.code == "managed_process_termination_failed":
                 return result
             if cancelled_after_execution and token.reason is CancellationReason.DEADLINE:
                 return OperationResult.failed(
@@ -1159,10 +1160,7 @@ class OperationRunner:
                 code="postcondition_unverified",
                 message=str(error),
             )
-        if token.cancelled or (
-            isinstance(result, ObservationResult)
-            and result.status is ObservationStatus.CANCELLED
-        ):
+        if token.cancelled or (isinstance(result, ObservationResult) and result.status is ObservationStatus.CANCELLED):
             return self._unknown_outcome(
                 operation_id,
                 "host postcondition observation was cancelled after mutation",
@@ -1370,6 +1368,7 @@ class OperationRunner:
             "adb_wifi_pairing_recorded",
             "package_data_cleared",
             "package_export_verified",
+            "partition_read_verified",
             "data_adb_backup_verified",
             "data_adb_restore_verified",
             "logcat_buffers_cleared",
@@ -1381,6 +1380,24 @@ class OperationRunner:
         postcondition: OperationPostcondition,
     ) -> None:
         expected = postcondition.expected
+        if postcondition.kind == "partition_read_verified":
+            if set(expected) != {"targetSerial", "partition", "fileName"}:
+                raise ValueError("partition read postcondition fields are invalid")
+            target_serial = expected.get("targetSerial")
+            partition = expected.get("partition")
+            file_name = expected.get("fileName")
+            if (
+                not isinstance(target_serial, str)
+                or not target_serial
+                or len(target_serial) > 256
+                or any(character.isspace() or ord(character) < 0x20 for character in target_serial)
+                or not isinstance(partition, str)
+                or re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", partition) is None
+                or not isinstance(file_name, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ +@=-]{0,191}", file_name) is None
+            ):
+                raise ValueError("partition read identity is invalid")
+            return
         if postcondition.kind == "data_adb_backup_verified":
             if set(expected) != {"fileName"}:
                 raise ValueError("/data/adb backup postcondition fields are invalid")
@@ -1423,8 +1440,7 @@ class OperationRunner:
                 )
                 is None
                 or not isinstance(file_name, str)
-                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk", file_name, re.I)
-                is None
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk", file_name, re.I) is None
             ):
                 raise ValueError("APK export identity is invalid")
             return
@@ -1488,8 +1504,7 @@ class OperationRunner:
             markers = tuple(expected.get(name) for name, _prefix in marker_fields)
             if (
                 any(
-                    not isinstance(marker, str)
-                    or re.fullmatch(rf"PF10_{prefix}_[0-9a-f]{{32}}", marker) is None
+                    not isinstance(marker, str) or re.fullmatch(rf"PF10_{prefix}_[0-9a-f]{{32}}", marker) is None
                     for marker, (_name, prefix) in zip(markers, marker_fields, strict=True)
                 )
                 or len(set(markers)) != 6
@@ -1590,6 +1605,11 @@ class OperationRunner:
                 )
             if postcondition.kind == "adb_wifi_pairing_recorded":
                 evidence = self._verify_wifi_pairing_evidence(postcondition, result)
+            elif postcondition.kind == "partition_read_verified":
+                evidence = self._verify_partition_read_evidence(
+                    postcondition,
+                    result,
+                )
             elif postcondition.kind == "package_export_verified":
                 evidence = self._verify_package_export_evidence(postcondition, result)
             elif postcondition.kind in {
@@ -1610,6 +1630,49 @@ class OperationRunner:
         return OperationResult.success(
             plan.plan_id,
             code="execution_postconditions_satisfied",
+        )
+
+    @staticmethod
+    def _verify_partition_read_evidence(
+        postcondition: OperationPostcondition,
+        result: OperationResult,
+    ) -> OperationResult:
+        value = OperationRunner._result_value_mapping(cast(object, result.value))
+        digest = value.get("sha256")
+        size = value.get("sizeBytes")
+        expected = postcondition.expected
+        valid = (
+            result.code == "partition_read_verified"
+            and set(value)
+            == {
+                "action",
+                "targetSerial",
+                "partition",
+                "fileName",
+                "sha256",
+                "sizeBytes",
+                "verified",
+            }
+            and value.get("action") == "read"
+            and value.get("targetSerial") == expected["targetSerial"]
+            and value.get("partition") == expected["partition"]
+            and value.get("fileName") == expected["fileName"]
+            and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+            and isinstance(size, int)
+            and not isinstance(size, bool)
+            and 1 <= size <= 16 * 1024 * 1024 * 1024
+            and value.get("verified") is True
+        )
+        if not valid:
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_mismatch",
+                message=("partition read receipt does not prove target, partition, hash, size, and atomic publication"),
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code="partition_read_verified",
         )
 
     @staticmethod
@@ -1656,8 +1719,7 @@ class OperationRunner:
                     "remoteCleaned",
                 }
                 and value.get("action") == "restore"
-                and value.get("contentFingerprint")
-                == postcondition.expected["contentFingerprint"]
+                and value.get("contentFingerprint") == postcondition.expected["contentFingerprint"]
                 and value.get("entryCount") == postcondition.expected["entryCount"]
             )
         valid = (
@@ -1670,8 +1732,7 @@ class OperationRunner:
             and not isinstance(value.get("entryCount"), bool)
             and 0 <= cast(int, value.get("entryCount")) <= 20_000
             and all(
-                isinstance(value.get(field), str)
-                and OperationRunner._sha256_valid(cast(str, value.get(field)))
+                isinstance(value.get(field), str) and OperationRunner._sha256_valid(cast(str, value.get(field)))
                 for field in digest_fields
             )
             and value.get("verified") is True
@@ -1830,11 +1891,7 @@ class OperationRunner:
                 message="Logcat clear produced unexpected diagnostic output",
             )
         normalized_stdout = result.stdout.replace("\r\n", "\n").replace("\r", "\n")
-        lines = tuple(
-            line
-            for line in normalized_stdout.split("\n")
-            if line
-        )
+        lines = tuple(line for line in normalized_stdout.split("\n") if line)
         boundaries = (
             pre_start_marker,
             pre_end_marker,
@@ -2025,9 +2082,7 @@ class OperationRunner:
             if self._is_execution_postcondition(postcondition.kind):
                 continue
             if postcondition.kind != "adb_wifi_endpoint_state":
-                raise ValueError(
-                    f"no host observer mapping exists for postcondition: {postcondition.kind}"
-                )
+                raise ValueError(f"no host observer mapping exists for postcondition: {postcondition.kind}")
             expected = postcondition.expected
             if set(expected) != {"endpoint", "connected"}:
                 raise ValueError("ADB Wi-Fi endpoint postcondition fields are invalid")
@@ -2249,11 +2304,7 @@ class OperationRunner:
                 until = expected.get("until")
                 if not isinstance(package_name, str) or not package_name:
                     raise TypeError("Magisk SU package is invalid")
-                if (
-                    not isinstance(uid, int)
-                    or isinstance(uid, bool)
-                    or not 0 <= uid <= 2_147_483_647
-                ):
+                if not isinstance(uid, int) or isinstance(uid, bool) or not 0 <= uid <= 2_147_483_647:
                     raise ValueError("Magisk SU UID is invalid")
                 if state not in {"present", "absent"} or policy not in {
                     "allow",
@@ -2263,11 +2314,7 @@ class OperationRunner:
                     raise ValueError("Magisk SU policy state is invalid")
                 if not isinstance(logging, bool) or not isinstance(notification, bool):
                     raise TypeError("Magisk SU flags are invalid")
-                if (
-                    not isinstance(until, int)
-                    or isinstance(until, bool)
-                    or not 0 <= until <= 9_999_999_999
-                ):
+                if not isinstance(until, int) or isinstance(until, bool) or not 0 <= until <= 9_999_999_999:
                     raise ValueError("Magisk SU expiry is invalid")
                 if state == "absent":
                     if policy != "revoke":
@@ -2276,9 +2323,7 @@ class OperationRunner:
                 else:
                     if policy not in {"allow", "deny"}:
                         raise ValueError("present Magisk SU policy must allow or deny")
-                    canonical = (
-                        f"{policy}:{int(logging)}:{int(notification)}:{until}"
-                    )
+                    canonical = f"{policy}:{int(logging)}:{int(notification)}:{until}"
                 current = expected_magisk_su_policies.get(uid)
                 if current is not None and current != canonical:
                     raise ValueError("conflicting Magisk SU policy postconditions")
@@ -2738,9 +2783,7 @@ class OperationRunner:
                     while chunk := stream.read(1024 * 1024):
                         if token is not None and token.cancelled:
                             return (
-                                "timed_out"
-                                if token.reason is CancellationReason.DEADLINE
-                                else "cancelled",
+                                "timed_out" if token.reason is CancellationReason.DEADLINE else "cancelled",
                                 "artifact revalidation was interrupted",
                             )
                         digest.update(chunk)
@@ -2832,9 +2875,7 @@ class OperationRunner:
                 staged_path = str(destination)
                 seen[artifact.path] = artifact.sha256
                 replacements[artifact.path] = staged_path
-                staged_artifacts.append(
-                    FileArtifact(staged_path, artifact.sha256, artifact.role)
-                )
+                staged_artifacts.append(FileArtifact(staged_path, artifact.sha256, artifact.role))
 
             for artifact in plan.artifacts:
                 replacement_roles.setdefault(artifact.path, set()).add(artifact.role)
@@ -2993,9 +3034,7 @@ class OperationRunner:
     @classmethod
     def _same_unchanged_file(cls, left: os.stat_result, right: os.stat_result) -> bool:
         return (
-            cls._same_open_file(left, right)
-            and left.st_size == right.st_size
-            and left.st_mtime_ns == right.st_mtime_ns
+            cls._same_open_file(left, right) and left.st_size == right.st_size and left.st_mtime_ns == right.st_mtime_ns
         )
 
     @staticmethod

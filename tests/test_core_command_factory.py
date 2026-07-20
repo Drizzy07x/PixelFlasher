@@ -34,9 +34,7 @@ def request(command, *, payload=None, revision=4, request_id="factory-test"):
 
 class CoreCommandFactoryTests(unittest.TestCase):
     def test_every_accepted_engine_command_receives_its_registry_deadline(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1"))
 
         commands = (
             factory(request("settings.get", revision=None)),
@@ -72,9 +70,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertLessEqual(command.accepted_monotonic, entered_resolution[0])
 
     def test_risk_metadata_is_backend_owned(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-1"))
 
         command = factory(request("flash.execute", payload={"serial": "SERIAL-1"}))
 
@@ -91,9 +87,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
             )
 
     def test_device_commands_bind_only_an_explicit_or_selected_serial(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-2")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-2"))
         self.assertEqual(
             "SERIAL-2",
             factory(request("device.reboot", payload={"mode": "system"})).target_serial,
@@ -120,9 +114,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertEqual("SERIAL-2", explicit.target_serial)
 
     def test_ota_diagnostics_bind_selected_or_explicit_serial_without_risk_flags(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-OTA")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-OTA"))
 
         certificates = factory(request("device.ota.certificates"))
         logs = factory(
@@ -153,13 +145,9 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertFalse(logs.requires_confirmation)
 
     def test_device_open_url_binds_target_and_backend_confirmation_metadata(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-URL")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-URL"))
 
-        command = factory(
-            request("device.openUrl", payload={"url": "https://example.com/path"})
-        )
+        command = factory(request("device.openUrl", payload={"url": "https://example.com/path"}))
 
         self.assertEqual("SERIAL-URL", command.target_serial)
         self.assertEqual({"url": "https://example.com/path"}, command.payload)
@@ -168,9 +156,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertEqual(4, command.expected_revision)
 
     def test_settings_and_local_inventory_are_not_device_scoped(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3"))
 
         loaded = factory(request("settings.get", revision=None))
         updated = factory(request("settings.update", payload={"theme": "light"}))
@@ -182,9 +168,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
         self.assertEqual({"theme": "light"}, updated.payload)
 
     def test_backup_inventory_restore_keeps_only_the_opaque_repository_id(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-3"))
         backup_id = "a" * 32
 
         restored = factory(
@@ -209,9 +193,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "stock_boot.img"
             source.write_bytes(b"stock boot")
-            factory = create_command_factory(
-                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-MAGISK")
-            )
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-MAGISK"))
             grant = factory.path_grants.issue_file(
                 source,
                 purpose="backups.magisk.import.source",
@@ -299,9 +281,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
             public = factory.issue_native_grants(picker, (root,))
             grant = public["grant"]
 
-            official = factory(
-                request("platformTools.setup", payload={"source": "official"})
-            )
+            official = factory(request("platformTools.setup", payload={"source": "official"}))
             self.assertEqual({"source": "official"}, official.payload)
 
             with self.assertRaises(CommandFactoryError) as not_applicable:
@@ -398,9 +378,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
     def test_logcat_export_consumes_exact_purpose_write_grant_without_public_path(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "device-logcat.txt"
-            factory = create_command_factory(
-                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-LOG")
-            )
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-LOG"))
             picker = request(
                 "native.saveFile",
                 payload={"purpose": "tools.logcat.export"},
@@ -414,9 +392,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
 
             selected = factory(request("tools.logcat", payload=payload))
 
-            self.assertIsInstance(
-                selected.payload["exportDestination"], BoundWriteFile
-            )
+            self.assertIsInstance(selected.payload["exportDestination"], BoundWriteFile)
             self.assertNotIn("grant", selected.payload)
             self.assertNotIn(str(destination), repr(selected))
             with self.assertRaises(CommandFactoryError) as replay:
@@ -439,9 +415,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
     def test_apk_export_consumes_one_use_write_grant_without_public_path(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "com.example.app.apk"
-            factory = create_command_factory(
-                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-APP")
-            )
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-APP"))
             picker = request(
                 "native.saveFile",
                 payload={"purpose": "apps.export.destination"},
@@ -486,9 +460,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
 
     def test_data_adb_grants_stay_bound_and_cannot_be_replayed(self):
         with tempfile.TemporaryDirectory() as directory:
-            factory = create_command_factory(
-                lambda: AppSnapshot(revision=4, selected_serial="SERIAL123456")
-            )
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL123456"))
             destination = Path(directory) / "root-state.pfdataadb"
             backup_picker = request(
                 "native.saveFile",
@@ -535,6 +507,82 @@ class CoreCommandFactoryTests(unittest.TestCase):
             self.assertIsInstance(restore.payload["source"], BoundReadFile)
             self.assertNotIn("grant", restore.payload)
             self.assertNotIn(str(source), repr(restore))
+
+    def test_partition_grants_stay_bound_and_write_destination_is_one_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "boot.img"
+            source = root / "vendor_boot.img"
+            source.write_bytes(b"verified partition image")
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-PART"))
+
+            read_picker = request(
+                "native.saveFile",
+                payload={"purpose": "partitions.read.destination"},
+            )
+            read_grant = factory.issue_native_grants(read_picker, (destination,))
+            read_payload = {
+                "serial": "SERIAL-PART",
+                "partition": "boot",
+                "grant": read_grant["grant"],
+                "overwrite": True,
+            }
+            read_command = factory(request("partitions.read", payload=read_payload))
+
+            self.assertIsInstance(read_command.payload["destination"], BoundWriteFile)
+            self.assertNotIn("grant", read_command.payload)
+            self.assertNotIn(str(destination), repr(read_command))
+            with self.assertRaises(CommandFactoryError) as replay:
+                factory(
+                    request(
+                        "partitions.read",
+                        payload=read_payload,
+                        request_id="partition-read-replay",
+                    )
+                )
+            self.assertEqual("grant_not_found", replay.exception.code)
+
+            write_picker = request(
+                "native.pickFile",
+                payload={"purpose": "partitions.write.source"},
+                request_id="partition-write-picker",
+            )
+            write_grant = factory.issue_native_grants(write_picker, (source,))
+            write_command = factory(
+                request(
+                    "partitions.write",
+                    payload={
+                        "serial": "SERIAL-PART",
+                        "partition": "vendor_boot",
+                        "grant": write_grant["grant"],
+                    },
+                    request_id="partition-write",
+                )
+            )
+            self.assertIsInstance(write_command.payload["path"], BoundReadFile)
+            self.assertNotIn("grant", write_command.payload)
+            self.assertNotIn(str(source), repr(write_command))
+
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "partitions.read",
+                    payload={
+                        "serial": "SERIAL-PART",
+                        "partition": "boot",
+                        "destination": str(destination),
+                    },
+                    request_id="partition-read-raw-path",
+                )
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "partitions.write",
+                    payload={
+                        "serial": "SERIAL-PART",
+                        "partition": "boot",
+                        "path": str(source),
+                    },
+                    request_id="partition-write-raw-path",
+                )
 
     def test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -647,9 +695,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
             self.assertNotIn(str(selected), repr(command))
 
     def test_wifi_secret_grant_is_one_use_and_never_serializes_plaintext(self):
-        factory = create_command_factory(
-            lambda: AppSnapshot(revision=4, selected_serial="SERIAL-WIFI")
-        )
+        factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-WIFI"))
         issued = request(
             "secret.issue",
             payload={"purpose": "wifi.pairingCode", "secret": "123456"},
@@ -676,9 +722,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
 
     def test_apatch_superkey_grant_is_consumed_only_by_apatch_patch(self):
         with tempfile.TemporaryDirectory() as directory:
-            factory = create_command_factory(
-                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-APATCH")
-            )
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL-APATCH"))
             issued_request = request(
                 "secret.issue",
                 payload={"purpose": "apatch.superkey", "secret": "correct-horse"},
@@ -767,9 +811,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
                 path = Path(directory) / f"file-{index:02d}.bin"
                 path.write_bytes(bytes([index]))
                 files.append(path)
-            factory = create_command_factory(
-                lambda: AppSnapshot(revision=4, selected_serial="SERIAL")
-            )
+            factory = create_command_factory(lambda: AppSnapshot(revision=4, selected_serial="SERIAL"))
             picker = request(
                 "native.pickFiles",
                 payload={"purpose": "tools.pushFiles.sources"},
@@ -787,9 +829,7 @@ class CoreCommandFactoryTests(unittest.TestCase):
                 )
             )
             self.assertEqual(32, len(command.payload["paths"]))
-            self.assertTrue(
-                all(isinstance(path, BoundReadFile) for path in command.payload["paths"])
-            )
+            self.assertTrue(all(isinstance(path, BoundReadFile) for path in command.payload["paths"]))
             self.assertNotIn("grants", command.payload)
 
             replacement = factory.issue_native_grants(picker, files[:32])
