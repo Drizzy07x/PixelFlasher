@@ -171,4 +171,43 @@ describe('PIF and TargetedFix inventory', () => {
       confirmationText: deletePhrase,
     });
   });
+
+  it('imports a TargetedFix package profile through a purpose-bound opaque grant', async () => {
+    const user = userEvent.setup();
+    const packageName = 'com.google.android.gms';
+    const onCommand = vi.fn(async (command: BridgeCommand) => {
+      if (command === 'root.pif.inventory') return { result: { status: 'SUCCESS', value: inventory() } };
+      if (command === 'native.pickFile') return { result: { value: { data: { grant: 'opaque-target-grant' } } } };
+      return {
+        result: {
+          status: 'SUCCESS',
+          value: { action: 'importTargetProfile', targetPackage: packageName, targetFormat: 'prop', sha256: 'd'.repeat(64), size: 512 },
+        },
+      };
+    });
+    const { snapshot } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Refresh' }));
+    await user.selectOptions(within(card as HTMLElement).getByLabelText('Target profile format'), 'prop');
+    const targetRow = within(card as HTMLElement).getByText(packageName).closest('.root-inventory__row');
+    if (!targetRow) throw new Error('TargetedFix row missing');
+    await user.click(within(targetRow as HTMLElement).getByRole('button', { name: 'Import target profile' }));
+    const phrase = `IMPORT TARGET ${packageName} PROP ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    await user.type(within(card as HTMLElement).getByLabelText(/Confirm profile import/), phrase);
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Import and verify target profile' }));
+    expect(onCommand).toHaveBeenNthCalledWith(2, 'native.pickFile', {
+      purpose: 'root.pif.target.import',
+      title: 'Import target profile',
+      filters: [{ label: 'TargetedFix package profile', extensions: ['prop'] }],
+    });
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'importTargetProfile',
+      targetPackage: packageName,
+      targetFormat: 'prop',
+      confirmationText: phrase,
+      grant: 'opaque-target-grant',
+    });
+  });
 });

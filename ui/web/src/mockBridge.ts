@@ -1153,14 +1153,17 @@ export function installDevelopmentBridge() {
             const profileId = typeof request.payload.profileId === 'string' ? request.payload.profileId : '';
             const action = String(request.payload.action);
             const importing = action === 'importProfile';
-            const targetAction = action === 'addTarget' || action === 'deleteTarget';
+            const targetAction = action === 'addTarget' || action === 'deleteTarget' || action === 'importTargetProfile';
             const targetPackage = typeof request.payload.targetPackage === 'string' ? request.payload.targetPackage : '';
+            const targetFormat = request.payload.targetFormat === 'prop' ? 'prop' : 'json';
             const required = targetAction
-              ? `${action === 'addTarget' ? 'ADD' : 'DELETE'} TARGET ${targetPackage} ${serial.slice(-6).toUpperCase()}`
+              ? action === 'importTargetProfile'
+                ? `IMPORT TARGET ${targetPackage} ${targetFormat.toUpperCase()} ${serial.slice(-6).toUpperCase()}`
+                : `${action === 'addTarget' ? 'ADD' : 'DELETE'} TARGET ${targetPackage} ${serial.slice(-6).toUpperCase()}`
               : `${importing ? 'IMPORT' : 'DELETE'} PIF ${profileId} ${serial.slice(-6).toUpperCase()}`;
             if (
               !target || target.mode !== 'adb' || !target.rooted
-              || !['deleteProfile', 'importProfile', 'addTarget', 'deleteTarget'].includes(action)
+              || !['deleteProfile', 'importProfile', 'addTarget', 'deleteTarget', 'importTargetProfile'].includes(action)
               || request.payload.confirmationText !== required
             ) {
               emit(errorMessage('PIF or TargetedFix request is invalid.', request));
@@ -1169,19 +1172,25 @@ export function installDevelopmentBridge() {
             requestGuardedConfirmation(
               request,
               targetAction
-                ? `${action === 'addTarget' ? 'Add' : 'Delete'} TargetedFix target ${targetPackage} on ${serial}?`
+                ? `${action === 'addTarget' ? 'Add' : action === 'deleteTarget' ? 'Delete' : 'Import'} TargetedFix target ${targetPackage} on ${serial}?`
                 : `${importing ? 'Import' : 'Delete'} PIF profile ${profileId} on ${serial}?`,
               true,
               () => finishGuarded(request, {
                 status: 'SUCCESS',
                 code: targetAction
-                  ? action === 'addTarget' ? 'targeted_fix_target_added' : 'targeted_fix_target_deleted'
+                  ? action === 'addTarget'
+                    ? 'targeted_fix_target_added'
+                    : action === 'deleteTarget'
+                      ? 'targeted_fix_target_deleted'
+                      : 'targeted_fix_profile_imported'
                   : importing ? 'pif_profile_imported' : 'pif_profile_deleted',
                 message: targetAction
                   ? 'TargetedFix target state was independently verified'
                   : `PIF profile ${importing ? 'import hash' : 'deletion'} was independently verified`,
                 value: targetAction
-                  ? { action, targetPackage }
+                  ? action === 'importTargetProfile'
+                    ? { action, targetPackage, targetFormat, sha256: 'd'.repeat(64), size: 512 }
+                    : { action, targetPackage }
                   : importing
                     ? { action: 'importProfile', profileId, sha256: 'c'.repeat(64), size: 512 }
                     : { action: 'deleteProfile', profileId },

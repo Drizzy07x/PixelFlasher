@@ -28,6 +28,7 @@ from pixelflasher_core.rooting import (
     RootingPlanningError,
     RootingService,
     inspect_pif_profile_stream,
+    inspect_targeted_fix_profile_stream,
     parse_pi_analysis,
     parse_pif_inventory,
     parse_root_module_list,
@@ -485,6 +486,69 @@ class RootingServiceTests(unittest.TestCase):
                 with self.assertRaises(RootingPlanningError) as raised:
                     RootingService().compile(self.command("tools.pif", payload), self.snapshot)
                 self.assertEqual(code, raised.exception.code)
+
+    def test_targeted_fix_profile_import_is_validated_staged_and_hash_observed(self):
+        package = "com.example.app"
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "profile.json"
+            source.write_text('{"PRODUCT":"akita"}', encoding="utf-8")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            compilation = RootingService().compile(
+                self.command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "importTargetProfile",
+                        "targetPackage": package,
+                        "targetFormat": "json",
+                        "confirmationText": f"IMPORT TARGET {package} JSON SERIAL",
+                        "path": str(source.resolve()),
+                    },
+                ),
+                self.snapshot,
+            )
+
+        self.assertEqual("pif.import_target_profile", compilation.action)
+        self.assertEqual(package, compilation.pif_target_package)
+        self.assertEqual("json", compilation.pif_target_format)
+        self.assertEqual(digest, compilation.pif_sha256)
+        assert compilation.plan is not None
+        self.assertEqual(2, len(compilation.plan.requests))
+        self.assertIn("grep -Fxq -- com.example.app", compilation.plan.requests[1].argv[6])
+        self.assertIn("com.example.app.json", compilation.plan.requests[1].argv[6])
+        self.assertIn("rm -f -- /data/adb/modules/targetedfix/config/com.example.app.prop", compilation.plan.requests[1].argv[6])
+        postcondition = compilation.plan.postconditions[0]
+        self.assertEqual("targeted_fix_profile_hash", postcondition.kind)
+        self.assertEqual(
+            {"packageName": package, "format": "json", "sha256": digest},
+            postcondition.expected,
+        )
+
+    def test_targeted_fix_profile_validator_reuses_strict_json_and_prop_policies(self):
+        package = "com.example.app"
+        inspected = inspect_targeted_fix_profile_stream(
+            package,
+            "prop",
+            io.BytesIO(b"PRODUCT=akita\nDEVICE=akita\n"),
+        )
+        self.assertEqual((package, "prop"), (inspected.package_name, inspected.format))
+        with self.assertRaises(RootingPlanningError) as raised:
+            inspect_targeted_fix_profile_stream(package, "json", io.BytesIO(b"[]"))
+        self.assertEqual("pif_import_json_invalid", raised.exception.code)
+        with self.assertRaises(RootingPlanningError) as raised:
+            inspect_targeted_fix_profile_stream("../private", "json", io.BytesIO(b"{}"))
+        self.assertEqual("targeted_fix_package_invalid", raised.exception.code)
+
+    def test_pif_inventory_accepts_one_targeted_fix_prop_profile_but_rejects_ambiguity(self):
+        encoded = base64.b64encode(b"com.google.android.gms").decode("ascii")
+        output = pif_inventory_output().replace(
+            f"PF_PIF|target|{encoded}|json|present|",
+            f"PF_PIF|target|{encoded}|prop|present|",
+        )
+        parsed = parse_pif_inventory(output)
+        self.assertEqual("prop", parsed["targets"][0]["format"])
+        with self.assertRaises(RootingPlanningError):
+            parse_pif_inventory(output.replace("|prop|present|", "|ambiguous|present|", 1))
 
     def test_pif_import_inspection_is_format_specific_and_metadata_only(self):
         cases = (

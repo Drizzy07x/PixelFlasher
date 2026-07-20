@@ -1803,6 +1803,7 @@ class CommandEngine:
                     "pif.import_profile",
                     "pif.add_target",
                     "pif.delete_target",
+                    "pif.import_target_profile",
                 }
             ):
                 return OperationResult.failed(
@@ -1815,10 +1816,15 @@ class CommandEngine:
                 "pif.import_profile": "importProfile",
                 "pif.add_target": "addTarget",
                 "pif.delete_target": "deleteTarget",
+                "pif.import_target_profile": "importTargetProfile",
             }
             public_action = action_names[compilation.action]
             imported = compilation.action == "pif.import_profile"
-            target_action = compilation.action in {"pif.add_target", "pif.delete_target"}
+            target_action = compilation.action in {
+                "pif.add_target",
+                "pif.delete_target",
+                "pif.import_target_profile",
+            }
             if target_action:
                 if compilation.pif_target_package is None:
                     return OperationResult.failed(
@@ -1830,6 +1836,20 @@ class CommandEngine:
                     "action": public_action,
                     "targetPackage": compilation.pif_target_package,
                 }
+                if compilation.action == "pif.import_target_profile":
+                    if (
+                        compilation.pif_target_format not in {"json", "prop"}
+                        or compilation.pif_sha256 is None
+                        or compilation.pif_size is None
+                    ):
+                        return OperationResult.failed(
+                            result.operation_id,
+                            code="pif_action_compilation_invalid",
+                            message="TargetedFix profile import is missing verified metadata",
+                        )
+                    value["targetFormat"] = compilation.pif_target_format
+                    value["sha256"] = compilation.pif_sha256
+                    value["size"] = compilation.pif_size
             else:
                 if compilation.pif_profile_id is None:
                     return OperationResult.failed(
@@ -1857,12 +1877,14 @@ class CommandEngine:
                     "deleteProfile": "pif_profile_deleted",
                     "addTarget": "targeted_fix_target_added",
                     "deleteTarget": "targeted_fix_target_deleted",
+                    "importTargetProfile": "targeted_fix_profile_imported",
                 }[public_action],
                 message={
                     "importProfile": "PIF profile import hash was independently verified",
                     "deleteProfile": "PIF profile deletion was independently verified",
                     "addTarget": "TargetedFix target addition was independently verified",
                     "deleteTarget": "TargetedFix target deletion was independently verified",
+                    "importTargetProfile": "TargetedFix profile hash was independently verified",
                 }[public_action],
                 value=value,
                 stdout="",

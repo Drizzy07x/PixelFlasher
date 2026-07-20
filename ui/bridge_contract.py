@@ -360,7 +360,11 @@ def _validate_payload_values(
             _payload_error("tools.pif serial is invalid", request_id)
         action = payload.get("action")
         if action in {"deleteProfile", "importProfile"}:
-            if profile_id not in canonical_profiles or "targetPackage" in payload:
+            if (
+                profile_id not in canonical_profiles
+                or "targetPackage" in payload
+                or "targetFormat" in payload
+            ):
                 _payload_error("tools.pif profile action payload is invalid", request_id)
             assert isinstance(serial, str) and isinstance(profile_id, str)
             if action == "importProfile":
@@ -371,7 +375,7 @@ def _validate_payload_values(
                 if "grant" in payload:
                     _payload_error("tools.pif delete grant is not allowed", request_id)
                 required = f"DELETE PIF {profile_id} {serial[-6:].upper()}"
-        elif action in {"addTarget", "deleteTarget"}:
+        elif action in {"addTarget", "deleteTarget", "importTargetProfile"}:
             target_package = payload.get("targetPackage")
             if (
                 not isinstance(target_package, str)
@@ -379,12 +383,25 @@ def _validate_payload_values(
                 is None
                 or len(target_package) > 255
                 or "profileId" in payload
-                or "grant" in payload
             ):
                 _payload_error("tools.pif TargetedFix payload is invalid", request_id)
             assert isinstance(serial, str)
-            verb = "ADD" if action == "addTarget" else "DELETE"
-            required = f"{verb} TARGET {target_package} {serial[-6:].upper()}"
+            if action == "importTargetProfile":
+                target_format = payload.get("targetFormat")
+                if target_format not in {"json", "prop"} or not _nonempty_string(
+                    payload.get("grant"),
+                    limit=256,
+                ):
+                    _payload_error("tools.pif TargetedFix import is invalid", request_id)
+                required = (
+                    f"IMPORT TARGET {target_package} {str(target_format).upper()} "
+                    f"{serial[-6:].upper()}"
+                )
+            else:
+                if "grant" in payload or "targetFormat" in payload:
+                    _payload_error("tools.pif TargetedFix mutation has unexpected fields", request_id)
+                verb = "ADD" if action == "addTarget" else "DELETE"
+                required = f"{verb} TARGET {target_package} {serial[-6:].upper()}"
         else:
             _payload_error("tools.pif action is invalid", request_id)
         if payload.get("confirmationText") != required:

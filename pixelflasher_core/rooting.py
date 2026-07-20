@@ -254,6 +254,7 @@ class PifProfileInfo:
 @dataclass(frozen=True, slots=True)
 class PifTargetInfo:
     package_name: str
+    format: str
     present: bool
     size: int
     sha256: str | None
@@ -261,7 +262,7 @@ class PifTargetInfo:
     def to_dict(self) -> dict[str, object]:
         return {
             "packageName": self.package_name,
-            "format": "json",
+            "format": self.format,
             "present": self.present,
             "size": self.size,
             "sha256": self.sha256,
@@ -285,6 +286,14 @@ class PifImportInspection:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetedFixImportInspection:
+    package_name: str
+    format: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class RootingCompilation:
     """A local result or process plan plus backend-owned safety metadata."""
 
@@ -294,6 +303,7 @@ class RootingCompilation:
     module_id: str | None = None
     pif_profile_id: str | None = None
     pif_target_package: str | None = None
+    pif_target_format: str | None = None
     pif_sha256: str | None = None
     pif_size: int | None = None
     device_build: str | None = None
@@ -309,6 +319,7 @@ class RootingCompilation:
             "module_id": self.module_id,
             "pif_profile_id": self.pif_profile_id,
             "pif_target_package": self.pif_target_package,
+            "pif_target_format": self.pif_target_format,
             "pif_sha256": self.pif_sha256,
             "pif_size": self.pif_size,
             "device_build": self.device_build,
@@ -463,12 +474,17 @@ class RootingService:
             "if [ -f \"$target_file\" ]; then while IFS= read -r target; do "
             "case \"$target\" in ''|*[!A-Za-z0-9_.]*) continue;; esac; "
             "case \"$target\" in [A-Za-z]*) ;; *) continue;; esac; "
-            "[ \"${#target}\" -le 255 ] || continue; file=/data/adb/modules/targetedfix/config/$target.json; "
+            "[ \"${#target}\" -le 255 ] || continue; "
+            "json_file=/data/adb/modules/targetedfix/config/$target.json; "
+            "prop_file=/data/adb/modules/targetedfix/config/$target.prop; "
+            "if [ -f \"$json_file\" ] && [ -f \"$prop_file\" ]; then format=ambiguous; file=$json_file; "
+            "elif [ -f \"$prop_file\" ]; then format=prop; file=$prop_file; "
+            "else format=json; file=$json_file; fi; "
             "if [ -f \"$file\" ]; then size=$(wc -c < \"$file\" 2>/dev/null | tr -d ' '); "
             "case \"$size\" in ''|*[!0-9]*) size=0;; esac; digest=$(sha256sum \"$file\" 2>/dev/null | cut -d ' ' -f 1); "
             "case \"$digest\" in [0-9a-f][0-9a-f][0-9a-f]*) ;; *) digest=-;; esac; status=present; "
             "else size=0; digest=-; status=absent; fi; "
-            f"printf '{_PIF_INVENTORY_PREFIX}|target|%s|json|%s|%s|%s\\n' \"$(pf_b64 \"$target\")\" \"$status\" \"$size\" \"$digest\"; "
+            f"printf '{_PIF_INVENTORY_PREFIX}|target|%s|%s|%s|%s|%s\\n' \"$(pf_b64 \"$target\")\" \"$format\" \"$status\" \"$size\" \"$digest\"; "
             f"count=$((count + 1)); [ \"$count\" -lt {_MAX_PIF_TARGETS} ] || break; done < \"$target_file\"; fi; "
             f"printf '{_PIF_INVENTORY_PREFIX}|complete|1\\n'"
         )
@@ -496,15 +512,31 @@ class RootingService:
     ) -> RootingCompilation:
         self._validate_payload(
             command,
-            {"serial", "action", "profileId", "targetPackage", "confirmationText", "path"},
+            {
+                "serial",
+                "action",
+                "profileId",
+                "targetPackage",
+                "targetFormat",
+                "confirmationText",
+                "path",
+            },
         )
         action = command.payload.get("action")
-        if action not in {"deleteProfile", "importProfile", "addTarget", "deleteTarget"}:
+        if action not in {
+            "deleteProfile",
+            "importProfile",
+            "addTarget",
+            "deleteTarget",
+            "importTargetProfile",
+        }:
             raise RootingPlanningError(
                 "pif_action_invalid",
                 "PIF action is not supported",
             )
         assert isinstance(action, str)
+        if action == "importTargetProfile":
+            return self._compile_targeted_fix_profile_import(command, snapshot, device, adb)
         if action in {"addTarget", "deleteTarget"}:
             return self._compile_targeted_fix_action(command, snapshot, device, adb, action)
         profile_id = command.payload.get("profileId")
@@ -597,6 +629,112 @@ class RootingService:
                 ),
             ),
             pif_profile_id=profile_id,
+            device_write=True,
+            destructive=True,
+            requires_confirmation=True,
+        )
+
+    def _compile_targeted_fix_profile_import(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        if "profileId" in command.payload:
+            raise RootingPlanningError(
+                "targeted_fix_payload_ambiguous",
+                "TargetedFix profile import does not accept a canonical PIF profile ID",
+            )
+        package = command.payload.get("targetPackage")
+        profile_format = command.payload.get("targetFormat")
+        if not isinstance(package, str) or _PACKAGE_NAME_PATTERN.fullmatch(package) is None:
+            raise RootingPlanningError(
+                "targeted_fix_package_invalid",
+                "TargetedFix package ID is invalid",
+            )
+        if profile_format not in {"json", "prop"}:
+            raise RootingPlanningError(
+                "targeted_fix_format_invalid",
+                "TargetedFix profile format must be json or prop",
+            )
+        assert isinstance(profile_format, str)
+        required = (
+            f"IMPORT TARGET {package} {profile_format.upper()} "
+            f"{device.serial[-6:].upper()}"
+        )
+        if command.payload.get("confirmationText") != required:
+            raise RootingPlanningError(
+                "targeted_fix_confirmation_required",
+                f"confirmationText must be exactly {required}",
+            )
+        source = self._input_file(
+            command.payload.get("path"),
+            suffix="",
+            missing_code="targeted_fix_import_source_invalid",
+        )
+        try:
+            with source.open("rb") as stream:
+                inspection = inspect_targeted_fix_profile_stream(package, profile_format, stream)
+        except OSError as error:
+            raise RootingPlanningError(
+                "targeted_fix_import_source_invalid",
+                "TargetedFix import source could not be read",
+            ) from error
+        config = "/data/adb/modules/targetedfix/config"
+        target_file = f"{config}/{package}.{profile_format}"
+        alternate_format = "prop" if profile_format == "json" else "json"
+        alternate_file = f"{config}/{package}.{alternate_format}"
+        remote = f"/data/local/tmp/pixelflasher-targeted-fix-{inspection.sha256[:16]}.tmp"
+        install_script = (
+            f"[ -f {config}/target.txt ] && "
+            f"grep -Fxq -- {package} {config}/target.txt || "
+            f"{{ rm -f -- {remote}; exit 72; }}; "
+            f"cp {remote} {target_file} && chmod 0600 {target_file} && "
+            f"rm -f -- {alternate_file}; status=$?; rm -f -- {remote}; exit $status"
+        )
+        artifact = FileArtifact(
+            str(source),
+            inspection.sha256,
+            f"targeted-fix-profile:{package}:{profile_format}",
+        )
+        requests = (
+            ProcessRequest(
+                (adb, "-s", device.serial, "push", str(source), remote),
+                timeout_seconds=120.0,
+            ),
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "su", "-c", install_script),
+                timeout_seconds=30.0,
+                output_limit_bytes=16 * 1024,
+            ),
+        )
+        return RootingCompilation(
+            "pif.import_target_profile",
+            self._base_plan(
+                snapshot,
+                device,
+                requests,
+                label=f"Import TargetedFix profile for {package} on {device.serial}",
+                data_behavior="targeted_fix_profile_import",
+                artifacts=(artifact,),
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "targeted_fix_profile_hash",
+                        {
+                            "packageName": package,
+                            "format": profile_format,
+                            "sha256": inspection.sha256,
+                        },
+                        "the active TargetedFix package profile matches the granted source",
+                    ),
+                ),
+            ),
+            pif_target_package=package,
+            pif_target_format=profile_format,
+            pif_sha256=inspection.sha256,
+            pif_size=inspection.size,
             device_write=True,
             destructive=True,
             requires_confirmation=True,
@@ -1855,14 +1993,20 @@ def parse_pif_inventory(stdout: str) -> dict[str, object]:
             package_name = _decode_pi_text(fields[2], "target package", 255)
             identity = package_name.casefold()
             if (
-                fields[3] != "json"
+                fields[3] not in {"json", "prop"}
                 or _PACKAGE_NAME_PATTERN.fullmatch(package_name) is None
                 or identity in targets
                 or len(targets) >= _MAX_PIF_TARGETS
             ):
                 raise RootingPlanningError("pif_inventory_malformed", "PIF target record is invalid")
             present, size, public_digest = _parse_pif_file_evidence(*fields[4:])
-            targets[identity] = PifTargetInfo(package_name, present, size, public_digest)
+            targets[identity] = PifTargetInfo(
+                package_name,
+                fields[3],
+                present,
+                size,
+                public_digest,
+            )
             continue
         raise RootingPlanningError("pif_inventory_malformed", "PIF inventory contains an unknown record")
 
@@ -1943,6 +2087,36 @@ def inspect_pif_profile_stream(profile_id: str, stream: BinaryIO) -> PifImportIn
     else:
         raise RootingPlanningError("pif_import_format_invalid", "PIF profile format is unsupported")
     return PifImportInspection(profile_id, profile_format, size, digest.hexdigest())
+
+
+def inspect_targeted_fix_profile_stream(
+    package_name: str,
+    profile_format: str,
+    stream: BinaryIO,
+) -> TargetedFixImportInspection:
+    """Validate one package profile while retaining metadata only."""
+
+    if _PACKAGE_NAME_PATTERN.fullmatch(package_name) is None:
+        raise RootingPlanningError(
+            "targeted_fix_package_invalid",
+            "TargetedFix package ID is invalid",
+        )
+    canonical_profile = {
+        "json": "pif.custom_json",
+        "prop": "pif.custom_prop",
+    }.get(profile_format)
+    if canonical_profile is None:
+        raise RootingPlanningError(
+            "targeted_fix_format_invalid",
+            "TargetedFix profile format must be json or prop",
+        )
+    inspected = inspect_pif_profile_stream(canonical_profile, stream)
+    return TargetedFixImportInspection(
+        package_name,
+        profile_format,
+        inspected.size,
+        inspected.sha256,
+    )
 
 
 def _parse_pif_file_evidence(state: str, raw_size: str, digest: str) -> tuple[bool, int, str | None]:
@@ -2132,6 +2306,7 @@ __all__ = [
     "PifProfileInfo",
     "PifImportInspection",
     "PifTargetInfo",
+    "TargetedFixImportInspection",
     "RootApkInspector",
     "RootAppInfo",
     "RootAppSource",
@@ -2140,6 +2315,7 @@ __all__ = [
     "RootingPlanningError",
     "RootingService",
     "inspect_pif_profile_stream",
+    "inspect_targeted_fix_profile_stream",
     "parse_pif_inventory",
     "parse_pi_analysis",
     "parse_root_module_list",

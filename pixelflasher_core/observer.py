@@ -51,6 +51,17 @@ _DEFAULT_MAX_HASH_TARGETS = 16
 _DEFAULT_MAX_REMOTE_HASH_TARGETS = 32
 
 
+def _target_profile_identity(value: str) -> tuple[str, str] | None:
+    package, separator, profile_format = value.rpartition(":")
+    if (
+        not separator
+        or _PACKAGE_PATTERN.fullmatch(package) is None
+        or profile_format not in {"json", "prop"}
+    ):
+        return None
+    return package, profile_format
+
+
 class ObservationStatus(StrEnum):
     VERIFIED = "verified"
     MISMATCH = "mismatch"
@@ -98,6 +109,7 @@ class DeviceObservation:
     pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     targeted_fix_targets: Mapping[str, bool] = field(default_factory=_empty_booleans)
+    targeted_fix_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -158,6 +170,14 @@ class DeviceObservation:
         ):
             raise TypeError("observed TargetedFix target states are invalid")
         if any(
+            not isinstance(identity, str)
+            or _target_profile_identity(identity) is None
+            or not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for identity, value in self.targeted_fix_profile_hashes.items()
+        ):
+            raise TypeError("observed TargetedFix profile hashes are invalid")
+        if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(value, bool)
@@ -206,6 +226,11 @@ class DeviceObservation:
             self,
             "targeted_fix_targets",
             MappingProxyType(dict(self.targeted_fix_targets)),
+        )
+        object.__setattr__(
+            self,
+            "targeted_fix_profile_hashes",
+            MappingProxyType(dict(self.targeted_fix_profile_hashes)),
         )
         object.__setattr__(
             self,
@@ -293,6 +318,7 @@ class PostconditionSpec:
     expected_pif_profiles: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_pif_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_targeted_fix_targets: Mapping[str, bool] = field(default_factory=_empty_booleans)
+    expected_targeted_fix_profile_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
@@ -397,6 +423,14 @@ class PostconditionSpec:
         ):
             raise ValueError("expected TargetedFix target state is invalid")
         if any(
+            not isinstance(identity, str)
+            or _target_profile_identity(identity) is None
+            or not isinstance(value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for identity, value in self.expected_targeted_fix_profile_hashes.items()
+        ):
+            raise ValueError("expected TargetedFix profile hash is invalid")
+        if any(
             not isinstance(package, str)
             or _PACKAGE_PATTERN.fullmatch(package) is None
             or not isinstance(listed, bool)
@@ -464,6 +498,11 @@ class PostconditionSpec:
             self,
             "expected_targeted_fix_targets",
             MappingProxyType(dict(self.expected_targeted_fix_targets)),
+        )
+        object.__setattr__(
+            self,
+            "expected_targeted_fix_profile_hashes",
+            MappingProxyType(dict(self.expected_targeted_fix_profile_hashes)),
         )
         object.__setattr__(
             self,
@@ -810,6 +849,13 @@ class ProcessDeviceObservationProbe:
                     timeout,
                 ),
                 targeted_fix_targets=self._targeted_fix_target_states(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                targeted_fix_profile_hashes=self._targeted_fix_profile_hashes(
                     spec,
                     toolchain,
                     mode,
@@ -1317,6 +1363,47 @@ class ProcessDeviceObservationProbe:
             )
             if present is not None:
                 observed[package] = present
+        return observed
+
+    def _targeted_fix_profile_hashes(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, str]:
+        identities = tuple(spec.expected_targeted_fix_profile_hashes)
+        if mode != "adb" or not identities or len(identities) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        observed: dict[str, str] = {}
+        config = "/data/adb/modules/targetedfix/config"
+        for identity in identities:
+            parsed = _target_profile_identity(identity)
+            if token.cancelled or parsed is None:
+                break
+            package, profile_format = parsed
+            alternate = "prop" if profile_format == "json" else "json"
+            path = f"{config}/{package}.{profile_format}"
+            alternate_path = f"{config}/{package}.{alternate}"
+            script = (
+                f"[ -f {path} ] && [ ! -f {alternate_path} ] || exit 1; "
+                f"sha256sum -- {path}"
+            )
+            outcome = self._run(
+                (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", script),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+            )
+            if not self._successful(outcome, _MAX_PROPERTY_OUTPUT_BYTES):
+                continue
+            assert outcome is not None
+            match = re.fullmatch(rf"([0-9a-f]{{64}})  {re.escape(path)}\n?", outcome.stdout)
+            if match is not None:
+                observed[identity] = match.group(1)
         return observed
 
     def _magisk_modules_disabled(
@@ -2475,6 +2562,14 @@ class PostconditionObserver:
             if actual is None:
                 missing.append(key)
             elif actual is not expected:
+                mismatches[key] = (expected, actual)
+
+        for identity, expected in spec.expected_targeted_fix_profile_hashes.items():
+            actual = observation.targeted_fix_profile_hashes.get(identity)
+            key = f"targeted_fix_profile_hash:{identity}"
+            if actual is None:
+                missing.append(key)
+            elif actual != expected:
                 mismatches[key] = (expected, actual)
 
         for package_name, expected in spec.expected_magisk_denylist.items():

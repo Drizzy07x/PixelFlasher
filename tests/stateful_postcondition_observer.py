@@ -110,6 +110,8 @@ class StatefulPostconditionObserver:
             return self._result(self._pif_profile_hash(plan, calls, expected))
         if kind == "targeted_fix_target_state":
             return self._result(self._targeted_fix_target_state(plan, calls, expected))
+        if kind == "targeted_fix_profile_hash":
+            return self._result(self._targeted_fix_profile_hash(plan, calls, expected))
         return self._unverified(f"the fake has no probe for {kind}")
 
     @staticmethod
@@ -376,6 +378,36 @@ class StatefulPostconditionObserver:
             f"grep -Fxv -- {package} {target_file}" in shell_text
             and f"/{package}.json" in shell_text
             and f"/{package}.prop" in shell_text
+        )
+
+    @staticmethod
+    def _targeted_fix_profile_hash(
+        plan: OperationPlan,
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        package = expected.get("packageName")
+        profile_format = expected.get("format")
+        digest = expected.get("sha256")
+        if (
+            not isinstance(package, str)
+            or profile_format not in {"json", "prop"}
+            or not isinstance(digest, str)
+        ):
+            return False
+        role = f"targeted-fix-profile:{package}:{profile_format}"
+        artifact = next((item for item in plan.artifacts if item.role == role), None)
+        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        return (
+            artifact is not None
+            and artifact.sha256 == digest
+            and any(
+                "push" in request.argv
+                and request.argv[-1].startswith("/data/local/tmp/pixelflasher-targeted-fix-")
+                for request in calls
+            )
+            and f"/{package}.{profile_format}" in shell_text
+            and "chmod 0600" in shell_text
         )
 
     @staticmethod

@@ -101,6 +101,13 @@ _NATIVE_GRANT_SPECS = (
     ),
     NativeGrantSpec(
         "native.pickFile",
+        "root.pif.target.import",
+        "tools.pif",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
         "backups.restore.source",
         "backups.restore",
         GrantTarget.FILE,
@@ -434,9 +441,11 @@ class CoreCommandFactory:
         elif command == "tools.pif":
             if payload.get("action") == "importProfile":
                 self._resolve_one(payload, "root.pif.import", "path")
+            elif payload.get("action") == "importTargetProfile":
+                self._resolve_one(payload, "root.pif.target.import", "path")
             elif "grant" in payload:
                 raise CommandFactoryError(
-                    "grant_not_applicable", "PIF deletion does not accept a file grant."
+                    "grant_not_applicable", "This PIF action does not accept a file grant."
                 )
         elif command == "apps.action":
             if payload.get("action") == "install":

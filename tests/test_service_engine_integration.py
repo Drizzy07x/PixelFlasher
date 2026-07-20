@@ -2279,6 +2279,47 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                 self.assertEqual({"action": action, "targetPackage": package}, result.value)
                 self.assertIn("/data/adb/modules/targetedfix/config/target.txt", transport.calls[0].argv[6])
 
+    def test_targeted_fix_profile_import_returns_only_verified_hash_metadata(self):
+        package = "com.example.app"
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "target.prop"
+            source.write_text("PRODUCT=akita\n", encoding="utf-8")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            size = len(source.read_bytes())
+            engine, transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0), TransportOutcome(0)],
+                root=True,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            result = engine.execute(
+                command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "importTargetProfile",
+                        "targetPackage": package,
+                        "targetFormat": "prop",
+                        "confirmationText": f"IMPORT TARGET {package} PROP SERIAL",
+                        "path": str(source.resolve()),
+                    },
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual("targeted_fix_profile_imported", result.code)
+        self.assertEqual(
+            {
+                "action": "importTargetProfile",
+                "targetPackage": package,
+                "targetFormat": "prop",
+                "sha256": digest,
+                "size": size,
+            },
+            result.value,
+        )
+        self.assertEqual(2, len(transport.calls))
+
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (
             (

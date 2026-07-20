@@ -48,6 +48,7 @@ class StatefulDeviceTransport:
         pif_profiles: set[str] | None = None,
         pif_profile_hashes: dict[str, str] | None = None,
         targeted_fix_targets: set[str] | None = None,
+        targeted_fix_profile_hashes: dict[str, str] | None = None,
         magisk_denylist: set[str] | None = None,
         magisk_su_policies: dict[int, str] | None = None,
         magisk_backups: dict[str, str] | None = None,
@@ -73,6 +74,7 @@ class StatefulDeviceTransport:
         self.pif_profiles = pif_profiles or set()
         self.pif_profile_hashes = pif_profile_hashes or {}
         self.targeted_fix_targets = targeted_fix_targets or set()
+        self.targeted_fix_profile_hashes = targeted_fix_profile_hashes or {}
         self.magisk_denylist = magisk_denylist or set()
         self.magisk_su_policies = magisk_su_policies or {}
         self.magisk_backups = magisk_backups or {}
@@ -264,6 +266,16 @@ class StatefulDeviceTransport:
             ):
                 package = command[len(target_prefix) :].split(" ", 1)[0]
                 return TransportOutcome(0 if package in self.targeted_fix_targets else 1)
+            profile_match = re.fullmatch(
+                r"\[ -f (/data/adb/modules/targetedfix/config/([A-Za-z][A-Za-z0-9_.]*)\.(json|prop)) \] "
+                r"&& \[ ! -f /data/adb/modules/targetedfix/config/\2\.(?:json|prop) \] \|\| exit 1; "
+                r"sha256sum -- \1",
+                command,
+            )
+            if profile_match is not None:
+                path, package, profile_format = profile_match.groups()
+                digest = self.targeted_fix_profile_hashes.get(f"{package}:{profile_format}")
+                return TransportOutcome(0, f"{digest}  {path}\n") if digest else TransportOutcome(1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -799,6 +811,30 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             PostconditionSpec(SERIAL, 1, expected_targeted_fix_targets={"../private": True})
+
+    def test_targeted_fix_profile_hash_requires_one_exact_active_format(self) -> None:
+        identity = "com.example.app:json"
+        digest = "d" * 64
+        verified = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                targeted_fix_profile_hashes={identity: digest},
+            )
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_targeted_fix_profile_hashes={identity: digest},
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        with self.assertRaises(ValueError):
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_targeted_fix_profile_hashes={"../private:json": digest},
+            )
 
     def test_root_recovery_aggregate_states_require_explicit_device_evidence(self) -> None:
         verified = observer(

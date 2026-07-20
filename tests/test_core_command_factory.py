@@ -882,6 +882,33 @@ class CoreCommandFactoryTests(unittest.TestCase):
                     },
                 ).validate()
 
+    def test_targeted_fix_profile_import_uses_its_own_purpose_bound_grant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "target.json"
+            source.write_text('{"PRODUCT":"akita"}', encoding="utf-8")
+            factory = create_command_factory(lambda: AppSnapshot(revision=4))
+            picker = request(
+                "native.pickFile",
+                payload={"purpose": "root.pif.target.import", "title": "Target", "filters": []},
+            )
+            issued = factory.issue_native_grants(picker, [source])
+            package = "com.example.app"
+            command = factory(
+                request(
+                    "tools.pif",
+                    payload={
+                        "serial": "SERIAL",
+                        "action": "importTargetProfile",
+                        "targetPackage": package,
+                        "targetFormat": "json",
+                        "confirmationText": f"IMPORT TARGET {package} JSON SERIAL",
+                        "grant": issued["grant"],
+                    },
+                )
+            )
+            self.assertEqual(str(source.resolve()), command.payload["path"])
+            self.assertNotIn("grant", command.payload)
+
 
 if __name__ == "__main__":
     unittest.main()

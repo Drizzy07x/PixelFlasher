@@ -221,6 +221,51 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 with self.assertRaises(BridgeProtocolError):
                     BridgeRequest(2, "bad-target", "tools.pif", payload, 7).validate()
 
+    def test_target_profile_import_contract_exposes_only_verified_metadata(self):
+        package = "com.example.app"
+        digest = "d" * 64
+        payload = {
+            "serial": "SERIAL",
+            "action": "importTargetProfile",
+            "targetPackage": package,
+            "targetFormat": "prop",
+            "confirmationText": f"IMPORT TARGET {package} PROP SERIAL",
+            "grant": "G" * 32,
+        }
+        request = BridgeRequest(2, "target-import", "tools.pif", payload, 7)
+        self.assertIs(request, request.validate())
+        projected = project_operation_result(
+            "tools.pif",
+            OperationResult.success(
+                "target-import",
+                value={
+                    "action": "importTargetProfile",
+                    "targetPackage": package,
+                    "targetFormat": "prop",
+                    "sha256": digest,
+                    "size": 32,
+                },
+            ),
+        )["value"]
+        self.assertEqual(
+            {
+                "action": "importTargetProfile",
+                "targetPackage": package,
+                "targetFormat": "prop",
+                "sha256": digest,
+                "size": 32,
+            },
+            projected,
+        )
+        for hostile in (
+            {**payload, "targetFormat": "xml"},
+            {**payload, "grant": ""},
+            {**payload, "profileId": "targeted.targets"},
+        ):
+            with self.subTest(payload=hostile):
+                with self.assertRaises(BridgeProtocolError):
+                    BridgeRequest(2, "bad-target-import", "tools.pif", hostile, 7).validate()
+
 
 if __name__ == "__main__":
     unittest.main()

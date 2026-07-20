@@ -129,7 +129,7 @@ interface PifInventory {
   count: number;
   profiles: { id: string; module: string; format: string; present: boolean; size: number; sha256: string | null }[];
   targetCount: number;
-  targets: { packageName: string; format: 'json'; present: boolean; size: number; sha256: string | null }[];
+  targets: { packageName: string; format: 'json' | 'prop'; present: boolean; size: number; sha256: string | null }[];
 }
 
 const pifProfileSpecs = [
@@ -415,6 +415,10 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [targetedFixPackage, setTargetedFixPackage] = useState('');
   const [targetedFixAction, setTargetedFixAction] = useState<'addTarget' | 'deleteTarget' | ''>('');
   const [targetedFixConfirmation, setTargetedFixConfirmation] = useState('');
+  const [targetedFixProfileFormat, setTargetedFixProfileFormat] = useState<'json' | 'prop'>('json');
+  const [targetedFixImportPackage, setTargetedFixImportPackage] = useState('');
+  const [targetedFixImportGrant, setTargetedFixImportGrant] = useState('');
+  const [targetedFixImportConfirmation, setTargetedFixImportConfirmation] = useState('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -776,6 +780,61 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     }
   };
 
+  const prepareTargetedFixProfileImport = async (packageName: string) => {
+    if (!rootedAdb || !primary || busy) return;
+    const picked = await onCommand(commands.nativePickFile, {
+      purpose: 'root.pif.target.import',
+      title: t('root.targetedFixImport'),
+      filters: [{ label: t('root.targetedFixProfile'), extensions: [targetedFixProfileFormat] }],
+    });
+    const grant = selectedGrant(picked);
+    if (!grant) return;
+    setTargetedFixImportPackage(packageName);
+    setTargetedFixImportGrant(grant);
+    setTargetedFixImportConfirmation('');
+  };
+
+  const importTargetedFixProfile = async () => {
+    if (!rootedAdb || !primary || busy || !targetedFixImportPackage || !targetedFixImportGrant) return;
+    const required = `IMPORT TARGET ${targetedFixImportPackage} ${targetedFixProfileFormat.toUpperCase()} ${primary.serial.slice(-6).toUpperCase()}`;
+    if (targetedFixImportConfirmation !== required) return;
+    setBusy(`targeted-fix-import:${targetedFixImportPackage}`);
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: 'importTargetProfile',
+        targetPackage: targetedFixImportPackage,
+        targetFormat: targetedFixProfileFormat,
+        confirmationText: targetedFixImportConfirmation,
+        grant: targetedFixImportGrant,
+      });
+      if (!operationSucceeded(response)) return;
+      const value = record(record(response?.result).value);
+      if (
+        value.action !== 'importTargetProfile'
+        || value.targetPackage !== targetedFixImportPackage
+        || value.targetFormat !== targetedFixProfileFormat
+        || typeof value.sha256 !== 'string'
+        || !/^[0-9a-f]{64}$/.test(value.sha256)
+        || !boundedCount(value.size, 1024 * 1024)
+      ) {
+        setPifInventoryInvalid(true);
+        return;
+      }
+      setPifInventory((current) => current ? {
+        ...current,
+        targets: current.targets.map((item) => item.packageName === targetedFixImportPackage
+          ? { ...item, format: targetedFixProfileFormat, present: true, size: value.size as number, sha256: value.sha256 as string }
+          : item),
+      } : current);
+      setTargetedFixImportPackage('');
+      setTargetedFixImportGrant('');
+      setTargetedFixImportConfirmation('');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const refreshBootImages = async () => {
     if (busy) return;
     setBusy('boot:list');
@@ -1117,6 +1176,13 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               onClick={() => { setTargetedFixPackage(targetedFixPackage.trim()); setTargetedFixAction('addTarget'); setTargetedFixConfirmation(''); }}
               disabled={Boolean(busy) || !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(targetedFixPackage.trim()) || targetedFixPackage.trim().length > 255 || Boolean(pifInventory?.targets.some((item) => item.packageName === targetedFixPackage.trim()))}
             >{t('root.targetedFixAdd')}</Button>
+            <label className="select-field select-field--compact">
+              <span>{t('root.targetedFixFormat')}</span>
+              <select value={targetedFixProfileFormat} onChange={(event) => setTargetedFixProfileFormat(event.currentTarget.value as 'json' | 'prop')} disabled={Boolean(busy) || Boolean(targetedFixImportGrant)}>
+                <option value="json">JSON</option>
+                <option value="prop">PROP</option>
+              </select>
+            </label>
           </div>
         ) : null}
         {pifInventory ? (
@@ -1142,6 +1208,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 <span className="root-inventory__copy"><strong>{item.packageName}</strong><small>{t('root.pifTargetedFix')}</small></span>
                 <span className="root-inventory__actions">
                   <Badge tone={item.present ? 'success' : 'warning'}>{item.present ? t('root.pifPresent') : t('root.pifMissing')}</Badge>
+                  <Badge tone="neutral">{item.format.toUpperCase()}</Badge>
+                  <Button variant="secondary" onClick={() => void prepareTargetedFixProfileImport(item.packageName)} disabled={Boolean(busy)}>{t('root.targetedFixImport')}</Button>
                   <Button variant="danger" onClick={() => { setTargetedFixPackage(item.packageName); setTargetedFixAction('deleteTarget'); setTargetedFixConfirmation(''); }} disabled={Boolean(busy)}>{t('root.targetedFixDelete')}</Button>
                 </span>
               </div>
@@ -1200,6 +1268,19 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 disabled={Boolean(busy) || targetedFixConfirmation !== `${targetedFixAction === 'addTarget' ? 'ADD' : 'DELETE'} TARGET ${targetedFixPackage} ${primary.serial.slice(-6).toUpperCase()}`}
               >{targetedFixAction === 'addTarget' ? t('root.targetedFixAddRun') : t('root.targetedFixDeleteRun')}</Button>
               <Button variant="ghost" onClick={() => { setTargetedFixAction(''); setTargetedFixConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </span>
+          </div>
+        ) : null}
+        {targetedFixImportGrant && primary ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.targetedFixImportConfirm', { package: targetedFixImportPackage })}</span>
+              <small><code>{`IMPORT TARGET ${targetedFixImportPackage} ${targetedFixProfileFormat.toUpperCase()} ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+              <input value={targetedFixImportConfirmation} onChange={(event) => setTargetedFixImportConfirmation(event.currentTarget.value.slice(0, 360))} autoComplete="off" spellCheck={false} disabled={Boolean(busy)} />
+            </label>
+            <span className="button-row">
+              <Button variant="danger" onClick={() => void importTargetedFixProfile()} disabled={Boolean(busy) || targetedFixImportConfirmation !== `IMPORT TARGET ${targetedFixImportPackage} ${targetedFixProfileFormat.toUpperCase()} ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.targetedFixImportRun')}</Button>
+              <Button variant="ghost" onClick={() => { setTargetedFixImportPackage(''); setTargetedFixImportGrant(''); setTargetedFixImportConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
             </span>
           </div>
         ) : null}

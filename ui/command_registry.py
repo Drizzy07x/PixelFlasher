@@ -1370,6 +1370,7 @@ _COMMAND_SPECS = (
             ("action", PayloadKind.STRING, True),
             ("profileId", PayloadKind.STRING),
             ("targetPackage", PayloadKind.STRING),
+            ("targetFormat", PayloadKind.STRING),
             ("confirmationText", PayloadKind.STRING, True),
             ("grant", PayloadKind.STRING),
         ),

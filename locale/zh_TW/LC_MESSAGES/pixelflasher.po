@@ -6135,3 +6135,27 @@ msgstr "新增並驗證目標"
 msgctxt "web.root.targetedFixDeleteRun"
 msgid "Delete and verify target"
 msgstr "刪除並驗證目標"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.targetedFixFormat"
+msgid "Target profile format"
+msgstr "目標設定檔格式"
+
+msgctxt "web.root.targetedFixProfile"
+msgid "TargetedFix package profile"
+msgstr "TargetedFix 套件設定檔"
+
+msgctxt "web.root.targetedFixImport"
+msgid "Import target profile"
+msgstr "匯入目標設定檔"
+
+msgctxt "web.root.targetedFixImportConfirm"
+msgid "Confirm profile import for {package}"
+msgstr "確認匯入 {package} 的設定檔"
+
+msgctxt "web.root.targetedFixImportRun"
+msgid "Import and verify target profile"
+msgstr "匯入並驗證目標設定檔"

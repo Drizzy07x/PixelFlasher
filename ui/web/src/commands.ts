@@ -386,6 +386,7 @@ export interface BridgePayloadByCommand {
     "grant"?: string;
     "profileId"?: string;
     "serial": string;
+    "targetFormat"?: string;
     "targetPackage"?: string;
   };
   "tools.pushFiles": {
@@ -789,7 +790,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.toolsLogcat]: {"buffers":{"kind":"string_array","required":false,"minItems":1,"maxItems":6},"filters":{"kind":"logcat_filter_array","required":false,"minItems":0,"maxItems":32},"formatEnabled":{"kind":"boolean","required":false},"formatModifiers":{"kind":"string_array","required":false,"minItems":0,"maxItems":7},"formatVerb":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"maxLines":{"kind":"integer","required":false},"mode":{"kind":"string","required":false},"redaction":{"kind":"string","required":false},"regex":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"timeoutSeconds":{"kind":"integer","required":false},"uids":{"kind":"integer_array","required":false,"minItems":0,"maxItems":32}},
   [commands.toolsLogcatClear]: {"serial":{"kind":"string","required":false}},
   [commands.toolsPiAnalysis]: {"action":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
-  [commands.toolsPif]: {"action":{"kind":"string","required":true},"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"profileId":{"kind":"string","required":false},"serial":{"kind":"string","required":true},"targetPackage":{"kind":"string","required":false}},
+  [commands.toolsPif]: {"action":{"kind":"string","required":true},"confirmationText":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"profileId":{"kind":"string","required":false},"serial":{"kind":"string","required":true},"targetFormat":{"kind":"string","required":false},"targetPackage":{"kind":"string","required":false}},
   [commands.toolsPushFiles]: {"destination":{"kind":"string","required":true},"grants":{"kind":"string_array","required":true,"minItems":1,"maxItems":32},"serial":{"kind":"string","required":false}},
   [commands.toolsScrcpy]: {"alwaysOnTop":{"kind":"boolean","required":true},"fullscreen":{"kind":"boolean","required":true},"maxFps":{"kind":"integer","required":true},"maxSize":{"kind":"integer","required":true},"noAudio":{"kind":"boolean","required":true},"serial":{"kind":"string","required":false},"showTouches":{"kind":"boolean","required":true},"stayAwake":{"kind":"boolean","required":true},"turnScreenOff":{"kind":"boolean","required":true},"videoBitRateMbps":{"kind":"integer","required":true}},
   [commands.toolsScrcpySetup]: {"source":{"kind":"string","required":false}},

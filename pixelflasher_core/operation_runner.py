@@ -2041,6 +2041,7 @@ class OperationRunner:
         expected_pif_profiles: dict[str, bool] = {}
         expected_pif_profile_hashes: dict[str, str] = {}
         expected_targeted_fix_targets: dict[str, bool] = {}
+        expected_targeted_fix_profile_hashes: dict[str, str] = {}
         expected_magisk_denylist: dict[str, bool] = {}
         expected_magisk_su_policies: dict[int, str] = {}
         expected_magisk_backups: dict[str, str] = {}
@@ -2389,6 +2390,23 @@ class OperationRunner:
                 if current_target is not None and current_target is not present:
                     raise ValueError("conflicting TargetedFix target postconditions")
                 expected_targeted_fix_targets[package_name] = present
+            elif postcondition.kind == "targeted_fix_profile_hash":
+                if set(expected) != {"packageName", "format", "sha256"}:
+                    raise ValueError("TargetedFix profile hash postcondition fields are invalid")
+                package_name = expected.get("packageName")
+                profile_format = expected.get("format")
+                digest = expected.get("sha256")
+                if not isinstance(package_name, str) or not package_name:
+                    raise ValueError("TargetedFix profile package is unavailable")
+                if profile_format not in {"json", "prop"}:
+                    raise ValueError("TargetedFix profile format is invalid")
+                if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                    raise ValueError("TargetedFix profile hash is invalid")
+                identity = f"{package_name}:{profile_format}"
+                current_digest = expected_targeted_fix_profile_hashes.get(identity)
+                if current_digest is not None and current_digest != digest:
+                    raise ValueError("conflicting TargetedFix profile hash postconditions")
+                expected_targeted_fix_profile_hashes[identity] = digest
             elif postcondition.kind == "flash_applied":
                 hashes, flashed_partitions = self._planned_partition_hashes(plan)
                 expected_partitions = expected.get("partitions", plan.partitions)
@@ -2440,6 +2458,7 @@ class OperationRunner:
             expected_pif_profiles=expected_pif_profiles,
             expected_pif_profile_hashes=expected_pif_profile_hashes,
             expected_targeted_fix_targets=expected_targeted_fix_targets,
+            expected_targeted_fix_profile_hashes=expected_targeted_fix_profile_hashes,
             expected_magisk_denylist=expected_magisk_denylist,
             expected_magisk_su_policies=expected_magisk_su_policies,
             expected_magisk_backups=expected_magisk_backups,

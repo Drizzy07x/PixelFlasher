@@ -3038,7 +3038,7 @@ def _project_pif_inventory(value: object) -> JSONValue:
             not isinstance(package_name, str)
             or len(package_name) > 255
             or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", package_name) is None
-            or item["format"] != "json"
+            or item["format"] not in {"json", "prop"}
         ):
             raise PublicProjectionError("PIF target identity is invalid")
         _validate_pif_file_metadata(item)
@@ -3069,6 +3069,10 @@ def _project_pif_action(value: object) -> JSONValue:
         fields = frozenset({"action", "profileId"})
     elif action in {"addTarget", "deleteTarget"}:
         fields = frozenset({"action", "targetPackage"})
+    elif action == "importTargetProfile":
+        fields = frozenset(
+            {"action", "targetPackage", "targetFormat", "sha256", "size"}
+        )
     else:
         raise PublicProjectionError("PIF action receipt is invalid")
     source = _closed_record(value, fields=fields)
@@ -3079,7 +3083,7 @@ def _project_pif_action(value: object) -> JSONValue:
     }
     if action in {"deleteProfile", "importProfile"} and source["profileId"] not in profile_ids:
         raise PublicProjectionError("PIF profile action receipt is invalid")
-    if action in {"addTarget", "deleteTarget"} and (
+    if action in {"addTarget", "deleteTarget", "importTargetProfile"} and (
         not isinstance(source["targetPackage"], str)
         or re.fullmatch(
             r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+",
@@ -3089,6 +3093,15 @@ def _project_pif_action(value: object) -> JSONValue:
         or len(source["targetPackage"]) > 255
     ):
         raise PublicProjectionError("TargetedFix target receipt is invalid")
+    if action == "importTargetProfile" and (
+        source["targetFormat"] not in {"json", "prop"}
+        or not isinstance(source["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
+        or not isinstance(source["size"], int)
+        or isinstance(source["size"], bool)
+        or not 0 <= source["size"] <= 1024 * 1024
+    ):
+        raise PublicProjectionError("TargetedFix profile receipt is invalid")
     if source["action"] == "importProfile" and (
         not isinstance(source["sha256"], str)
         or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None

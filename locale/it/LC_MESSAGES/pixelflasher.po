@@ -6141,3 +6141,27 @@ msgstr "Aggiungi e verifica destinazione"
 msgctxt "web.root.targetedFixDeleteRun"
 msgid "Delete and verify target"
 msgstr "Elimina e verifica destinazione"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.targetedFixFormat"
+msgid "Target profile format"
+msgstr "Formato profilo di destinazione"
+
+msgctxt "web.root.targetedFixProfile"
+msgid "TargetedFix package profile"
+msgstr "Profilo pacchetto TargetedFix"
+
+msgctxt "web.root.targetedFixImport"
+msgid "Import target profile"
+msgstr "Importa profilo di destinazione"
+
+msgctxt "web.root.targetedFixImportConfirm"
+msgid "Confirm profile import for {package}"
+msgstr "Conferma importazione profilo per {package}"
+
+msgctxt "web.root.targetedFixImportRun"
+msgid "Import and verify target profile"
+msgstr "Importa e verifica profilo di destinazione"
