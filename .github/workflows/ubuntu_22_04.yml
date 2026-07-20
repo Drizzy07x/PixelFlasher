@@ -170,6 +170,12 @@ jobs:
             --report "$legacy_raw_report" \
             --expect-platform linux \
             --expect-architecture x86_64
+          firmware_report="$RUNNER_TEMP/pixelflasher-ubuntu22-firmware-smoke.json"
+          dist/PixelFlasher_Ubuntu_22_04 --firmware-smoke-report "$firmware_report"
+          myenv/bin/python scripts/verify_firmware_smoke.py \
+            --report "$firmware_report" \
+            --expect-platform linux \
+            --expect-architecture x86_64
           if ! XDG_CONFIG_HOME="$config_dir" xvfb-run -a \
             dist/PixelFlasher_Ubuntu_22_04 \
               --ui-smoke-report "$smoke_report" \

@@ -105,6 +105,23 @@ class DeliveryHardeningTests(unittest.TestCase):
                 self.assertIn(f"--expect-platform {platform}", source)
                 self.assertIn(f"--expect-architecture {architecture}", source)
 
+    def test_every_native_artifact_executes_the_closed_firmware_smoke(self):
+        expected_targets = {
+            "windows.yml": ("windows", "x86_64"),
+            "windows-arm64.yml": ("windows", "arm64"),
+            "mac.yml": ("macos", '"${{ matrix.arch }}"'),
+            "ubuntu_24_04.yml": ("linux", "x86_64"),
+            "ubuntu_22_04.yml": ("linux", "x86_64"),
+            "appimage-x86_64.yml": ("linux", "x86_64"),
+        }
+        for workflow, (platform, architecture) in expected_targets.items():
+            source = self.source(workflow)
+            with self.subTest(workflow=workflow):
+                self.assertIn("--firmware-smoke-report", source)
+                self.assertIn("scripts/verify_firmware_smoke.py", source)
+                self.assertIn(f"--expect-platform {platform}", source)
+                self.assertIn(f"--expect-architecture {architecture}", source)
+
     def test_codeql_covers_python_and_typescript_without_actor_filter(self):
         source = self.source("codeql-analysis.yml")
         self.assertIn("'python', 'javascript-typescript'", source)

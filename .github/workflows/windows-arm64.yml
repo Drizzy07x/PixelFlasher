@@ -222,6 +222,16 @@ jobs:
           }
           & $env:PYTHON_EXE scripts/verify_legacy_raw_smoke.py --report $legacyRawReport --expect-platform windows --expect-architecture arm64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $firmwareReport = Join-Path $env:RUNNER_TEMP "pixelflasher-firmware-smoke-windows-arm64.json"
+          $firmwareProcess = Start-Process -FilePath "dist/PixelFlasher-arm64.exe" -ArgumentList @(
+            "--firmware-smoke-report=$firmwareReport"
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($firmwareProcess.ExitCode -ne 0) {
+            Write-Error "Native ARM64 packaged firmware smoke failed."
+            exit $firmwareProcess.ExitCode
+          }
+          & $env:PYTHON_EXE scripts/verify_firmware_smoke.py --report $firmwareReport --expect-platform windows --expect-architecture arm64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $smokeReport = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows-arm64.json"
           $smokeConfig = Join-Path $env:RUNNER_TEMP "pixelflasher-ui-smoke-windows-arm64\PixelFlasher.json"
           New-Item -ItemType Directory -Force -Path (Split-Path $smokeConfig) | Out-Null

@@ -527,10 +527,11 @@
         "pixelflasher_core/firmware_signatures.py:FirmwarePackageSignatureVerifier",
         "pixelflasher_core/cms_verification.py:verify_detached_cms_stream",
         "pixelflasher_core/engine.py:_inspect_and_promote_firmware",
+        "firmware_smoke_contract.py:run_packaged_firmware_smoke",
         "ui/public_bridge.py:_project_firmware_inspection",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Factory/full-OTA identification, official and user-supplied provenance, streaming Android whole-file OTA signature verification, signed-manifest authentication, hash-bound one-use confirmation for unrecognized packages, closed trust diagnostics, transactional selection and explicit route-free manual retry are delivered. Production signer roots and packaged cross-platform smokes remain open.",
+      "gap": "Factory/full-OTA identification, official and user-supplied provenance, streaming Android whole-file OTA signature verification, signed-manifest authentication, hash-bound one-use confirmation for unrecognized packages, closed trust diagnostics, transactional selection, explicit route-free manual retry and a packaged deterministic factory smoke are delivered. Production signer roots, real production fixtures and remote packaged results remain open.",
       "exitCriteria": [
         "Select and identify a factory or full OTA package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -548,6 +549,7 @@
         "tests/test_firmware_catalog.py",
         "tests/test_firmware_signatures.py",
         "tests/test_firmware_trust_engine.py",
+        "tests/test_firmware_smoke.py",
         "tests/test_firmware_engine_integration.py:test_revision_change_after_import_rolls_back_new_firmware_object",
         "ui/web/src/test/firmware-catalog.test.tsx"
       ],
@@ -619,9 +621,10 @@
         "pixelflasher_core/boot_inventory.py:BootInventoryService.import_processed",
         "pixelflasher_core/repositories.py:BootRepository.import_selection",
         "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
+        "firmware_smoke_contract.py:run_packaged_firmware_smoke",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Confined extraction, closed product diagnostics, stock boot-chain promotion with firmware provenance, coordinated rollback of SQLite objects, planner registrations and extracted output, and a selection-bound explicit manual retry are delivered. Packaged cross-platform validation remains open.",
+      "gap": "Confined extraction, closed product diagnostics, stock boot-chain promotion with firmware provenance, coordinated rollback of SQLite objects, planner registrations and extracted output, a selection-bound explicit manual retry, and a closed packaged smoke wired into every target are delivered. Remote packaged results remain open.",
       "exitCriteria": [
         "Validate and process factory/full OTA packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -637,6 +640,7 @@
       "tests": [
         "tests/test_firmware_artifact_service.py",
         "tests/test_firmware_engine_integration.py",
+        "tests/test_firmware_smoke.py",
         "tests/test_firmware_engine_integration.py:test_revision_change_rolls_back_persistent_processed_artifacts",
         "tests/test_boot_inventory_service.py:test_processed_stock_import_tracks_firmware_and_rolls_back_only_new_record",
         "ui/web/src/test/firmware-catalog.test.tsx"

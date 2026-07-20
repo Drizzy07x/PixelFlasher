@@ -165,6 +165,13 @@ jobs:
             --report "$legacy_raw_report" \
             --expect-platform macos \
             --expect-architecture "${{ matrix.arch }}"
+          firmware_report="$RUNNER_TEMP/pixelflasher-firmware-smoke-${{ matrix.arch }}.json"
+          dist/PixelFlasher.app/Contents/MacOS/PixelFlasher \
+            --firmware-smoke-report "$firmware_report"
+          myenv/bin/python scripts/verify_firmware_smoke.py \
+            --report "$firmware_report" \
+            --expect-platform macos \
+            --expect-architecture "${{ matrix.arch }}"
           smoke_report="$RUNNER_TEMP/pixelflasher-ui-smoke-${{ matrix.arch }}.json"
           smoke_config="$RUNNER_TEMP/pixelflasher-ui-smoke-${{ matrix.arch }}/PixelFlasher.json"
           mkdir -p "$(dirname "$smoke_config")"
