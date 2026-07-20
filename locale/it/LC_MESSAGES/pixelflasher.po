@@ -34,6 +34,9 @@ msgstr "Annulla"
 msgid "Apply"
 msgstr "Applica"
 
+msgid "Retry"
+msgstr "Riprova"
+
 # Main Menu items
 msgid "&File"
 msgstr "&File"

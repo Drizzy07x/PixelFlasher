@@ -40,6 +40,12 @@ type FirmwareTrust = {
   evidence: string[];
 };
 
+type FirmwareRetry =
+  | { kind: 'catalog' }
+  | { kind: 'download'; artifactId: string }
+  | { kind: 'select'; expectedKind: 'stock' | 'custom' }
+  | { kind: 'process'; firmwareId: string };
+
 const ARTIFACT_ID = /^[0-9a-f]{32}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -142,6 +148,7 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
   const [catalogError, setCatalogError] = useState(false);
   const [inspection, setInspection] = useState<FirmwareInspection | null>(null);
   const [inspectionError, setInspectionError] = useState(false);
+  const [retry, setRetry] = useState<FirmwareRetry | null>(null);
   const active = snapshot.firmware?.id ?? null;
   const available = window.pixelflasher?.__mock
     ? demoFirmwares.map((entry) => entry.id === active && snapshot.firmware
@@ -157,6 +164,7 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
     if (busy || !selectedDevice?.codename) return;
     setBusy(true);
     setCatalogError(false);
+    setRetry(null);
     try {
       const response = await onCommand(commands.firmwareCatalogRefresh, {
         device: selectedDevice.codename.toLowerCase(),
@@ -166,12 +174,14 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
       const parsed = catalogEntries(result?.value);
       if (!parsed) {
         setCatalogError(true);
+        setRetry({ kind: 'catalog' });
         setCatalog([]);
         return;
       }
       setCatalog(parsed);
     } catch {
       setCatalogError(true);
+      setRetry({ kind: 'catalog' });
       setCatalog([]);
     } finally {
       setBusy(false);
@@ -181,19 +191,28 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
   const downloadFirmware = async (artifactId: string) => {
     if (busy) return;
     setBusy(true);
-    setCatalogError(false);
+    setInspectionError(false);
+    setRetry(null);
     try {
-      const response = await onCommand(commands.firmwareDownload, { artifactId });
+      const response = await onCommand(
+        commands.firmwareDownload,
+        { artifactId },
+        { returnCancelled: true, returnFailed: true },
+      );
       const diagnostics = responseInspection(response);
       if (!diagnostics) {
-        setCatalogError(true);
-        setInspectionError(true);
+        const status = String(response?.result.status ?? '').toLowerCase();
+        if (status !== 'cancelled') {
+          setInspectionError(true);
+          setRetry({ kind: 'download', artifactId });
+        }
       } else {
         setInspection(diagnostics);
         setInspectionError(false);
       }
     } catch {
-      setCatalogError(true);
+      setInspectionError(true);
+      setRetry({ kind: 'download', artifactId });
     } finally {
       setBusy(false);
     }
@@ -202,6 +221,8 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
   const pickFirmware = async (expectedKind: 'stock' | 'custom') => {
     if (busy) return;
     setBusy(true);
+    setInspectionError(false);
+    setRetry(null);
     try {
       const picked = await onCommand(commands.nativePickFile, {
         purpose: 'firmware.select',
@@ -211,13 +232,20 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
       if (!picked) return;
       const grant = selectedGrant(picked);
       if (grant) {
-        const response = await onCommand(commands.firmwareSelect, { grant, expectedKind });
+        const response = await onCommand(
+          commands.firmwareSelect,
+          { grant, expectedKind },
+          { returnCancelled: true, returnFailed: true },
+        );
         const diagnostics = responseInspection(response);
         setInspection(diagnostics);
-        setInspectionError(!diagnostics);
+        const cancelled = String(response?.result.status ?? '').toLowerCase() === 'cancelled';
+        setInspectionError(!diagnostics && !cancelled);
+        if (!diagnostics && !cancelled) setRetry({ kind: 'select', expectedKind });
       }
     } catch {
       setInspectionError(true);
+      setRetry({ kind: 'select', expectedKind });
     } finally {
       setBusy(false);
     }
@@ -225,16 +253,39 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
 
   const processFirmware = async () => {
     if (!snapshot.firmware || snapshot.firmware.processed || busy) return;
+    const firmwareId = snapshot.firmware.id;
     setBusy(true);
+    setInspectionError(false);
+    setRetry(null);
     try {
-      const response = await onCommand(commands.firmwareProcess);
+      const response = await onCommand(
+        commands.firmwareProcess,
+        undefined,
+        { returnCancelled: true, returnFailed: true },
+      );
       const diagnostics = responseInspection(response, true);
       setInspection(diagnostics);
-      setInspectionError(!diagnostics);
+      const cancelled = String(response?.result.status ?? '').toLowerCase() === 'cancelled';
+      setInspectionError(!diagnostics && !cancelled);
+      if (!diagnostics && !cancelled) setRetry({ kind: 'process', firmwareId });
     } catch {
       setInspectionError(true);
+      setRetry({ kind: 'process', firmwareId });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const retryFirmwareAction = () => {
+    if (!retry || busy) return;
+    const pending = retry;
+    if (pending.kind === 'catalog') void refreshCatalog();
+    else if (pending.kind === 'download') void downloadFirmware(pending.artifactId);
+    else if (pending.kind === 'select') void pickFirmware(pending.expectedKind);
+    else if (snapshot.firmware?.id === pending.firmwareId) void processFirmware();
+    else {
+      setRetry(null);
+      setInspectionError(false);
     }
   };
   return (
@@ -265,7 +316,12 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
           </Button>
           {!selectedDevice?.codename ? <small>{t('firmware.catalogDeviceRequired')}</small> : null}
         </div>
-        {catalogError ? <div className="inline-alert inline-alert--warning" role="alert">{t('firmware.catalogFailed')}</div> : null}
+        {catalogError ? (
+          <div className="inline-alert inline-alert--warning" role="alert">
+            <span>{t('firmware.catalogFailed')}</span>
+            {retry?.kind === 'catalog' ? <Button variant="secondary" onClick={retryFirmwareAction} disabled={busy}>{t('common.retry')}</Button> : null}
+          </div>
+        ) : null}
         <div className="firmware-table" role="list">
           {catalog.map((entry) => (
             <div className="firmware-row" role="listitem" key={entry.artifactId}>
@@ -286,7 +342,10 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
         <Card>
           <CardTitle icon="shield">{t('firmware.verificationTitle')}</CardTitle>
           {inspectionError ? (
-            <div className="inline-alert inline-alert--warning" role="alert">{t('firmware.invalidInspection')}</div>
+            <div className="inline-alert inline-alert--warning" role="alert">
+              <span>{t('firmware.invalidInspection')}</span>
+              {retry && retry.kind !== 'catalog' ? <Button variant="secondary" onClick={retryFirmwareAction} disabled={busy}>{t('common.retry')}</Button> : null}
+            </div>
           ) : inspection ? (
             <div className="firmware-table" role="list" aria-label={t('firmware.verificationTitle')}>
               <div className="firmware-row" role="listitem">

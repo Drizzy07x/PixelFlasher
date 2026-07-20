@@ -34,6 +34,9 @@ msgstr "Cancelar"
 msgid "Apply"
 msgstr "Aplicar"
 
+msgid "Retry"
+msgstr "Reintentar"
+
 # Main Menu items
 msgid "&File"
 msgstr "&Archivo"

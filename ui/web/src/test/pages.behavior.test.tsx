@@ -117,13 +117,13 @@ describe('dashboard and firmware host-backed states', () => {
     await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.select', {
       grant: 'firmware-grant',
       expectedKind: 'stock',
-    }));
+    }, { returnCancelled: true, returnFailed: true }));
 
     await user.click(screen.getByRole('button', { name: 'Import custom ROM' }));
     await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.select', {
       grant: 'firmware-grant',
       expectedKind: 'custom',
-    }));
+    }, { returnCancelled: true, returnFailed: true }));
   });
 
   it('processes an unprocessed real-host firmware and shows verified ready state after rerender', async () => {
@@ -137,7 +137,11 @@ describe('dashboard and firmware host-backed states', () => {
     expect(screen.queryByRole('checkbox', { name: /Low-memory processing/ })).not.toBeInTheDocument();
     expect(screen.getByText('beta')).toHaveClass('badge--warning');
     await user.click(screen.getByRole('button', { name: 'Process package' }));
-    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.process'));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith(
+      'firmware.process',
+      undefined,
+      { returnCancelled: true, returnFailed: true },
+    ));
 
     snapshot.firmware = { ...snapshot.firmware, processed: true };
     rerender(<I18nProvider locale="en"><FirmwarePage snapshot={snapshot} selectedSerials={[]} onSelectionChange={selection} onCommand={onCommand} /></I18nProvider>);

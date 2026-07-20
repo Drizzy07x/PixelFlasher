@@ -13,11 +13,11 @@ from scripts.sync_react_gettext import (
 
 EXPECTED_TRANSLATED_COUNTS = {
     "en": 147,
-    "es": 789,
-    "fr": 789,
-    "it": 789,
-    "zh_CN": 789,
-    "zh_TW": 789,
+    "es": 790,
+    "fr": 790,
+    "it": 790,
+    "zh_CN": 790,
+    "zh_TW": 790,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
 EXPECTED_WEB_CONTEXT_COUNT = 882

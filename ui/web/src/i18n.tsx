@@ -29,6 +29,7 @@ export const sourceMessages = {
   'common.back': 'Back',
   'common.apply': 'Apply changes',
   'common.refresh': 'Refresh',
+  'common.retry': 'Retry',
   'common.search': 'Search',
   'common.stable': 'Stable',
   'common.beta': 'Beta',

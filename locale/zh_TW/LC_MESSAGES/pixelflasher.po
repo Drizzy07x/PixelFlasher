@@ -34,6 +34,9 @@ msgstr "取消"
 msgid "Apply"
 msgstr "套用"
 
+msgid "Retry"
+msgstr "重試"
+
 # Main Menu items
 msgid "&File"
 msgstr "&檔案"

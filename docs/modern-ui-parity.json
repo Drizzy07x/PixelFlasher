@@ -530,7 +530,7 @@
         "ui/public_bridge.py:_project_firmware_inspection",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Factory/full-OTA identification, official and user-supplied provenance, streaming Android whole-file OTA signature verification, signed-manifest authentication, hash-bound one-use confirmation for unrecognized packages, closed trust diagnostics and transactional selection are delivered. Manual retry UX, production signer roots and packaged cross-platform smokes remain open.",
+      "gap": "Factory/full-OTA identification, official and user-supplied provenance, streaming Android whole-file OTA signature verification, signed-manifest authentication, hash-bound one-use confirmation for unrecognized packages, closed trust diagnostics, transactional selection and explicit route-free manual retry are delivered. Production signer roots and packaged cross-platform smokes remain open.",
       "exitCriteria": [
         "Select and identify a factory or full OTA package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -621,7 +621,7 @@
         "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Confined extraction, closed product diagnostics, stock boot-chain promotion with firmware provenance and coordinated rollback of SQLite objects, planner registrations and extracted output are delivered. Retry UX and packaged cross-platform validation remain open.",
+      "gap": "Confined extraction, closed product diagnostics, stock boot-chain promotion with firmware provenance, coordinated rollback of SQLite objects, planner registrations and extracted output, and a selection-bound explicit manual retry are delivered. Packaged cross-platform validation remains open.",
       "exitCriteria": [
         "Validate and process factory/full OTA packages is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
