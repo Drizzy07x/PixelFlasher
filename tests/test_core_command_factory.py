@@ -205,6 +205,54 @@ class CoreCommandFactoryTests(unittest.TestCase):
         )
         self.assertNotIn("path", restored.payload)
 
+    def test_magisk_backup_import_uses_a_reusable_purpose_bound_read_grant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "stock_boot.img"
+            source.write_bytes(b"stock boot")
+            factory = create_command_factory(
+                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-MAGISK")
+            )
+            grant = factory.path_grants.issue_file(
+                source,
+                purpose="backups.magisk.import.source",
+                access=GrantAccess.READ,
+            )
+            payload = {"serial": "SERIAL-MAGISK", "grant": grant.token}
+
+            command = factory(
+                request(
+                    "backups.magisk.import",
+                    payload=payload,
+                    request_id="magisk-backup-import",
+                )
+            )
+
+            self.assertEqual(source.resolve(), Path(command.payload["path"]))
+            self.assertNotIn("grant", command.payload)
+            self.assertEqual("SERIAL-MAGISK", command.target_serial)
+            replay = factory(
+                request(
+                    "backups.magisk.import",
+                    payload=payload,
+                    request_id="magisk-backup-import-replay",
+                )
+            )
+            self.assertEqual(source.resolve(), Path(replay.payload["path"]))
+            with self.assertRaises(CommandFactoryError) as wrong_purpose:
+                factory(
+                    request(
+                        "backups.restore",
+                        payload={
+                            "serial": "SERIAL-MAGISK",
+                            "partition": "boot",
+                            "slot": "a",
+                            "grant": grant.token,
+                        },
+                        request_id="magisk-backup-wrong-purpose",
+                    )
+                )
+            self.assertEqual("grant_purpose_mismatch", wrong_purpose.exception.code)
+
     def test_native_file_grant_becomes_a_backend_path_for_the_exact_purpose(self):
         with tempfile.TemporaryDirectory() as directory:
             firmware = Path(directory) / "firmware.zip"

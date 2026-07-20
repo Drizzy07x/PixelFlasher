@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pixelflasher_core.backups import BackupPlanningError, BackupService
+from pixelflasher_core.backups import (
+    BackupPlanningError,
+    BackupService,
+    parse_magisk_backup_list,
+)
 from pixelflasher_core.contracts import (
     AppCommand,
     AppSnapshot,
@@ -422,6 +426,117 @@ class BackupServiceTests(unittest.TestCase):
             self.assertEqual(OperationStatus.FAILED, result.status)
             self.assertEqual("process_failed", result.code)
             self.assertIn("fetch is not supported", result.stderr)
+
+    def test_magisk_list_uses_one_bounded_rooted_serial_command(self):
+        snapshot = self.snapshot("adb", root=True)
+        compilation = self.compile(
+            "backups.magisk.list",
+            {"serial": "SERIAL"},
+            snapshot,
+        )
+
+        request = compilation.plan.request
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertIn("/data/magisk_backup_*", request.argv[6])
+        self.assertIn("PF_MB|%s|%s|%s|%s", request.argv[6])
+        self.assertEqual(128 * 1024, request.output_limit_bytes)
+        self.assertEqual("read_only", compilation.plan.risk.value)
+        self.assertFalse(compilation.requires_confirmation)
+
+    def test_magisk_inventory_parser_marks_corrupt_and_rejects_hostile_rows(self):
+        verified = "1" * 40
+        corrupt = "2" * 40
+        records = parse_magisk_backup_list(
+            f"PF_MB|{verified}|4096|1700000000|{verified}\n"
+            f"PF_MB|{corrupt}|0|1690000000|missing\n"
+        )
+
+        self.assertEqual((verified, corrupt), tuple(item.sha1 for item in records))
+        self.assertEqual(("verified", "corrupt"), tuple(item.integrity for item in records))
+        for hostile in (
+            "PF_MB|../../data|1|1|missing\n",
+            f"PF_MB|{verified}|1|1|{verified}|extra\n",
+            f"PF_MB|{verified}|1|1|{verified}\nPF_MB|{verified}|1|1|{verified}\n",
+            f"PF_MB|{verified}|{1024 * 1024 * 1024 + 1}|1|{verified}\n",
+            "unexpected output\n",
+        ):
+            with self.subTest(hostile=hostile), self.assertRaises(BackupPlanningError):
+                parse_magisk_backup_list(hostile)
+
+    def test_magisk_import_hashes_source_and_compiles_fixed_migration(self):
+        snapshot = self.snapshot("adb", root=True)
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "stock_boot.img"
+            contents = b"verified stock boot fixture"
+            image.write_bytes(contents)
+            compilation = self.compile(
+                "backups.magisk.import",
+                {"serial": "SERIAL", "path": str(image)},
+                snapshot,
+            )
+
+        expected_sha1 = hashlib.sha1(contents, usedforsecurity=False).hexdigest()
+        self.assertEqual(expected_sha1, compilation.magisk_sha1)
+        self.assertEqual(2, len(compilation.plan.requests))
+        push, migration = compilation.plan.requests
+        self.assertEqual(("ADB", "-s", "SERIAL", "push"), push.argv[:4])
+        self.assertEqual(str(image.resolve()), push.argv[4])
+        self.assertRegex(push.argv[5], r"^/data/local/tmp/pixelflasher-magisk-[0-9a-f]{24}\.img$")
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), migration.argv[:6])
+        self.assertIn(expected_sha1, migration.argv[6])
+        self.assertIn("run_migrations", migration.argv[6])
+        self.assertIn("trap 'rm -f", migration.argv[6])
+        self.assertEqual(hashlib.sha256(contents).hexdigest(), compilation.plan.artifacts[0].sha256)
+        self.assertEqual(
+            {"sha1": expected_sha1, "state": "verified"},
+            dict(compilation.plan.postconditions[0].expected),
+        )
+        self.assertTrue(compilation.requires_confirmation)
+
+    def test_magisk_delete_requires_exact_serial_bound_confirmation(self):
+        snapshot = self.snapshot("adb", root=True)
+        sha1 = "a" * 40
+        required = BackupService.required_magisk_delete_confirmation(sha1, "SERIAL")
+        self.assertEqual("DELETE MAGISK AAAAAAAA SERIAL", required)
+        with self.assertRaises(BackupPlanningError) as rejected:
+            self.compile(
+                "backups.magisk.delete",
+                {"serial": "SERIAL", "sha1": sha1, "confirmationText": "DELETE"},
+                snapshot,
+            )
+        self.assertEqual("magisk_backup_delete_confirmation_required", rejected.exception.code)
+
+        compilation = self.compile(
+            "backups.magisk.delete",
+            {"serial": "SERIAL", "sha1": sha1, "confirmationText": required},
+            snapshot,
+        )
+        self.assertIn(f"/data/magisk_backup_{sha1}", compilation.plan.request.argv[-1])
+        self.assertIn("rm -rf --", compilation.plan.request.argv[-1])
+        self.assertEqual("destructive", compilation.plan.risk.value)
+        self.assertEqual(
+            {"sha1": sha1, "state": "absent"},
+            dict(compilation.plan.postconditions[0].expected),
+        )
+
+    def test_magisk_commands_fail_closed_without_rooted_adb(self):
+        for kind, payload in (
+            ("backups.magisk.list", {"serial": "SERIAL"}),
+            (
+                "backups.magisk.delete",
+                {
+                    "serial": "SERIAL",
+                    "sha1": "a" * 40,
+                    "confirmationText": "DELETE MAGISK AAAAAAAA SERIAL",
+                },
+            ),
+        ):
+            for snapshot in (self.snapshot("adb", root=False), self.snapshot("fastboot", root=True)):
+                with self.subTest(kind=kind, mode=snapshot.devices[0].mode), self.assertRaises(
+                    BackupPlanningError
+                ) as rejected:
+                    self.compile(kind, payload, snapshot)
+                self.assertEqual("magisk_backup_root_required", rejected.exception.code)
 
 
 if __name__ == "__main__":

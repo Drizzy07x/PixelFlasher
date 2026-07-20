@@ -214,9 +214,9 @@
         "pixelflasher_core/backups.py:BackupService",
         "pixelflasher_core/backup_repository.py:BackupRepository",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result/_list_backups/_delete_backup",
-        "ui/public_bridge.py:_project_backup_inventory/_project_backup_result/_project_backup_delete"
+        "ui/public_bridge.py:_project_backup_inventory/_project_backup_result/_project_backup_delete/_project_magisk_backup_inventory/_project_magisk_backup_mutation"
       ],
-      "gap": "The workspace has canonical raw-image inventory, result, provenance, import, restore and delete flows; the distinct on-device Magisk backup-manager semantics remain open.",
+      "gap": "Raw and on-device Magisk backup semantics are integrated in one React workspace with route-free results, opaque grants, integrity states and reinforced deletion. Packaged WebView, keyboard/focus and real rooted-device smokes remain open.",
       "exitCriteria": [
         "The React Backups workspace provides every supported create, restore, inventory, import and delete flow without a legacy dialog."
       ],
@@ -234,7 +234,8 @@
         "tests/test_backup_repository.py",
         "tests/test_backup_public_contract.py",
         "tests/test_service_engine_integration.py",
-        "ui/web/src/test/pages.behavior.test.tsx:creates, restores and deletes route-free managed backups"
+        "ui/web/src/test/pages.behavior.test.tsx:creates, restores and deletes route-free managed backups",
+        "ui/web/src/test/backups-magisk.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -1131,11 +1132,13 @@
       "currentEvidence": [
         "pixelflasher_core/backups.py:BackupService",
         "pixelflasher_core/backup_repository.py:BackupRepository",
-        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result/_list_backups/_delete_backup",
-        "ui/public_bridge.py:_project_backup_inventory/_project_backup_result/_project_backup_delete",
+        "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "pixelflasher_core/observer.py:ProductionPostconditionObserver._magisk_backup_states",
+        "pixelflasher_core/operation_runner.py:_postconditions",
+        "ui/public_bridge.py:_project_magisk_backup_inventory/_project_magisk_backup_mutation",
         "ui/web/src/pages/backups/BackupsPage.tsx:BackupsPage"
       ],
-      "gap": "Persistent raw-partition backup inventory, route-free results, managed restore and guarded deletion are complete. On-device Magisk backup list/import/delete contracts remain open.",
+      "gap": "Technical parity is complete: bounded on-device list, grant-only stock-image import through canonical Magisk migrations, exact serial/hash-bound deletion, cleanup and independently observed verified/absent postconditions. Packaged cross-platform and real rooted-device smokes remain open before native promotion.",
       "exitCriteria": [
         "React and the backend provide canonical create, restore, list, import and delete workflows with provenance, typed results and guarded restore."
       ],
@@ -1154,8 +1157,11 @@
         "tests/test_backup_service.py",
         "tests/test_backup_repository.py",
         "tests/test_backup_public_contract.py",
-        "tests/test_service_engine_integration.py:test_backup_create_finalizes_output_and_registers_route_free_inventory/test_backup_inventory_restore_rehashes_managed_object_before_transport/test_backup_inventory_lists_and_deletes_only_after_exact_confirmation",
-        "ui/web/src/test/pages.behavior.test.tsx:creates, restores and deletes route-free managed backups"
+        "tests/test_service_engine_integration.py:test_magisk_backup_list_import_and_delete_use_typed_results/test_magisk_backup_mutations_never_succeed_without_observed_state",
+        "tests/test_production_postcondition_observer.py:test_magisk_backup_state_requires_decompressed_hash_evidence",
+        "tests/test_operation_runner_v2.py:test_extended_mutation_postconditions_compile_to_typed_probe_evidence",
+        "tests/test_core_command_factory.py:test_magisk_backup_import_uses_a_reusable_purpose_bound_read_grant",
+        "ui/web/src/test/backups-magisk.test.tsx"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -1169,7 +1175,10 @@
         "backups.list",
         "backups.create",
         "backups.restore",
-        "backups.delete"
+        "backups.delete",
+        "backups.magisk.list",
+        "backups.magisk.import",
+        "backups.magisk.delete"
       ]
     },
     {

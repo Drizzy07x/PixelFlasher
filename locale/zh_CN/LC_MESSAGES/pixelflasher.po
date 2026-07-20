@@ -5827,3 +5827,55 @@ msgstr "将 Google Play 设为安装来源"
 msgctxt "web.apps.playStoreOwnershipDetail"
 msgid "Record Google Play as the installer and verify Android reports that source after installation."
 msgstr "将 Google Play 记录为安装来源，并在安装后验证 Android 报告的来源。"
+
+msgctxt "web.backups.magiskImport"
+msgid "Import stock boot image"
+msgstr "导入原厂启动映像"
+
+msgctxt "web.backups.magiskImageFiles"
+msgid "Boot images"
+msgstr "启动映像"
+
+msgctxt "web.backups.magiskTitle"
+msgid "Magisk stock boot backups"
+msgstr "Magisk 原厂启动备份"
+
+msgctxt "web.backups.magiskDetail"
+msgid "Verified stock boot images maintained by Magisk on the selected device."
+msgstr "Magisk 在所选设备上维护的已验证原厂启动映像。"
+
+msgctxt "web.backups.magiskGuard"
+msgid "Select one rooted device connected through ADB to manage Magisk backups."
+msgstr "请选择一台通过 ADB 连接且已获取 root 权限的设备以管理 Magisk 备份。"
+
+msgctxt "web.backups.magiskLoadFailed"
+msgid "The Magisk backup inventory could not be loaded."
+msgstr "无法加载 Magisk 备份清单。"
+
+msgctxt "web.backups.magiskStockBoot"
+msgid "Stock boot image"
+msgstr "原厂启动映像"
+
+msgctxt "web.backups.magiskIntegrity.verified"
+msgid "Verified"
+msgstr "已验证"
+
+msgctxt "web.backups.magiskIntegrity.corrupt"
+msgid "Corrupt"
+msgstr "已损坏"
+
+msgctxt "web.backups.magiskDelete"
+msgid "Delete Magisk backup"
+msgstr "删除 Magisk 备份"
+
+msgctxt "web.backups.magiskDeletePrompt"
+msgid "Type {confirmation} to delete this Magisk backup."
+msgstr "输入 {confirmation} 以删除此 Magisk 备份。"
+
+msgctxt "web.backups.magiskEmpty"
+msgid "No Magisk stock boot backups were found on this device."
+msgstr "此设备上未找到 Magisk 原厂启动备份。"
+
+msgctxt "web.backups.sha1"
+msgid "SHA-1"
+msgstr "SHA-1"

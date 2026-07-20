@@ -534,6 +534,10 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                         "until": 1_700_000_600,
                     },
                 ),
+                OperationPostcondition(
+                    "magisk_backup_state",
+                    {"sha1": "b" * 40, "state": "verified"},
+                ),
             ),
         )
 
@@ -562,6 +566,10 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(
             {10123: "allow:1:0:1700000600"},
             dict(spec.expected_magisk_su_policies),
+        )
+        self.assertEqual(
+            {"b" * 40: "verified"},
+            dict(spec.expected_magisk_backups),
         )
         self.assertEqual(("metadata",), spec.erased_partitions)
 

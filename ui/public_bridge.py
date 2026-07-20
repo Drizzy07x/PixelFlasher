@@ -33,6 +33,9 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "backups.create",
         "backups.delete",
         "backups.list",
+        "backups.magisk.list",
+        "backups.magisk.import",
+        "backups.magisk.delete",
         "backups.restore",
         "firmware.catalog.refresh",
         "firmware.download",
@@ -2537,6 +2540,79 @@ def _project_backup_delete(value: object) -> JSONValue:
     return ensure_public_json(dict(source))
 
 
+def _project_magisk_backup_inventory(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"action", "targetSerial", "count", "backups", "bounded"}),
+    )
+    serial = source["targetSerial"]
+    raw_backups = source["backups"]
+    count = source["count"]
+    if (
+        source["action"] != "list"
+        or not isinstance(serial, str)
+        or not is_valid_target_serial(serial)
+        or source["bounded"] is not True
+        or not isinstance(raw_backups, list)
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or not 0 <= count <= 256
+        or len(raw_backups) != count
+    ):
+        raise PublicProjectionError("Magisk backup inventory is invalid")
+    backups: list[dict[str, JSONValue]] = []
+    seen: set[str] = set()
+    for raw in cast("list[object]", raw_backups):
+        item = _closed_record(
+            raw,
+            fields=frozenset({"sha1", "sizeBytes", "createdAt", "integrity"}),
+        )
+        sha1 = item["sha1"]
+        size = item["sizeBytes"]
+        created = item["createdAt"]
+        if (
+            not isinstance(sha1, str)
+            or re.fullmatch(r"[0-9a-f]{40}", sha1) is None
+            or sha1 in seen
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or not 0 <= size <= 1024 * 1024 * 1024
+            or not isinstance(created, int)
+            or isinstance(created, bool)
+            or not 0 <= created <= 4_294_967_295
+            or item["integrity"] not in {"verified", "corrupt"}
+        ):
+            raise PublicProjectionError("Magisk backup record is invalid")
+        backups.append(cast(dict[str, JSONValue], ensure_public_json(dict(item))))
+        seen.add(sha1)
+    return ensure_public_json(
+        {
+            "action": "list",
+            "targetSerial": serial,
+            "count": count,
+            "backups": backups,
+            "bounded": True,
+        }
+    )
+
+
+def _project_magisk_backup_mutation(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"action", "targetSerial", "sha1", "verified"}),
+    )
+    if (
+        source["action"] not in {"import", "delete"}
+        or not isinstance(source["targetSerial"], str)
+        or not is_valid_target_serial(source["targetSerial"])
+        or not isinstance(source["sha1"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", source["sha1"]) is None
+        or source["verified"] is not True
+    ):
+        raise PublicProjectionError("Magisk backup mutation receipt is invalid")
+    return ensure_public_json(dict(source))
+
+
 _KEYBOX_STATUSES = frozenset(
     {"valid", "unverified", "revoked", "expired", "software_attestation", "invalid"}
 )
@@ -2758,6 +2834,9 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "backups.create": _project_backup_result,
     "backups.delete": _project_backup_delete,
     "backups.list": _project_backup_inventory,
+    "backups.magisk.list": _project_magisk_backup_inventory,
+    "backups.magisk.import": _project_magisk_backup_mutation,
+    "backups.magisk.delete": _project_magisk_backup_mutation,
     "backups.restore": _project_backup_result,
     "boot.flash": _project_confirmation,
     "boot.delete": _project_boot_delete,

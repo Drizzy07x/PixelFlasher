@@ -181,6 +181,67 @@ class BridgeContractTests(unittest.TestCase):
                 )
             self.assertEqual("invalid_payload", rejected.exception.code)
 
+    def test_magisk_backup_contract_rejects_sha_and_confirmation_injection(self):
+        sha1 = "a" * 32 + "1234abcd"
+        required = "DELETE MAGISK 1234ABCD SERIAL"
+        listed = BridgeRequest.from_json(
+            message(
+                command="backups.magisk.list",
+                payload={"serial": "SERIAL"},
+                expectedRevision=7,
+            )
+        )
+        imported = BridgeRequest.from_json(
+            message(
+                command="backups.magisk.import",
+                payload={"serial": "SERIAL", "grant": "g" * 64},
+                expectedRevision=7,
+            )
+        )
+        deleted = BridgeRequest.from_json(
+            message(
+                command="backups.magisk.delete",
+                payload={
+                    "serial": "SERIAL",
+                    "sha1": sha1,
+                    "confirmationText": required,
+                },
+                expectedRevision=7,
+            )
+        )
+        self.assertEqual("SERIAL", listed.payload["serial"])
+        self.assertEqual("g" * 64, imported.payload["grant"])
+        self.assertEqual(required, deleted.payload["confirmationText"])
+
+        for command_name, payload in (
+            ("backups.magisk.list", {"serial": ""}),
+            ("backups.magisk.import", {"serial": "SERIAL", "grant": "short"}),
+            (
+                "backups.magisk.delete",
+                {
+                    "serial": "SERIAL",
+                    "sha1": "a" * 39 + ";",
+                    "confirmationText": required,
+                },
+            ),
+            (
+                "backups.magisk.delete",
+                {
+                    "serial": "SERIAL",
+                    "sha1": sha1,
+                    "confirmationText": "DELETE MAGISK wrong",
+                },
+            ),
+        ):
+            with self.subTest(command=command_name), self.assertRaises(BridgeProtocolError):
+                BridgeRequest.from_json(
+                    message(
+                        command=command_name,
+                        payload=payload,
+                        expectedRevision=7,
+                    )
+                )
+
     def test_root_app_catalog_accepts_only_channels_and_opaque_artifact_ids(self):
         refresh = BridgeRequest.from_json(
             message(

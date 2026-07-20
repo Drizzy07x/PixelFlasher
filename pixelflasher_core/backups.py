@@ -29,7 +29,15 @@ from .contracts import (
 )
 from .path_compat import is_reserved_path
 
-BACKUP_COMMANDS = frozenset({"backups.create", "backups.restore"})
+BACKUP_COMMANDS = frozenset(
+    {
+        "backups.create",
+        "backups.restore",
+        "backups.magisk.list",
+        "backups.magisk.import",
+        "backups.magisk.delete",
+    }
+)
 
 # These are bounded boot-chain images which can be represented by one raw
 # image and one exact A/B target.  Dynamic partitions, userdata, metadata and
@@ -50,6 +58,11 @@ SUPPORTED_BACKUP_PARTITIONS = frozenset(
 
 _SLOTS = frozenset({"a", "b"})
 _BACKUP_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.img$")
+_MAGISK_SHA1_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_MAGISK_LIST_PREFIX = "PF_MB"
+_MAX_MAGISK_BACKUPS = 256
+_MAX_MAGISK_IMAGE_BYTES = 512 * 1024 * 1024
+_MAX_MAGISK_ARCHIVE_BYTES = 1024 * 1024 * 1024
 
 
 class CancellationProbe(Protocol):
@@ -66,6 +79,22 @@ class BackupPlanningError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class MagiskBackupInfo:
+    sha1: str
+    size_bytes: int
+    created_at: int
+    integrity: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "sha1": self.sha1,
+            "sizeBytes": self.size_bytes,
+            "createdAt": self.created_at,
+            "integrity": self.integrity,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class BackupCompilation:
     """Compiled backup plan plus backend-owned safety metadata."""
 
@@ -74,6 +103,7 @@ class BackupCompilation:
     partition: str
     output_path: str | None = None
     backup_id: str | None = None
+    magisk_sha1: str | None = None
     device_write: bool = False
     destructive: bool = False
     requires_confirmation: bool = False
@@ -84,6 +114,7 @@ class BackupCompilation:
             "partition": self.partition,
             "output_path": self.output_path,
             "backup_id": self.backup_id,
+            "magisk_sha1": self.magisk_sha1,
             "device_write": self.device_write,
             "destructive": self.destructive,
             "requires_confirmation": self.requires_confirmation,
@@ -117,7 +148,170 @@ class BackupService:
         device = self._device(command, snapshot)
         if command.kind == "backups.create":
             return self._compile_create(command, snapshot, device)
-        return self._compile_restore(command, snapshot, device, cancellation)
+        if command.kind == "backups.restore":
+            return self._compile_restore(command, snapshot, device, cancellation)
+        if command.kind == "backups.magisk.list":
+            return self._compile_magisk_list(command, snapshot, device)
+        if command.kind == "backups.magisk.import":
+            return self._compile_magisk_import(
+                command,
+                snapshot,
+                device,
+                cancellation,
+            )
+        return self._compile_magisk_delete(command, snapshot, device)
+
+    def _compile_magisk_list(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+    ) -> BackupCompilation:
+        self._validate_payload(command, {"serial"})
+        adb = self._magisk_adb(snapshot, device)
+        script = (
+            "count=0; for dir in /data/magisk_backup_*; do "
+            '[ -d "$dir" ] || continue; id=${dir#/data/magisk_backup_}; '
+            'case "$id" in *[!0-9A-Fa-f]*|\'\') continue;; esac; '
+            '[ "${#id}" -eq 40 ] || continue; file="$dir/boot.img.gz"; '
+            'if [ -f "$file" ]; then '
+            'size=$(stat -c %s "$file" 2>/dev/null || echo 0); '
+            'stamp=$(stat -c %Y "$dir" 2>/dev/null || echo 0); '
+            'actual=$(gzip -dc "$file" 2>/dev/null | sha1sum | cut -d " " -f 1); '
+            'else size=0; stamp=0; actual=missing; fi; '
+            f'printf "{_MAGISK_LIST_PREFIX}|%s|%s|%s|%s\\n" "$id" "$size" "$stamp" "$actual"; '
+            f'count=$((count + 1)); [ "$count" -lt {_MAX_MAGISK_BACKUPS} ] || break; '
+            "done"
+        )
+        plan = self._base_plan(
+            snapshot,
+            device,
+            (
+                ProcessRequest(
+                    (adb, "-s", device.serial, "shell", "su", "-c", script),
+                    timeout_seconds=120.0,
+                    output_limit_bytes=128 * 1024,
+                ),
+            ),
+            label=f"List Magisk backups on {device.serial}",
+            partitions=(),
+            slots=(),
+        )
+        return BackupCompilation(plan, "magisk.list", partition="")
+
+    def _compile_magisk_import(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        cancellation: CancellationProbe | None,
+    ) -> BackupCompilation:
+        self._validate_payload(command, {"serial", "path"})
+        adb = self._magisk_adb(snapshot, device)
+        path = self._input_path(command.payload.get("path"))
+        sha1, sha256 = self._source_digests(path, cancellation)
+        nonce = hashlib.sha256(command.operation_id.encode("utf-8")).hexdigest()[:24]
+        remote = f"/data/local/tmp/pixelflasher-magisk-{nonce}.img"
+        script = (
+            f'staging={remote}; expected={sha1}; '
+            'trap \'rm -f "$staging"\' EXIT; '
+            'actual=$(sha1sum "$staging" | cut -d " " -f 1) || exit 81; '
+            '[ "$actual" = "$expected" ] || exit 82; '
+            'cp "$staging" /data/adb/magisk/stock_boot.img || exit 83; '
+            'cd /data/adb/magisk || exit 84; '
+            './magiskboot cleanup >/dev/null 2>&1 || true; '
+            '. ./util_functions.sh || exit 85; run_migrations'
+        )
+        artifact = FileArtifact(str(path), sha256, "magisk-stock-boot")
+        plan = self._base_plan(
+            snapshot,
+            device,
+            (
+                ProcessRequest(
+                    (adb, "-s", device.serial, "push", str(path), remote),
+                    timeout_seconds=600.0,
+                    output_limit_bytes=64 * 1024,
+                ),
+                ProcessRequest(
+                    (adb, "-s", device.serial, "shell", "su", "-c", script),
+                    timeout_seconds=300.0,
+                    output_limit_bytes=64 * 1024,
+                ),
+            ),
+            label=f"Import Magisk backup {sha1[:12]} on {device.serial}",
+            partitions=("magisk_backup",),
+            slots=(),
+            artifacts=(artifact,),
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "magisk_backup_state",
+                    {"sha1": sha1, "state": "verified"},
+                    "the on-device Magisk backup decompresses to the selected stock image",
+                ),
+            ),
+        )
+        return BackupCompilation(
+            plan,
+            "magisk.import",
+            partition="magisk_backup",
+            magisk_sha1=sha1,
+            device_write=True,
+            requires_confirmation=True,
+        )
+
+    def _compile_magisk_delete(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+    ) -> BackupCompilation:
+        self._validate_payload(command, {"serial", "sha1", "confirmationText"})
+        adb = self._magisk_adb(snapshot, device)
+        sha1 = self._magisk_sha1(command.payload.get("sha1"))
+        required = self.required_magisk_delete_confirmation(sha1, device.serial)
+        if command.payload.get("confirmationText") != required:
+            raise BackupPlanningError(
+                "magisk_backup_delete_confirmation_required",
+                f"type {required} to delete this Magisk backup",
+            )
+        target = f"/data/magisk_backup_{sha1}"
+        script = (
+            f'target={target}; [ -d "$target" ] || exit 86; '
+            'rm -rf -- "$target"'
+        )
+        plan = self._base_plan(
+            snapshot,
+            device,
+            (
+                ProcessRequest(
+                    (adb, "-s", device.serial, "shell", "su", "-c", script),
+                    timeout_seconds=120.0,
+                    output_limit_bytes=64 * 1024,
+                ),
+            ),
+            label=f"Delete Magisk backup {sha1[:12]} on {device.serial}",
+            partitions=("magisk_backup",),
+            slots=(),
+            data_behavior="magisk_backup_delete",
+            risk=OperationRisk.DESTRUCTIVE,
+            postconditions=(
+                OperationPostcondition(
+                    "magisk_backup_state",
+                    {"sha1": sha1, "state": "absent"},
+                    "the selected Magisk backup directory is absent",
+                ),
+            ),
+        )
+        return BackupCompilation(
+            plan,
+            "magisk.delete",
+            partition="magisk_backup",
+            magisk_sha1=sha1,
+            device_write=True,
+            destructive=True,
+            requires_confirmation=True,
+        )
 
     def _compile_create(
         self,
@@ -233,6 +427,87 @@ class BackupService:
             destructive=True,
             requires_confirmation=True,
         )
+
+    @staticmethod
+    def _magisk_adb(snapshot: AppSnapshot, device: DeviceInfo) -> str:
+        if device.mode != "adb" or not device.root:
+            raise BackupPlanningError(
+                "magisk_backup_root_required",
+                "Magisk backups require one rooted device in ADB mode",
+            )
+        return BackupService._adb(snapshot)
+
+    @staticmethod
+    def _magisk_sha1(value: object) -> str:
+        if not isinstance(value, str):
+            raise BackupPlanningError(
+                "magisk_backup_sha1_invalid",
+                "Magisk backup SHA-1 must be a lowercase hexadecimal string",
+            )
+        sha1 = value.strip().casefold()
+        if _MAGISK_SHA1_PATTERN.fullmatch(sha1) is None:
+            raise BackupPlanningError(
+                "magisk_backup_sha1_invalid",
+                "Magisk backup SHA-1 must contain exactly 40 hexadecimal characters",
+            )
+        return sha1
+
+    @staticmethod
+    def required_magisk_delete_confirmation(sha1: str, serial: str) -> str:
+        normalized = BackupService._magisk_sha1(sha1)
+        if not isinstance(serial, str) or not serial:
+            raise BackupPlanningError(
+                "target_serial_invalid",
+                "target serial is required for Magisk backup deletion",
+            )
+        return f"DELETE MAGISK {normalized[-8:].upper()} {serial[-6:].upper()}"
+
+    def _source_digests(
+        self,
+        path: Path,
+        cancellation: CancellationProbe | None,
+    ) -> tuple[str, str]:
+        self._check_cancelled(cancellation)
+        try:
+            before = path.stat()
+            if not 1 <= before.st_size <= _MAX_MAGISK_IMAGE_BYTES:
+                raise BackupPlanningError(
+                    "magisk_backup_image_size_invalid",
+                    "Magisk backup source is outside the bounded boot-image size",
+                )
+            sha1 = hashlib.sha1(usedforsecurity=False)
+            sha256 = hashlib.sha256()
+            with path.open("rb") as stream:
+                while chunk := stream.read(self.hash_chunk_size):
+                    self._check_cancelled(cancellation)
+                    sha1.update(chunk)
+                    sha256.update(chunk)
+            after = path.stat()
+        except BackupPlanningError:
+            raise
+        except OSError as error:
+            raise BackupPlanningError(
+                "magisk_backup_hash_failed",
+                str(error),
+            ) from error
+        identity_before = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        )
+        identity_after = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        )
+        if identity_before != identity_after:
+            raise BackupPlanningError(
+                "magisk_backup_source_changed",
+                "Magisk backup source changed while it was being hashed",
+            )
+        return sha1.hexdigest(), sha256.hexdigest()
 
     def finalize_created_backup(
         self,
@@ -534,10 +809,75 @@ class BackupService:
             )
 
 
+def parse_magisk_backup_list(output: str) -> tuple[MagiskBackupInfo, ...]:
+    if not isinstance(output, str):
+        raise BackupPlanningError(
+            "magisk_backup_list_invalid",
+            "Magisk backup inventory output must be text",
+        )
+    if len(output.encode("utf-8", errors="replace")) > 128 * 1024:
+        raise BackupPlanningError(
+            "magisk_backup_list_oversized",
+            "Magisk backup inventory exceeded its output bound",
+        )
+    lines = tuple(line.strip() for line in output.splitlines() if line.strip())
+    if len(lines) > _MAX_MAGISK_BACKUPS:
+        raise BackupPlanningError(
+            "magisk_backup_list_oversized",
+            "Magisk backup inventory contains too many records",
+        )
+    records: list[MagiskBackupInfo] = []
+    seen: set[str] = set()
+    for line in lines:
+        fields = line.split("|")
+        if len(fields) != 5 or fields[0] != _MAGISK_LIST_PREFIX:
+            raise BackupPlanningError(
+                "magisk_backup_list_malformed",
+                "Magisk backup inventory contains an invalid record",
+            )
+        sha1 = fields[1].casefold()
+        if _MAGISK_SHA1_PATTERN.fullmatch(sha1) is None or sha1 in seen:
+            raise BackupPlanningError(
+                "magisk_backup_list_malformed",
+                "Magisk backup inventory contains an invalid or duplicate SHA-1",
+            )
+        try:
+            size = int(fields[2], 10)
+            created_at = int(fields[3], 10)
+        except ValueError as error:
+            raise BackupPlanningError(
+                "magisk_backup_list_malformed",
+                "Magisk backup inventory size or timestamp is invalid",
+            ) from error
+        if not 0 <= size <= _MAX_MAGISK_ARCHIVE_BYTES or not 0 <= created_at <= 4_294_967_295:
+            raise BackupPlanningError(
+                "magisk_backup_list_malformed",
+                "Magisk backup inventory values are outside their bounds",
+            )
+        actual = fields[4].casefold()
+        if actual != "missing" and _MAGISK_SHA1_PATTERN.fullmatch(actual) is None:
+            raise BackupPlanningError(
+                "magisk_backup_list_malformed",
+                "Magisk backup integrity evidence is invalid",
+            )
+        records.append(
+            MagiskBackupInfo(
+                sha1,
+                size,
+                created_at,
+                "verified" if actual == sha1 and size > 0 else "corrupt",
+            )
+        )
+        seen.add(sha1)
+    return tuple(sorted(records, key=lambda item: (-item.created_at, item.sha1)))
+
+
 __all__ = [
     "BACKUP_COMMANDS",
     "SUPPORTED_BACKUP_PARTITIONS",
     "BackupCompilation",
     "BackupPlanningError",
     "BackupService",
+    "MagiskBackupInfo",
+    "parse_magisk_backup_list",
 ]

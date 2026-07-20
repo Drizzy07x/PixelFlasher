@@ -84,6 +84,7 @@ class DeviceObservation:
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
+    magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
     erased_partitions: Mapping[str, bool] = field(default_factory=_empty_booleans)
     safe_mode: bool | None = None
     ota_idle: bool | None = None
@@ -124,6 +125,13 @@ class DeviceObservation:
             for uid, value in self.magisk_su_policies.items()
         ):
             raise TypeError("observed Magisk SU policies are invalid")
+        if any(
+            not isinstance(sha1, str)
+            or re.fullmatch(r"[0-9a-f]{40}", sha1) is None
+            or state not in {"verified", "absent", "corrupt"}
+            for sha1, state in self.magisk_backups.items()
+        ):
+            raise TypeError("observed Magisk backup states are invalid")
         if any(not isinstance(value, bool) for value in self.erased_partitions.values()):
             raise TypeError("observed erased partition states must be booleans")
         object.__setattr__(self, "remote_hashes", MappingProxyType(dict(self.remote_hashes)))
@@ -154,6 +162,11 @@ class DeviceObservation:
             self,
             "magisk_su_policies",
             MappingProxyType(dict(self.magisk_su_policies)),
+        )
+        object.__setattr__(
+            self,
+            "magisk_backups",
+            MappingProxyType(dict(self.magisk_backups)),
         )
         object.__setattr__(
             self,
@@ -225,6 +238,7 @@ class PostconditionSpec:
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
+    expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
     erased_partitions: tuple[str, ...] = ()
     expected_safe_mode: bool | None = None
     expected_ota_idle: bool | None = None
@@ -304,6 +318,13 @@ class PostconditionSpec:
             for uid, state in self.expected_magisk_su_policies.items()
         ):
             raise ValueError("expected Magisk SU policy is invalid")
+        if any(
+            not isinstance(sha1, str)
+            or re.fullmatch(r"[0-9a-f]{40}", sha1) is None
+            or state not in {"verified", "absent"}
+            for sha1, state in self.expected_magisk_backups.items()
+        ):
+            raise ValueError("expected Magisk backup state is invalid")
         if any(not isinstance(value, str) or not value for value in self.erased_partitions) or len(
             self.erased_partitions
         ) != len(set(self.erased_partitions)):
@@ -344,6 +365,11 @@ class PostconditionSpec:
             self,
             "expected_magisk_su_policies",
             MappingProxyType(dict(self.expected_magisk_su_policies)),
+        )
+        object.__setattr__(
+            self,
+            "expected_magisk_backups",
+            MappingProxyType(dict(self.expected_magisk_backups)),
         )
         object.__setattr__(self, "erased_partitions", tuple(self.erased_partitions))
 
@@ -668,6 +694,13 @@ class ProcessDeviceObservationProbe:
                     timeout,
                 ),
                 magisk_su_policies=self._magisk_su_policies(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                magisk_backups=self._magisk_backup_states(
                     spec,
                     toolchain,
                     mode,
@@ -1107,6 +1140,59 @@ class ProcessDeviceObservationProbe:
             observed[uid] = (
                 f"{policy}:{match.group(3)}:{match.group(4)}:{int(match.group(5))}"
             )
+        return observed
+
+    def _magisk_backup_states(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, str]:
+        backups = tuple(spec.expected_magisk_backups)
+        if mode != "adb" or not backups or len(backups) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        observed: dict[str, str] = {}
+        for sha1 in backups:
+            if token.cancelled:
+                break
+            target = f"/data/magisk_backup_{sha1}"
+            script = (
+                f'target={target}; file="$target/boot.img.gz"; '
+                'if [ ! -d "$target" ]; then echo PF_MB_ABSENT; '
+                'elif [ ! -f "$file" ]; then echo PF_MB_CORRUPT; '
+                'else actual=$(gzip -dc "$file" 2>/dev/null | sha1sum | cut -d " " -f 1); '
+                f'if [ "$actual" = "{sha1}" ]; then echo PF_MB_VERIFIED; '
+                'else echo PF_MB_CORRUPT; fi; fi'
+            )
+            outcome = self._run(
+                (
+                    toolchain.adb,
+                    "-s",
+                    spec.serial,
+                    "shell",
+                    "su",
+                    "-c",
+                    script,
+                ),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+            )
+            if not self._successful(outcome, _MAX_PROPERTY_OUTPUT_BYTES):
+                continue
+            assert outcome is not None
+            marker = outcome.stdout.strip()
+            state = {
+                "PF_MB_VERIFIED": "verified",
+                "PF_MB_ABSENT": "absent",
+                "PF_MB_CORRUPT": "corrupt",
+            }.get(marker)
+            if state is not None:
+                observed[sha1] = state
         return observed
 
     def _adb_endpoint_states(
@@ -2055,6 +2141,14 @@ class PostconditionObserver:
         for uid, expected in spec.expected_magisk_su_policies.items():
             actual = observation.magisk_su_policies.get(uid)
             key = f"magisk_su_policy:{uid}"
+            if actual is None:
+                missing.append(key)
+            elif actual != expected:
+                mismatches[key] = (expected, actual)
+
+        for sha1, expected in spec.expected_magisk_backups.items():
+            actual = observation.magisk_backups.get(sha1)
+            key = f"magisk_backup:{sha1}"
             if actual is None:
                 missing.append(key)
             elif actual != expected:

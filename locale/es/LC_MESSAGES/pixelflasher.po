@@ -5823,3 +5823,55 @@ msgstr "Establecer Google Play como instalador"
 msgctxt "web.apps.playStoreOwnershipDetail"
 msgid "Record Google Play as the installer and verify Android reports that source after installation."
 msgstr "Registra Google Play como instalador y verifica que Android informe ese origen después de la instalación."
+
+msgctxt "web.backups.magiskImport"
+msgid "Import stock boot image"
+msgstr "Importar imagen boot original"
+
+msgctxt "web.backups.magiskImageFiles"
+msgid "Boot images"
+msgstr "Imágenes boot"
+
+msgctxt "web.backups.magiskTitle"
+msgid "Magisk stock boot backups"
+msgstr "Copias boot originales de Magisk"
+
+msgctxt "web.backups.magiskDetail"
+msgid "Verified stock boot images maintained by Magisk on the selected device."
+msgstr "Imágenes boot originales verificadas que Magisk mantiene en el dispositivo seleccionado."
+
+msgctxt "web.backups.magiskGuard"
+msgid "Select one rooted device connected through ADB to manage Magisk backups."
+msgstr "Selecciona un dispositivo con root conectado por ADB para gestionar las copias de Magisk."
+
+msgctxt "web.backups.magiskLoadFailed"
+msgid "The Magisk backup inventory could not be loaded."
+msgstr "No se pudo cargar el inventario de copias de Magisk."
+
+msgctxt "web.backups.magiskStockBoot"
+msgid "Stock boot image"
+msgstr "Imagen boot original"
+
+msgctxt "web.backups.magiskIntegrity.verified"
+msgid "Verified"
+msgstr "Verificada"
+
+msgctxt "web.backups.magiskIntegrity.corrupt"
+msgid "Corrupt"
+msgstr "Corrupta"
+
+msgctxt "web.backups.magiskDelete"
+msgid "Delete Magisk backup"
+msgstr "Eliminar copia de Magisk"
+
+msgctxt "web.backups.magiskDeletePrompt"
+msgid "Type {confirmation} to delete this Magisk backup."
+msgstr "Escribe {confirmation} para eliminar esta copia de Magisk."
+
+msgctxt "web.backups.magiskEmpty"
+msgid "No Magisk stock boot backups were found on this device."
+msgstr "No se encontraron copias boot originales de Magisk en este dispositivo."
+
+msgctxt "web.backups.sha1"
+msgid "SHA-1"
+msgstr "SHA-1"

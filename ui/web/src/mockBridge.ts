@@ -160,6 +160,12 @@ export function installDevelopmentBridge() {
     verified: boolean;
   }> = [];
   let backupSequence = 1;
+  let mockMagiskBackups = [{
+    sha1: '1'.repeat(40),
+    sizeBytes: 64 * 1024 * 1024,
+    createdAt: 1_752_816_600,
+    integrity: 'verified' as const,
+  }];
   let mockBackups: MockBackupRecord[] = snapshot.devices.slice(0, 2).map((device, index) => {
     const partition = index ? 'init_boot' : 'boot';
     const slot = device.slot === 'b' ? 'b' : 'a';
@@ -1411,6 +1417,38 @@ export function installDevelopmentBridge() {
               revision: snapshot.revision,
               bounded: true,
               truncated: false,
+            }));
+            break;
+          }
+          case 'backups.magisk.list':
+            respond(request, success('Magisk backups listed.', {
+              action: 'list',
+              targetSerial: String(request.payload.serial ?? ''),
+              count: mockMagiskBackups.length,
+              backups: mockMagiskBackups,
+              bounded: true,
+            }));
+            break;
+          case 'backups.magisk.import': {
+            const sha1 = '2'.repeat(40);
+            if (!mockMagiskBackups.some((backup) => backup.sha1 === sha1)) {
+              mockMagiskBackups = [{
+                sha1,
+                sizeBytes: 64 * 1024 * 1024,
+                createdAt: Math.floor(Date.now() / 1000),
+                integrity: 'verified',
+              }, ...mockMagiskBackups];
+            }
+            respond(request, success('Magisk backup imported.', {
+              action: 'import', targetSerial: String(request.payload.serial ?? ''), sha1, verified: true,
+            }));
+            break;
+          }
+          case 'backups.magisk.delete': {
+            const sha1 = String(request.payload.sha1 ?? '');
+            mockMagiskBackups = mockMagiskBackups.filter((backup) => backup.sha1 !== sha1);
+            respond(request, success('Magisk backup deleted.', {
+              action: 'delete', targetSerial: String(request.payload.serial ?? ''), sha1, verified: true,
             }));
             break;
           }

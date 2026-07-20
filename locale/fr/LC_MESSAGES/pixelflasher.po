@@ -5822,3 +5822,55 @@ msgstr "Définir Google Play comme programme d’installation"
 msgctxt "web.apps.playStoreOwnershipDetail"
 msgid "Record Google Play as the installer and verify Android reports that source after installation."
 msgstr "Enregistre Google Play comme programme d’installation et vérifie qu’Android signale cette source après l’installation."
+
+msgctxt "web.backups.magiskImport"
+msgid "Import stock boot image"
+msgstr "Importer l’image boot d’origine"
+
+msgctxt "web.backups.magiskImageFiles"
+msgid "Boot images"
+msgstr "Images boot"
+
+msgctxt "web.backups.magiskTitle"
+msgid "Magisk stock boot backups"
+msgstr "Sauvegardes boot d’origine de Magisk"
+
+msgctxt "web.backups.magiskDetail"
+msgid "Verified stock boot images maintained by Magisk on the selected device."
+msgstr "Images boot d’origine vérifiées et conservées par Magisk sur l’appareil sélectionné."
+
+msgctxt "web.backups.magiskGuard"
+msgid "Select one rooted device connected through ADB to manage Magisk backups."
+msgstr "Sélectionnez un appareil rooté connecté par ADB pour gérer les sauvegardes Magisk."
+
+msgctxt "web.backups.magiskLoadFailed"
+msgid "The Magisk backup inventory could not be loaded."
+msgstr "L’inventaire des sauvegardes Magisk n’a pas pu être chargé."
+
+msgctxt "web.backups.magiskStockBoot"
+msgid "Stock boot image"
+msgstr "Image boot d’origine"
+
+msgctxt "web.backups.magiskIntegrity.verified"
+msgid "Verified"
+msgstr "Vérifiée"
+
+msgctxt "web.backups.magiskIntegrity.corrupt"
+msgid "Corrupt"
+msgstr "Corrompue"
+
+msgctxt "web.backups.magiskDelete"
+msgid "Delete Magisk backup"
+msgstr "Supprimer la sauvegarde Magisk"
+
+msgctxt "web.backups.magiskDeletePrompt"
+msgid "Type {confirmation} to delete this Magisk backup."
+msgstr "Saisissez {confirmation} pour supprimer cette sauvegarde Magisk."
+
+msgctxt "web.backups.magiskEmpty"
+msgid "No Magisk stock boot backups were found on this device."
+msgstr "Aucune sauvegarde boot d’origine de Magisk n’a été trouvée sur cet appareil."
+
+msgctxt "web.backups.sha1"
+msgid "SHA-1"
+msgstr "SHA-1"

@@ -76,6 +76,8 @@ class StatefulPostconditionObserver:
             return self._result(self._magisk_denylist_state(calls, expected))
         if kind == "magisk_su_policy":
             return self._result(self._magisk_su_policy(calls, expected))
+        if kind == "magisk_backup_state":
+            return self._result(self._magisk_backup_state(calls, expected))
         if kind == "remote_files_written":
             return self._result(self._remote_files_written(calls, expected))
         if kind == "adb_wifi_endpoint_state":
@@ -391,6 +393,25 @@ class StatefulPostconditionObserver:
         value = 2 if policy == "allow" else 1
         values = f"VALUES ({uid}, {value}, {int(logging)}, {int(notification)}, {until});"
         return values in script
+
+    @staticmethod
+    def _magisk_backup_state(
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        sha1 = expected.get("sha1")
+        state = expected.get("state")
+        if not isinstance(sha1, str) or state not in {"verified", "absent"}:
+            return False
+        target = f"/data/magisk_backup_{sha1}"
+        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        if state == "verified":
+            return (
+                any("push" in request.argv and request.argv[-1].endswith(".img") for request in calls)
+                and "run_migrations" in shell_text
+                and sha1 in shell_text
+            )
+        return target in shell_text and "rm -rf --" in shell_text
 
     @classmethod
     def _remote_files_written(

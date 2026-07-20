@@ -47,6 +47,7 @@ class StatefulDeviceTransport:
         root_modules: dict[str, str] | None = None,
         magisk_denylist: set[str] | None = None,
         magisk_su_policies: dict[int, str] | None = None,
+        magisk_backups: dict[str, str] | None = None,
         root_available: bool = True,
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
@@ -65,6 +66,7 @@ class StatefulDeviceTransport:
         self.root_modules = root_modules or {}
         self.magisk_denylist = magisk_denylist or set()
         self.magisk_su_policies = magisk_su_policies or {}
+        self.magisk_backups = magisk_backups or {}
         self.root_available = root_available
         self.partitions = partitions or {}
         self.partition_sizes = partition_sizes or {name: len(content) for name, content in self.partitions.items()}
@@ -204,6 +206,17 @@ class StatefulDeviceTransport:
                     0,
                     f"PF_SU|{uid}|{value}|{logging}|{notification}|{until}\n",
                 )
+            if command.startswith("target=/data/magisk_backup_"):
+                match = re.match(r"target=/data/magisk_backup_([0-9a-f]{40});", command)
+                if match is None:
+                    return TransportOutcome(1)
+                state = self.magisk_backups.get(match.group(1), "absent")
+                marker = {
+                    "verified": "PF_MB_VERIFIED",
+                    "absent": "PF_MB_ABSENT",
+                    "corrupt": "PF_MB_CORRUPT",
+                }.get(state)
+                return TransportOutcome(0, f"{marker}\n") if marker else TransportOutcome(1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -913,6 +926,51 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
                 SERIAL,
                 1,
                 expected_magisk_su_policies={uid: "absent"},
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, absent.status)
+
+    def test_magisk_backup_state_requires_decompressed_hash_evidence(self) -> None:
+        sha1 = "a" * 40
+        verified = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                magisk_backups={sha1: "verified"},
+            )
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_magisk_backups={sha1: "verified"},
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        corrupt = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                magisk_backups={sha1: "corrupt"},
+            )
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_magisk_backups={sha1: "verified"},
+            )
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, corrupt.status)
+        self.assertEqual(
+            ("verified", "corrupt"),
+            corrupt.mismatches[f"magisk_backup:{sha1}"],
+        )
+
+        absent = observer(
+            StatefulDeviceTransport(mode="adb", magisk_backups={})
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_magisk_backups={sha1: "absent"},
             )
         )
         self.assertEqual(ObservationStatus.VERIFIED, absent.status)

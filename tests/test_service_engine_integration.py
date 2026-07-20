@@ -1570,6 +1570,90 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(result, engine.store.snapshot().last_result)
 
+    def test_magisk_backup_list_import_and_delete_use_typed_results(self):
+        sha1 = hashlib.sha1(b"stock image", usedforsecurity=False).hexdigest()
+        engine, transport = self.engine_for(
+            "adb",
+            [
+                TransportOutcome(0, f"PF_MB|{sha1}|1234|1700000000|{sha1}\n"),
+            ],
+            root=True,
+        )
+        listed = engine.execute(command("backups.magisk.list", {"serial": "SERIAL"}))
+        self.assertTrue(listed.ok)
+        self.assertEqual("magisk_backups_listed", listed.code)
+        self.assertEqual(sha1, listed.value["backups"][0]["sha1"])
+        self.assertEqual("verified", listed.value["backups"][0]["integrity"])
+        self.assertEqual("", listed.stdout)
+        self.assertEqual(1, len(transport.calls))
+
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "stock.img"
+            image.write_bytes(b"stock image")
+            imported_engine, imported_transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0), TransportOutcome(0)],
+                root=True,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            imported = imported_engine.execute(
+                command(
+                    "backups.magisk.import",
+                    {"serial": "SERIAL", "path": str(image)},
+                )
+            )
+        self.assertTrue(imported.ok)
+        self.assertEqual("magisk_backup_imported", imported.code)
+        self.assertEqual(sha1, imported.value["sha1"])
+        self.assertEqual(2, len(imported_transport.calls))
+
+        required = BackupService.required_magisk_delete_confirmation(sha1, "SERIAL")
+        deleted_engine, deleted_transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0)],
+            root=True,
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+        )
+        deleted = deleted_engine.execute(
+            command(
+                "backups.magisk.delete",
+                {
+                    "serial": "SERIAL",
+                    "sha1": sha1,
+                    "confirmationText": required,
+                },
+            )
+        )
+        self.assertTrue(deleted.ok)
+        self.assertEqual("magisk_backup_deleted", deleted.code)
+        self.assertEqual("delete", deleted.value["action"])
+        self.assertEqual(1, len(deleted_transport.calls))
+
+    def test_magisk_backup_mutations_never_succeed_without_observed_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "stock.img"
+            image.write_bytes(b"stock image")
+            engine, _transport = self.engine_for(
+                "adb",
+                [TransportOutcome(0), TransportOutcome(0)],
+                root=True,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+            def rejecting_observer(*_args: object) -> bool:
+                return False
+
+            engine.postcondition_observer = rejecting_observer
+            engine.operation_runner.postcondition_observer = rejecting_observer
+            result = engine.execute(
+                command(
+                    "backups.magisk.import",
+                    {"serial": "SERIAL", "path": str(image)},
+                )
+            )
+
+        self.assertEqual(OperationStatus.FAILED, result.status)
+        self.assertEqual("postcondition_mismatch", result.code)
+
     def test_backup_create_success_without_output_is_an_explicit_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "boot_a.img"

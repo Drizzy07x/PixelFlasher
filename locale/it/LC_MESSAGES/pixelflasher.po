@@ -5824,3 +5824,55 @@ msgstr "Imposta Google Play come programma di installazione"
 msgctxt "web.apps.playStoreOwnershipDetail"
 msgid "Record Google Play as the installer and verify Android reports that source after installation."
 msgstr "Registra Google Play come programma di installazione e verifica che Android segnali questa origine dopo l’installazione."
+
+msgctxt "web.backups.magiskImport"
+msgid "Import stock boot image"
+msgstr "Importa immagine boot originale"
+
+msgctxt "web.backups.magiskImageFiles"
+msgid "Boot images"
+msgstr "Immagini boot"
+
+msgctxt "web.backups.magiskTitle"
+msgid "Magisk stock boot backups"
+msgstr "Backup boot originali di Magisk"
+
+msgctxt "web.backups.magiskDetail"
+msgid "Verified stock boot images maintained by Magisk on the selected device."
+msgstr "Immagini boot originali verificate conservate da Magisk sul dispositivo selezionato."
+
+msgctxt "web.backups.magiskGuard"
+msgid "Select one rooted device connected through ADB to manage Magisk backups."
+msgstr "Seleziona un dispositivo con root collegato tramite ADB per gestire i backup Magisk."
+
+msgctxt "web.backups.magiskLoadFailed"
+msgid "The Magisk backup inventory could not be loaded."
+msgstr "Impossibile caricare l’inventario dei backup Magisk."
+
+msgctxt "web.backups.magiskStockBoot"
+msgid "Stock boot image"
+msgstr "Immagine boot originale"
+
+msgctxt "web.backups.magiskIntegrity.verified"
+msgid "Verified"
+msgstr "Verificata"
+
+msgctxt "web.backups.magiskIntegrity.corrupt"
+msgid "Corrupt"
+msgstr "Danneggiata"
+
+msgctxt "web.backups.magiskDelete"
+msgid "Delete Magisk backup"
+msgstr "Elimina backup Magisk"
+
+msgctxt "web.backups.magiskDeletePrompt"
+msgid "Type {confirmation} to delete this Magisk backup."
+msgstr "Digita {confirmation} per eliminare questo backup Magisk."
+
+msgctxt "web.backups.magiskEmpty"
+msgid "No Magisk stock boot backups were found on this device."
+msgstr "Nessun backup boot originale di Magisk trovato su questo dispositivo."
+
+msgctxt "web.backups.sha1"
+msgid "SHA-1"
+msgstr "SHA-1"

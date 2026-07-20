@@ -5785,3 +5785,55 @@ msgstr ""
 msgctxt "web.apps.playStoreOwnershipDetail"
 msgid "Record Google Play as the installer and verify Android reports that source after installation."
 msgstr ""
+
+msgctxt "web.backups.magiskImport"
+msgid "Import stock boot image"
+msgstr ""
+
+msgctxt "web.backups.magiskImageFiles"
+msgid "Boot images"
+msgstr ""
+
+msgctxt "web.backups.magiskTitle"
+msgid "Magisk stock boot backups"
+msgstr ""
+
+msgctxt "web.backups.magiskDetail"
+msgid "Verified stock boot images maintained by Magisk on the selected device."
+msgstr ""
+
+msgctxt "web.backups.magiskGuard"
+msgid "Select one rooted device connected through ADB to manage Magisk backups."
+msgstr ""
+
+msgctxt "web.backups.magiskLoadFailed"
+msgid "The Magisk backup inventory could not be loaded."
+msgstr ""
+
+msgctxt "web.backups.magiskStockBoot"
+msgid "Stock boot image"
+msgstr ""
+
+msgctxt "web.backups.magiskIntegrity.verified"
+msgid "Verified"
+msgstr ""
+
+msgctxt "web.backups.magiskIntegrity.corrupt"
+msgid "Corrupt"
+msgstr ""
+
+msgctxt "web.backups.magiskDelete"
+msgid "Delete Magisk backup"
+msgstr ""
+
+msgctxt "web.backups.magiskDeletePrompt"
+msgid "Type {confirmation} to delete this Magisk backup."
+msgstr ""
+
+msgctxt "web.backups.magiskEmpty"
+msgid "No Magisk stock boot backups were found on this device."
+msgstr ""
+
+msgctxt "web.backups.sha1"
+msgid "SHA-1"
+msgstr ""

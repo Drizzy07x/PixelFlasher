@@ -101,6 +101,13 @@ _NATIVE_GRANT_SPECS = (
     ),
     NativeGrantSpec(
         "native.pickFile",
+        "backups.magisk.import.source",
+        "backups.magisk.import",
+        GrantTarget.FILE,
+        GrantAccess.READ,
+    ),
+    NativeGrantSpec(
+        "native.pickFile",
         "partitions.write.source",
         "partitions.write",
         GrantTarget.FILE,
@@ -432,6 +439,8 @@ class CoreCommandFactory:
         elif command == "backups.restore":
             if "backupId" not in payload:
                 self._resolve_one(payload, "backups.restore.source", "path")
+        elif command == "backups.magisk.import":
+            self._resolve_one(payload, "backups.magisk.import.source", "path")
         elif command == "partitions.read":
             self._resolve_one(payload, "partitions.read.destination", "destination")
         elif command == "partitions.write":

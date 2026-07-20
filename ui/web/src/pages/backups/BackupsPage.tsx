@@ -19,8 +19,16 @@ type BackupRecord = {
   integrity: 'stored' | 'missing';
 };
 
+type MagiskBackupRecord = {
+  sha1: string;
+  sizeBytes: number;
+  createdAt: number;
+  integrity: 'verified' | 'corrupt';
+};
+
 const BACKUP_ID = /^[0-9a-f]{32}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+const SHA1 = /^[0-9a-f]{40}$/;
 
 function operationSucceeded(result: Record<string, unknown>) {
   return typeof result.status === 'string' && result.status.toLowerCase() === 'success';
@@ -51,6 +59,23 @@ function inventoryRows(result: Record<string, unknown>): BackupRecord[] | null {
   return rows.length === value.backups.length ? rows : null;
 }
 
+function magiskInventoryRows(result: Record<string, unknown>): MagiskBackupRecord[] | null {
+  if (!operationSucceeded(result)) return null;
+  const value = record(result.value);
+  if (value.action !== 'list' || value.bounded !== true || !Array.isArray(value.backups) || value.backups.length > 256) return null;
+  const rows = value.backups.flatMap((entry) => {
+    const item = record(entry);
+    if (
+      typeof item.sha1 !== 'string' || !SHA1.test(item.sha1)
+      || typeof item.sizeBytes !== 'number' || !Number.isSafeInteger(item.sizeBytes) || item.sizeBytes < 0
+      || typeof item.createdAt !== 'number' || !Number.isSafeInteger(item.createdAt) || item.createdAt < 0
+      || (item.integrity !== 'verified' && item.integrity !== 'corrupt')
+    ) return [];
+    return [item as MagiskBackupRecord];
+  });
+  return rows.length === value.backups.length ? rows : null;
+}
+
 function formatSize(bytes: number) {
   const mib = bytes / (1024 * 1024);
   return `${mib >= 10 ? mib.toFixed(0) : mib.toFixed(1)} MiB`;
@@ -67,6 +92,10 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
   const [inventoryState, setInventoryState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [confirmDelete, setConfirmDelete] = useState('');
   const [confirmationText, setConfirmationText] = useState('');
+  const [magiskBackups, setMagiskBackups] = useState<MagiskBackupRecord[]>([]);
+  const [magiskState, setMagiskState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [confirmMagiskDelete, setConfirmMagiskDelete] = useState('');
+  const [magiskConfirmationText, setMagiskConfirmationText] = useState('');
 
   const refreshInventory = useCallback(async (expectedRevision?: number) => {
     if (!serial) {
@@ -95,11 +124,86 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
     }
   }, [onCommand, serial]);
 
+  const magiskReady = Boolean(serial && primary?.mode === 'adb' && primary.rooted);
+  const refreshMagisk = useCallback(async (expectedRevision?: number) => {
+    if (!magiskReady) {
+      setMagiskBackups([]);
+      setMagiskState('ready');
+      return false;
+    }
+    setMagiskState('loading');
+    try {
+      const response = await onCommand(
+        commands.backupsMagiskList,
+        { serial },
+        expectedRevision === undefined ? undefined : { expectedRevision },
+      );
+      const rows = response ? magiskInventoryRows(record(response.result)) : null;
+      if (!rows) {
+        setMagiskState('error');
+        return false;
+      }
+      setMagiskBackups(rows);
+      setMagiskState('ready');
+      return true;
+    } catch {
+      setMagiskState('error');
+      return false;
+    }
+  }, [magiskReady, onCommand, serial]);
+
   useEffect(() => {
     setConfirmDelete('');
     setConfirmationText('');
+    setConfirmMagiskDelete('');
+    setMagiskConfirmationText('');
     void refreshInventory();
-  }, [refreshInventory]);
+    void refreshMagisk();
+  }, [refreshInventory, refreshMagisk]);
+
+  const importMagiskBackup = async () => {
+    if (!magiskReady || busy) return;
+    setBusy('magisk-import');
+    try {
+      const picked = await onCommand(commands.nativePickFile, {
+        purpose: 'backups.magisk.import.source',
+        title: t('backups.magiskImport'),
+        filters: [{ label: t('backups.magiskImageFiles'), extensions: ['img'] }],
+      }, { returnCancelled: true });
+      const grant = selectedGrant(picked);
+      if (!grant) return;
+      const response = await onCommand(
+        commands.backupsMagiskImport,
+        { serial, grant },
+        { returnCancelled: true },
+      );
+      if (response && operationSucceeded(record(response.result))) {
+        await refreshMagisk(response.revision);
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const deleteMagiskBackup = async (backup: MagiskBackupRecord) => {
+    const required = `DELETE MAGISK ${backup.sha1.slice(-8).toUpperCase()} ${serial.slice(-6).toUpperCase()}`;
+    if (!magiskReady || busy || magiskConfirmationText !== required) return;
+    setBusy(`magisk-delete:${backup.sha1}`);
+    try {
+      const response = await onCommand(commands.backupsMagiskDelete, {
+        serial,
+        sha1: backup.sha1,
+        confirmationText: magiskConfirmationText,
+      });
+      if (response && operationSucceeded(record(response.result))) {
+        setConfirmMagiskDelete('');
+        setMagiskConfirmationText('');
+        await refreshMagisk(response.revision);
+      }
+    } finally {
+      setBusy('');
+    }
+  };
 
   const createBackup = async () => {
     if (!serial || busy) return;
@@ -200,6 +304,52 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
           <Button variant="primary" icon="backupPng" onClick={() => void createBackup()} disabled={Boolean(busy) || !createReady}>{t('backups.create')}</Button>
         </div>
       )} />
+      <section aria-labelledby="magisk-backups-title">
+        <div className="card-title backup-inventory__title">
+          <span className="card-title__label"><Icon name="root" size={20} /><span id="magisk-backups-title">{t('backups.magiskTitle')}</span></span>
+          <div className="page-header__controls">
+            <Button icon="scan" onClick={() => void refreshMagisk()} disabled={Boolean(busy) || magiskState === 'loading' || !magiskReady}>{t('common.refresh')}</Button>
+            <Button variant="primary" icon="download" onClick={() => void importMagiskBackup()} disabled={Boolean(busy) || !magiskReady}>{t('backups.magiskImport')}</Button>
+          </div>
+        </div>
+        <p>{t('backups.magiskDetail')}</p>
+        {!magiskReady ? <p role="status">{t('backups.magiskGuard')}</p> : null}
+        {magiskState === 'error' ? <p role="alert">{t('backups.magiskLoadFailed')}</p> : null}
+        {magiskState === 'loading' ? <p role="status">{t('backups.loading')}</p> : null}
+        <div className="backup-grid">
+          {magiskBackups.map((backup) => {
+            const required = `DELETE MAGISK ${backup.sha1.slice(-8).toUpperCase()} ${serial.slice(-6).toUpperCase()}`;
+            return (
+              <Card className="backup-card" key={backup.sha1}>
+                <div className="backup-card__header">
+                  <span className="backup-card__icon"><Icon name="root" size={25} /></span>
+                  <span><strong>{t('backups.magiskStockBoot')}</strong><code>{backup.sha1}</code></span>
+                  <Badge tone={backup.integrity === 'verified' ? 'success' : 'danger'}>{t(`backups.magiskIntegrity.${backup.integrity}`)}</Badge>
+                </div>
+                <dl>
+                  <div><dt>{t('common.date')}</dt><dd>{backup.createdAt ? new Intl.DateTimeFormat(locale.replace('_', '-'), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(backup.createdAt * 1000)) : '—'}</dd></div>
+                  <div><dt>{t('common.size')}</dt><dd>{backup.sizeBytes ? formatSize(backup.sizeBytes) : '—'}</dd></div>
+                  <div><dt>{t('backups.sha1')}</dt><dd><code>{backup.sha1.slice(0, 12)}</code></dd></div>
+                </dl>
+                <Button variant="danger" onClick={() => { setConfirmMagiskDelete(backup.sha1); setMagiskConfirmationText(''); }} disabled={Boolean(busy)}>{t('backups.delete')}</Button>
+                {confirmMagiskDelete === backup.sha1 ? (
+                  <div className="backup-delete-confirm" role="group" aria-label={t('backups.magiskDelete')}>
+                    <label>
+                      <span>{t('backups.magiskDeletePrompt', { confirmation: required })}</span>
+                      <input value={magiskConfirmationText} onChange={(event) => setMagiskConfirmationText(event.currentTarget.value)} aria-label={t('backups.confirmationLabel')} autoComplete="off" />
+                    </label>
+                    <div className="page-header__controls">
+                      <Button variant="danger" onClick={() => void deleteMagiskBackup(backup)} disabled={Boolean(busy) || magiskConfirmationText !== required}>{t('backups.confirmDelete')}</Button>
+                      <Button variant="ghost" onClick={() => { setConfirmMagiskDelete(''); setMagiskConfirmationText(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+                    </div>
+                  </div>
+                ) : null}
+              </Card>
+            );
+          })}
+          {magiskState === 'ready' && magiskReady && !magiskBackups.length ? <Card><EmptyState icon="root" title={t('common.none')} detail={t('backups.magiskEmpty')} /></Card> : null}
+        </div>
+      </section>
       <section aria-labelledby="managed-backups-title">
         <div className="card-title backup-inventory__title">
           <span className="card-title__label"><Icon name="backup" size={20} /><span id="managed-backups-title">{t('backups.managedTitle')}</span></span>

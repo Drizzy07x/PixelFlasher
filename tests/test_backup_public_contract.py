@@ -113,6 +113,83 @@ class BackupPublicContractTests(unittest.TestCase):
             ):
                 self.project(command, value)
 
+    def test_projects_closed_magisk_inventory_and_mutation_receipts(self):
+        sha1 = "c" * 40
+        inventory = self.project(
+            "backups.magisk.list",
+            {
+                "action": "list",
+                "targetSerial": "SERIAL",
+                "count": 1,
+                "backups": [
+                    {
+                        "sha1": sha1,
+                        "sizeBytes": 4096,
+                        "createdAt": 1_700_000_000,
+                        "integrity": "verified",
+                    }
+                ],
+                "bounded": True,
+            },
+        )
+        imported = self.project(
+            "backups.magisk.import",
+            {
+                "action": "import",
+                "targetSerial": "SERIAL",
+                "sha1": sha1,
+                "verified": True,
+            },
+        )
+        deleted = self.project(
+            "backups.magisk.delete",
+            {
+                "action": "delete",
+                "targetSerial": "SERIAL",
+                "sha1": sha1,
+                "verified": True,
+            },
+        )
+
+        self.assertEqual(sha1, inventory["backups"][0]["sha1"])
+        self.assertNotIn("path", str(inventory).casefold())
+        self.assertEqual("import", imported["action"])
+        self.assertEqual("delete", deleted["action"])
+
+    def test_rejects_host_paths_and_invalid_magisk_integrity(self):
+        sha1 = "d" * 40
+        for command, value in (
+            (
+                "backups.magisk.list",
+                {
+                    "action": "list",
+                    "targetSerial": "SERIAL",
+                    "count": 1,
+                    "backups": [
+                        {
+                            "sha1": sha1,
+                            "sizeBytes": 1,
+                            "createdAt": 1,
+                            "integrity": "unknown",
+                            "path": "C:/private/boot.img",
+                        }
+                    ],
+                    "bounded": True,
+                },
+            ),
+            (
+                "backups.magisk.import",
+                {
+                    "action": "import",
+                    "targetSerial": "SERIAL",
+                    "sha1": sha1,
+                    "verified": False,
+                },
+            ),
+        ):
+            with self.subTest(command=command), self.assertRaises(PublicProjectionError):
+                self.project(command, value)
+
 
 if __name__ == "__main__":
     unittest.main()

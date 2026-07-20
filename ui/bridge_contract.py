@@ -314,6 +314,27 @@ def _validate_payload_values(
         required = f"DELETE {backup_id[-8:].upper()}"
         if confirmation != required:
             _payload_error("backups.delete confirmationText is invalid", request_id)
+    elif command == "backups.magisk.list":
+        if not _nonempty_string(payload.get("serial"), limit=256):
+            _payload_error("backups.magisk.list serial is invalid", request_id)
+    elif command == "backups.magisk.import":
+        if not _nonempty_string(payload.get("serial"), limit=256):
+            _payload_error("backups.magisk.import serial is invalid", request_id)
+    elif command == "backups.magisk.delete":
+        serial = payload.get("serial")
+        sha1 = payload.get("sha1")
+        confirmation = payload.get("confirmationText")
+        if not _nonempty_string(serial, limit=256):
+            _payload_error("backups.magisk.delete serial is invalid", request_id)
+        if not isinstance(sha1, str) or re.fullmatch(r"[0-9a-f]{40}", sha1) is None:
+            _payload_error("backups.magisk.delete SHA-1 is invalid", request_id)
+        assert isinstance(serial, str)
+        required = f"DELETE MAGISK {sha1[-8:].upper()} {serial[-6:].upper()}"
+        if confirmation != required:
+            _payload_error(
+                "backups.magisk.delete confirmationText is invalid",
+                request_id,
+            )
 
     if command == "interaction.respond":
         if not _nonempty_string(payload.get("operationId"), limit=128):

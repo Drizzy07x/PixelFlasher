@@ -30,6 +30,7 @@ from .backups import (
     BackupCompilation,
     BackupPlanningError,
     BackupService,
+    parse_magisk_backup_list,
 )
 from .binary_xml import BinaryXmlService, BinaryXmlStatus
 from .boot_inventory import (
@@ -1540,6 +1541,59 @@ class CommandEngine:
                     stderr=result.stderr,
                 )
             return self.device_tools_service.finalize_result(compilation, result)
+        if kind == "backups.magisk.list":
+            if not isinstance(compilation, BackupCompilation):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="magisk_backup_compilation_invalid",
+                    message="Magisk backup listing returned an invalid compilation",
+                )
+            try:
+                backups = parse_magisk_backup_list(result.stdout)
+            except BackupPlanningError as error:
+                return OperationResult.failed(
+                    result.operation_id,
+                    code=error.code,
+                    message=str(error),
+                )
+            return replace(
+                result,
+                code="magisk_backups_listed",
+                message=f"found {len(backups)} Magisk backup(s)",
+                value={
+                    "action": "list",
+                    "targetSerial": plan.target_serial,
+                    "count": len(backups),
+                    "backups": [backup.to_dict() for backup in backups],
+                    "bounded": True,
+                },
+                stdout="",
+                stderr="",
+            )
+        if kind in {"backups.magisk.import", "backups.magisk.delete"}:
+            if (
+                not isinstance(compilation, BackupCompilation)
+                or compilation.magisk_sha1 is None
+            ):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="magisk_backup_compilation_invalid",
+                    message="Magisk backup mutation has no validated SHA-1",
+                )
+            action = "import" if kind.endswith(".import") else "delete"
+            return replace(
+                result,
+                code=f"magisk_backup_{'imported' if action == 'import' else 'deleted'}",
+                message=f"Magisk backup {compilation.magisk_sha1[:12]} {action} completed",
+                value={
+                    "action": action,
+                    "targetSerial": plan.target_serial,
+                    "sha1": compilation.magisk_sha1,
+                    "verified": True,
+                },
+                stdout="",
+                stderr="",
+            )
         if kind == "backups.create":
             if not isinstance(compilation, BackupCompilation):
                 return OperationResult.failed(

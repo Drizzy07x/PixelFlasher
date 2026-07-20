@@ -1928,6 +1928,7 @@ class OperationRunner:
         expected_root_modules: dict[str, str] = {}
         expected_magisk_denylist: dict[str, bool] = {}
         expected_magisk_su_policies: dict[int, str] = {}
+        expected_magisk_backups: dict[str, str] = {}
         erased_partitions: list[str] = []
 
         def bind(current: object, value: object, name: str) -> object:
@@ -2134,6 +2135,21 @@ class OperationRunner:
                 if current is not None and current != canonical:
                     raise ValueError("conflicting Magisk SU policy postconditions")
                 expected_magisk_su_policies[uid] = canonical
+            elif postcondition.kind == "magisk_backup_state":
+                if set(expected) != {"sha1", "state"}:
+                    raise ValueError("Magisk backup postcondition fields are invalid")
+                sha1 = expected.get("sha1")
+                backup_state = expected.get("state")
+                if (
+                    not isinstance(sha1, str)
+                    or re.fullmatch(r"[0-9a-f]{40}", sha1) is None
+                    or backup_state not in {"verified", "absent"}
+                ):
+                    raise ValueError("Magisk backup postcondition is invalid")
+                current_backup = expected_magisk_backups.get(sha1)
+                if current_backup is not None and current_backup != backup_state:
+                    raise ValueError("conflicting Magisk backup postconditions")
+                expected_magisk_backups[sha1] = cast(str, backup_state)
             elif postcondition.kind == "remote_files_written":
                 raw_mode = expected.get("mode")
                 if raw_mode is not None:
@@ -2232,6 +2248,7 @@ class OperationRunner:
             expected_root_modules=expected_root_modules,
             expected_magisk_denylist=expected_magisk_denylist,
             expected_magisk_su_policies=expected_magisk_su_policies,
+            expected_magisk_backups=expected_magisk_backups,
             erased_partitions=tuple(erased_partitions),
         )
 

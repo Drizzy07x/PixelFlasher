@@ -10,6 +10,9 @@ export const commands = {
   backupsCreate: "backups.create",
   backupsDelete: "backups.delete",
   backupsList: "backups.list",
+  backupsMagiskDelete: "backups.magisk.delete",
+  backupsMagiskImport: "backups.magisk.import",
+  backupsMagiskList: "backups.magisk.list",
   backupsRestore: "backups.restore",
   bootDelete: "boot.delete",
   bootFlash: "boot.flash",
@@ -102,6 +105,18 @@ export interface BridgePayloadByCommand {
   };
   "backups.list": {
     "serial"?: string;
+  };
+  "backups.magisk.delete": {
+    "confirmationText": string;
+    "serial": string;
+    "sha1": string;
+  };
+  "backups.magisk.import": {
+    "grant": string;
+    "serial": string;
+  };
+  "backups.magisk.list": {
+    "serial": string;
   };
   "backups.restore": {
     "backupId"?: string;
@@ -387,6 +402,9 @@ export const allowedCommands = [
   commands.backupsCreate,
   commands.backupsDelete,
   commands.backupsList,
+  commands.backupsMagiskDelete,
+  commands.backupsMagiskImport,
+  commands.backupsMagiskList,
   commands.backupsRestore,
   commands.bootDelete,
   commands.bootFlash,
@@ -463,6 +481,9 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.backupsCreate]: 1800000,
   [commands.backupsDelete]: 30000,
   [commands.backupsList]: 30000,
+  [commands.backupsMagiskDelete]: 300000,
+  [commands.backupsMagiskImport]: 1200000,
+  [commands.backupsMagiskList]: 180000,
   [commands.backupsRestore]: 1800000,
   [commands.bootDelete]: 600000,
   [commands.bootFlash]: 1200000,
@@ -533,6 +554,9 @@ export const bridgeCommandMetadata = {
   [commands.backupsCreate]: {"owner":"backups","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"backups.create","confirmation":"none","postconditions":["backup_hash_verified"]},
   [commands.backupsDelete]: {"owner":"backups","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"backups.delete","confirmation":"none","postconditions":["backup_record_removed"]},
   [commands.backupsList]: {"owner":"backups","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"backups.inventory","confirmation":"none","postconditions":["bounded_backup_inventory_returned"]},
+  [commands.backupsMagiskDelete]: {"owner":"backups","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"backups.magisk.delete","confirmation":"standard","postconditions":["magisk_backup_absence_verified"]},
+  [commands.backupsMagiskImport]: {"owner":"backups","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"backups.magisk.import","confirmation":"standard","postconditions":["magisk_backup_hash_verified"]},
+  [commands.backupsMagiskList]: {"owner":"backups","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"backups.magisk.list","confirmation":"none","postconditions":["bounded_magisk_backup_inventory_returned"]},
   [commands.backupsRestore]: {"owner":"backups","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","fastboot","fastbootd","recovery","sideload"],"planner":"backups.restore","confirmation":"standard","postconditions":["restore_write_verified"]},
   [commands.bootDelete]: {"owner":"boot_images","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"boot_inventory.delete","confirmation":"none","postconditions":["boot_record_absent","shared_object_preserved"]},
   [commands.bootFlash]: {"owner":"boot_images","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.boot_flash","confirmation":"standard","postconditions":["partition_write_verified"]},
@@ -634,6 +658,9 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.backupsCreate]: {"grant":{"kind":"string","required":true},"partition":{"kind":"string","required":true},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":true}},
   [commands.backupsDelete]: {"backupId":{"kind":"string","required":true},"confirmationText":{"kind":"string","required":true}},
   [commands.backupsList]: {"serial":{"kind":"string","required":false}},
+  [commands.backupsMagiskDelete]: {"confirmationText":{"kind":"string","required":true},"serial":{"kind":"string","required":true},"sha1":{"kind":"string","required":true}},
+  [commands.backupsMagiskImport]: {"grant":{"kind":"string","required":true},"serial":{"kind":"string","required":true}},
+  [commands.backupsMagiskList]: {"serial":{"kind":"string","required":true}},
   [commands.backupsRestore]: {"backupId":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"partition":{"kind":"string","required":true},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":true}},
   [commands.bootDelete]: {"bootId":{"kind":"string","required":true}},
   [commands.bootFlash]: {"confirmationText":{"kind":"string","required":false},"partition":{"kind":"string","required":false},"serial":{"kind":"string","required":false},"slot":{"kind":"string","required":false}},
