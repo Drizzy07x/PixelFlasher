@@ -40,6 +40,48 @@ def _request(command, payload=None, revision=1):
 
 
 class CommandRegistryTests(unittest.TestCase):
+    def test_root_recovery_commands_are_closed_and_live(self):
+        shizuku = COMMAND_REGISTRY["tools.shizuku"]
+        sos = COMMAND_REGISTRY["tools.sos"]
+        self.assertTrue(shizuku.implemented)
+        self.assertTrue(sos.implemented)
+        self.assertEqual(
+            {"serial", "action"},
+            set(shizuku.payload.fields),
+        )
+        self.assertEqual(
+            {"serial", "action", "confirmationText"},
+            set(sos.payload.fields),
+        )
+
+        BridgeRequest.from_json(
+            _request("tools.shizuku", {"serial": "SERIAL", "action": "start"})
+        )
+        BridgeRequest.from_json(
+            _request(
+                "tools.sos",
+                {
+                    "serial": "SERIAL",
+                    "action": "disableModules",
+                    "confirmationText": "SOS SERIAL",
+                },
+            )
+        )
+        invalid = (
+            ("tools.shizuku", {"serial": "SERIAL", "action": "run"}),
+            (
+                "tools.sos",
+                {
+                    "serial": "SERIAL",
+                    "action": "disableModules",
+                    "confirmationText": "SOS WRONG",
+                },
+            ),
+        )
+        for command, payload in invalid:
+            with self.subTest(command=command), self.assertRaises(BridgeProtocolError):
+                BridgeRequest.from_json(_request(command, payload))
+
     def test_production_allow_list_contains_only_owned_implemented_commands(self):
         self.assertEqual(set(COMMAND_REGISTRY), set(REGISTERED_COMMANDS))
         self.assertEqual(set(REGISTERED_PAYLOAD_FIELDS), set(REGISTERED_COMMANDS))

@@ -5857,3 +5857,35 @@ msgstr ""
 msgctxt "web.root.moduleUpdateAvailable"
 msgid "Update metadata available"
 msgstr ""
+
+msgctxt "web.root.recoveryTitle"
+msgid "Root recovery tools"
+msgstr ""
+
+msgctxt "web.root.recoveryDetail"
+msgid "Start Shizuku or disable every Magisk module with backend-verified postconditions."
+msgstr ""
+
+msgctxt "web.root.shizukuTitle"
+msgid "Shizuku service"
+msgstr ""
+
+msgctxt "web.root.shizukuDetail"
+msgid "Start the installed Shizuku service and verify its process."
+msgstr ""
+
+msgctxt "web.root.shizukuStart"
+msgid "Start Shizuku"
+msgstr ""
+
+msgctxt "web.root.sosTitle"
+msgid "SOS: disable all modules"
+msgstr ""
+
+msgctxt "web.root.sosDetail"
+msgid "Type the displayed SOS phrase. No module directory is deleted."
+msgstr ""
+
+msgctxt "web.root.sosRun"
+msgid "Disable all modules"
+msgstr ""

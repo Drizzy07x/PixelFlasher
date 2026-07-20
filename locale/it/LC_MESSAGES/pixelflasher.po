@@ -5896,3 +5896,35 @@ msgstr "Metadati non validi"
 msgctxt "web.root.moduleUpdateAvailable"
 msgid "Update metadata available"
 msgstr "Metadati di aggiornamento disponibili"
+
+msgctxt "web.root.recoveryTitle"
+msgid "Root recovery tools"
+msgstr "Strumenti di ripristino root"
+
+msgctxt "web.root.recoveryDetail"
+msgid "Start Shizuku or disable every Magisk module with backend-verified postconditions."
+msgstr "Avvia Shizuku o disabilita tutti i moduli Magisk con postcondizioni verificate dal backend."
+
+msgctxt "web.root.shizukuTitle"
+msgid "Shizuku service"
+msgstr "Servizio Shizuku"
+
+msgctxt "web.root.shizukuDetail"
+msgid "Start the installed Shizuku service and verify its process."
+msgstr "Avvia il servizio Shizuku installato e verificane il processo."
+
+msgctxt "web.root.shizukuStart"
+msgid "Start Shizuku"
+msgstr "Avvia Shizuku"
+
+msgctxt "web.root.sosTitle"
+msgid "SOS: disable all modules"
+msgstr "SOS: disabilita tutti i moduli"
+
+msgctxt "web.root.sosDetail"
+msgid "Type the displayed SOS phrase. No module directory is deleted."
+msgstr "Digita la frase SOS mostrata. Nessuna cartella dei moduli viene eliminata."
+
+msgctxt "web.root.sosRun"
+msgid "Disable all modules"
+msgstr "Disabilita tutti i moduli"

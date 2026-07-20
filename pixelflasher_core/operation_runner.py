@@ -1929,6 +1929,8 @@ class OperationRunner:
         expected_magisk_denylist: dict[str, bool] = {}
         expected_magisk_su_policies: dict[int, str] = {}
         expected_magisk_backups: dict[str, str] = {}
+        expected_shizuku_running: bool | None = None
+        expected_magisk_modules_disabled: bool | None = None
         erased_partitions: list[str] = []
 
         def bind(current: object, value: object, name: str) -> object:
@@ -2150,6 +2152,30 @@ class OperationRunner:
                 if current_backup is not None and current_backup != backup_state:
                     raise ValueError("conflicting Magisk backup postconditions")
                 expected_magisk_backups[sha1] = cast(str, backup_state)
+            elif postcondition.kind == "shizuku_state":
+                if set(expected) != {"running"}:
+                    raise ValueError("Shizuku postcondition fields are invalid")
+                running = expected.get("running")
+                if not isinstance(running, bool):
+                    raise TypeError("Shizuku running state must be a boolean")
+                expected_shizuku_running = cast(
+                    bool,
+                    bind(expected_shizuku_running, running, "Shizuku state"),
+                )
+            elif postcondition.kind == "magisk_modules_state":
+                if set(expected) != {"allDisabled"}:
+                    raise ValueError("Magisk module aggregate postcondition fields are invalid")
+                all_disabled = expected.get("allDisabled")
+                if not isinstance(all_disabled, bool):
+                    raise TypeError("Magisk module aggregate state must be a boolean")
+                expected_magisk_modules_disabled = cast(
+                    bool,
+                    bind(
+                        expected_magisk_modules_disabled,
+                        all_disabled,
+                        "Magisk module aggregate state",
+                    ),
+                )
             elif postcondition.kind == "remote_files_written":
                 raw_mode = expected.get("mode")
                 if raw_mode is not None:
@@ -2249,6 +2275,8 @@ class OperationRunner:
             expected_magisk_denylist=expected_magisk_denylist,
             expected_magisk_su_policies=expected_magisk_su_policies,
             expected_magisk_backups=expected_magisk_backups,
+            expected_shizuku_running=expected_shizuku_running,
+            expected_magisk_modules_disabled=expected_magisk_modules_disabled,
             erased_partitions=tuple(erased_partitions),
         )
 

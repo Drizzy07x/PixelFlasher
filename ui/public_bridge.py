@@ -44,6 +44,8 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "root.apps.catalog.refresh",
         "root.apps.download",
         "root.modules.list",
+        "tools.shizuku",
+        "tools.sos",
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
@@ -1497,6 +1499,29 @@ def _project_root_module_action(value: object) -> JSONValue:
     })
 
 
+def _project_root_recovery(value: object, *, expected_action: str) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset({"action", "targetSerial", "verified"}),
+    )
+    if (
+        source["action"] != expected_action
+        or not isinstance(source["targetSerial"], str)
+        or not is_valid_target_serial(source["targetSerial"])
+        or source["verified"] is not True
+    ):
+        raise PublicProjectionError("root recovery result is invalid")
+    return ensure_public_json(dict(source))
+
+
+def _project_shizuku_recovery(value: object) -> JSONValue:
+    return _project_root_recovery(value, expected_action="startShizuku")
+
+
+def _project_sos_recovery(value: object) -> JSONValue:
+    return _project_root_recovery(value, expected_action="disableModules")
+
+
 def _project_partitions(value: object) -> JSONValue:
     source = _record(value)
     partitions: list[dict[str, object]] = []
@@ -2943,6 +2968,8 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.avb": _project_avb_downgrade,
     "tools.xml": _project_binary_xml,
     "tools.keybox": _project_keybox_analysis,
+    "tools.shizuku": _project_shizuku_recovery,
+    "tools.sos": _project_sos_recovery,
     "tools.scrcpy": _project_none,
     "tools.scrcpy.setup": _project_scrcpy_setup,
     "tools.wifi": _project_none,

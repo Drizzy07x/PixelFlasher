@@ -225,6 +225,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [bootPartition, setBootPartition] = useState<BootInventoryEntry['partition']>('boot');
   const [confirmBootDelete, setConfirmBootDelete] = useState('');
   const [bootDeleteNotice, setBootDeleteNotice] = useState<'failed' | 'deferred' | ''>('');
+  const [sosConfirmation, setSosConfirmation] = useState('');
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -396,6 +397,39 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
       if (!grant) return;
       const response = await onCommand(commands.rootModulesAction, { serial: primary.serial, action: 'install', grant });
       if (operationSucceeded(response)) {
+        await refreshModules(response?.revision);
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const startShizuku = async () => {
+    if (!singleAdb || !primary || busy) return;
+    setBusy('recovery:shizuku');
+    try {
+      await onCommand(commands.toolsShizuku, {
+        serial: primary.serial,
+        action: 'start',
+      });
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const disableAllModules = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    const required = `SOS ${primary.serial.slice(-6).toUpperCase()}`;
+    if (sosConfirmation !== required) return;
+    setBusy('recovery:sos');
+    try {
+      const response = await onCommand(commands.toolsSos, {
+        serial: primary.serial,
+        action: 'disableModules',
+        confirmationText: sosConfirmation,
+      });
+      if (operationSucceeded(response)) {
+        setSosConfirmation('');
         await refreshModules(response?.revision);
       }
     } finally {
@@ -710,6 +744,47 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           </div>
         </Card>
       </div>
+      <Card className="root-manager" aria-busy={busy.startsWith('recovery:')}>
+        <CardTitle icon="warningPng">{t('root.recoveryTitle')}</CardTitle>
+        <p className="root-manager__detail">{t('root.recoveryDetail')}</p>
+        <div className="root-footer root-footer--wrap">
+          <div>
+            <strong>{t('root.shizukuTitle')}</strong>
+            <small>{t('root.shizukuDetail')}</small>
+          </div>
+          <Button
+            variant="primary"
+            onClick={() => void startShizuku()}
+            disabled={Boolean(busy) || !singleAdb}
+          >{t('root.shizukuStart')}</Button>
+        </div>
+        <div className="root-footer root-footer--wrap">
+          <label className="select-field">
+            <span id="root-sos-label">{t('root.sosTitle')}</span>
+            <small id="root-sos-detail">{t('root.sosDetail')}</small>
+            <input
+              aria-labelledby="root-sos-label"
+              aria-describedby="root-sos-detail"
+              value={sosConfirmation}
+              onChange={(event) => setSosConfirmation(event.currentTarget.value)}
+              placeholder={primary ? `SOS ${primary.serial.slice(-6).toUpperCase()}` : 'SOS'}
+              disabled={Boolean(busy) || !rootedAdb}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <Button
+            variant="danger"
+            onClick={() => void disableAllModules()}
+            disabled={
+              Boolean(busy)
+              || !rootedAdb
+              || !primary
+              || sosConfirmation !== `SOS ${primary.serial.slice(-6).toUpperCase()}`
+            }
+          >{t('root.sosRun')}</Button>
+        </div>
+      </Card>
       {apatchPromptOpen ? (
         <div className="interaction-backdrop">
           <section

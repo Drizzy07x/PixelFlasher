@@ -87,6 +87,113 @@ class RootingServiceTests(unittest.TestCase):
             payload=payload or {},
         )
 
+    def test_shizuku_start_uses_only_backend_owned_paths_and_requires_observation(self):
+        compilation = RootingService().compile(
+            self.command(
+                "tools.shizuku",
+                {"serial": "SERIAL", "action": "start"},
+            ),
+            self.snapshot,
+        )
+
+        self.assertEqual("recovery.shizuku", compilation.action)
+        self.assertTrue(compilation.device_write)
+        self.assertTrue(compilation.requires_confirmation)
+        assert compilation.plan is not None
+        request = compilation.plan.requests[0]
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "sh", "-c"), request.argv[:6])
+        self.assertIn("moe.shizuku.privileged.api", request.argv[6])
+        self.assertIn("/data/app/*/base.apk", request.argv[6])
+        self.assertIn("getprop ro.product.cpu.abi", request.argv[6])
+        self.assertIn("x86_64", request.argv[6])
+        self.assertEqual("shizuku_state", compilation.plan.postconditions[0].kind)
+        self.assertEqual({"running": True}, compilation.plan.postconditions[0].expected)
+
+    def test_shizuku_rejects_aliases_and_non_adb_devices(self):
+        service = RootingService()
+        with self.assertRaises(RootingPlanningError) as alias:
+            service.compile(
+                self.command(
+                    "tools.shizuku",
+                    {"serial": "SERIAL", "action": "run"},
+                ),
+                self.snapshot,
+            )
+        self.assertEqual("shizuku_action_invalid", alias.exception.code)
+
+        fastboot = AppSnapshot(
+            revision=9,
+            devices=(DeviceInfo("SERIAL", mode="fastboot", root=True, online=True),),
+            selected_serial="SERIAL",
+            toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
+        )
+        with self.assertRaises(RootingPlanningError) as state:
+            service.compile(
+                self.command(
+                    "tools.shizuku",
+                    {"serial": "SERIAL", "action": "start"},
+                ),
+                fastboot,
+            )
+        self.assertEqual("adb_device_required", state.exception.code)
+
+    def test_sos_disables_without_deleting_and_binds_reinforced_text(self):
+        compilation = RootingService().compile(
+            self.command(
+                "tools.sos",
+                {
+                    "serial": "SERIAL",
+                    "action": "disableModules",
+                    "confirmationText": "SOS SERIAL",
+                },
+            ),
+            self.snapshot,
+        )
+
+        self.assertEqual("recovery.sos", compilation.action)
+        self.assertTrue(compilation.device_write)
+        self.assertFalse(compilation.destructive)
+        assert compilation.plan is not None
+        request = compilation.plan.requests[0]
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertIn('touch "$dir/disable"', request.argv[6])
+        self.assertNotIn("rm ", request.argv[6])
+        self.assertEqual("magisk_modules_state", compilation.plan.postconditions[0].kind)
+        self.assertEqual(
+            {"allDisabled": True},
+            compilation.plan.postconditions[0].expected,
+        )
+
+    def test_sos_rejects_wrong_confirmation_and_rootless_device(self):
+        payload = {
+            "serial": "SERIAL",
+            "action": "disableModules",
+            "confirmationText": "SOS WRONG",
+        }
+        with self.assertRaises(RootingPlanningError) as confirmation:
+            RootingService().compile(self.command("tools.sos", payload), self.snapshot)
+        self.assertEqual("sos_confirmation_required", confirmation.exception.code)
+
+        rootless = AppSnapshot(
+            revision=9,
+            devices=(DeviceInfo("SERIAL", mode="adb", root=False, online=True),),
+            selected_serial="SERIAL",
+            toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
+        )
+        with self.assertRaises(RootingPlanningError) as root:
+            RootingService().compile(
+                self.command(
+                    "tools.sos",
+                    {
+                        "serial": "SERIAL",
+                        "action": "disableModules",
+                        "confirmationText": "SOS SERIAL",
+                    },
+                ),
+                rootless,
+            )
+        self.assertEqual("root_access_required", root.exception.code)
+
     def test_local_root_app_inventory_has_hash_and_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

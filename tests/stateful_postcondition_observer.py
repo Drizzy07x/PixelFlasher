@@ -78,6 +78,26 @@ class StatefulPostconditionObserver:
             return self._result(self._magisk_su_policy(calls, expected))
         if kind == "magisk_backup_state":
             return self._result(self._magisk_backup_state(calls, expected))
+        if kind == "shizuku_state":
+            return self._result(
+                expected.get("running") is True
+                and any(
+                    request.argv[:6]
+                    == ("ADB", "-s", plan.target_serial, "shell", "sh", "-c")
+                    and "moe.shizuku.privileged.api" in request.argv[6]
+                    for request in calls
+                )
+            )
+        if kind == "magisk_modules_state":
+            return self._result(
+                expected.get("allDisabled") is True
+                and any(
+                    request.argv[:6]
+                    == ("ADB", "-s", plan.target_serial, "shell", "su", "-c")
+                    and 'touch "$dir/disable"' in request.argv[6]
+                    for request in calls
+                )
+            )
         if kind == "remote_files_written":
             return self._result(self._remote_files_written(calls, expected))
         if kind == "adb_wifi_endpoint_state":

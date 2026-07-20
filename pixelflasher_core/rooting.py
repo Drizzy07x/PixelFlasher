@@ -47,6 +47,8 @@ ROOTING_COMMANDS = frozenset(
         "root.apps.install",
         "root.modules.list",
         "root.modules.action",
+        "tools.shizuku",
+        "tools.sos",
     }
 )
 
@@ -247,6 +249,15 @@ class RootingService:
                 adb,
                 cancellation,
             )
+        if command.kind == "tools.shizuku":
+            return self._compile_shizuku(command, snapshot, device, adb)
+        if command.kind == "tools.sos":
+            if not device.root:
+                raise RootingPlanningError(
+                    "root_access_required",
+                    "SOS module recovery requires a device reporting root access",
+                )
+            return self._compile_sos(command, snapshot, device, adb)
         if not device.root:
             raise RootingPlanningError(
                 "root_access_required",
@@ -261,6 +272,122 @@ class RootingService:
             adb,
             cancellation,
         )
+
+    def _compile_shizuku(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        self._validate_payload(command, {"serial", "action"})
+        if command.payload.get("action") != "start":
+            raise RootingPlanningError(
+                "shizuku_action_invalid",
+                "Shizuku action must be exactly start",
+            )
+        # The package and both executable locations are backend-owned.  The
+        # package-manager result is accepted only under Android's /data/app
+        # root before it can become an executable path.
+        script = (
+            "primary=/storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh; "
+            'if [ -f "$primary" ]; then sh "$primary" || exit 71; else '
+            "apk=$(pm path moe.shizuku.privileged.api 2>/dev/null | head -n 1); "
+            'apk=${apk#package:}; case "$apk" in /data/app/*/base.apk) ;; *) exit 72;; esac; '
+            "abi=$(getprop ro.product.cpu.abi); case \"$abi\" in "
+            "arm64-v8a) native_dir=arm64;; armeabi-v7a|armeabi) native_dir=arm;; "
+            "x86_64) native_dir=x86_64;; x86) native_dir=x86;; *) exit 73;; esac; "
+            'native=${apk%/base.apk}/lib/$native_dir/libshizuku.so; '
+            '[ -x "$native" ] || exit 74; "$native" || exit 75; fi'
+        )
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "sh", "-c", script),
+            timeout_seconds=120.0,
+            output_limit_bytes=64 * 1024,
+        )
+        return RootingCompilation(
+            "recovery.shizuku",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Start Shizuku on {device.serial}",
+                data_behavior="shizuku_start",
+                risk=OperationRisk.MUTATING,
+                postconditions=(
+                    OperationPostcondition(
+                        "shizuku_state",
+                        {"running": True},
+                        "the Shizuku server process is running",
+                    ),
+                ),
+            ),
+            device_write=True,
+            requires_confirmation=True,
+        )
+
+    def _compile_sos(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        self._validate_payload(command, {"serial", "action", "confirmationText"})
+        if command.payload.get("action") != "disableModules":
+            raise RootingPlanningError(
+                "sos_action_invalid",
+                "SOS action must be exactly disableModules",
+            )
+        required = self.required_sos_confirmation(device.serial)
+        if command.payload.get("confirmationText") != required:
+            raise RootingPlanningError(
+                "sos_confirmation_required",
+                f"type {required} to disable every Magisk module",
+            )
+        # This intentionally creates only Magisk's documented disable marker;
+        # it never removes a module directory or invokes a browser-provided
+        # path.  A separate aggregate observer proves that no enabled module
+        # remains after the command.
+        script = (
+            "for dir in /data/adb/modules/*; do "
+            '[ -d "$dir" ] || continue; touch "$dir/disable" || exit 76; '
+            "done; exit 0"
+        )
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            timeout_seconds=120.0,
+            output_limit_bytes=64 * 1024,
+        )
+        return RootingCompilation(
+            "recovery.sos",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Disable every Magisk module on {device.serial}",
+                data_behavior="root_modules_disable_all",
+                risk=OperationRisk.MUTATING,
+                postconditions=(
+                    OperationPostcondition(
+                        "magisk_modules_state",
+                        {"allDisabled": True},
+                        "every installed Magisk module has a disable marker",
+                    ),
+                ),
+            ),
+            device_write=True,
+            requires_confirmation=True,
+        )
+
+    @staticmethod
+    def required_sos_confirmation(serial: str) -> str:
+        if not isinstance(serial, str) or not serial.strip():
+            raise RootingPlanningError(
+                "target_serial_invalid",
+                "target serial is required for SOS recovery",
+            )
+        return f"SOS {serial.strip()[-6:].upper()}"
 
     def root_app_inventory(
         self,

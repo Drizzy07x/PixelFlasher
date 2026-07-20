@@ -538,6 +538,11 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                     "magisk_backup_state",
                     {"sha1": "b" * 40, "state": "verified"},
                 ),
+                OperationPostcondition("shizuku_state", {"running": True}),
+                OperationPostcondition(
+                    "magisk_modules_state",
+                    {"allDisabled": True},
+                ),
             ),
         )
 
@@ -571,6 +576,8 @@ class OperationRunnerStatefulTests(unittest.TestCase):
             {"b" * 40: "verified"},
             dict(spec.expected_magisk_backups),
         )
+        self.assertIs(True, spec.expected_shizuku_running)
+        self.assertIs(True, spec.expected_magisk_modules_disabled)
         self.assertEqual(("metadata",), spec.erased_partitions)
 
     def test_host_artifact_postcondition_requires_a_new_verified_file(self):

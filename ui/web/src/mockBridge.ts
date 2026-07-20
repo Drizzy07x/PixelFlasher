@@ -144,6 +144,7 @@ export function installDevelopmentBridge() {
   let pendingFlash: { request: BridgeRequest; operation: ActiveOperation } | null = null;
   let pendingGuarded: { request: BridgeRequest; operationId: string; complete: () => void } | null = null;
   let mockRootModules = ['play_integrity_fix', 'zygisk_next'];
+  let mockDisabledRootModules = new Set<string>();
   let mockBootImages: Array<{
     bootId: string;
     sha256: string;
@@ -325,6 +326,7 @@ export function installDevelopmentBridge() {
       pendingFlash = null;
       pendingGuarded = null;
       mockRootModules = ['play_integrity_fix', 'zygisk_next'];
+      mockDisabledRootModules = new Set<string>();
       mockBootImages = [];
     },
     postMessage(rawMessage: string) {
@@ -981,7 +983,7 @@ export function installDevelopmentBridge() {
                   versionCode: 100,
                   author: 'PixelFlasher demo',
                   description: 'Verified demo module metadata.',
-                  state: 'enabled',
+                  state: mockDisabledRootModules.has(id) ? 'disabled' : 'enabled',
                   updateMetadata: 'absent',
                 })),
               },
@@ -1012,7 +1014,12 @@ export function installDevelopmentBridge() {
               destructive,
               () => {
                 if (action === 'install' && !mockRootModules.includes(moduleId)) mockRootModules = [...mockRootModules, moduleId];
-                if (action === 'remove') mockRootModules = mockRootModules.filter((id) => id !== moduleId);
+                if (action === 'remove') {
+                  mockRootModules = mockRootModules.filter((id) => id !== moduleId);
+                  mockDisabledRootModules.delete(moduleId);
+                }
+                if (action === 'enable') mockDisabledRootModules.delete(moduleId);
+                if (action === 'disable') mockDisabledRootModules.add(moduleId);
                 finishGuarded(request, {
                   status: 'SUCCESS',
                   code: `root_module_${action === 'install' ? 'installed' : action === 'enable' ? 'enabled' : action === 'disable' ? 'disabled' : 'removed'}`,
@@ -1025,6 +1032,54 @@ export function installDevelopmentBridge() {
                       ? { path: 'C:\\mock\\magisk-module.zip', sha256: '5'.repeat(64), role: `root-module-zip:${moduleId}` }
                       : null,
                   },
+                });
+              },
+            );
+            break;
+          }
+          case 'tools.shizuku': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            if (!target || target.mode !== 'adb' || request.payload.action !== 'start') {
+              emit(errorMessage('Shizuku requires one ADB device.', request));
+              break;
+            }
+            requestGuardedConfirmation(
+              request,
+              `Start Shizuku on device ${serial}?`,
+              false,
+              () => finishGuarded(request, {
+                status: 'SUCCESS',
+                code: 'shizuku_started',
+                message: 'Shizuku is running',
+                value: { action: 'startShizuku', targetSerial: serial, verified: true },
+              }),
+            );
+            break;
+          }
+          case 'tools.sos': {
+            const serial = typeof request.payload.serial === 'string' ? request.payload.serial : snapshot.selectedSerial ?? '';
+            const target = snapshot.devices.find((device) => device.serial === serial);
+            const confirmation = `SOS ${serial.slice(-6).toUpperCase()}`;
+            if (
+              !target || target.mode !== 'adb' || !target.rooted
+              || request.payload.action !== 'disableModules'
+              || request.payload.confirmationText !== confirmation
+            ) {
+              emit(errorMessage('SOS confirmation or rooted ADB target is invalid.', request));
+              break;
+            }
+            requestGuardedConfirmation(
+              request,
+              `Disable every Magisk module on device ${serial}?`,
+              false,
+              () => {
+                mockDisabledRootModules = new Set(mockRootModules);
+                finishGuarded(request, {
+                  status: 'SUCCESS',
+                  code: 'sos_modules_disabled',
+                  message: 'every Magisk module is disabled',
+                  value: { action: 'disableModules', targetSerial: serial, verified: true },
                 });
               },
             );

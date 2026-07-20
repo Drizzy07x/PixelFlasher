@@ -1778,6 +1778,33 @@ class CommandEngine:
                     "artifact": artifact,
                 },
             )
+        if kind in {"tools.shizuku", "tools.sos"}:
+            if not isinstance(compilation, RootingCompilation):
+                return OperationResult.failed(
+                    result.operation_id,
+                    code="root_recovery_compilation_invalid",
+                    message="root recovery returned an invalid compilation",
+                    exit_code=result.exit_code,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+            action = "startShizuku" if kind == "tools.shizuku" else "disableModules"
+            return replace(
+                result,
+                code=("shizuku_started" if kind == "tools.shizuku" else "sos_modules_disabled"),
+                message=(
+                    "Shizuku is running"
+                    if kind == "tools.shizuku"
+                    else "every Magisk module is disabled"
+                ),
+                value={
+                    "action": action,
+                    "targetSerial": plan.target_serial,
+                    "verified": True,
+                },
+                stdout="",
+                stderr="",
+            )
         if isinstance(compilation, BootPatchCompilation):
             return OperationResult.failed(
                 result.operation_id,

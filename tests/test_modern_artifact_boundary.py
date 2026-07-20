@@ -377,6 +377,8 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.pushFiles",
                         "tools.avb",
                         "tools.keybox",
+                        "tools.shizuku",
+                        "tools.sos",
                         "tools.xml",
                         "tools.scrcpy.setup",
                         "tools.wifi.discover",

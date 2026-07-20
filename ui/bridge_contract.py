@@ -335,6 +335,21 @@ def _validate_payload_values(
                 "backups.magisk.delete confirmationText is invalid",
                 request_id,
             )
+    elif command == "tools.shizuku":
+        if not _nonempty_string(payload.get("serial"), limit=256):
+            _payload_error("tools.shizuku serial is invalid", request_id)
+        if payload.get("action") != "start":
+            _payload_error("tools.shizuku action is invalid", request_id)
+    elif command == "tools.sos":
+        serial = payload.get("serial")
+        if not _nonempty_string(serial, limit=256):
+            _payload_error("tools.sos serial is invalid", request_id)
+        if payload.get("action") != "disableModules":
+            _payload_error("tools.sos action is invalid", request_id)
+        assert isinstance(serial, str)
+        required = f"SOS {serial[-6:].upper()}"
+        if payload.get("confirmationText") != required:
+            _payload_error("tools.sos confirmationText is invalid", request_id)
 
     if command == "interaction.respond":
         if not _nonempty_string(payload.get("operationId"), limit=128):

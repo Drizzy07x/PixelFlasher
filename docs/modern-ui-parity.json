@@ -2232,9 +2232,14 @@
       "area": "root",
       "capability": "Start Shizuku and SOS-disable root modules",
       "owner": "root",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "No modern Shizuku or SOS module-recovery flow exists.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "pixelflasher_core/rooting.py:RootingService._compile_shizuku/_compile_sos",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._shizuku_running/_magisk_modules_disabled",
+        "ui/web/src/pages/root/RootPage.tsx:startShizuku/disableAllModules",
+        "ui/public_bridge.py:_project_root_recovery"
+      ],
+      "gap": "The modern Shizuku and SOS flows are implemented with reinforced SOS text and explicit postcondition observation. Real Shizuku, bootloop/disconnect, cancellation and hardware matrix validation remain open.",
       "exitCriteria": [
         "Start Shizuku and SOS-disable root modules is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -2249,7 +2254,13 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_rooting_service.py:RootingServiceTests.test_shizuku_start_uses_only_backend_owned_paths_and_requires_observation",
+        "tests/test_rooting_service.py:RootingServiceTests.test_sos_disables_without_deleting_and_binds_reinforced_text",
+        "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_root_recovery_aggregate_states_require_explicit_device_evidence",
+        "tests/test_root_recovery_public_contract.py",
+        "ui/web/src/test/root-modules.test.tsx:root recovery flows"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [

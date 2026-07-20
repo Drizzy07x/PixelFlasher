@@ -5890,3 +5890,35 @@ msgstr "中繼資料無效"
 msgctxt "web.root.moduleUpdateAvailable"
 msgid "Update metadata available"
 msgstr "有可用的更新中繼資料"
+
+msgctxt "web.root.recoveryTitle"
+msgid "Root recovery tools"
+msgstr "Root 復原工具"
+
+msgctxt "web.root.recoveryDetail"
+msgid "Start Shizuku or disable every Magisk module with backend-verified postconditions."
+msgstr "啟動 Shizuku 或停用所有 Magisk 模組，並由後端驗證操作結果。"
+
+msgctxt "web.root.shizukuTitle"
+msgid "Shizuku service"
+msgstr "Shizuku 服務"
+
+msgctxt "web.root.shizukuDetail"
+msgid "Start the installed Shizuku service and verify its process."
+msgstr "啟動已安裝的 Shizuku 服務並驗證其程序。"
+
+msgctxt "web.root.shizukuStart"
+msgid "Start Shizuku"
+msgstr "啟動 Shizuku"
+
+msgctxt "web.root.sosTitle"
+msgid "SOS: disable all modules"
+msgstr "SOS：停用所有模組"
+
+msgctxt "web.root.sosDetail"
+msgid "Type the displayed SOS phrase. No module directory is deleted."
+msgstr "輸入顯示的 SOS 短語。不會刪除任何模組目錄。"
+
+msgctxt "web.root.sosRun"
+msgid "Disable all modules"
+msgstr "停用所有模組"

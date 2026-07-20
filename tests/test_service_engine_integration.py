@@ -2048,6 +2048,48 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertNotEqual("root_modules_list_succeeded", result.code)
 
+    def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
+        cases = (
+            (
+                "tools.shizuku",
+                {"action": "start"},
+                "shizuku_started",
+                "startShizuku",
+            ),
+            (
+                "tools.sos",
+                {
+                    "action": "disableModules",
+                    "confirmationText": "SOS SERIAL",
+                },
+                "sos_modules_disabled",
+                "disableModules",
+            ),
+        )
+        for kind, payload, code, action in cases:
+            with self.subTest(kind=kind):
+                interactions = []
+                engine, transport = self.engine_for(
+                    "adb",
+                    [TransportOutcome(0)],
+                    root=True,
+                    interaction_handler=(
+                        lambda request, observed=interactions: observed.append(request)
+                        or InteractionDecision.ACCEPTED
+                    ),
+                )
+
+                result = engine.execute(command(kind, payload))
+
+                self.assertTrue(result.ok)
+                self.assertEqual(code, result.code)
+                self.assertEqual(action, result.value["action"])
+                self.assertIs(True, result.value["verified"])
+                self.assertEqual("SERIAL", result.value["targetSerial"])
+                self.assertEqual(1, len(interactions))
+                self.assertFalse(interactions[0].destructive)
+                self.assertEqual(1, len(transport.calls))
+
     def test_root_module_state_actions_use_backend_confirmation_metadata(self):
         expected = {
             "enable": ("root_module_enabled", False),

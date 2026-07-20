@@ -5899,3 +5899,35 @@ msgstr "元数据无效"
 msgctxt "web.root.moduleUpdateAvailable"
 msgid "Update metadata available"
 msgstr "有可用的更新元数据"
+
+msgctxt "web.root.recoveryTitle"
+msgid "Root recovery tools"
+msgstr "Root 恢复工具"
+
+msgctxt "web.root.recoveryDetail"
+msgid "Start Shizuku or disable every Magisk module with backend-verified postconditions."
+msgstr "启动 Shizuku 或禁用所有 Magisk 模块，并由后端验证操作结果。"
+
+msgctxt "web.root.shizukuTitle"
+msgid "Shizuku service"
+msgstr "Shizuku 服务"
+
+msgctxt "web.root.shizukuDetail"
+msgid "Start the installed Shizuku service and verify its process."
+msgstr "启动已安装的 Shizuku 服务并验证其进程。"
+
+msgctxt "web.root.shizukuStart"
+msgid "Start Shizuku"
+msgstr "启动 Shizuku"
+
+msgctxt "web.root.sosTitle"
+msgid "SOS: disable all modules"
+msgstr "SOS：禁用所有模块"
+
+msgctxt "web.root.sosDetail"
+msgid "Type the displayed SOS phrase. No module directory is deleted."
+msgstr "输入显示的 SOS 短语。不会删除任何模块目录。"
+
+msgctxt "web.root.sosRun"
+msgid "Disable all modules"
+msgstr "禁用所有模块"

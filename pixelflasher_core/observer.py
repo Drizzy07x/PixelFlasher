@@ -85,6 +85,8 @@ class DeviceObservation:
     magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
+    shizuku_running: bool | None = None
+    magisk_modules_disabled: bool | None = None
     erased_partitions: Mapping[str, bool] = field(default_factory=_empty_booleans)
     safe_mode: bool | None = None
     ota_idle: bool | None = None
@@ -94,6 +96,13 @@ class DeviceObservation:
             raise TypeError("observed safe mode state must be a boolean or null")
         if self.ota_idle is not None and not isinstance(self.ota_idle, bool):
             raise TypeError("observed OTA idle state must be a boolean or null")
+        if self.shizuku_running is not None and not isinstance(self.shizuku_running, bool):
+            raise TypeError("observed Shizuku state must be a boolean or null")
+        if self.magisk_modules_disabled is not None and not isinstance(
+            self.magisk_modules_disabled,
+            bool,
+        ):
+            raise TypeError("observed Magisk module aggregate state must be a boolean or null")
         if any(not isinstance(value, bool) for value in self.packages.values()):
             raise TypeError("observed package states must be booleans")
         if any(not isinstance(value, str) for value in self.package_states.values()):
@@ -239,6 +248,8 @@ class PostconditionSpec:
     expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     expected_magisk_backups: Mapping[str, str] = field(default_factory=_empty_hashes)
+    expected_shizuku_running: bool | None = None
+    expected_magisk_modules_disabled: bool | None = None
     erased_partitions: tuple[str, ...] = ()
     expected_safe_mode: bool | None = None
     expected_ota_idle: bool | None = None
@@ -260,6 +271,16 @@ class PostconditionSpec:
             bool,
         ):
             raise TypeError("expected OTA idle state must be a boolean or null")
+        if self.expected_shizuku_running is not None and not isinstance(
+            self.expected_shizuku_running,
+            bool,
+        ):
+            raise TypeError("expected Shizuku state must be a boolean or null")
+        if self.expected_magisk_modules_disabled is not None and not isinstance(
+            self.expected_magisk_modules_disabled,
+            bool,
+        ):
+            raise TypeError("expected Magisk module aggregate state must be a boolean or null")
         if any(not isinstance(value, bool) for value in self.expected_packages.values()):
             raise TypeError("expected package states must be booleans")
         allowed_package_states = {
@@ -707,6 +728,20 @@ class ProcessDeviceObservationProbe:
                     token,
                     timeout,
                 ),
+                shizuku_running=self._shizuku_running(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                magisk_modules_disabled=self._magisk_modules_disabled(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
             )
         )
 
@@ -1050,6 +1085,65 @@ class ProcessDeviceObservationProbe:
                 continue
             observed[module_id] = "pending_remove" if pending_remove else "disabled" if disabled else "enabled"
         return observed
+
+    def _shizuku_running(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> bool | None:
+        if mode != "adb" or spec.expected_shizuku_running is None:
+            return None
+        outcome = self._run(
+            (toolchain.adb, "-s", spec.serial, "shell", "ps", "-A"),
+            token,
+            timeout,
+            output_limit_bytes=_MAX_ADB_INVENTORY_OUTPUT_BYTES,
+        )
+        if not self._successful(outcome, _MAX_ADB_INVENTORY_OUTPUT_BYTES):
+            return None
+        assert outcome is not None
+        for raw_line in outcome.stdout.splitlines():
+            fields = raw_line.split()
+            if fields and fields[-1] in {"shizuku_server", "moe.shizuku.server"}:
+                return True
+        return False
+
+    def _magisk_modules_disabled(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> bool | None:
+        if mode != "adb" or spec.expected_magisk_modules_disabled is None:
+            return None
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return None
+        # Exit 0 proves every existing module directory has Magisk's disable
+        # marker. Exit 1 is a stable mismatch; other failures are unverified.
+        script = (
+            "for dir in /data/adb/modules/*; do [ -d \"$dir\" ] || continue; "
+            '[ -f "$dir/disable" ] || exit 1; done; exit 0'
+        )
+        outcome = self._run(
+            (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", script),
+            token,
+            timeout,
+            output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+        )
+        if outcome is None or outcome.timed_out or outcome.cancelled:
+            return None
+        if outcome.output_limited:
+            return None
+        if outcome.returncode == 0:
+            return True
+        if outcome.returncode == 1:
+            return False
+        return None
 
     def _magisk_denylist_states(
         self,
@@ -2153,6 +2247,26 @@ class PostconditionObserver:
                 missing.append(key)
             elif actual != expected:
                 mismatches[key] = (expected, actual)
+
+        if spec.expected_shizuku_running is not None:
+            actual = observation.shizuku_running
+            if actual is None:
+                missing.append("shizuku_running")
+            elif actual is not spec.expected_shizuku_running:
+                mismatches["shizuku_running"] = (
+                    spec.expected_shizuku_running,
+                    actual,
+                )
+
+        if spec.expected_magisk_modules_disabled is not None:
+            actual = observation.magisk_modules_disabled
+            if actual is None:
+                missing.append("magisk_modules_disabled")
+            elif actual is not spec.expected_magisk_modules_disabled:
+                mismatches["magisk_modules_disabled"] = (
+                    spec.expected_magisk_modules_disabled,
+                    actual,
+                )
 
         for partition in spec.erased_partitions:
             actual = observation.erased_partitions.get(partition)

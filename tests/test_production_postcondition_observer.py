@@ -48,6 +48,8 @@ class StatefulDeviceTransport:
         magisk_denylist: set[str] | None = None,
         magisk_su_policies: dict[int, str] | None = None,
         magisk_backups: dict[str, str] | None = None,
+        shizuku_running: bool = False,
+        all_modules_disabled: bool = False,
         root_available: bool = True,
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
@@ -67,6 +69,8 @@ class StatefulDeviceTransport:
         self.magisk_denylist = magisk_denylist or set()
         self.magisk_su_policies = magisk_su_policies or {}
         self.magisk_backups = magisk_backups or {}
+        self.shizuku_running = shizuku_running
+        self.all_modules_disabled = all_modules_disabled
         self.root_available = root_available
         self.partitions = partitions or {}
         self.partition_sizes = partition_sizes or {name: len(content) for name, content in self.partitions.items()}
@@ -183,6 +187,9 @@ class StatefulDeviceTransport:
                 return TransportOutcome(1)
             state = self.package_states.get(package_name, "stopped")
             return TransportOutcome(0, "1234\n") if state == "running" else TransportOutcome(1)
+        if argv[3:] == ("shell", "ps", "-A"):
+            process = "shell 123 1 shizuku_server\n" if self.shizuku_running else ""
+            return TransportOutcome(0, f"USER PID PPID NAME\n{process}")
         if argv[3:6] == ("shell", "su", "-c") and len(argv) == 7:
             command = argv[6]
             if command == "id -u":
@@ -217,6 +224,8 @@ class StatefulDeviceTransport:
                     "corrupt": "PF_MB_CORRUPT",
                 }.get(state)
                 return TransportOutcome(0, f"{marker}\n") if marker else TransportOutcome(1)
+            if command.startswith("for dir in /data/adb/modules/*;"):
+                return TransportOutcome(0 if self.all_modules_disabled else 1)
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -685,6 +694,47 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             argv,
         )
 
+    def test_root_recovery_aggregate_states_require_explicit_device_evidence(self) -> None:
+        verified = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                shizuku_running=True,
+                all_modules_disabled=True,
+            )
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_mode="adb",
+                expected_shizuku_running=True,
+                expected_magisk_modules_disabled=True,
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        timer = FakeTime()
+        mismatch = observer(
+            StatefulDeviceTransport(
+                mode="adb",
+                shizuku_running=False,
+                all_modules_disabled=False,
+            ),
+            timer=timer,
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                0.2,
+                expected_mode="adb",
+                expected_shizuku_running=True,
+                expected_magisk_modules_disabled=True,
+            )
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
+        self.assertEqual((True, False), mismatch.mismatches["shizuku_running"])
+        self.assertEqual(
+            (True, False),
+            mismatch.mismatches["magisk_modules_disabled"],
+        )
     def test_missing_package_is_explicit_mismatch_not_success(self) -> None:
         timer = FakeTime()
         package_name = "me.bmax.apatch"
