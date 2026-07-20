@@ -16,6 +16,14 @@ export interface ModernPreferences {
   checkModuleUpdates: boolean;
   showNotifications: boolean;
   rebootTimeoutSeconds: number;
+  offerPatchMethods: boolean;
+  showRecoveryPatching: boolean;
+  keepPatchTemporaryFiles: boolean;
+  useBusyboxShell: boolean;
+  lowMemoryMode: boolean;
+  extraImageExtracts: boolean;
+  showCustomRomOptions: boolean;
+  keyboxIndex: boolean;
 }
 export type RouteId =
   | 'dashboard'

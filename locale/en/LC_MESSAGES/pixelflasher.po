@@ -6377,3 +6377,67 @@ msgstr ""
 msgctxt "web.settings.notificationsDetail"
 msgid "Allows PixelFlasher to display native completion notifications."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.patchMethods"
+msgid "Offer patch methods"
+msgstr ""
+
+msgctxt "web.settings.patchMethodsDetail"
+msgid "Shows the compatible patching methods before creating an image."
+msgstr ""
+
+msgctxt "web.settings.recoveryPatching"
+msgid "Recovery partition patching"
+msgstr ""
+
+msgctxt "web.settings.recoveryPatchingDetail"
+msgid "Reveals recovery patching for compatible legacy A-only devices."
+msgstr ""
+
+msgctxt "web.settings.keepPatchFiles"
+msgid "Keep patch temporary files"
+msgstr ""
+
+msgctxt "web.settings.keepPatchFilesDetail"
+msgid "Retains bounded patch staging files for local debugging."
+msgstr ""
+
+msgctxt "web.settings.busyboxShell"
+msgid "Use BusyBox shell for patching"
+msgstr ""
+
+msgctxt "web.settings.busyboxShellDetail"
+msgid "Uses the packaged BusyBox ash only in compatible patch runners."
+msgstr ""
+
+msgctxt "web.settings.lowMemory"
+msgid "Low-memory processing"
+msgstr ""
+
+msgctxt "web.settings.lowMemoryDetail"
+msgid "Trades processing speed for lower peak memory usage."
+msgstr ""
+
+msgctxt "web.settings.extraImages"
+msgid "Extract additional images"
+msgstr ""
+
+msgctxt "web.settings.extraImagesDetail"
+msgid "Also extracts available vendor boot, DTBO, and super-empty images."
+msgstr ""
+
+msgctxt "web.settings.customRomOptionsDetail"
+msgid "Reveals options that require explicit ROM compatibility checks."
+msgstr ""
+
+msgctxt "web.settings.keyboxIndex"
+msgid "Keybox indexing"
+msgstr ""
+
+msgctxt "web.settings.keyboxIndexDetail"
+msgid "Indexes verified keybox metadata locally for duplicate analysis."
+msgstr ""

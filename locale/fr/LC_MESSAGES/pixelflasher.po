@@ -6418,3 +6418,67 @@ msgstr "Notifications système"
 msgctxt "web.settings.notificationsDetail"
 msgid "Allows PixelFlasher to display native completion notifications."
 msgstr "Autorise PixelFlasher à afficher des notifications natives de fin d’opération."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.patchMethods"
+msgid "Offer patch methods"
+msgstr "Proposer les méthodes de patch"
+
+msgctxt "web.settings.patchMethodsDetail"
+msgid "Shows the compatible patching methods before creating an image."
+msgstr "Affiche les méthodes de patch compatibles avant de créer une image."
+
+msgctxt "web.settings.recoveryPatching"
+msgid "Recovery partition patching"
+msgstr "Patch de la partition recovery"
+
+msgctxt "web.settings.recoveryPatchingDetail"
+msgid "Reveals recovery patching for compatible legacy A-only devices."
+msgstr "Affiche le patch recovery pour les anciens appareils A-only compatibles."
+
+msgctxt "web.settings.keepPatchFiles"
+msgid "Keep patch temporary files"
+msgstr "Conserver les fichiers temporaires de patch"
+
+msgctxt "web.settings.keepPatchFilesDetail"
+msgid "Retains bounded patch staging files for local debugging."
+msgstr "Conserve des fichiers de préparation limités pour le débogage local."
+
+msgctxt "web.settings.busyboxShell"
+msgid "Use BusyBox shell for patching"
+msgstr "Utiliser le shell BusyBox pour le patch"
+
+msgctxt "web.settings.busyboxShellDetail"
+msgid "Uses the packaged BusyBox ash only in compatible patch runners."
+msgstr "Utilise le BusyBox ash fourni uniquement dans les runners compatibles."
+
+msgctxt "web.settings.lowMemory"
+msgid "Low-memory processing"
+msgstr "Traitement à faible mémoire"
+
+msgctxt "web.settings.lowMemoryDetail"
+msgid "Trades processing speed for lower peak memory usage."
+msgstr "Réduit le pic mémoire au prix de la vitesse de traitement."
+
+msgctxt "web.settings.extraImages"
+msgid "Extract additional images"
+msgstr "Extraire des images supplémentaires"
+
+msgctxt "web.settings.extraImagesDetail"
+msgid "Also extracts available vendor boot, DTBO, and super-empty images."
+msgstr "Extrait aussi les images vendor boot, DTBO et super-empty disponibles."
+
+msgctxt "web.settings.customRomOptionsDetail"
+msgid "Reveals options that require explicit ROM compatibility checks."
+msgstr "Affiche les options exigeant une vérification explicite de compatibilité ROM."
+
+msgctxt "web.settings.keyboxIndex"
+msgid "Keybox indexing"
+msgstr "Indexation des keybox"
+
+msgctxt "web.settings.keyboxIndexDetail"
+msgid "Indexes verified keybox metadata locally for duplicate analysis."
+msgstr "Indexe localement les métadonnées keybox vérifiées pour analyser les doublons."

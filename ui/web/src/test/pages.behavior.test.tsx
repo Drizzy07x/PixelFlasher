@@ -134,6 +134,7 @@ describe('dashboard and firmware host-backed states', () => {
     const { rerender } = page(
       <FirmwarePage snapshot={snapshot} selectedSerials={[]} onSelectionChange={selection} onCommand={onCommand} />,
     );
+    expect(screen.queryByRole('checkbox', { name: /Low-memory processing/ })).not.toBeInTheDocument();
     expect(screen.getByText('beta')).toHaveClass('badge--warning');
     await user.click(screen.getByRole('button', { name: 'Process package' }));
     await waitFor(() => expect(onCommand).toHaveBeenCalledWith('firmware.process'));
@@ -477,6 +478,8 @@ describe('apps, backups and settings workflows', () => {
       preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
     /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
+    await user.click(screen.getByRole('checkbox', { name: /Low-memory processing/ }));
+    expect(callbacks.maintenance).toHaveBeenCalledWith('lowMemoryMode', true);
     expect(callbacks.zoom).toHaveBeenCalledWith(200);
     expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true');
   });

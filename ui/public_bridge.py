@@ -383,6 +383,14 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "rebootTimeoutSeconds": _integer(
             source.get("rebootTimeoutSeconds"), default=90
         ),
+        "offerPatchMethods": _boolean(source.get("offerPatchMethods")),
+        "showRecoveryPatching": _boolean(source.get("showRecoveryPatching")),
+        "keepPatchTemporaryFiles": _boolean(source.get("keepPatchTemporaryFiles")),
+        "useBusyboxShell": _boolean(source.get("useBusyboxShell")),
+        "lowMemoryMode": _boolean(source.get("lowMemoryMode")),
+        "extraImageExtracts": _boolean(source.get("extraImageExtracts")),
+        "showCustomRomOptions": _boolean(source.get("showCustomRomOptions")),
+        "keyboxIndex": _boolean(source.get("keyboxIndex")),
     }
 
 

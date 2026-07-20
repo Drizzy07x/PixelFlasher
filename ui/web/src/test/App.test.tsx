@@ -22,6 +22,14 @@ const hostPreferences: ModernPreferences = {
   checkModuleUpdates: false,
   showNotifications: false,
   rebootTimeoutSeconds: 90,
+  offerPatchMethods: false,
+  showRecoveryPatching: false,
+  keepPatchTemporaryFiles: false,
+  useBusyboxShell: false,
+  lowMemoryMode: false,
+  extraImageExtracts: false,
+  showCustomRomOptions: false,
+  keyboxIndex: false,
 };
 
 function installPreferencesHost(
@@ -713,6 +721,8 @@ describe('PixelFlasher web workspace', () => {
     });
     const navigation = within(screen.getByRole('navigation', { name: 'Tasks' }));
     await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('checkbox', { name: /Low-memory processing/ }));
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.lowMemoryMode === true)).toBe(true));
     await user.click(screen.getByRole('checkbox', { name: /Automatic application update checks/ }));
     await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.automaticUpdateCheck === true)).toBe(true));
     fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });

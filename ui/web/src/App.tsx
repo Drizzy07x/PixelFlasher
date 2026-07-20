@@ -89,6 +89,14 @@ const defaultPreferences: ModernPreferences = {
   checkModuleUpdates: false,
   showNotifications: false,
   rebootTimeoutSeconds: 90,
+  offerPatchMethods: false,
+  showRecoveryPatching: false,
+  keepPatchTemporaryFiles: false,
+  useBusyboxShell: false,
+  lowMemoryMode: false,
+  extraImageExtracts: false,
+  showCustomRomOptions: false,
+  keyboxIndex: false,
 };
 
 function mockPreferences(): ModernPreferences {
@@ -105,6 +113,14 @@ function mockPreferences(): ModernPreferences {
   const checkModuleUpdates = storedValue<unknown>('pf.checkModuleUpdates', defaultPreferences.checkModuleUpdates);
   const showNotifications = storedValue<unknown>('pf.showNotifications', defaultPreferences.showNotifications);
   const rebootTimeoutSeconds = storedValue<unknown>('pf.rebootTimeoutSeconds', defaultPreferences.rebootTimeoutSeconds);
+  const offerPatchMethods = storedValue<unknown>('pf.offerPatchMethods', false);
+  const showRecoveryPatching = storedValue<unknown>('pf.showRecoveryPatching', false);
+  const keepPatchTemporaryFiles = storedValue<unknown>('pf.keepPatchTemporaryFiles', false);
+  const useBusyboxShell = storedValue<unknown>('pf.useBusyboxShell', false);
+  const lowMemoryMode = storedValue<unknown>('pf.lowMemoryMode', false);
+  const extraImageExtracts = storedValue<unknown>('pf.extraImageExtracts', false);
+  const showCustomRomOptions = storedValue<unknown>('pf.showCustomRomOptions', false);
+  const keyboxIndex = storedValue<unknown>('pf.keyboxIndex', false);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -123,6 +139,14 @@ function mockPreferences(): ModernPreferences {
     showNotifications: typeof showNotifications === 'boolean' ? showNotifications : false,
     rebootTimeoutSeconds: typeof rebootTimeoutSeconds === 'number' && Number.isInteger(rebootTimeoutSeconds)
       && rebootTimeoutSeconds >= 1 && rebootTimeoutSeconds <= 3600 ? rebootTimeoutSeconds : 90,
+    offerPatchMethods: typeof offerPatchMethods === 'boolean' ? offerPatchMethods : false,
+    showRecoveryPatching: typeof showRecoveryPatching === 'boolean' ? showRecoveryPatching : false,
+    keepPatchTemporaryFiles: typeof keepPatchTemporaryFiles === 'boolean' ? keepPatchTemporaryFiles : false,
+    useBusyboxShell: typeof useBusyboxShell === 'boolean' ? useBusyboxShell : false,
+    lowMemoryMode: typeof lowMemoryMode === 'boolean' ? lowMemoryMode : false,
+    extraImageExtracts: typeof extraImageExtracts === 'boolean' ? extraImageExtracts : false,
+    showCustomRomOptions: typeof showCustomRomOptions === 'boolean' ? showCustomRomOptions : false,
+    keyboxIndex: typeof keyboxIndex === 'boolean' ? keyboxIndex : false,
   };
 }
 
@@ -512,7 +536,7 @@ function PixelFlasherApp({
   }, [changePreferences]);
 
   const changeMaintenancePreference = useCallback((
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds',
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex',
     value: boolean | number,
   ) => {
     void changePreferences({ [field]: value });

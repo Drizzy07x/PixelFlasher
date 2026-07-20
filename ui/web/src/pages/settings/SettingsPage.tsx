@@ -32,7 +32,7 @@ export function SettingsPage({
   onExpertModeChange: (value: boolean) => void;
   preferences: ModernPreferences;
   onMaintenancePreferenceChange: (
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds',
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex',
     value: boolean | number,
   ) => void;
 }) {
@@ -75,6 +75,16 @@ export function SettingsPage({
           <CardTitle icon="tools">{t('mode.expert')}</CardTitle>
           <div className="toggle-stack">
             <Toggle checked={expertMode} onChange={onExpertModeChange} label={t('mode.expert')} description={t('settings.expertDetail')} />
+            {expertMode ? <>
+              <Toggle checked={preferences.offerPatchMethods} onChange={(value) => onMaintenancePreferenceChange('offerPatchMethods', value)} label={t('settings.patchMethods')} description={t('settings.patchMethodsDetail')} />
+              <Toggle checked={preferences.showRecoveryPatching} onChange={(value) => onMaintenancePreferenceChange('showRecoveryPatching', value)} label={t('settings.recoveryPatching')} description={t('settings.recoveryPatchingDetail')} />
+              <Toggle checked={preferences.keepPatchTemporaryFiles} onChange={(value) => onMaintenancePreferenceChange('keepPatchTemporaryFiles', value)} label={t('settings.keepPatchFiles')} description={t('settings.keepPatchFilesDetail')} />
+              <Toggle checked={preferences.useBusyboxShell} onChange={(value) => onMaintenancePreferenceChange('useBusyboxShell', value)} label={t('settings.busyboxShell')} description={t('settings.busyboxShellDetail')} />
+              <Toggle checked={preferences.lowMemoryMode} onChange={(value) => onMaintenancePreferenceChange('lowMemoryMode', value)} label={t('settings.lowMemory')} description={t('settings.lowMemoryDetail')} />
+              <Toggle checked={preferences.extraImageExtracts} onChange={(value) => onMaintenancePreferenceChange('extraImageExtracts', value)} label={t('settings.extraImages')} description={t('settings.extraImagesDetail')} />
+              <Toggle checked={preferences.showCustomRomOptions} onChange={(value) => onMaintenancePreferenceChange('showCustomRomOptions', value)} label={t('settings.customRomOptions')} description={t('settings.customRomOptionsDetail')} />
+              <Toggle checked={preferences.keyboxIndex} onChange={(value) => onMaintenancePreferenceChange('keyboxIndex', value)} label={t('settings.keyboxIndex')} description={t('settings.keyboxIndexDetail')} />
+            </> : null}
           </div>
         </Card>
         <Card>

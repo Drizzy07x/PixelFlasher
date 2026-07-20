@@ -48,6 +48,14 @@ _PREFERENCE_FIELDS = frozenset(
         "checkModuleUpdates",
         "showNotifications",
         "rebootTimeoutSeconds",
+        "offerPatchMethods",
+        "showRecoveryPatching",
+        "keepPatchTemporaryFiles",
+        "useBusyboxShell",
+        "lowMemoryMode",
+        "extraImageExtracts",
+        "showCustomRomOptions",
+        "keyboxIndex",
     }
 )
 
@@ -77,6 +85,14 @@ class ModernPreferences:
     check_module_updates: bool = False
     show_notifications: bool = False
     reboot_timeout_seconds: int = 90
+    offer_patch_methods: bool = False
+    show_recovery_patching: bool = False
+    keep_patch_temporary_files: bool = False
+    use_busybox_shell: bool = False
+    low_memory_mode: bool = False
+    extra_image_extracts: bool = False
+    show_custom_rom_options: bool = False
+    keybox_index: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
@@ -121,6 +137,14 @@ class ModernPreferences:
             ("checkFirmwareHash", self.check_firmware_hash),
             ("checkModuleUpdates", self.check_module_updates),
             ("showNotifications", self.show_notifications),
+            ("offerPatchMethods", self.offer_patch_methods),
+            ("showRecoveryPatching", self.show_recovery_patching),
+            ("keepPatchTemporaryFiles", self.keep_patch_temporary_files),
+            ("useBusyboxShell", self.use_busybox_shell),
+            ("lowMemoryMode", self.low_memory_mode),
+            ("extraImageExtracts", self.extra_image_extracts),
+            ("showCustomRomOptions", self.show_custom_rom_options),
+            ("keyboxIndex", self.keybox_index),
         )
         for public_name, value in boolean_preferences:
             if not isinstance(value, bool):
@@ -206,6 +230,24 @@ class ModernPreferences:
             reboot_timeout_seconds=raw.get(
                 "rebootTimeoutSeconds", defaults.reboot_timeout_seconds
             ),
+            offer_patch_methods=raw.get(
+                "offerPatchMethods", defaults.offer_patch_methods
+            ),
+            show_recovery_patching=raw.get(
+                "showRecoveryPatching", defaults.show_recovery_patching
+            ),
+            keep_patch_temporary_files=raw.get(
+                "keepPatchTemporaryFiles", defaults.keep_patch_temporary_files
+            ),
+            use_busybox_shell=raw.get("useBusyboxShell", defaults.use_busybox_shell),
+            low_memory_mode=raw.get("lowMemoryMode", defaults.low_memory_mode),
+            extra_image_extracts=raw.get(
+                "extraImageExtracts", defaults.extra_image_extracts
+            ),
+            show_custom_rom_options=raw.get(
+                "showCustomRomOptions", defaults.show_custom_rom_options
+            ),
+            keybox_index=raw.get("keyboxIndex", defaults.keybox_index),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -224,6 +266,14 @@ class ModernPreferences:
             "checkModuleUpdates": self.check_module_updates,
             "showNotifications": self.show_notifications,
             "rebootTimeoutSeconds": self.reboot_timeout_seconds,
+            "offerPatchMethods": self.offer_patch_methods,
+            "showRecoveryPatching": self.show_recovery_patching,
+            "keepPatchTemporaryFiles": self.keep_patch_temporary_files,
+            "useBusyboxShell": self.use_busybox_shell,
+            "lowMemoryMode": self.low_memory_mode,
+            "extraImageExtracts": self.extra_image_extracts,
+            "showCustomRomOptions": self.show_custom_rom_options,
+            "keyboxIndex": self.keybox_index,
         }
 
 

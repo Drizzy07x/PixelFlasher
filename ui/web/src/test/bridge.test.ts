@@ -18,6 +18,14 @@ const snapshotPreferences = {
   checkModuleUpdates: false,
   showNotifications: false,
   rebootTimeoutSeconds: 90,
+  offerPatchMethods: false,
+  showRecoveryPatching: false,
+  keepPatchTemporaryFiles: false,
+  useBusyboxShell: false,
+  lowMemoryMode: false,
+  extraImageExtracts: false,
+  showCustomRomOptions: false,
+  keyboxIndex: false,
 };
 
 function hostFor(responseResult: (request: BridgeRequest) => Record<string, unknown>) {

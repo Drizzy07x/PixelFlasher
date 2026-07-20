@@ -109,6 +109,14 @@ class RuntimePreferencesTests(unittest.TestCase):
                         "checkModuleUpdates": True,
                         "showNotifications": True,
                         "rebootTimeoutSeconds": 240,
+                        "offerPatchMethods": True,
+                        "showRecoveryPatching": True,
+                        "keepPatchTemporaryFiles": True,
+                        "useBusyboxShell": True,
+                        "lowMemoryMode": True,
+                        "extraImageExtracts": True,
+                        "showCustomRomOptions": True,
+                        "keyboxIndex": True,
                     },
                 )
             )
@@ -127,6 +135,14 @@ class RuntimePreferencesTests(unittest.TestCase):
                 check_module_updates=True,
                 show_notifications=True,
                 reboot_timeout_seconds=240,
+                offer_patch_methods=True,
+                show_recovery_patching=True,
+                keep_patch_temporary_files=True,
+                use_busybox_shell=True,
+                low_memory_mode=True,
+                extra_image_extracts=True,
+                show_custom_rom_options=True,
+                keybox_index=True,
             )
             self.assertTrue(result.ok)
             self.assertEqual("settings_updated", result.code)
@@ -146,6 +162,14 @@ class RuntimePreferencesTests(unittest.TestCase):
             self.assertTrue(payload["check_module_updates"])
             self.assertTrue(payload["show_notifications"])
             self.assertEqual(240, payload["reboot_to_system_timeout"])
+            self.assertTrue(payload["offer_patch_methods"])
+            self.assertTrue(payload["show_recovery_patching_option"])
+            self.assertTrue(payload["keep_patch_temporary_files"])
+            self.assertTrue(payload["use_busybox_shell"])
+            self.assertTrue(payload["low_mem"])
+            self.assertTrue(payload["extra_img_extracts"])
+            self.assertTrue(payload["show_custom_rom_options"])
+            self.assertTrue(payload["kb_index"])
             self.assertEqual(
                 expected.to_dict(),
                 runtime.config_document.values[PREFERENCES_KEY],

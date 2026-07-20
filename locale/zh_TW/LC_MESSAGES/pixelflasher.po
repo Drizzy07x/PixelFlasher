@@ -6410,3 +6410,67 @@ msgstr "系統通知"
 msgctxt "web.settings.notificationsDetail"
 msgid "Allows PixelFlasher to display native completion notifications."
 msgstr "允許 PixelFlasher 顯示原生完成通知。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.patchMethods"
+msgid "Offer patch methods"
+msgstr "提供修補方法"
+
+msgctxt "web.settings.patchMethodsDetail"
+msgid "Shows the compatible patching methods before creating an image."
+msgstr "建立映像前顯示相容的修補方法。"
+
+msgctxt "web.settings.recoveryPatching"
+msgid "Recovery partition patching"
+msgstr "Recovery 分割區修補"
+
+msgctxt "web.settings.recoveryPatchingDetail"
+msgid "Reveals recovery patching for compatible legacy A-only devices."
+msgstr "為相容的舊式 A-only 裝置顯示 Recovery 修補。"
+
+msgctxt "web.settings.keepPatchFiles"
+msgid "Keep patch temporary files"
+msgstr "保留修補暫存檔"
+
+msgctxt "web.settings.keepPatchFilesDetail"
+msgid "Retains bounded patch staging files for local debugging."
+msgstr "保留受限的修補暫存檔以供本機偵錯。"
+
+msgctxt "web.settings.busyboxShell"
+msgid "Use BusyBox shell for patching"
+msgstr "使用 BusyBox shell 修補"
+
+msgctxt "web.settings.busyboxShellDetail"
+msgid "Uses the packaged BusyBox ash only in compatible patch runners."
+msgstr "僅在相容的修補執行器中使用隨附的 BusyBox ash。"
+
+msgctxt "web.settings.lowMemory"
+msgid "Low-memory processing"
+msgstr "低記憶體處理"
+
+msgctxt "web.settings.lowMemoryDetail"
+msgid "Trades processing speed for lower peak memory usage."
+msgstr "犧牲處理速度以降低尖峰記憶體用量。"
+
+msgctxt "web.settings.extraImages"
+msgid "Extract additional images"
+msgstr "擷取額外映像"
+
+msgctxt "web.settings.extraImagesDetail"
+msgid "Also extracts available vendor boot, DTBO, and super-empty images."
+msgstr "同時擷取可用的 vendor boot、DTBO 和 super-empty 映像。"
+
+msgctxt "web.settings.customRomOptionsDetail"
+msgid "Reveals options that require explicit ROM compatibility checks."
+msgstr "顯示需要明確檢查 ROM 相容性的選項。"
+
+msgctxt "web.settings.keyboxIndex"
+msgid "Keybox indexing"
+msgstr "Keybox 索引"
+
+msgctxt "web.settings.keyboxIndexDetail"
+msgid "Indexes verified keybox metadata locally for duplicate analysis."
+msgstr "在本機索引已驗證的 Keybox 中繼資料以分析重複項。"

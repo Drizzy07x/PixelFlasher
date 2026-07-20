@@ -70,6 +70,14 @@ const defaultPreferences: ModernPreferences = {
   checkModuleUpdates: false,
   showNotifications: false,
   rebootTimeoutSeconds: 90,
+  offerPatchMethods: false,
+  showRecoveryPatching: false,
+  keepPatchTemporaryFiles: false,
+  useBusyboxShell: false,
+  lowMemoryMode: false,
+  extraImageExtracts: false,
+  showCustomRomOptions: false,
+  keyboxIndex: false,
 };
 
 function storedValue<T>(key: string, fallback: T): T {
@@ -95,6 +103,14 @@ function mockPreferences(): ModernPreferences {
   const checkModuleUpdates = storedValue('pf.checkModuleUpdates', defaultPreferences.checkModuleUpdates);
   const showNotifications = storedValue('pf.showNotifications', defaultPreferences.showNotifications);
   const rebootTimeoutSeconds = storedValue('pf.rebootTimeoutSeconds', defaultPreferences.rebootTimeoutSeconds);
+  const offerPatchMethods = storedValue('pf.offerPatchMethods', false);
+  const showRecoveryPatching = storedValue('pf.showRecoveryPatching', false);
+  const keepPatchTemporaryFiles = storedValue('pf.keepPatchTemporaryFiles', false);
+  const useBusyboxShell = storedValue('pf.useBusyboxShell', false);
+  const lowMemoryMode = storedValue('pf.lowMemoryMode', false);
+  const extraImageExtracts = storedValue('pf.extraImageExtracts', false);
+  const showCustomRomOptions = storedValue('pf.showCustomRomOptions', false);
+  const keyboxIndex = storedValue('pf.keyboxIndex', false);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -111,6 +127,14 @@ function mockPreferences(): ModernPreferences {
     showNotifications: typeof showNotifications === 'boolean' ? showNotifications : false,
     rebootTimeoutSeconds: typeof rebootTimeoutSeconds === 'number' && Number.isInteger(rebootTimeoutSeconds)
       && rebootTimeoutSeconds >= 1 && rebootTimeoutSeconds <= 3600 ? rebootTimeoutSeconds : 90,
+    offerPatchMethods: typeof offerPatchMethods === 'boolean' ? offerPatchMethods : false,
+    showRecoveryPatching: typeof showRecoveryPatching === 'boolean' ? showRecoveryPatching : false,
+    keepPatchTemporaryFiles: typeof keepPatchTemporaryFiles === 'boolean' ? keepPatchTemporaryFiles : false,
+    useBusyboxShell: typeof useBusyboxShell === 'boolean' ? useBusyboxShell : false,
+    lowMemoryMode: typeof lowMemoryMode === 'boolean' ? lowMemoryMode : false,
+    extraImageExtracts: typeof extraImageExtracts === 'boolean' ? extraImageExtracts : false,
+    showCustomRomOptions: typeof showCustomRomOptions === 'boolean' ? showCustomRomOptions : false,
+    keyboxIndex: typeof keyboxIndex === 'boolean' ? keyboxIndex : false,
   };
 }
 
@@ -129,6 +153,14 @@ function persistMockPreferences(preferences: ModernPreferences) {
     ['pf.checkModuleUpdates', preferences.checkModuleUpdates],
     ['pf.showNotifications', preferences.showNotifications],
     ['pf.rebootTimeoutSeconds', preferences.rebootTimeoutSeconds],
+    ['pf.offerPatchMethods', preferences.offerPatchMethods],
+    ['pf.showRecoveryPatching', preferences.showRecoveryPatching],
+    ['pf.keepPatchTemporaryFiles', preferences.keepPatchTemporaryFiles],
+    ['pf.useBusyboxShell', preferences.useBusyboxShell],
+    ['pf.lowMemoryMode', preferences.lowMemoryMode],
+    ['pf.extraImageExtracts', preferences.extraImageExtracts],
+    ['pf.showCustomRomOptions', preferences.showCustomRomOptions],
+    ['pf.keyboxIndex', preferences.keyboxIndex],
   ];
   try {
     entries.forEach(([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)));
@@ -142,6 +174,8 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     'schemaVersion', 'theme', 'locale', 'highContrast', 'reducedMotion', 'zoom', 'expertMode',
     'automaticUpdateCheck', 'checkDiskSpace', 'checkBootloaderUnlocked', 'checkFirmwareHash',
     'checkModuleUpdates', 'showNotifications', 'rebootTimeoutSeconds',
+    'offerPatchMethods', 'showRecoveryPatching', 'keepPatchTemporaryFiles', 'useBusyboxShell',
+    'lowMemoryMode', 'extraImageExtracts', 'showCustomRomOptions', 'keyboxIndex',
   ]);
   if (Object.keys(payload).some((key) => !allowed.has(key))) return null;
   const current = mockPreferences();
@@ -168,6 +202,14 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     || !Number.isInteger(next.rebootTimeoutSeconds)
     || next.rebootTimeoutSeconds < 1
     || next.rebootTimeoutSeconds > 3600
+    || typeof next.offerPatchMethods !== 'boolean'
+    || typeof next.showRecoveryPatching !== 'boolean'
+    || typeof next.keepPatchTemporaryFiles !== 'boolean'
+    || typeof next.useBusyboxShell !== 'boolean'
+    || typeof next.lowMemoryMode !== 'boolean'
+    || typeof next.extraImageExtracts !== 'boolean'
+    || typeof next.showCustomRomOptions !== 'boolean'
+    || typeof next.keyboxIndex !== 'boolean'
   ) return null;
   return next as unknown as ModernPreferences;
 }

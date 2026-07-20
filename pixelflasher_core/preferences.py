@@ -46,6 +46,20 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "checkModuleUpdates": ("checkModuleUpdates", "check_module_updates"),
     "showNotifications": ("showNotifications", "show_notifications"),
     "rebootTimeoutSeconds": ("rebootTimeoutSeconds", "reboot_to_system_timeout"),
+    "offerPatchMethods": ("offerPatchMethods", "offer_patch_methods"),
+    "showRecoveryPatching": (
+        "showRecoveryPatching",
+        "show_recovery_patching_option",
+    ),
+    "keepPatchTemporaryFiles": (
+        "keepPatchTemporaryFiles",
+        "keep_patch_temporary_files",
+    ),
+    "useBusyboxShell": ("useBusyboxShell", "use_busybox_shell"),
+    "lowMemoryMode": ("lowMemoryMode", "low_mem"),
+    "extraImageExtracts": ("extraImageExtracts", "extra_img_extracts"),
+    "showCustomRomOptions": ("showCustomRomOptions", "show_custom_rom_options"),
+    "keyboxIndex": ("keyboxIndex", "kb_index"),
 }
 
 type StoreLike = ConfigStore | str | os.PathLike[str]
@@ -180,6 +194,14 @@ def _legacy_mirrors(
         "checkModuleUpdates": preferences.check_module_updates,
         "showNotifications": preferences.show_notifications,
         "rebootTimeoutSeconds": preferences.reboot_timeout_seconds,
+        "offerPatchMethods": preferences.offer_patch_methods,
+        "showRecoveryPatching": preferences.show_recovery_patching,
+        "keepPatchTemporaryFiles": preferences.keep_patch_temporary_files,
+        "useBusyboxShell": preferences.use_busybox_shell,
+        "lowMemoryMode": preferences.low_memory_mode,
+        "extraImageExtracts": preferences.extra_image_extracts,
+        "showCustomRomOptions": preferences.show_custom_rom_options,
+        "keyboxIndex": preferences.keybox_index,
     }
     preferred_keys = {
         "theme": "theme",
@@ -195,6 +217,14 @@ def _legacy_mirrors(
         "checkModuleUpdates": "check_module_updates",
         "showNotifications": "show_notifications",
         "rebootTimeoutSeconds": "reboot_to_system_timeout",
+        "offerPatchMethods": "offer_patch_methods",
+        "showRecoveryPatching": "show_recovery_patching_option",
+        "keepPatchTemporaryFiles": "keep_patch_temporary_files",
+        "useBusyboxShell": "use_busybox_shell",
+        "lowMemoryMode": "low_mem",
+        "extraImageExtracts": "extra_img_extracts",
+        "showCustomRomOptions": "show_custom_rom_options",
+        "keyboxIndex": "kb_index",
     }
     mirrors: dict[str, object] = {}
     for field, aliases in _LEGACY_ALIASES.items():

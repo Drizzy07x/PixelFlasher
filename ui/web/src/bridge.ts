@@ -54,6 +54,14 @@ const defaultPreferences: ModernPreferences = {
   checkModuleUpdates: false,
   showNotifications: false,
   rebootTimeoutSeconds: 90,
+  offerPatchMethods: false,
+  showRecoveryPatching: false,
+  keepPatchTemporaryFiles: false,
+  useBusyboxShell: false,
+  lowMemoryMode: false,
+  extraImageExtracts: false,
+  showCustomRomOptions: false,
+  keyboxIndex: false,
 };
 
 export function commandTimeoutMs(command: BridgeCommand) {
@@ -87,6 +95,14 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     || !Number.isInteger(raw.rebootTimeoutSeconds)
     || raw.rebootTimeoutSeconds < 1
     || raw.rebootTimeoutSeconds > 3600
+    || typeof raw.offerPatchMethods !== 'boolean'
+    || typeof raw.showRecoveryPatching !== 'boolean'
+    || typeof raw.keepPatchTemporaryFiles !== 'boolean'
+    || typeof raw.useBusyboxShell !== 'boolean'
+    || typeof raw.lowMemoryMode !== 'boolean'
+    || typeof raw.extraImageExtracts !== 'boolean'
+    || typeof raw.showCustomRomOptions !== 'boolean'
+    || typeof raw.keyboxIndex !== 'boolean'
   ) {
     throw new BridgeError('Host returned invalid preferences.');
   }
@@ -105,6 +121,14 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     checkModuleUpdates: raw.checkModuleUpdates,
     showNotifications: raw.showNotifications,
     rebootTimeoutSeconds: raw.rebootTimeoutSeconds,
+    offerPatchMethods: raw.offerPatchMethods,
+    showRecoveryPatching: raw.showRecoveryPatching,
+    keepPatchTemporaryFiles: raw.keepPatchTemporaryFiles,
+    useBusyboxShell: raw.useBusyboxShell,
+    lowMemoryMode: raw.lowMemoryMode,
+    extraImageExtracts: raw.extraImageExtracts,
+    showCustomRomOptions: raw.showCustomRomOptions,
+    keyboxIndex: raw.keyboxIndex,
   };
 }
 
