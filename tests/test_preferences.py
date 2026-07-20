@@ -29,6 +29,13 @@ class ModernPreferencesValidationTests(unittest.TestCase):
         self.assertFalse(defaults.reduced_motion)
         self.assertEqual(100, defaults.zoom)
         self.assertFalse(defaults.expert_mode)
+        self.assertFalse(defaults.automatic_update_check)
+        self.assertTrue(defaults.check_disk_space)
+        self.assertTrue(defaults.check_bootloader_unlocked)
+        self.assertTrue(defaults.check_firmware_hash)
+        self.assertFalse(defaults.check_module_updates)
+        self.assertFalse(defaults.show_notifications)
+        self.assertEqual(90, defaults.reboot_timeout_seconds)
         self.assertEqual(80, MIN_ZOOM)
         self.assertEqual(200, MAX_ZOOM)
 
@@ -79,6 +86,15 @@ class ModernPreferencesValidationTests(unittest.TestCase):
             ({"zoom": MIN_ZOOM - 1}, "zoom_invalid"),
             ({"zoom": MAX_ZOOM + 1}, "zoom_invalid"),
             ({"expertMode": 1}, "expert_mode_invalid"),
+            ({"automaticUpdateCheck": 1}, "maintenance_preference_invalid"),
+            ({"checkDiskSpace": "yes"}, "maintenance_preference_invalid"),
+            ({"checkBootloaderUnlocked": 0}, "maintenance_preference_invalid"),
+            ({"checkFirmwareHash": None}, "maintenance_preference_invalid"),
+            ({"checkModuleUpdates": 1}, "maintenance_preference_invalid"),
+            ({"showNotifications": "no"}, "maintenance_preference_invalid"),
+            ({"rebootTimeoutSeconds": True}, "reboot_timeout_invalid"),
+            ({"rebootTimeoutSeconds": 0}, "reboot_timeout_invalid"),
+            ({"rebootTimeoutSeconds": 3601}, "reboot_timeout_invalid"),
         )
         for values, code in cases:
             with self.subTest(values=values):
@@ -125,6 +141,13 @@ class PreferencePersistenceTests(unittest.TestCase):
                         "reduced_motion": True,
                         "ui_zoom": 130,
                         "advanced_options": True,
+                        "update_check": True,
+                        "check_for_disk_space": False,
+                        "check_for_bootloader_unlocked": False,
+                        "check_for_firmware_hash_validity": False,
+                        "check_module_updates": True,
+                        "show_notifications": True,
+                        "reboot_to_system_timeout": 180,
                         "toolbar": {"visible": {"partition_manager": True}},
                     }
                 ),
@@ -134,7 +157,21 @@ class PreferencePersistenceTests(unittest.TestCase):
             preferences = load_preferences(path)
 
             self.assertEqual(
-                ModernPreferences("light", "zh_TW", True, True, 130, True),
+                ModernPreferences(
+                    "light",
+                    "zh_TW",
+                    True,
+                    True,
+                    130,
+                    True,
+                    automatic_update_check=True,
+                    check_disk_space=False,
+                    check_bootloader_unlocked=False,
+                    check_firmware_hash=False,
+                    check_module_updates=True,
+                    show_notifications=True,
+                    reboot_timeout_seconds=180,
+                ),
                 preferences,
             )
             # Loading a schema-0 9.x file migrates only after exact backups.

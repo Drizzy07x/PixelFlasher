@@ -6308,3 +6308,72 @@ msgstr ""
 msgctxt "web.settings.expertDetail"
 msgid "Reveals advanced flashing, device, root, and diagnostic controls."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.safety"
+msgid "Safety checks"
+msgstr ""
+
+msgctxt "web.settings.diskCheck"
+msgid "Require minimum disk space"
+msgstr ""
+
+msgctxt "web.settings.diskCheckDetail"
+msgid "Blocks flashing when less than 5 GB is available."
+msgstr ""
+
+msgctxt "web.settings.bootloaderCheck"
+msgid "Verify unlocked bootloader"
+msgstr ""
+
+msgctxt "web.settings.bootloaderCheckDetail"
+msgid "Checks bootloader state before a flash mutation."
+msgstr ""
+
+msgctxt "web.settings.firmwareHashCheck"
+msgid "Verify firmware filename hash"
+msgstr ""
+
+msgctxt "web.settings.firmwareHashCheckDetail"
+msgid "Requires the expected SHA-256 fragment in compatible image names."
+msgstr ""
+
+msgctxt "web.settings.rebootTimeout"
+msgid "Android startup timeout (seconds)"
+msgstr ""
+
+msgctxt "web.settings.rebootTimeoutDetail"
+msgid "Wait from 1 to 3600 seconds for Android to start after flashing."
+msgstr ""
+
+msgctxt "web.settings.maintenance"
+msgid "Maintenance and notifications"
+msgstr ""
+
+msgctxt "web.settings.updateCheck"
+msgid "Automatic application update checks"
+msgstr ""
+
+msgctxt "web.settings.updateCheckDetail"
+msgid "Opt in to backend-only update checks when PixelFlasher starts."
+msgstr ""
+
+msgctxt "web.settings.moduleUpdates"
+msgid "Check Magisk module updates"
+msgstr ""
+
+msgctxt "web.settings.moduleUpdatesDetail"
+msgid ""
+"Allows backend checks for update metadata exposed by installed modules."
+msgstr ""
+
+msgctxt "web.settings.notifications"
+msgid "System notifications"
+msgstr ""
+
+msgctxt "web.settings.notificationsDetail"
+msgid "Allows PixelFlasher to display native completion notifications."
+msgstr ""

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeCommand } from '../commands';
@@ -433,7 +433,7 @@ describe('apps, backups and settings workflows', () => {
   it('exposes bounded appearance and accessibility controls', async () => {
     const user = userEvent.setup();
     const callbacks = {
-      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(),
+      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(),
     };
     const { rerender } = page(
       <SettingsPage
@@ -443,6 +443,7 @@ describe('apps, backups and settings workflows', () => {
         reducedMotion={false} onReducedMotionChange={callbacks.motion}
         zoom={80} onZoomChange={callbacks.zoom}
         expertMode={false} onExpertModeChange={callbacks.expert}
+        preferences={demoSnapshot.preferences} onMaintenancePreferenceChange={callbacks.maintenance}
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Light' }));
@@ -450,6 +451,9 @@ describe('apps, backups and settings workflows', () => {
     await user.click(screen.getByRole('checkbox', { name: /High contrast/ }));
     await user.click(screen.getByRole('checkbox', { name: /Reduce motion/ }));
     await user.click(screen.getByRole('checkbox', { name: /Expert Mode/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Require minimum disk space/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Automatic application update checks/ }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });
     await user.click(screen.getByRole('button', { name: 'Zoom out' }));
     await user.click(screen.getByRole('button', { name: 'Reset zoom' }));
     expect(callbacks.theme).toHaveBeenCalledWith('light');
@@ -457,6 +461,9 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.contrast).toHaveBeenCalledWith(true);
     expect(callbacks.motion).toHaveBeenCalledWith(true);
     expect(callbacks.expert).toHaveBeenCalledWith(true);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('checkDiskSpace', false);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('automaticUpdateCheck', true);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('rebootTimeoutSeconds', 180);
     expect(callbacks.zoom).toHaveBeenCalledWith(80);
     expect(callbacks.zoom).toHaveBeenCalledWith(100);
 
@@ -467,6 +474,7 @@ describe('apps, backups and settings workflows', () => {
       reducedMotion onReducedMotionChange={callbacks.motion}
       zoom={200} onZoomChange={callbacks.zoom}
       expertMode onExpertModeChange={callbacks.expert}
+      preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
     /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(callbacks.zoom).toHaveBeenCalledWith(200);

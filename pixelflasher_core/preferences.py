@@ -33,6 +33,19 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "reducedMotion": ("reducedMotion", "reduced_motion"),
     "zoom": ("zoom", "ui_zoom", "uiZoom"),
     "expertMode": ("expertMode", "expert_mode", "advanced_options"),
+    "automaticUpdateCheck": ("automaticUpdateCheck", "update_check"),
+    "checkDiskSpace": ("checkDiskSpace", "check_for_disk_space"),
+    "checkBootloaderUnlocked": (
+        "checkBootloaderUnlocked",
+        "check_for_bootloader_unlocked",
+    ),
+    "checkFirmwareHash": (
+        "checkFirmwareHash",
+        "check_for_firmware_hash_validity",
+    ),
+    "checkModuleUpdates": ("checkModuleUpdates", "check_module_updates"),
+    "showNotifications": ("showNotifications", "show_notifications"),
+    "rebootTimeoutSeconds": ("rebootTimeoutSeconds", "reboot_to_system_timeout"),
 }
 
 type StoreLike = ConfigStore | str | os.PathLike[str]
@@ -160,6 +173,13 @@ def _legacy_mirrors(
         "reducedMotion": preferences.reduced_motion,
         "zoom": preferences.zoom,
         "expertMode": preferences.expert_mode,
+        "automaticUpdateCheck": preferences.automatic_update_check,
+        "checkDiskSpace": preferences.check_disk_space,
+        "checkBootloaderUnlocked": preferences.check_bootloader_unlocked,
+        "checkFirmwareHash": preferences.check_firmware_hash,
+        "checkModuleUpdates": preferences.check_module_updates,
+        "showNotifications": preferences.show_notifications,
+        "rebootTimeoutSeconds": preferences.reboot_timeout_seconds,
     }
     preferred_keys = {
         "theme": "theme",
@@ -168,6 +188,13 @@ def _legacy_mirrors(
         "reducedMotion": "reduced_motion",
         "zoom": "ui_zoom",
         "expertMode": "advanced_options",
+        "automaticUpdateCheck": "update_check",
+        "checkDiskSpace": "check_for_disk_space",
+        "checkBootloaderUnlocked": "check_for_bootloader_unlocked",
+        "checkFirmwareHash": "check_for_firmware_hash_validity",
+        "checkModuleUpdates": "check_module_updates",
+        "showNotifications": "show_notifications",
+        "rebootTimeoutSeconds": "reboot_to_system_timeout",
     }
     mirrors: dict[str, object] = {}
     for field, aliases in _LEGACY_ALIASES.items():

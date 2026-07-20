@@ -22,6 +22,13 @@ const snapshotPreferences = {
   reducedMotion: false,
   zoom: 100,
   expertMode: false,
+  automaticUpdateCheck: false,
+  checkDiskSpace: true,
+  checkBootloaderUnlocked: true,
+  checkFirmwareHash: true,
+  checkModuleUpdates: false,
+  showNotifications: false,
+  rebootTimeoutSeconds: 90,
 };
 
 const originalBridge = window.pixelflasher;
@@ -63,6 +70,10 @@ describe('bridge v2 validation boundaries', () => {
     { schemaVersion: 1, theme: 'dark', locale: 'en', highContrast: false, reducedMotion: false, zoom: 79 },
     { schemaVersion: 1, theme: 'dark', locale: 'en', highContrast: false, reducedMotion: false, zoom: 201 },
     { ...snapshotPreferences, expertMode: 'yes' },
+    { ...snapshotPreferences, automaticUpdateCheck: 1 },
+    { ...snapshotPreferences, checkDiskSpace: 'yes' },
+    { ...snapshotPreferences, rebootTimeoutSeconds: 0 },
+    { ...snapshotPreferences, rebootTimeoutSeconds: 3601 },
   ])('rejects malformed preferences %#', (value) => {
     expect(() => normalizePreferences(value)).toThrow(BridgeError);
   });
@@ -70,6 +81,7 @@ describe('bridge v2 validation boundaries', () => {
   it('accepts every supported locale at the preference boundary', () => {
     for (const locale of ['en', 'es', 'fr', 'it', 'zh_CN', 'zh_TW'] as const) {
       expect(normalizePreferences({
+        ...snapshotPreferences,
         schemaVersion: 1,
         theme: locale === 'en' ? 'light' : 'dark',
         locale,

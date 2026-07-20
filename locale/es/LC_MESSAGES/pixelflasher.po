@@ -6350,3 +6350,72 @@ msgstr "Confirmar eliminación del favorito"
 msgctxt "web.settings.expertDetail"
 msgid "Reveals advanced flashing, device, root, and diagnostic controls."
 msgstr "Muestra controles avanzados de flasheo, dispositivo, root y diagnóstico."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.safety"
+msgid "Safety checks"
+msgstr "Comprobaciones de seguridad"
+
+msgctxt "web.settings.diskCheck"
+msgid "Require minimum disk space"
+msgstr "Exigir espacio mínimo en disco"
+
+msgctxt "web.settings.diskCheckDetail"
+msgid "Blocks flashing when less than 5 GB is available."
+msgstr "Bloquea el flasheo cuando hay menos de 5 GB disponibles."
+
+msgctxt "web.settings.bootloaderCheck"
+msgid "Verify unlocked bootloader"
+msgstr "Verificar bootloader desbloqueado"
+
+msgctxt "web.settings.bootloaderCheckDetail"
+msgid "Checks bootloader state before a flash mutation."
+msgstr "Comprueba el estado del bootloader antes de una mutación de flasheo."
+
+msgctxt "web.settings.firmwareHashCheck"
+msgid "Verify firmware filename hash"
+msgstr "Verificar hash del nombre del firmware"
+
+msgctxt "web.settings.firmwareHashCheckDetail"
+msgid "Requires the expected SHA-256 fragment in compatible image names."
+msgstr "Exige el fragmento SHA-256 esperado en nombres de imagen compatibles."
+
+msgctxt "web.settings.rebootTimeout"
+msgid "Android startup timeout (seconds)"
+msgstr "Tiempo de espera de inicio de Android (segundos)"
+
+msgctxt "web.settings.rebootTimeoutDetail"
+msgid "Wait from 1 to 3600 seconds for Android to start after flashing."
+msgstr "Espera entre 1 y 3600 segundos a que Android arranque tras el flasheo."
+
+msgctxt "web.settings.maintenance"
+msgid "Maintenance and notifications"
+msgstr "Mantenimiento y notificaciones"
+
+msgctxt "web.settings.updateCheck"
+msgid "Automatic application update checks"
+msgstr "Comprobaciones automáticas de actualizaciones"
+
+msgctxt "web.settings.updateCheckDetail"
+msgid "Opt in to backend-only update checks when PixelFlasher starts."
+msgstr "Activa comprobaciones solo en el backend al iniciar PixelFlasher."
+
+msgctxt "web.settings.moduleUpdates"
+msgid "Check Magisk module updates"
+msgstr "Comprobar actualizaciones de módulos Magisk"
+
+msgctxt "web.settings.moduleUpdatesDetail"
+msgid ""
+"Allows backend checks for update metadata exposed by installed modules."
+msgstr "Permite al backend comprobar metadatos de actualización de módulos instalados."
+
+msgctxt "web.settings.notifications"
+msgid "System notifications"
+msgstr "Notificaciones del sistema"
+
+msgctxt "web.settings.notificationsDetail"
+msgid "Allows PixelFlasher to display native completion notifications."
+msgstr "Permite que PixelFlasher muestre notificaciones nativas al finalizar."

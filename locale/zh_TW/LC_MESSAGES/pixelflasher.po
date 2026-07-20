@@ -6341,3 +6341,72 @@ msgstr "確認刪除收藏"
 msgctxt "web.settings.expertDetail"
 msgid "Reveals advanced flashing, device, root, and diagnostic controls."
 msgstr "顯示進階刷寫、裝置、Root 和診斷控制項。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.safety"
+msgid "Safety checks"
+msgstr "安全檢查"
+
+msgctxt "web.settings.diskCheck"
+msgid "Require minimum disk space"
+msgstr "要求最小磁碟空間"
+
+msgctxt "web.settings.diskCheckDetail"
+msgid "Blocks flashing when less than 5 GB is available."
+msgstr "可用空間少於 5 GB 時阻止刷寫。"
+
+msgctxt "web.settings.bootloaderCheck"
+msgid "Verify unlocked bootloader"
+msgstr "驗證開機載入程式已解鎖"
+
+msgctxt "web.settings.bootloaderCheckDetail"
+msgid "Checks bootloader state before a flash mutation."
+msgstr "在刷寫變更前檢查開機載入程式狀態。"
+
+msgctxt "web.settings.firmwareHashCheck"
+msgid "Verify firmware filename hash"
+msgstr "驗證韌體檔名雜湊"
+
+msgctxt "web.settings.firmwareHashCheckDetail"
+msgid "Requires the expected SHA-256 fragment in compatible image names."
+msgstr "要求相容映像名稱包含預期的 SHA-256 片段。"
+
+msgctxt "web.settings.rebootTimeout"
+msgid "Android startup timeout (seconds)"
+msgstr "Android 啟動逾時（秒）"
+
+msgctxt "web.settings.rebootTimeoutDetail"
+msgid "Wait from 1 to 3600 seconds for Android to start after flashing."
+msgstr "刷寫後等待 Android 啟動，範圍為 1 到 3600 秒。"
+
+msgctxt "web.settings.maintenance"
+msgid "Maintenance and notifications"
+msgstr "維護和通知"
+
+msgctxt "web.settings.updateCheck"
+msgid "Automatic application update checks"
+msgstr "自動檢查應用程式更新"
+
+msgctxt "web.settings.updateCheckDetail"
+msgid "Opt in to backend-only update checks when PixelFlasher starts."
+msgstr "選擇在 PixelFlasher 啟動時僅由後端檢查更新。"
+
+msgctxt "web.settings.moduleUpdates"
+msgid "Check Magisk module updates"
+msgstr "檢查 Magisk 模組更新"
+
+msgctxt "web.settings.moduleUpdatesDetail"
+msgid ""
+"Allows backend checks for update metadata exposed by installed modules."
+msgstr "允許後端檢查已安裝模組公開的更新中繼資料。"
+
+msgctxt "web.settings.notifications"
+msgid "System notifications"
+msgstr "系統通知"
+
+msgctxt "web.settings.notificationsDetail"
+msgid "Allows PixelFlasher to display native completion notifications."
+msgstr "允許 PixelFlasher 顯示原生完成通知。"

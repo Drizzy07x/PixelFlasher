@@ -1,5 +1,5 @@
 import { localeOptions, useI18n } from '../../i18n';
-import type { Locale, Theme } from '../../types';
+import type { Locale, ModernPreferences, Theme } from '../../types';
 import { Button, Card, CardTitle, Icon, PageHeader, Toggle } from '../../components/ui';
 
 export function SettingsPage({
@@ -15,6 +15,8 @@ export function SettingsPage({
   onZoomChange,
   expertMode,
   onExpertModeChange,
+  preferences,
+  onMaintenancePreferenceChange,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -28,6 +30,11 @@ export function SettingsPage({
   onZoomChange: (value: number) => void;
   expertMode: boolean;
   onExpertModeChange: (value: boolean) => void;
+  preferences: ModernPreferences;
+  onMaintenancePreferenceChange: (
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds',
+    value: boolean | number,
+  ) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -75,6 +82,37 @@ export function SettingsPage({
           <div className="toggle-stack">
             <Toggle checked={highContrast} onChange={onHighContrastChange} label={t('settings.contrast')} description={t('settings.contrastDetail')} />
             <Toggle checked={reducedMotion} onChange={onReducedMotionChange} label={t('settings.motion')} description={t('settings.motionDetail')} />
+          </div>
+        </Card>
+        <Card>
+          <CardTitle icon="shield">{t('settings.safety')}</CardTitle>
+          <div className="toggle-stack">
+            <Toggle checked={preferences.checkDiskSpace} onChange={(value) => onMaintenancePreferenceChange('checkDiskSpace', value)} label={t('settings.diskCheck')} description={t('settings.diskCheckDetail')} />
+            <Toggle checked={preferences.checkBootloaderUnlocked} onChange={(value) => onMaintenancePreferenceChange('checkBootloaderUnlocked', value)} label={t('settings.bootloaderCheck')} description={t('settings.bootloaderCheckDetail')} />
+            <Toggle checked={preferences.checkFirmwareHash} onChange={(value) => onMaintenancePreferenceChange('checkFirmwareHash', value)} label={t('settings.firmwareHashCheck')} description={t('settings.firmwareHashCheckDetail')} />
+          </div>
+          <label className="select-field">
+            <span>{t('settings.rebootTimeout')}</span>
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              value={preferences.rebootTimeoutSeconds}
+              onChange={(event) => {
+                const value = event.currentTarget.valueAsNumber;
+                if (Number.isInteger(value) && value >= 1 && value <= 3600) onMaintenancePreferenceChange('rebootTimeoutSeconds', value);
+              }}
+              aria-describedby="reboot-timeout-detail"
+            />
+            <small id="reboot-timeout-detail">{t('settings.rebootTimeoutDetail')}</small>
+          </label>
+        </Card>
+        <Card>
+          <CardTitle icon="settings">{t('settings.maintenance')}</CardTitle>
+          <div className="toggle-stack">
+            <Toggle checked={preferences.automaticUpdateCheck} onChange={(value) => onMaintenancePreferenceChange('automaticUpdateCheck', value)} label={t('settings.updateCheck')} description={t('settings.updateCheckDetail')} />
+            <Toggle checked={preferences.checkModuleUpdates} onChange={(value) => onMaintenancePreferenceChange('checkModuleUpdates', value)} label={t('settings.moduleUpdates')} description={t('settings.moduleUpdatesDetail')} />
+            <Toggle checked={preferences.showNotifications} onChange={(value) => onMaintenancePreferenceChange('showNotifications', value)} label={t('settings.notifications')} description={t('settings.notificationsDetail')} />
           </div>
         </Card>
         <Card className="settings-shortcuts">

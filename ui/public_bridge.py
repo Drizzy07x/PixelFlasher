@@ -372,6 +372,17 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "reducedMotion": _boolean(source.get("reducedMotion")),
         "zoom": _integer(source.get("zoom"), default=100),
         "expertMode": _boolean(source.get("expertMode")),
+        "automaticUpdateCheck": _boolean(source.get("automaticUpdateCheck")),
+        "checkDiskSpace": _boolean(source.get("checkDiskSpace"), default=True),
+        "checkBootloaderUnlocked": _boolean(
+            source.get("checkBootloaderUnlocked"), default=True
+        ),
+        "checkFirmwareHash": _boolean(source.get("checkFirmwareHash"), default=True),
+        "checkModuleUpdates": _boolean(source.get("checkModuleUpdates")),
+        "showNotifications": _boolean(source.get("showNotifications")),
+        "rebootTimeoutSeconds": _integer(
+            source.get("rebootTimeoutSeconds"), default=90
+        ),
     }
 
 

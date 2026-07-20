@@ -15,6 +15,13 @@ const hostPreferences: ModernPreferences = {
   reducedMotion: false,
   zoom: 100,
   expertMode: false,
+  automaticUpdateCheck: false,
+  checkDiskSpace: true,
+  checkBootloaderUnlocked: true,
+  checkFirmwareHash: true,
+  checkModuleUpdates: false,
+  showNotifications: false,
+  rebootTimeoutSeconds: 90,
 };
 
 function installPreferencesHost(
@@ -704,6 +711,12 @@ describe('PixelFlasher web workspace', () => {
       payload: { expertMode: true },
       expectedRevision: 7,
     });
+    const navigation = within(screen.getByRole('navigation', { name: 'Tasks' }));
+    await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('checkbox', { name: /Automatic application update checks/ }));
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.automaticUpdateCheck === true)).toBe(true));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.rebootTimeoutSeconds === 180)).toBe(true));
     expect(window.localStorage.length).toBe(0);
   });
 

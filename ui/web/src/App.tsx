@@ -82,6 +82,13 @@ const defaultPreferences: ModernPreferences = {
   reducedMotion: false,
   zoom: 100,
   expertMode: false,
+  automaticUpdateCheck: false,
+  checkDiskSpace: true,
+  checkBootloaderUnlocked: true,
+  checkFirmwareHash: true,
+  checkModuleUpdates: false,
+  showNotifications: false,
+  rebootTimeoutSeconds: 90,
 };
 
 function mockPreferences(): ModernPreferences {
@@ -91,6 +98,13 @@ function mockPreferences(): ModernPreferences {
   const reducedMotion = storedValue<unknown>('pf.reducedMotion', defaultPreferences.reducedMotion);
   const zoom = storedValue<unknown>('pf.zoom', defaultPreferences.zoom);
   const expertMode = storedValue<unknown>('pf.expertMode', defaultPreferences.expertMode);
+  const automaticUpdateCheck = storedValue<unknown>('pf.automaticUpdateCheck', defaultPreferences.automaticUpdateCheck);
+  const checkDiskSpace = storedValue<unknown>('pf.checkDiskSpace', defaultPreferences.checkDiskSpace);
+  const checkBootloaderUnlocked = storedValue<unknown>('pf.checkBootloaderUnlocked', defaultPreferences.checkBootloaderUnlocked);
+  const checkFirmwareHash = storedValue<unknown>('pf.checkFirmwareHash', defaultPreferences.checkFirmwareHash);
+  const checkModuleUpdates = storedValue<unknown>('pf.checkModuleUpdates', defaultPreferences.checkModuleUpdates);
+  const showNotifications = storedValue<unknown>('pf.showNotifications', defaultPreferences.showNotifications);
+  const rebootTimeoutSeconds = storedValue<unknown>('pf.rebootTimeoutSeconds', defaultPreferences.rebootTimeoutSeconds);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -101,6 +115,14 @@ function mockPreferences(): ModernPreferences {
     reducedMotion: typeof reducedMotion === 'boolean' ? reducedMotion : false,
     zoom: typeof zoom === 'number' && Number.isInteger(zoom) && zoom >= 80 && zoom <= 200 ? zoom : 100,
     expertMode: typeof expertMode === 'boolean' ? expertMode : false,
+    automaticUpdateCheck: typeof automaticUpdateCheck === 'boolean' ? automaticUpdateCheck : false,
+    checkDiskSpace: typeof checkDiskSpace === 'boolean' ? checkDiskSpace : true,
+    checkBootloaderUnlocked: typeof checkBootloaderUnlocked === 'boolean' ? checkBootloaderUnlocked : true,
+    checkFirmwareHash: typeof checkFirmwareHash === 'boolean' ? checkFirmwareHash : true,
+    checkModuleUpdates: typeof checkModuleUpdates === 'boolean' ? checkModuleUpdates : false,
+    showNotifications: typeof showNotifications === 'boolean' ? showNotifications : false,
+    rebootTimeoutSeconds: typeof rebootTimeoutSeconds === 'number' && Number.isInteger(rebootTimeoutSeconds)
+      && rebootTimeoutSeconds >= 1 && rebootTimeoutSeconds <= 3600 ? rebootTimeoutSeconds : 90,
   };
 }
 
@@ -176,6 +198,7 @@ function PixelFlasherApp({
   const [highContrast, setHighContrast] = useState(initialPreferences.highContrast);
   const [reducedMotion, setReducedMotion] = useState(initialPreferences.reducedMotion);
   const [zoom, setZoom] = useState(initialPreferences.zoom);
+  const [applicationPreferences, setApplicationPreferences] = useState(initialPreferences);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [logcatUiState, setLogcatUiState] = useState<LogcatUiState>(initialLogcatUiState);
   const [logcatProgressBatch, setLogcatProgressBatch] = useState<readonly ActiveOperation[]>([]);
@@ -427,6 +450,7 @@ function PixelFlasherApp({
     setReducedMotion(preferences.reducedMotion);
     setZoom(preferences.zoom);
     setExpertMode(preferences.expertMode);
+    setApplicationPreferences(preferences);
   }, [onLocaleChange]);
 
   useEffect(() => {
@@ -485,6 +509,13 @@ function PixelFlasherApp({
 
   const changeExpertMode = useCallback((value: boolean) => {
     void changePreferences({ expertMode: value });
+  }, [changePreferences]);
+
+  const changeMaintenancePreference = useCallback((
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds',
+    value: boolean | number,
+  ) => {
+    void changePreferences({ [field]: value });
   }, [changePreferences]);
 
   useEffect(() => {
@@ -843,6 +874,8 @@ function PixelFlasherApp({
           onZoomChange={changeZoom}
           expertMode={expertMode}
           onExpertModeChange={changeExpertMode}
+          preferences={applicationPreferences}
+          onMaintenancePreferenceChange={changeMaintenancePreference}
         />
       );
     }

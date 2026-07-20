@@ -41,6 +41,13 @@ _PREFERENCE_FIELDS = frozenset(
         "reducedMotion",
         "zoom",
         "expertMode",
+        "automaticUpdateCheck",
+        "checkDiskSpace",
+        "checkBootloaderUnlocked",
+        "checkFirmwareHash",
+        "checkModuleUpdates",
+        "showNotifications",
+        "rebootTimeoutSeconds",
     }
 )
 
@@ -63,6 +70,13 @@ class ModernPreferences:
     reduced_motion: bool = False
     zoom: int = 100
     expert_mode: bool = False
+    automatic_update_check: bool = False
+    check_disk_space: bool = True
+    check_bootloader_unlocked: bool = True
+    check_firmware_hash: bool = True
+    check_module_updates: bool = False
+    show_notifications: bool = False
+    reboot_timeout_seconds: int = 90
 
     def __post_init__(self) -> None:
         if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
@@ -99,6 +113,29 @@ class ModernPreferences:
             raise PreferencesError(
                 "expert_mode_invalid",
                 "expertMode must be a boolean",
+            )
+        boolean_preferences = (
+            ("automaticUpdateCheck", self.automatic_update_check),
+            ("checkDiskSpace", self.check_disk_space),
+            ("checkBootloaderUnlocked", self.check_bootloader_unlocked),
+            ("checkFirmwareHash", self.check_firmware_hash),
+            ("checkModuleUpdates", self.check_module_updates),
+            ("showNotifications", self.show_notifications),
+        )
+        for public_name, value in boolean_preferences:
+            if not isinstance(value, bool):
+                raise PreferencesError(
+                    "maintenance_preference_invalid",
+                    f"{public_name} must be a boolean",
+                )
+        if (
+            not isinstance(self.reboot_timeout_seconds, int)
+            or isinstance(self.reboot_timeout_seconds, bool)
+            or not 1 <= self.reboot_timeout_seconds <= 3600
+        ):
+            raise PreferencesError(
+                "reboot_timeout_invalid",
+                "rebootTimeoutSeconds must be an integer between 1 and 3600",
             )
 
     @classmethod
@@ -150,6 +187,25 @@ class ModernPreferences:
             reduced_motion=raw.get("reducedMotion", defaults.reduced_motion),
             zoom=raw.get("zoom", defaults.zoom),
             expert_mode=raw.get("expertMode", defaults.expert_mode),
+            automatic_update_check=raw.get(
+                "automaticUpdateCheck", defaults.automatic_update_check
+            ),
+            check_disk_space=raw.get("checkDiskSpace", defaults.check_disk_space),
+            check_bootloader_unlocked=raw.get(
+                "checkBootloaderUnlocked", defaults.check_bootloader_unlocked
+            ),
+            check_firmware_hash=raw.get(
+                "checkFirmwareHash", defaults.check_firmware_hash
+            ),
+            check_module_updates=raw.get(
+                "checkModuleUpdates", defaults.check_module_updates
+            ),
+            show_notifications=raw.get(
+                "showNotifications", defaults.show_notifications
+            ),
+            reboot_timeout_seconds=raw.get(
+                "rebootTimeoutSeconds", defaults.reboot_timeout_seconds
+            ),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -161,6 +217,13 @@ class ModernPreferences:
             "reducedMotion": self.reduced_motion,
             "zoom": self.zoom,
             "expertMode": self.expert_mode,
+            "automaticUpdateCheck": self.automatic_update_check,
+            "checkDiskSpace": self.check_disk_space,
+            "checkBootloaderUnlocked": self.check_bootloader_unlocked,
+            "checkFirmwareHash": self.check_firmware_hash,
+            "checkModuleUpdates": self.check_module_updates,
+            "showNotifications": self.show_notifications,
+            "rebootTimeoutSeconds": self.reboot_timeout_seconds,
         }
 
 

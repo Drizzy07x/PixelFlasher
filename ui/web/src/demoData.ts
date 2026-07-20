@@ -57,6 +57,13 @@ export const demoSnapshot: HostSnapshot = {
     reducedMotion: false,
     zoom: 100,
     expertMode: false,
+    automaticUpdateCheck: false,
+    checkDiskSpace: true,
+    checkBootloaderUnlocked: true,
+    checkFirmwareHash: true,
+    checkModuleUpdates: false,
+    showNotifications: false,
+    rebootTimeoutSeconds: 90,
   },
   deviceManagement: {
     schemaVersion: 1,

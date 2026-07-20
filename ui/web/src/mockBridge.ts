@@ -63,6 +63,13 @@ const defaultPreferences: ModernPreferences = {
   reducedMotion: false,
   zoom: 100,
   expertMode: false,
+  automaticUpdateCheck: false,
+  checkDiskSpace: true,
+  checkBootloaderUnlocked: true,
+  checkFirmwareHash: true,
+  checkModuleUpdates: false,
+  showNotifications: false,
+  rebootTimeoutSeconds: 90,
 };
 
 function storedValue<T>(key: string, fallback: T): T {
@@ -81,6 +88,13 @@ function mockPreferences(): ModernPreferences {
   const reducedMotion = storedValue('pf.reducedMotion', defaultPreferences.reducedMotion);
   const zoom = storedValue('pf.zoom', defaultPreferences.zoom);
   const expertMode = storedValue('pf.expertMode', defaultPreferences.expertMode);
+  const automaticUpdateCheck = storedValue('pf.automaticUpdateCheck', defaultPreferences.automaticUpdateCheck);
+  const checkDiskSpace = storedValue('pf.checkDiskSpace', defaultPreferences.checkDiskSpace);
+  const checkBootloaderUnlocked = storedValue('pf.checkBootloaderUnlocked', defaultPreferences.checkBootloaderUnlocked);
+  const checkFirmwareHash = storedValue('pf.checkFirmwareHash', defaultPreferences.checkFirmwareHash);
+  const checkModuleUpdates = storedValue('pf.checkModuleUpdates', defaultPreferences.checkModuleUpdates);
+  const showNotifications = storedValue('pf.showNotifications', defaultPreferences.showNotifications);
+  const rebootTimeoutSeconds = storedValue('pf.rebootTimeoutSeconds', defaultPreferences.rebootTimeoutSeconds);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -89,6 +103,14 @@ function mockPreferences(): ModernPreferences {
     reducedMotion: typeof reducedMotion === 'boolean' ? reducedMotion : false,
     zoom: typeof zoom === 'number' && Number.isInteger(zoom) && zoom >= 80 && zoom <= 200 ? zoom : 100,
     expertMode: typeof expertMode === 'boolean' ? expertMode : false,
+    automaticUpdateCheck: typeof automaticUpdateCheck === 'boolean' ? automaticUpdateCheck : false,
+    checkDiskSpace: typeof checkDiskSpace === 'boolean' ? checkDiskSpace : true,
+    checkBootloaderUnlocked: typeof checkBootloaderUnlocked === 'boolean' ? checkBootloaderUnlocked : true,
+    checkFirmwareHash: typeof checkFirmwareHash === 'boolean' ? checkFirmwareHash : true,
+    checkModuleUpdates: typeof checkModuleUpdates === 'boolean' ? checkModuleUpdates : false,
+    showNotifications: typeof showNotifications === 'boolean' ? showNotifications : false,
+    rebootTimeoutSeconds: typeof rebootTimeoutSeconds === 'number' && Number.isInteger(rebootTimeoutSeconds)
+      && rebootTimeoutSeconds >= 1 && rebootTimeoutSeconds <= 3600 ? rebootTimeoutSeconds : 90,
   };
 }
 
@@ -100,6 +122,13 @@ function persistMockPreferences(preferences: ModernPreferences) {
     ['pf.reducedMotion', preferences.reducedMotion],
     ['pf.zoom', preferences.zoom],
     ['pf.expertMode', preferences.expertMode],
+    ['pf.automaticUpdateCheck', preferences.automaticUpdateCheck],
+    ['pf.checkDiskSpace', preferences.checkDiskSpace],
+    ['pf.checkBootloaderUnlocked', preferences.checkBootloaderUnlocked],
+    ['pf.checkFirmwareHash', preferences.checkFirmwareHash],
+    ['pf.checkModuleUpdates', preferences.checkModuleUpdates],
+    ['pf.showNotifications', preferences.showNotifications],
+    ['pf.rebootTimeoutSeconds', preferences.rebootTimeoutSeconds],
   ];
   try {
     entries.forEach(([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)));
@@ -109,7 +138,11 @@ function persistMockPreferences(preferences: ModernPreferences) {
 }
 
 function updatedMockPreferences(payload: Record<string, unknown>): ModernPreferences | null {
-  const allowed = new Set(['schemaVersion', 'theme', 'locale', 'highContrast', 'reducedMotion', 'zoom', 'expertMode']);
+  const allowed = new Set([
+    'schemaVersion', 'theme', 'locale', 'highContrast', 'reducedMotion', 'zoom', 'expertMode',
+    'automaticUpdateCheck', 'checkDiskSpace', 'checkBootloaderUnlocked', 'checkFirmwareHash',
+    'checkModuleUpdates', 'showNotifications', 'rebootTimeoutSeconds',
+  ]);
   if (Object.keys(payload).some((key) => !allowed.has(key))) return null;
   const current = mockPreferences();
   const next = { ...current, ...payload } as Record<string, unknown>;
@@ -125,6 +158,16 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     next.zoom < 80 ||
     next.zoom > 200
     || typeof next.expertMode !== 'boolean'
+    || typeof next.automaticUpdateCheck !== 'boolean'
+    || typeof next.checkDiskSpace !== 'boolean'
+    || typeof next.checkBootloaderUnlocked !== 'boolean'
+    || typeof next.checkFirmwareHash !== 'boolean'
+    || typeof next.checkModuleUpdates !== 'boolean'
+    || typeof next.showNotifications !== 'boolean'
+    || typeof next.rebootTimeoutSeconds !== 'number'
+    || !Number.isInteger(next.rebootTimeoutSeconds)
+    || next.rebootTimeoutSeconds < 1
+    || next.rebootTimeoutSeconds > 3600
   ) return null;
   return next as unknown as ModernPreferences;
 }

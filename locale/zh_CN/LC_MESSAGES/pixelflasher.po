@@ -6350,3 +6350,72 @@ msgstr "确认删除收藏"
 msgctxt "web.settings.expertDetail"
 msgid "Reveals advanced flashing, device, root, and diagnostic controls."
 msgstr "显示高级刷写、设备、Root 和诊断控件。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.safety"
+msgid "Safety checks"
+msgstr "安全检查"
+
+msgctxt "web.settings.diskCheck"
+msgid "Require minimum disk space"
+msgstr "要求最小磁盘空间"
+
+msgctxt "web.settings.diskCheckDetail"
+msgid "Blocks flashing when less than 5 GB is available."
+msgstr "可用空间少于 5 GB 时阻止刷写。"
+
+msgctxt "web.settings.bootloaderCheck"
+msgid "Verify unlocked bootloader"
+msgstr "验证引导加载程序已解锁"
+
+msgctxt "web.settings.bootloaderCheckDetail"
+msgid "Checks bootloader state before a flash mutation."
+msgstr "在刷写更改前检查引导加载程序状态。"
+
+msgctxt "web.settings.firmwareHashCheck"
+msgid "Verify firmware filename hash"
+msgstr "验证固件文件名哈希"
+
+msgctxt "web.settings.firmwareHashCheckDetail"
+msgid "Requires the expected SHA-256 fragment in compatible image names."
+msgstr "要求兼容镜像名称包含预期的 SHA-256 片段。"
+
+msgctxt "web.settings.rebootTimeout"
+msgid "Android startup timeout (seconds)"
+msgstr "Android 启动超时（秒）"
+
+msgctxt "web.settings.rebootTimeoutDetail"
+msgid "Wait from 1 to 3600 seconds for Android to start after flashing."
+msgstr "刷写后等待 Android 启动，范围为 1 到 3600 秒。"
+
+msgctxt "web.settings.maintenance"
+msgid "Maintenance and notifications"
+msgstr "维护和通知"
+
+msgctxt "web.settings.updateCheck"
+msgid "Automatic application update checks"
+msgstr "自动检查应用更新"
+
+msgctxt "web.settings.updateCheckDetail"
+msgid "Opt in to backend-only update checks when PixelFlasher starts."
+msgstr "选择在 PixelFlasher 启动时仅由后端检查更新。"
+
+msgctxt "web.settings.moduleUpdates"
+msgid "Check Magisk module updates"
+msgstr "检查 Magisk 模块更新"
+
+msgctxt "web.settings.moduleUpdatesDetail"
+msgid ""
+"Allows backend checks for update metadata exposed by installed modules."
+msgstr "允许后端检查已安装模块公开的更新元数据。"
+
+msgctxt "web.settings.notifications"
+msgid "System notifications"
+msgstr "系统通知"
+
+msgctxt "web.settings.notificationsDetail"
+msgid "Allows PixelFlasher to display native completion notifications."
+msgstr "允许 PixelFlasher 显示原生完成通知。"

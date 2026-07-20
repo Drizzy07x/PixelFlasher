@@ -260,7 +260,7 @@
         "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences"
       ],
-      "gap": "Theme, locale, accessibility, zoom and Expert Mode are host-persisted through one revisioned settings contract; the sidebar and Settings route share the confirmed canonical value. The remaining supported 9.x application preferences and packaged restart/accessibility smokes are not represented yet.",
+      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety checks, backend-only update opt-ins, native notifications and the bounded Android startup timeout are host-persisted through one revisioned settings contract; the sidebar and Settings route share the confirmed canonical value. Specialized 9.x preferences and packaged restart/accessibility smokes are not represented yet.",
       "exitCriteria": [
         "The React Settings workspace exposes every supported versioned preference and persists it through ConfigStore."
       ],
@@ -1197,7 +1197,7 @@
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
         "ui/web/src/bridge.ts:getPreferences/updatePreferences"
       ],
-      "gap": "Theme, locale, accessibility, zoom and Expert Mode are validated, host-persisted, revisioned and mirrored to their 9.x keys; advanced_options migrates idempotently and React applies changes only after confirmed success. The remaining supported 9.x settings are absent.",
+      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety checks, backend-only update opt-ins, native notifications and the bounded Android startup timeout are validated, host-persisted, revisioned and mirrored to their 9.x keys. React applies changes only after confirmed success and network-related defaults remain opt-in. Specialized 9.x settings are still absent or require an explicit 10.x policy classification.",
       "exitCriteria": [
         "Edit PixelFlasher application settings is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],

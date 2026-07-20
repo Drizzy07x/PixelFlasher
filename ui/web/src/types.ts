@@ -9,6 +9,13 @@ export interface ModernPreferences {
   reducedMotion: boolean;
   zoom: number;
   expertMode: boolean;
+  automaticUpdateCheck: boolean;
+  checkDiskSpace: boolean;
+  checkBootloaderUnlocked: boolean;
+  checkFirmwareHash: boolean;
+  checkModuleUpdates: boolean;
+  showNotifications: boolean;
+  rebootTimeoutSeconds: number;
 }
 export type RouteId =
   | 'dashboard'

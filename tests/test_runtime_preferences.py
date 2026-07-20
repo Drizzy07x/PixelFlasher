@@ -97,11 +97,37 @@ class RuntimePreferencesTests(unittest.TestCase):
                 AppCommand(
                     "settings.update",
                     expected_revision=0,
-                    payload={"theme": "light", "locale": "es", "zoom": 200, "expertMode": True},
+                    payload={
+                        "theme": "light",
+                        "locale": "es",
+                        "zoom": 200,
+                        "expertMode": True,
+                        "automaticUpdateCheck": True,
+                        "checkDiskSpace": False,
+                        "checkBootloaderUnlocked": False,
+                        "checkFirmwareHash": False,
+                        "checkModuleUpdates": True,
+                        "showNotifications": True,
+                        "rebootTimeoutSeconds": 240,
+                    },
                 )
             )
 
-            expected = ModernPreferences("light", "es", False, True, 200, True)
+            expected = ModernPreferences(
+                "light",
+                "es",
+                False,
+                True,
+                200,
+                True,
+                automatic_update_check=True,
+                check_disk_space=False,
+                check_bootloader_unlocked=False,
+                check_firmware_hash=False,
+                check_module_updates=True,
+                show_notifications=True,
+                reboot_timeout_seconds=240,
+            )
             self.assertTrue(result.ok)
             self.assertEqual("settings_updated", result.code)
             self.assertEqual(expected.to_dict(), result.value["preferences"])
@@ -113,6 +139,13 @@ class RuntimePreferencesTests(unittest.TestCase):
             self.assertEqual("light", payload["theme"])
             self.assertEqual("es", payload["language"])
             self.assertTrue(payload["advanced_options"])
+            self.assertTrue(payload["update_check"])
+            self.assertFalse(payload["check_for_disk_space"])
+            self.assertFalse(payload["check_for_bootloader_unlocked"])
+            self.assertFalse(payload["check_for_firmware_hash_validity"])
+            self.assertTrue(payload["check_module_updates"])
+            self.assertTrue(payload["show_notifications"])
+            self.assertEqual(240, payload["reboot_to_system_timeout"])
             self.assertEqual(
                 expected.to_dict(),
                 runtime.config_document.values[PREFERENCES_KEY],

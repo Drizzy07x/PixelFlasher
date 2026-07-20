@@ -47,6 +47,13 @@ const defaultPreferences: ModernPreferences = {
   reducedMotion: false,
   zoom: 100,
   expertMode: false,
+  automaticUpdateCheck: false,
+  checkDiskSpace: true,
+  checkBootloaderUnlocked: true,
+  checkFirmwareHash: true,
+  checkModuleUpdates: false,
+  showNotifications: false,
+  rebootTimeoutSeconds: 90,
 };
 
 export function commandTimeoutMs(command: BridgeCommand) {
@@ -70,6 +77,16 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     raw.zoom < 80 ||
     raw.zoom > 200
     || typeof raw.expertMode !== 'boolean'
+    || typeof raw.automaticUpdateCheck !== 'boolean'
+    || typeof raw.checkDiskSpace !== 'boolean'
+    || typeof raw.checkBootloaderUnlocked !== 'boolean'
+    || typeof raw.checkFirmwareHash !== 'boolean'
+    || typeof raw.checkModuleUpdates !== 'boolean'
+    || typeof raw.showNotifications !== 'boolean'
+    || typeof raw.rebootTimeoutSeconds !== 'number'
+    || !Number.isInteger(raw.rebootTimeoutSeconds)
+    || raw.rebootTimeoutSeconds < 1
+    || raw.rebootTimeoutSeconds > 3600
   ) {
     throw new BridgeError('Host returned invalid preferences.');
   }
@@ -81,6 +98,13 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     reducedMotion: raw.reducedMotion,
     zoom: raw.zoom,
     expertMode: raw.expertMode,
+    automaticUpdateCheck: raw.automaticUpdateCheck,
+    checkDiskSpace: raw.checkDiskSpace,
+    checkBootloaderUnlocked: raw.checkBootloaderUnlocked,
+    checkFirmwareHash: raw.checkFirmwareHash,
+    checkModuleUpdates: raw.checkModuleUpdates,
+    showNotifications: raw.showNotifications,
+    rebootTimeoutSeconds: raw.rebootTimeoutSeconds,
   };
 }
 

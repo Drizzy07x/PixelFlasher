@@ -10,7 +10,14 @@ const snapshotPreferences = {
   highContrast: false,
       reducedMotion: false,
       zoom: 100,
-      expertMode: false,
+  expertMode: false,
+  automaticUpdateCheck: false,
+  checkDiskSpace: true,
+  checkBootloaderUnlocked: true,
+  checkFirmwareHash: true,
+  checkModuleUpdates: false,
+  showNotifications: false,
+  rebootTimeoutSeconds: 90,
 };
 
 function hostFor(responseResult: (request: BridgeRequest) => Record<string, unknown>) {
@@ -128,6 +135,7 @@ describe('PixelFlasher bridge protocol', () => {
 
   it('loads and updates strictly validated host preferences', async () => {
     const preferences = {
+      ...snapshotPreferences,
       schemaVersion: 1 as const,
       theme: 'light' as const,
       locale: 'fr' as const,
@@ -135,6 +143,10 @@ describe('PixelFlasher bridge protocol', () => {
       reducedMotion: true,
       zoom: 120,
       expertMode: true,
+      automaticUpdateCheck: true,
+      checkModuleUpdates: true,
+      showNotifications: true,
+      rebootTimeoutSeconds: 180,
     };
     const postMessage = hostFor((request) => ({
       status: 'SUCCESS',
