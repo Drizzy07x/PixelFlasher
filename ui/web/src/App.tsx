@@ -267,6 +267,7 @@ function PixelFlasherApp({
   const [logcatProgressBatch, setLogcatProgressBatch] = useState<readonly ActiveOperation[]>([]);
   const [pushUiState, setPushUiState] = useState<PushUiState>(initialPushUiState);
   const [bridgeState, setBridgeState] = useState<'connecting' | 'ready' | 'error'>('connecting');
+  const [applicationVersion, setApplicationVersion] = useState(isMockHost ? '9.2.2-dev' : '');
   const [interaction, setInteraction] = useState<InteractionRequest | null>(null);
   const [interactionBusy, setInteractionBusy] = useState(false);
   const interactionDialogRef = useRef<HTMLElement | null>(null);
@@ -443,6 +444,9 @@ function PixelFlasherApp({
             : t('settings.exitBlocked'),
         });
       }
+      if (event.event === 'runtime' && event.payload.status === 'ready' && typeof event.payload.version === 'string') {
+        setApplicationVersion(event.payload.version);
+      }
       const nextSnapshot = snapshotFromEvent(event);
       if (nextSnapshot) {
         // A completion snapshot is delivered after the final progress event
@@ -514,6 +518,15 @@ function PixelFlasherApp({
         if (!mounted) return;
         setBridgeState('error');
         setNotice({ tone: 'error', message: error instanceof Error ? error.message : t('notice.error') });
+      });
+
+    bridge.command<Record<string, unknown>>(commands.appReady)
+      .then(({ result }) => {
+        if (mounted && typeof result.version === 'string') setApplicationVersion(result.version);
+      })
+      .catch(() => {
+        // Snapshot loading owns startup error reporting; the runtime event can
+        // still provide the version when an older development host is used.
       });
 
     return () => {
@@ -761,12 +774,12 @@ function PixelFlasherApp({
   }, [reportError, snapshot.revision]);
 
   const runApplicationCommand = useCallback((
-    action: 'openFolder' | 'exit',
-    target?: 'configuration' | 'logs' | 'cache',
+    action: 'openFolder' | 'openLink' | 'exit',
+    target?: 'configuration' | 'logs' | 'cache' | 'documentation' | 'license' | 'releases' | 'reportIssue' | 'source',
   ) => {
     void runCommand(
-      action === 'openFolder' ? commands.appOpenFolder : commands.appExit,
-      action === 'openFolder' && target ? { target } : {},
+      action === 'openFolder' ? commands.appOpenFolder : action === 'openLink' ? commands.appOpenLink : commands.appExit,
+      action !== 'exit' && target ? { target } : {},
     );
   }, [runCommand]);
 
@@ -1004,6 +1017,7 @@ function PixelFlasherApp({
           preferences={applicationPreferences}
           onMaintenancePreferenceChange={changeMaintenancePreference}
           onApplicationCommand={runApplicationCommand}
+          applicationVersion={applicationVersion}
           applicationConsoleLines={applicationConsoleLines}
           onApplicationConsoleClear={clearApplicationConsole}
           onApplicationConsoleExport={exportApplicationConsole}

@@ -18,6 +18,7 @@ export function SettingsPage({
   preferences,
   onMaintenancePreferenceChange,
   onApplicationCommand,
+  applicationVersion,
   applicationConsoleLines,
   onApplicationConsoleClear,
   onApplicationConsoleExport,
@@ -40,9 +41,10 @@ export function SettingsPage({
     value: boolean | number | string,
   ) => void;
   onApplicationCommand: (
-    action: 'openFolder' | 'exit',
-    target?: 'configuration' | 'logs' | 'cache',
+    action: 'openFolder' | 'openLink' | 'exit',
+    target?: 'configuration' | 'logs' | 'cache' | 'documentation' | 'license' | 'releases' | 'reportIssue' | 'source',
   ) => void;
+  applicationVersion: string;
   applicationConsoleLines: readonly string[];
   onApplicationConsoleClear: () => void;
   onApplicationConsoleExport: () => void;
@@ -197,6 +199,21 @@ export function SettingsPage({
             <Button icon="logs" onClick={() => onApplicationCommand('openFolder', 'logs')}>{t('settings.openLogs')}</Button>
             <Button icon="folder" onClick={() => onApplicationCommand('openFolder', 'cache')}>{t('settings.openCache')}</Button>
             <Button variant="danger" icon="close" onClick={() => onApplicationCommand('exit')}>{t('settings.exitApplication')}</Button>
+          </div>
+        </Card>
+        <Card className="settings-about">
+          <CardTitle icon="settings">{t('settings.about')}</CardTitle>
+          <p className="settings-card-detail">{t('settings.aboutDetail')}</p>
+          <dl className="settings-about-details">
+            <div><dt>{t('settings.version')}</dt><dd>{applicationVersion || t('settings.versionUnavailable')}</dd></div>
+            <div><dt>{t('settings.license')}</dt><dd>GNU GPL v3</dd></div>
+          </dl>
+          <div className="settings-shell-actions" aria-label={t('settings.helpLinks')}>
+            <Button icon="tools" onClick={() => onApplicationCommand('openLink', 'documentation')}>{t('settings.documentation')}</Button>
+            <Button icon="logs" onClick={() => onApplicationCommand('openLink', 'releases')}>{t('settings.releaseNotes')}</Button>
+            <Button icon="warning" onClick={() => onApplicationCommand('openLink', 'reportIssue')}>{t('settings.reportIssue')}</Button>
+            <Button icon="folder" onClick={() => onApplicationCommand('openLink', 'source')}>{t('settings.sourceCode')}</Button>
+            <Button variant="ghost" icon="shield" onClick={() => onApplicationCommand('openLink', 'license')}>{t('settings.viewLicense')}</Button>
           </div>
         </Card>
         <Card className="settings-console">

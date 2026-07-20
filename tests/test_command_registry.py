@@ -43,6 +43,7 @@ class CommandRegistryTests(unittest.TestCase):
     def test_application_shell_commands_are_closed_and_host_owned(self):
         console_export = COMMAND_REGISTRY["app.console.export"]
         open_folder = COMMAND_REGISTRY["app.openFolder"]
+        open_link = COMMAND_REGISTRY["app.openLink"]
         exit_app = COMMAND_REGISTRY["app.exit"]
         self.assertEqual(CommandOwner.APPLICATION, open_folder.owner)
         self.assertEqual({"grant", "lines"}, set(console_export.payload.fields))
@@ -51,10 +52,13 @@ class CommandRegistryTests(unittest.TestCase):
         self.assertTrue(open_folder.payload.fields["target"].required)
         self.assertEqual({}, dict(exit_app.payload.fields))
         self.assertEqual("native_host.open_folder", open_folder.planner)
+        self.assertEqual("native_host.open_link", open_link.planner)
+        self.assertEqual({"target"}, set(open_link.payload.fields))
         self.assertEqual("native_host.exit", exit_app.planner)
         BridgeRequest.from_json(
             _request("app.openFolder", {"target": "configuration"})
         )
+        BridgeRequest.from_json(_request("app.openLink", {"target": "documentation"}))
         BridgeRequest.from_json(_request("app.exit"))
         BridgeRequest.from_json(
             _request(
@@ -66,6 +70,8 @@ class CommandRegistryTests(unittest.TestCase):
             BridgeRequest.from_json(_request("app.openFolder", {"path": "C:/secret"}))
         with self.assertRaises(BridgeProtocolError):
             BridgeRequest.from_json(_request("app.openFolder", {"target": "C:/secret"}))
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest.from_json(_request("app.openLink", {"target": "https://example.com"}))
         with self.assertRaises(BridgeProtocolError):
             BridgeRequest.from_json(
                 _request(

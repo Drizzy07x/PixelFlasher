@@ -6593,3 +6593,49 @@ msgstr "語言控制項"
 msgctxt "web.settings.toolbarLanguageDetail"
 msgid "Show the language selector in the toolbar."
 msgstr "在工具列中顯示語言選擇器。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.about"
+msgid "About and help"
+msgstr "關於與說明"
+
+msgctxt "web.settings.aboutDetail"
+msgid ""
+"Version, license, documentation, release notes, and support resources for "
+"PixelFlasher."
+msgstr "PixelFlasher 的版本、授權條款、文件、版本資訊和支援資源。"
+
+msgctxt "web.settings.versionUnavailable"
+msgid "Unavailable"
+msgstr "無法使用"
+
+msgctxt "web.settings.license"
+msgid "License"
+msgstr "授權條款"
+
+msgctxt "web.settings.helpLinks"
+msgid "Help and project links"
+msgstr "說明與專案連結"
+
+msgctxt "web.settings.documentation"
+msgid "Documentation"
+msgstr "文件"
+
+msgctxt "web.settings.releaseNotes"
+msgid "Release notes"
+msgstr "版本資訊"
+
+msgctxt "web.settings.reportIssue"
+msgid "Report an issue"
+msgstr "回報問題"
+
+msgctxt "web.settings.sourceCode"
+msgid "Source code"
+msgstr "原始碼"
+
+msgctxt "web.settings.viewLicense"
+msgid "View license"
+msgstr "檢視授權條款"

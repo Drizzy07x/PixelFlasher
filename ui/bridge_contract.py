@@ -234,6 +234,15 @@ def _validate_payload_values(
     }:
         _payload_error("app.openFolder target is invalid", request_id)
 
+    if command == "app.openLink" and payload.get("target") not in {
+        "documentation",
+        "license",
+        "releases",
+        "reportIssue",
+        "source",
+    }:
+        _payload_error("app.openLink target is invalid", request_id)
+
     if command == "app.console.export":
         lines = payload.get("lines")
         if not isinstance(lines, list) or any(

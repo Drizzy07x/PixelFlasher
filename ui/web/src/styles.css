@@ -4108,6 +4108,36 @@ code {
   grid-column: 1 / -1;
 }
 
+.settings-about {
+  grid-column: 1 / -1;
+}
+
+.settings-about-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+  margin: 0;
+  padding: 0.85rem 1rem 0;
+}
+
+.settings-about-details div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.settings-about-details dt {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.settings-about-details dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .settings-card-detail {
   margin: 0;
   padding: 0.85rem 1rem 0;

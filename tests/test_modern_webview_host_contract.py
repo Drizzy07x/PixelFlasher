@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from constants import VERSION
 from pixelflasher_core import (
     ActiveOperation,
     AppCommand,
@@ -97,6 +98,24 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertTrue(responses[0]["ok"])
         self.assertEqual("cancellation_requested", responses[0]["result"]["code"])
 
+    def test_application_ready_returns_the_host_version_and_refreshes_snapshot(self):
+        responses: list[dict] = []
+        snapshots: list[bool] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _complete_request=lambda _request, message: responses.append(message),
+            _emit_snapshot=lambda: snapshots.append(True),
+        )
+
+        ModernWebViewFrame._dispatch_request(
+            host,
+            request("application-ready", command="app.ready"),
+        )
+
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual(VERSION, responses[0]["result"]["version"])
+        self.assertEqual([True], snapshots)
+
     def test_application_folders_are_backend_owned_and_never_disclose_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             logs = Path(directory) / "logs"
@@ -135,6 +154,62 @@ class ModernWebViewHostContractTests(unittest.TestCase):
                     value={"target": "logs", "path": "C:/secret"},
                 ),
             )
+
+    def test_application_links_are_fixed_https_targets_opened_outside_the_webview(self):
+        responses: list[dict] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _complete_request=lambda _request, message: responses.append(message),
+        )
+        with patch("ui.pages.modern_webview_host.webbrowser.open", return_value=True) as opened:
+            ModernWebViewFrame._handle_application_request(
+                host,
+                request(
+                    "open-documentation",
+                    command="app.openLink",
+                    payload={"target": "documentation"},
+                ),
+            )
+
+        opened.assert_called_once_with(
+            "https://github.com/badabing2005/PixelFlasher#readme",
+            new=2,
+        )
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual("application_link_opened", responses[0]["result"]["code"])
+        self.assertNotIn("https://", json.dumps(responses[0]))
+
+        projected = project_operation_result(
+            "app.openLink",
+            OperationResult.success("open-link", value={"target": "releases"}),
+        )
+        self.assertEqual({"target": "releases"}, projected["value"])
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "app.openLink",
+                OperationResult.success(
+                    "open-link-hostile",
+                    value={"target": "releases", "url": "https://example.com"},
+                ),
+            )
+
+    def test_application_link_fails_closed_when_native_browser_rejects_launch(self):
+        responses: list[dict] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _complete_request=lambda _request, message: responses.append(message),
+        )
+        with patch("ui.pages.modern_webview_host.webbrowser.open", return_value=False):
+            ModernWebViewFrame._handle_application_request(
+                host,
+                request(
+                    "open-license",
+                    command="app.openLink",
+                    payload={"target": "license"},
+                ),
+            )
+        self.assertFalse(responses[0]["ok"])
+        self.assertEqual("application_link_open_failed", responses[0]["error"]["code"])
 
     def test_application_console_export_is_bounded_atomic_and_route_free(self):
         with tempfile.TemporaryDirectory() as directory:

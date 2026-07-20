@@ -28,6 +28,7 @@ ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
     {
         "app.openFolder",
+        "app.openLink",
         "apps.action",
         "device.openUrl",
         "device.inspect",
@@ -3580,6 +3581,14 @@ def _project_application_folder(value: object) -> JSONValue:
     return {"target": cast(str, target)}
 
 
+def _project_application_link(value: object) -> JSONValue:
+    source = _closed_record(value, fields=frozenset({"target"}))
+    target = source.get("target")
+    if target not in {"documentation", "license", "releases", "reportIssue", "source"}:
+        raise PublicProjectionError("application link target is invalid")
+    return {"target": cast(str, target)}
+
+
 def _public_grant(value: object) -> dict[str, JSONValue]:
     source = _record(value)
     raw_expiry = source.get("expiresInSeconds")
@@ -3602,6 +3611,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "app.console.export": _project_none,
     "app.exit": _project_none,
     "app.openFolder": _project_application_folder,
+    "app.openLink": _project_application_link,
     "app.ready": _project_none,
     "apps.action": _project_apps_action,
     "apps.list": _project_apps_list,

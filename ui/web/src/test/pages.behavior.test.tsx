@@ -446,6 +446,7 @@ describe('apps, backups and settings workflows', () => {
         expertMode={false} onExpertModeChange={callbacks.expert}
         preferences={demoSnapshot.preferences} onMaintenancePreferenceChange={callbacks.maintenance}
         onApplicationCommand={callbacks.application}
+        applicationVersion="9.2.2"
         applicationConsoleLines={['[PROGRESS 50%] Processing firmware.']}
         onApplicationConsoleClear={callbacks.consoleClear}
         onApplicationConsoleExport={callbacks.consoleExport}
@@ -471,6 +472,11 @@ describe('apps, backups and settings workflows', () => {
     await user.click(screen.getByRole('button', { name: 'Open logs folder' }));
     await user.click(screen.getByRole('button', { name: 'Open verified cache' }));
     await user.click(screen.getByRole('button', { name: 'Exit PixelFlasher' }));
+    await user.click(screen.getByRole('button', { name: 'Documentation' }));
+    await user.click(screen.getByRole('button', { name: 'Release notes' }));
+    await user.click(screen.getByRole('button', { name: 'Report an issue' }));
+    await user.click(screen.getByRole('button', { name: 'Source code' }));
+    await user.click(screen.getByRole('button', { name: 'View license' }));
     await user.click(screen.getByRole('button', { name: 'Clear console' }));
     await user.click(screen.getByRole('button', { name: 'Export redacted console' }));
     expect(callbacks.theme).toHaveBeenCalledWith('light');
@@ -492,6 +498,12 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'logs');
     expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'cache');
     expect(callbacks.application).toHaveBeenCalledWith('exit');
+    expect(callbacks.application).toHaveBeenCalledWith('openLink', 'documentation');
+    expect(callbacks.application).toHaveBeenCalledWith('openLink', 'releases');
+    expect(callbacks.application).toHaveBeenCalledWith('openLink', 'reportIssue');
+    expect(callbacks.application).toHaveBeenCalledWith('openLink', 'source');
+    expect(callbacks.application).toHaveBeenCalledWith('openLink', 'license');
+    expect(screen.getByText('9.2.2')).toBeVisible();
     expect(callbacks.consoleClear).toHaveBeenCalledOnce();
     expect(callbacks.consoleExport).toHaveBeenCalledOnce();
 
@@ -504,6 +516,7 @@ describe('apps, backups and settings workflows', () => {
       expertMode onExpertModeChange={callbacks.expert}
       preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
       onApplicationCommand={callbacks.application}
+      applicationVersion="9.2.2"
       applicationConsoleLines={[]}
       onApplicationConsoleClear={callbacks.consoleClear}
       onApplicationConsoleExport={callbacks.consoleExport}

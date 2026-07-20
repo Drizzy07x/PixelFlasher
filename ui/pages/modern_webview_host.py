@@ -11,6 +11,7 @@ import math
 import os
 import sys
 import threading
+import webbrowser
 from collections import OrderedDict, deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -60,6 +61,14 @@ from ui.public_bridge import (
     public_snapshot,
     safe_public_message,
 )
+
+_APPLICATION_LINKS = {
+    "documentation": "https://github.com/badabing2005/PixelFlasher#readme",
+    "license": "https://github.com/badabing2005/PixelFlasher/blob/main/LICENSE",
+    "releases": "https://github.com/badabing2005/PixelFlasher/releases",
+    "reportIssue": "https://github.com/badabing2005/PixelFlasher/issues/new/choose",
+    "source": "https://github.com/badabing2005/PixelFlasher",
+}
 
 
 class EngineProtocol(Protocol):
@@ -806,7 +815,7 @@ class ModernWebViewFrame(wx.Frame):
         if request.command == "secret.issue":
             self._handle_secret_issue(request)
             return
-        if request.command in {"app.console.export", "app.openFolder", "app.exit"}:
+        if request.command in {"app.console.export", "app.openFolder", "app.openLink", "app.exit"}:
             self._handle_application_request(request)
             return
         if request.command.startswith("native."):
@@ -821,6 +830,7 @@ class ModernWebViewFrame(wx.Frame):
                     result={
                         "status": "SUCCESS",
                         "message": "Bridge ready.",
+                        "version": VERSION,
                         "revision": _revision(self._engine.snapshot()),
                     },
                 ),
@@ -1228,6 +1238,55 @@ class ModernWebViewFrame(wx.Frame):
                         "status": "SUCCESS",
                         "code": "application_directory_opened",
                         "message": "Application folder opened.",
+                        "target": target,
+                        "revision": snapshot.revision,
+                    },
+                ),
+            )
+            return
+
+        if request.command == "app.openLink":
+            target = request.payload.get("target")
+            url = _APPLICATION_LINKS.get(target if isinstance(target, str) else "")
+            if url is None:
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=False,
+                        error={
+                            "code": "application_link_unavailable",
+                            "message": "The requested application link is unavailable.",
+                        },
+                    ),
+                )
+                return
+            try:
+                opened = webbrowser.open(url, new=2)
+            except Exception:
+                opened = False
+            if not opened:
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=False,
+                        error={
+                            "code": "application_link_open_failed",
+                            "message": "The application link could not be opened.",
+                        },
+                    ),
+                )
+                return
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=True,
+                    result={
+                        "status": "SUCCESS",
+                        "code": "application_link_opened",
+                        "message": "Application link opened.",
                         "target": target,
                         "revision": snapshot.revision,
                     },

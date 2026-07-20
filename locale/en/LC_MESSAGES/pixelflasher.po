@@ -6560,3 +6560,49 @@ msgstr ""
 msgctxt "web.settings.toolbarLanguageDetail"
 msgid "Show the language selector in the toolbar."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.about"
+msgid "About and help"
+msgstr "About and help"
+
+msgctxt "web.settings.aboutDetail"
+msgid ""
+"Version, license, documentation, release notes, and support resources for "
+"PixelFlasher."
+msgstr "Version, license, documentation, release notes, and support resources for PixelFlasher."
+
+msgctxt "web.settings.versionUnavailable"
+msgid "Unavailable"
+msgstr "Unavailable"
+
+msgctxt "web.settings.license"
+msgid "License"
+msgstr "License"
+
+msgctxt "web.settings.helpLinks"
+msgid "Help and project links"
+msgstr "Help and project links"
+
+msgctxt "web.settings.documentation"
+msgid "Documentation"
+msgstr "Documentation"
+
+msgctxt "web.settings.releaseNotes"
+msgid "Release notes"
+msgstr "Release notes"
+
+msgctxt "web.settings.reportIssue"
+msgid "Report an issue"
+msgstr "Report an issue"
+
+msgctxt "web.settings.sourceCode"
+msgid "Source code"
+msgstr "Source code"
+
+msgctxt "web.settings.viewLicense"
+msgid "View license"
+msgstr "View license"

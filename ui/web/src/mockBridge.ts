@@ -494,6 +494,14 @@ export function installDevelopmentBridge() {
         }
 
         switch (request.command) {
+          case 'app.ready':
+            respond(request, {
+              status: 'SUCCESS',
+              message: 'Bridge ready.',
+              version: '9.2.2-dev',
+              revision: snapshot.revision,
+            });
+            return;
           case 'app.console.export':
             respond(request, { status: 'SUCCESS', code: 'console_exported', message: 'Redacted console exported.' });
             return;

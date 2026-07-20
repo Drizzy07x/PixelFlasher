@@ -7,6 +7,7 @@ export const commands = {
   appConsoleExport: "app.console.export",
   appExit: "app.exit",
   appOpenFolder: "app.openFolder",
+  appOpenLink: "app.openLink",
   appReady: "app.ready",
   appsAction: "apps.action",
   appsList: "apps.list",
@@ -102,6 +103,9 @@ export interface BridgePayloadByCommand {
   };
   "app.exit": Record<string, never>;
   "app.openFolder": {
+    "target": string;
+  };
+  "app.openLink": {
     "target": string;
   };
   "app.ready": Record<string, never>;
@@ -512,6 +516,7 @@ export const allowedCommands = [
   commands.appConsoleExport,
   commands.appExit,
   commands.appOpenFolder,
+  commands.appOpenLink,
   commands.appReady,
   commands.appsAction,
   commands.appsList,
@@ -608,6 +613,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.appConsoleExport]: 60000,
   [commands.appExit]: 60000,
   [commands.appOpenFolder]: 60000,
+  [commands.appOpenLink]: 60000,
   [commands.appReady]: 60000,
   [commands.appsAction]: 1200000,
   [commands.appsList]: 300000,
@@ -698,6 +704,7 @@ export const bridgeCommandMetadata = {
   [commands.appConsoleExport]: {"owner":"application","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.console_export","confirmation":"none","postconditions":["bounded_redacted_console_exported"]},
   [commands.appExit]: {"owner":"application","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.exit","confirmation":"none","postconditions":["window_close_requested"]},
   [commands.appOpenFolder]: {"owner":"application","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.open_folder","confirmation":"none","postconditions":["backend_owned_directory_open_requested"]},
+  [commands.appOpenLink]: {"owner":"application","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.open_link","confirmation":"none","postconditions":["allowlisted_https_link_open_requested"]},
   [commands.appReady]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"native_host.lifecycle","confirmation":"none","postconditions":["snapshot_emitted"]},
   [commands.appsAction]: {"owner":"applications","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"apps.action","confirmation":"standard","postconditions":["package_state_verified"]},
   [commands.appsList]: {"owner":"applications","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"apps.inventory","confirmation":"none","postconditions":["packages_returned"]},
@@ -819,6 +826,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.appConsoleExport]: {"grant":{"kind":"string","required":true},"lines":{"kind":"string_array","required":true,"minItems":1,"maxItems":200}},
   [commands.appExit]: {},
   [commands.appOpenFolder]: {"target":{"kind":"string","required":true}},
+  [commands.appOpenLink]: {"target":{"kind":"string","required":true}},
   [commands.appReady]: {},
   [commands.appsAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"options":{"kind":"object","required":false},"package":{"kind":"string","required":false},"packages":{"kind":"string_array","required":false},"scope":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.appsList]: {"scope":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},

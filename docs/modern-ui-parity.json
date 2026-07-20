@@ -382,9 +382,14 @@
       "area": "navigation",
       "capability": "Version, licensing and project information",
       "owner": "navigation",
-      "modernStatus": "missing",
-      "currentEvidence": [],
-      "gap": "The live React task shell has no About/help route with packaged version, license, update and support information.",
+      "modernStatus": "partial",
+      "currentEvidence": [
+        "ui/web/src/pages/settings/SettingsPage.tsx:About and help card",
+        "ui/pages/modern_webview_host.py:_APPLICATION_LINKS/_handle_application_request",
+        "tests/test_modern_webview_host_contract.py:fixed HTTPS targets and fail-closed browser launch",
+        "ui/web/src/test/pages.behavior.test.tsx:version and help-link controls"
+      ],
+      "gap": "The accessible About/help surface and native allow-listed project links are live. Signed update status and packaged dev/RC version derivation remain open.",
       "exitCriteria": [
         "A keyboard-accessible React About/help surface shows packaged version, licensing, updates, support and project information."
       ],
@@ -395,7 +400,10 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_modern_webview_host_contract.py:application link allow-list",
+        "ui/web/src/test/pages.behavior.test.tsx:About/help controls"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
@@ -404,7 +412,9 @@
       "modernActionIds": [
         "open_about"
       ],
-      "modernCommandIds": []
+      "modernCommandIds": [
+        "app.openLink"
+      ]
     },
     {
       "id": "device.discovery",
@@ -1113,7 +1123,10 @@
         "macos",
         "linux"
       ],
-      "tests": [],
+      "tests": [
+        "tests/test_modern_webview_host_contract.py:application link allow-list",
+        "ui/web/src/test/pages.behavior.test.tsx:About/help controls"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
