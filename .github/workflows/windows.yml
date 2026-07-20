@@ -126,6 +126,9 @@ jobs:
           $env:VIRTUAL_ENV = "${{ github.workspace }}\$env:VENV"
           $env:PATH = "$env:VIRTUAL_ENV\Scripts;$env:PATH"
           $env:PIXELFLASHER_FRONTEND_PREBUILT = "1"
+          if ($env:GITHUB_REF -like 'refs/tags/v10.*') {
+            $env:PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS = "1"
+          }
           .\build.bat
 
       - name: Verify output exists

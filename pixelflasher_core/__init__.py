@@ -367,6 +367,12 @@ from .platform_tools import (
     probe_platform_tools,
     validate_platform_tools_directory,
 )
+from .platform_tools_distribution import (
+    PackagedPlatformToolsDistribution,
+    PlatformToolsDistributionError,
+    load_optional_platform_tools_distribution,
+    load_platform_tools_distribution,
+)
 from .platform_tools_setup import (
     MappingPlatformToolsManifestCatalog,
     PlatformToolsCatalogError,
@@ -746,6 +752,8 @@ __all__ = [
     "PlatformToolsLimits",
     "PlatformToolsProbeResult",
     "PlatformToolsStatus",
+    "PackagedPlatformToolsDistribution",
+    "PlatformToolsDistributionError",
     "PosixTerminalBackend",
     "MappingPlatformToolsManifestCatalog",
     "PlatformToolsCatalogError",
@@ -896,6 +904,8 @@ __all__ = [
     "platform_key",
     "platform_tools_binary_names",
     "probe_platform_tools",
+    "load_optional_platform_tools_distribution",
+    "load_platform_tools_distribution",
     "probe_scrcpy",
     "reconcile_device_selection",
     "reconcile_device_management",

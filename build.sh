@@ -69,6 +69,18 @@ else
     $PYTHON ./scripts/build_frontend.py
 fi
 
+if [[ ${GITHUB_REF:-} == refs/tags/v10.* ]]; then
+    PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS=1
+fi
+catalog_args=(--root resources/platform-tools/runtime)
+if [[ ${PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS:-0} != "1" ]]; then
+    catalog_args+=(--allow-missing)
+fi
+$PYTHON ./scripts/verify_platform_tools_catalog.py "${catalog_args[@]}"
+if [[ $? -ne 0 ]]; then
+    exit 1
+fi
+
 pyinstaller --log-level=DEBUG \
             --noconfirm \
             $specfile

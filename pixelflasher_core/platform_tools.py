@@ -163,6 +163,24 @@ def architecture_key(architecture: str) -> str:
         ) from error
 
 
+def _binary_architecture_is_compatible(
+    *,
+    platform: str,
+    requested_arch: str,
+    observed_arches: frozenset[str],
+) -> bool:
+    if requested_arch in observed_arches:
+        return True
+    # Google currently ships the Windows Platform Tools as PE x86. Windows
+    # x64 and Windows 11 on ARM both provide the corresponding compatibility
+    # layer, while no equivalent cross-architecture promise exists on POSIX.
+    return (
+        platform_key(platform) == "windows"
+        and requested_arch in {"x86_64", "arm64"}
+        and observed_arches == frozenset({"x86"})
+    )
+
+
 def _cpu_architecture(cpu_type: int) -> str | None:
     return {
         0x00000007: "x86",
@@ -280,7 +298,11 @@ def validate_platform_tools_directory(
                     "toolchain_binary_format_invalid",
                     "Platform Tools contains an unrecognized executable format",
                 )
-            if requested_arch not in observed_arches:
+            if not _binary_architecture_is_compatible(
+                platform=platform,
+                requested_arch=requested_arch,
+                observed_arches=observed_arches,
+            ):
                 raise PlatformToolsError(
                     "toolchain_arch_mismatch",
                     "Platform Tools executable architecture does not match its manifest",

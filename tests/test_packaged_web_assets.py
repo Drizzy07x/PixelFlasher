@@ -15,6 +15,7 @@ PACKAGE_SPECS = (
     Path("build-on-win.spec"),
     Path("build-on-win-arm64.spec"),
     Path("build-on-mac.spec"),
+    Path("build-on-mac-intel-only.spec"),
     Path("build-on-linux.spec"),
 )
 
@@ -74,10 +75,22 @@ class PackagedWebAssetTests(unittest.TestCase):
                 self.assertIn("scripts/build_frontend.py", source.replace("\\", "/"))
                 self.assertIn("PIXELFLASHER_FRONTEND_PREBUILT", source)
                 self.assertIn("--check-only", source)
+                self.assertIn("verify_platform_tools_catalog.py", source)
                 self.assertLess(
                     source.replace("\\", "/").index("scripts/build_frontend.py"),
                     source.casefold().index("pyinstaller"),
                 )
+
+    def test_v10_release_builds_require_the_signed_platform_tools_matrix(self):
+        shell_source = Path("build.sh").read_text(encoding="utf-8")
+        windows_source = Path(".github/workflows/windows.yml").read_text(encoding="utf-8")
+        arm_source = Path(".github/workflows/windows-arm64.yml").read_text(encoding="utf-8")
+        self.assertIn("GITHUB_REF:-} == refs/tags/v10.*", shell_source)
+        self.assertIn("PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS=1", shell_source)
+        self.assertIn("PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS", windows_source)
+        self.assertIn("refs/tags/v10.*", windows_source)
+        self.assertIn("refs/tags/v10.*", arm_source)
+        self.assertIn("verify_platform_tools_catalog.py", arm_source)
 
     def test_every_desktop_package_inspects_the_final_pyinstaller_archive(self):
         for path in PACKAGE_WORKFLOWS:
@@ -97,6 +110,10 @@ class PackagedWebAssetTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             with self.subTest(path=path):
                 self.assertIn("'ui/web/dist', 'ui/web/dist'", source)
+                self.assertIn(
+                    "'resources/platform-tools', 'resources/platform-tools'",
+                    source,
+                )
 
     def test_every_release_platform_executes_the_packaged_pty_smoke(self):
         for path in PACKAGED_PTY_WORKFLOWS:

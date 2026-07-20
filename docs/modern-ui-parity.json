@@ -462,15 +462,21 @@
       "capability": "Locate, validate or install Android Platform Tools",
       "owner": "platform_tools",
       "modernStatus": "partial",
-    "currentEvidence": [
+      "currentEvidence": [
       "pixelflasher_core/toolchain.py:ToolchainService",
       "pixelflasher_core/artifact_downloads.py:ArtifactDownloader",
+      "pixelflasher_core/artifact_trust.py:PLATFORM_TOOLS_ED25519_PUBLIC_KEYS",
       "pixelflasher_core/platform_tools.py:PlatformToolsInstaller",
+      "pixelflasher_core/platform_tools_distribution.py:load_platform_tools_distribution",
       "pixelflasher_core/platform_tools_setup.py:PlatformToolsSetupService",
       "pixelflasher_core/engine.py:_setup_platform_tools",
+      "resources/platform-tools/source-lock.json",
+      "docs/platform-tools-release.md",
+      "scripts/build_platform_tools_catalog.py:build_catalog",
+      "scripts/verify_platform_tools_catalog.py:verify",
       "ui/web/src/pages/dashboard/DashboardPage.tsx"
     ],
-    "gap": "Signed official and opaque-grant directory setup are native, versioned and atomic. Production Ed25519 key/catalog provisioning plus packaged cross-platform installation smokes remain open; builds without a provisioned catalog fail closed.",
+      "gap": "Signed official and opaque-grant directory setup are native, versioned and atomic. The official stable 37.0.0 source lock, five-target architecture validation, offline signer, strict runtime loader and v10 fail-closed release gate are delivered. Production Ed25519 key custody, final signed catalog generation and packaged cross-platform installation smokes remain open.",
       "exitCriteria": [
         "Locate, validate or install Android Platform Tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -481,11 +487,15 @@
         "macos",
         "linux"
       ],
-    "tests": [
+      "tests": [
       "tests/test_headless_services.py:ToolchainServiceTests/EngineServiceIntegrationTests",
+      "tests/test_build_platform_tools_catalog.py",
       "tests/test_platform_tools_core.py",
+      "tests/test_platform_tools_core.py:test_official_windows_x86_binaries_are_compatible_with_x64_and_arm64_hosts",
+      "tests/test_platform_tools_distribution.py",
       "tests/test_platform_tools_manifest_install.py",
       "tests/test_platform_tools_setup_service.py",
+      "tests/test_platform_tools_source_lock.py",
       "tests/test_runtime_platform_tools_setup.py"
     ],
       "blockReason": null,

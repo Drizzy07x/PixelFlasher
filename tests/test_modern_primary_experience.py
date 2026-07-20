@@ -67,6 +67,9 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertIn("ApplicationRuntime.open", self.primary_source)
         self.assertIn("create_modern_webview_frame", self.primary_source)
         self.assertIn("runtime.engine", self.primary_source)
+        self.assertIn("load_optional_platform_tools_distribution", self.primary_source)
+        self.assertIn("platform_tools_catalog=", self.primary_source)
+        self.assertIn("platform_tools_downloader=", self.primary_source)
         self.assertIn(
             "support_destination_registrar=runtime.register_support_destination",
             self.primary_source,

@@ -5,6 +5,12 @@ if "%PIXELFLASHER_FRONTEND_PREBUILT%"=="1" (
     python .\scripts\build_frontend.py
 )
 if errorlevel 1 exit /b %errorlevel%
+if "%PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS%"=="1" (
+    python .\scripts\verify_platform_tools_catalog.py --root .\resources\platform-tools\runtime
+) else (
+    python .\scripts\verify_platform_tools_catalog.py --root .\resources\platform-tools\runtime --allow-missing
+)
+if errorlevel 1 exit /b %errorlevel%
 pyinstaller --log-level=DEBUG ^
 			--clean ^
             --noconfirm ^

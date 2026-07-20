@@ -16,6 +16,10 @@ from platformdirs import user_data_dir
 
 from constants import APPNAME, CONFIG_FILE_NAME
 from pixelflasher_core import LEGACY_V9_DATABASE_NAME, ApplicationRuntime
+from pixelflasher_core.platform_tools_distribution import (
+    load_optional_platform_tools_distribution,
+)
+from platform_utils import repo_root
 from ui.core_command_factory import create_command_factory
 from ui.pages.modern_webview_host import (
     create_modern_webview_frame,
@@ -58,10 +62,23 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
     smoke_timed_out = False
     try:
         system_data_root = Path(user_data_dir(APPNAME, appauthor=False, roaming=True))
+        platform_tools_distribution = load_optional_platform_tools_distribution(
+            repo_root() / "resources" / "platform-tools" / "runtime"
+        )
         runtime = ApplicationRuntime.open(
             config_path,
             enable_device_monitor=True,
             legacy_database_path=system_data_root / LEGACY_V9_DATABASE_NAME,
+            platform_tools_catalog=(
+                platform_tools_distribution.catalog
+                if platform_tools_distribution is not None
+                else None
+            ),
+            platform_tools_downloader=(
+                platform_tools_distribution.downloader
+                if platform_tools_distribution is not None
+                else None
+            ),
         )
         app = wx.App(False)
 

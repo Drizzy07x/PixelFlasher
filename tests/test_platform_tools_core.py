@@ -230,6 +230,43 @@ class PlatformToolsInstallerTests(unittest.TestCase):
             self.assertEqual("toolchain_arch_mismatch", result.code)
             self.assertEqual("old", marker.read_text(encoding="utf-8"))
 
+    def test_official_windows_x86_binaries_are_compatible_with_x64_and_arm64_hosts(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pf-core-tools-windows-compat-") as temporary:
+            root = Path(temporary)
+            archive = root / "platform-tools.zip"
+            _write_tools_archive(archive, machine=0x014C)
+
+            for architecture in ("x86", "x86_64", "arm64"):
+                with self.subTest(architecture=architecture):
+                    result = PlatformToolsInstaller(
+                        probe_runner=_successful_probe
+                    ).install_archive(
+                        archive,
+                        install_root=root / f"install-{architecture}",
+                        expected_sha256=_sha256(archive),
+                        platform="windows",
+                        expected_arch=architecture,
+                    )
+
+                    self.assertEqual(PlatformToolsStatus.SUCCESS, result.status)
+
+    def test_windows_compatibility_does_not_admit_unrelated_binary_architectures(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pf-core-tools-windows-reject-") as temporary:
+            root = Path(temporary)
+            archive = root / "platform-tools.zip"
+            _write_tools_archive(archive, machine=0x01C4)
+
+            result = PlatformToolsInstaller(probe_runner=_successful_probe).install_archive(
+                archive,
+                install_root=root / "install",
+                expected_sha256=_sha256(archive),
+                platform="windows",
+                expected_arch="arm64",
+            )
+
+            self.assertEqual(PlatformToolsStatus.FAILED, result.status)
+            self.assertEqual("toolchain_arch_mismatch", result.code)
+
     def test_linux_and_universal_macos_headers_are_validated_without_execution(self) -> None:
         cases = (
             ("linux", "arm64", _elf_binary(183)),

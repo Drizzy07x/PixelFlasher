@@ -1,0 +1,52 @@
+{
+  "archives": [
+    {
+      "binaryArchitectures": [
+        "x86"
+      ],
+      "hostArchitectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "platform": "windows",
+      "sha1": "f29bfb58d0d6f9a57d7dbcba6cc259f9ca6f58f1",
+      "sha256": "4fe305812db074cea32903a489d061eb4454cbc90a49e8fea677f4b7af764918",
+      "size": 8092164,
+      "url": "https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip"
+    },
+    {
+      "binaryArchitectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "hostArchitectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "platform": "darwin",
+      "sha1": "8c4c926d0ca192376b2a04b0318484724319e67c",
+      "sha256": "094a1395683c509fd4d48667da0d8b5ef4d42b2abfcd29f2e8149e2f989357c7",
+      "size": 16442240,
+      "url": "https://dl.google.com/android/repository/platform-tools_r37.0.0-darwin.zip"
+    },
+    {
+      "binaryArchitectures": [
+        "x86_64"
+      ],
+      "hostArchitectures": [
+        "x86_64"
+      ],
+      "platform": "linux",
+      "sha1": "bcf323933980a59dccc3f14c339aed5fb2171163",
+      "sha256": "198ae156ab285fa555987219af237b31102fefe8b9d2bc274708a8d4f2865a07",
+      "size": 9167924,
+      "url": "https://dl.google.com/android/repository/platform-tools_r37.0.0-linux.zip"
+    }
+  ],
+  "license": "Android-SDK-License",
+  "provenance": "Google Android SDK Platform Tools stable repository",
+  "releaseChannel": "stable",
+  "schemaVersion": 1,
+  "sourceMetadataUrl": "https://dl.google.com/android/repository/repository2-1.xml",
+  "version": "37.0.0"
+}
