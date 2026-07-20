@@ -452,17 +452,29 @@ class ApkInspector:
     ) -> dict[str, zipfile.ZipInfo]:
         expanded = 0
         normalized: dict[str, zipfile.ZipInfo] = {}
+        security_names: dict[str, str] = {}
         ranges: list[tuple[int, int]] = []
         for info in infos:
             _raise_if_cancelled(cancellation)
             name = _safe_archive_name(info.filename)
-            identity = name.casefold()
-            if identity in normalized:
+            if name in normalized:
                 raise _ParseFailure(
                     ApkInspectionCode.DUPLICATE_ENTRY,
-                    "APK contains duplicate or ambiguous archive entries",
+                    "APK contains duplicate archive entries",
                 )
-            normalized[identity] = info
+            security_identity = name.casefold()
+            security_sensitive = (
+                security_identity == _MANIFEST_PATH.casefold()
+                or security_identity.startswith("meta-inf/")
+            )
+            if security_sensitive and security_identity in security_names:
+                raise _ParseFailure(
+                    ApkInspectionCode.DUPLICATE_ENTRY,
+                    "APK contains ambiguous identity or signature entries",
+                )
+            if security_sensitive:
+                security_names[security_identity] = name
+            normalized[name] = info
             expanded += info.file_size
             if info.file_size > self.limits.maximum_member_bytes:
                 raise _ParseFailure(
@@ -749,14 +761,18 @@ class ApkInspector:
                 )
         v1 = self._v1_signers(archive, cancellation)
         if v1:
-            results.append(
-                self._verify_v1(
+            try:
+                v1_result = self._verify_v1(
                     stream,
                     archive,
                     v1,
                     cancellation,
                 )
-            )
+            except _ParseFailure as error:
+                if error.code is not ApkInspectionCode.SIGNATURE_UNSUPPORTED or not results:
+                    raise
+            else:
+                results.append(v1_result)
         if not results:
             raise _ParseFailure(
                 ApkInspectionCode.SIGNATURE_MISSING,
@@ -1014,20 +1030,19 @@ class ApkInspector:
                 )
             name = _decode_manifest_value(raw_name)
             _safe_archive_name(name)
-            identity = name.casefold()
-            if identity in manifest_entries:
+            if name in manifest_entries:
                 raise _ParseFailure(
                     ApkInspectionCode.SIGNATURE_BLOCK_INVALID,
                     "APK v1 manifest contains duplicate entry sections",
                 )
-            manifest_entries[identity] = headers
+            manifest_entries[name] = headers
 
         expected_infos = tuple(
             info
             for info in archive.infos
             if not info.is_dir() and not _V1_IGNORED_FILE.fullmatch(info.filename)
         )
-        expected_identities = {info.filename.casefold() for info in expected_infos}
+        expected_identities = {info.filename for info in expected_infos}
         if set(manifest_entries) != expected_identities:
             raise _ParseFailure(
                 ApkInspectionCode.SIGNATURE_INVALID,
@@ -1037,7 +1052,7 @@ class ApkInspector:
         with zipfile.ZipFile(stream, mode="r", allowZip64=False) as apk:
             for info in expected_infos:
                 _raise_if_cancelled(cancellation)
-                headers = manifest_entries[info.filename.casefold()]
+                headers = manifest_entries[info.filename]
                 algorithm, expected = _select_manifest_digest(headers, "digest")
                 digest = hashlib.new(algorithm)
                 with apk.open(info, mode="r") as member:
@@ -1837,7 +1852,7 @@ def _verify_sf_sections(sf_sections: Sequence[JarSection], manifest_sections: Se
     if not _constant_time_equal(hashlib.new(algorithm, manifest_sections[0][1]).digest(), expected):
         raise _ParseFailure(ApkInspectionCode.CONTENT_DIGEST_MISMATCH, "APK v1 main attributes digest does not match")
     manifest_by_name = {
-        _decode_manifest_value(headers["name"]).casefold(): raw
+        _decode_manifest_value(headers["name"]): raw
         for headers, raw in manifest_sections[1:]
         if "name" in headers
     }
@@ -1848,7 +1863,7 @@ def _verify_sf_sections(sf_sections: Sequence[JarSection], manifest_sections: Se
         name_value = headers.get("name")
         if name_value is None:
             raise _ParseFailure(ApkInspectionCode.SIGNATURE_BLOCK_INVALID, "APK v1 SF section has no Name")
-        name = _decode_manifest_value(name_value).casefold()
+        name = _decode_manifest_value(name_value)
         target = manifest_by_name.get(name)
         if target is None or name in seen:
             raise _ParseFailure(ApkInspectionCode.SIGNATURE_INVALID, "APK v1 SF references an invalid section")

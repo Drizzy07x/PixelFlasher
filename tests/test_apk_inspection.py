@@ -590,6 +590,56 @@ def test_ambiguous_or_traversing_zip_is_rejected(
     assert raised.value.code is code
 
 
+def test_case_distinct_android_resources_are_not_treated_as_duplicate_paths(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "case-sensitive-resources.apk"
+    path.write_bytes(
+        _zip_bytes(
+            [
+                ("AndroidManifest.xml", _text_manifest()),
+                ("res/Aa.xml", b"first"),
+                ("res/aA.xml", b"second"),
+            ]
+        )
+    )
+
+    with pytest.raises(ApkInspectionError) as raised:
+        inspect_apk(path)
+
+    assert raised.value.code is ApkInspectionCode.SIGNATURE_MISSING
+
+
+def test_unsupported_v1_metadata_is_ignored_only_after_a_strong_scheme_is_verified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "strong-with-legacy-metadata.apk"
+    certificate, _apk = _write_v2_apk(path)
+    inspector = apk_module.ApkInspector()
+    fake_info = zipfile.ZipInfo("META-INF/LEGACY.SF")
+    monkeypatch.setattr(
+        inspector,
+        "_v1_signers",
+        lambda _archive, _cancellation: (("legacy", fake_info, fake_info),),
+    )
+
+    def unsupported(*_args: object, **_kwargs: object) -> object:
+        raise apk_module._ParseFailure(
+            ApkInspectionCode.SIGNATURE_UNSUPPORTED,
+            "legacy SHA-1 metadata",
+        )
+
+    monkeypatch.setattr(inspector, "_verify_v1", unsupported)
+
+    identity = inspector.inspect(path)
+
+    assert identity.signer_sha256 == (
+        hashlib.sha256(certificate.public_bytes(serialization.Encoding.DER)).hexdigest(),
+    )
+    assert identity.schemes == ("v2",)
+
+
 def test_manifest_limit_is_enforced_before_parsing(tmp_path: Path) -> None:
     path = tmp_path / "large-manifest.apk"
     _write_v2_apk(path)
