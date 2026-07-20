@@ -56,8 +56,8 @@ Scope: the production React shell and the current critical Device, Firmware, Fla
 
 ## Open product gaps outside this QA pass
 
-- Verified third-party APKs and native patch runners are not yet packaged, so real boot patch execution remains fail-closed.
-- APatch secret transport and KMI/architecture-bound kernel selection still need production implementations.
+- The owned Android patch runner is packaged and architecture/KMI selection is fail-closed; signed production APK manifests, KernelSU Legacy images and real-device smokes remain open.
+- APatch secrets use one-use opaque grants and stdin transport; release validation must still prove the provider script path on hardware without secret disclosure.
 - Tools is not complete: runtime scrcpy packaging/discovery, wireless discovery and disconnected-device handoff, logcat streaming/export/redaction, per-file push progress/retry, partition postconditions, and legacy support-package data remain tracked as partial.
 - Full parity for advanced Apps, Backups, PIF, support, update, and the remaining expert surfaces remains tracked in the parity inventory.
 - Fastboot inventory state is now enriched safely, but the P1 observer that must prove reboot, slot and bootloader postconditions after a zero exit code remains open.

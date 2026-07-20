@@ -118,8 +118,12 @@ class PatchToolBundle:
             raise ValueError("flavor must not be empty")
         if not isinstance(self.app_id, str):
             raise TypeError("app_id must be a string")
-        if not self.app_id.strip():
-            raise ValueError("app_id must not be empty")
+        if self.app_id and not self.app_id.strip():
+            raise ValueError("app_id must not contain only whitespace")
+        app_id = self.app_id.strip().casefold()
+        if app_id and _SHA256_PATTERN.fullmatch(app_id) is None:
+            raise ValueError("app_id must be empty or a canonical SHA-256 value")
+        object.__setattr__(self, "app_id", app_id)
         object.__setattr__(self, "support_artifacts", tuple(self.support_artifacts))
         architectures = tuple(
             item.strip().casefold() if isinstance(item, str) else ""
@@ -265,12 +269,7 @@ class BootPatchService:
         app = self._verified_app(command.payload.get("appId"), flavor, cancellation)
         bundle = self._compatible_bundle(flavor, device)
         app_architecture = self._validate_app_architecture(app, device)
-        if not _SHA256_PATTERN.fullmatch(bundle.app_id.casefold()):
-            raise BootPatchPlanningError(
-                "patch_bundle_app_id_invalid",
-                "patch runner bundle is missing a valid backend root-app ID",
-            )
-        if bundle.app_id.casefold() != app.id:
+        if bundle.app_id and bundle.app_id != app.id:
             raise BootPatchPlanningError(
                 "patch_bundle_app_mismatch",
                 "patch runner is not bound to the selected verified root app",
@@ -326,6 +325,12 @@ class BootPatchService:
             for remote_path in remote_support
             for argument in ("--support", remote_path)
         )
+        compatibility_argv = (
+            "--architecture",
+            device.architecture,
+            "--kmi",
+            device.kmi,
+        )
         super_key_argv = ("--superkey-stdin",) if uses_super_key else ()
         requests.extend(
             (
@@ -350,6 +355,7 @@ class BootPatchService:
                         "--app",
                         remote_app,
                         *support_argv,
+                        *compatibility_argv,
                         *super_key_argv,
                     ),
                     timeout_seconds=900.0,

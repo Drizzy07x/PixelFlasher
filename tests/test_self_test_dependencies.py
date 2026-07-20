@@ -5,7 +5,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from self_test import CheckResult, _check_platform_tools, _write_frozen_self_test_log, format_results, run_checks
+from self_test import (
+    CheckResult,
+    _check_patch_resources,
+    _check_platform_tools,
+    _write_frozen_self_test_log,
+    format_results,
+    run_checks,
+)
 
 WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
 DESKTOP_SPEC_SOURCES = (
@@ -23,6 +30,13 @@ RELEASE_METADATA_PATHS = (
 
 
 class SelfTestDependencyTests(unittest.TestCase):
+    def test_packaged_patch_runner_distribution_is_required_and_verified(self):
+        result = _check_patch_resources()
+
+        self.assertTrue(result.required)
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("24 verified ABI runner bindings", result.message)
+
     def test_retired_wx_runtime_modules_are_not_modern_release_requirements(self):
         results = {result.name: result for result in run_checks()}
 

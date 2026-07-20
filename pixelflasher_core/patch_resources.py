@@ -1,10 +1,9 @@
-"""Pinned backend resource registry for root apps and boot-patch runners.
+"""Pinned backend resource registry for boot-patch runners.
 
-PixelFlasher does not currently ship provider APKs or a runner implementing
-``pixelflasher.boot-patch.v1``.  This loader intentionally performs no legacy
-discovery and no downloads.  A release build (or a backend-controlled cache)
-must provide a hash-pinned manifest and hash-pinned relative resources before
-``PatchToolBundle`` objects can be created.
+The runner trust chain is deliberately independent from root-application
+delivery. Runners are packaged with the application and fixed by this
+manifest; provider APKs are downloaded on demand through the separately
+signed root-app catalog and registered with the shared ``RootingService``.
 
 The expected manifest SHA-256 is an API argument, not a manifest field.  It
 must come from trusted backend configuration or release metadata and must
@@ -29,39 +28,20 @@ from .boot_patch import (
     PatchToolBundle,
 )
 from .contracts import FileArtifact
-from .rooting import (
-    RootApkInspector,
-    RootAppInfo,
-    RootAppSource,
-    RootingPlanningError,
-    RootingService,
-)
 
-PATCH_RESOURCE_SCHEMA_VERSION = 2
+PATCH_RESOURCE_SCHEMA_VERSION = 3
 PATCH_RUNNER_PROTOCOL = "pixelflasher.boot-patch.v1"
 PATCH_RUNNER_MARKER = b"PIXELFLASHER_BOOT_PATCH_RUNNER_V1"
 PATCH_RESOURCE_MANIFEST_NAME = "patch-resources.json"
+PATCH_RESOURCE_DIGEST_NAME = "patch-resources.sha256"
+PACKAGED_PATCH_RESOURCE_DIRECTORY = Path("resources/boot-patch/runtime")
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-_TRUSTED_PROVENANCE = frozenset({"official", "verified-download", "bundled"})
 _MAX_MANIFEST_BYTES = 1024 * 1024
-_MAX_APPS = 64
 _MAX_BUNDLES = 64
 _MAX_SUPPORT_ARTIFACTS = 32
 _MAX_ARCHITECTURES = 5
 _MAX_KMI_VERSIONS = 64
-
-_PROVIDERS_FOR_FLAVOR = {
-    "magisk": frozenset({"magisk"}),
-    "apatch": frozenset({"apatch"}),
-    "kernelsu": frozenset({"kernelsu"}),
-    "kernelsu-next": frozenset({"kernelsu-next"}),
-    "sukisu": frozenset({"sukisu"}),
-    "wild-ksu": frozenset({"wild_ksu", "wild-ksu"}),
-    "legacy": frozenset({"kernelsu", "kernelsu-legacy"}),
-}
-
 
 class PatchResourceError(ValueError):
     """Stable fail-closed error raised while loading backend resources."""
@@ -82,8 +62,6 @@ class PatchResourceRegistry:
     manifest_path: str
     manifest_sha256: str
     resource_root: str
-    root_app_sources: tuple[RootAppSource, ...]
-    rooting_service: RootingService
     tool_bundles: tuple[PatchToolBundle, ...]
 
     @property
@@ -99,13 +77,66 @@ class PatchResourceRegistry:
         return not self.missing_flavors
 
 
+def load_optional_packaged_patch_resource_registry(
+    application_root: str | Path,
+    *,
+    hash_chunk_size: int = 1024 * 1024,
+) -> PatchResourceRegistry | None:
+    """Load the packaged runner manifest or fail on a partial distribution."""
+
+    raw_root = Path(application_root).expanduser()
+    try:
+        root = raw_root.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise PatchResourceError("packaged_resource_root_invalid", str(error)) from error
+    if not root.is_dir() or raw_root.is_symlink():
+        raise PatchResourceError(
+            "packaged_resource_root_invalid",
+            "application resource root must be a real directory",
+        )
+    distribution = root / PACKAGED_PATCH_RESOURCE_DIRECTORY
+    if not distribution.exists():
+        return None
+    try:
+        resolved_distribution = distribution.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise PatchResourceError("packaged_distribution_invalid", str(error)) from error
+    if distribution.is_symlink() or not resolved_distribution.is_dir():
+        raise PatchResourceError(
+            "packaged_distribution_invalid",
+            "packaged patch resource distribution is invalid",
+        )
+    manifest = resolved_distribution / PATCH_RESOURCE_MANIFEST_NAME
+    digest_path = resolved_distribution / PATCH_RESOURCE_DIGEST_NAME
+    try:
+        encoded_digest = digest_path.read_bytes()
+        if not encoded_digest or len(encoded_digest) > 128:
+            raise ValueError("digest size")
+        expected_digest = encoded_digest.decode("ascii", "strict").strip().casefold()
+    except (OSError, UnicodeError, ValueError) as error:
+        raise PatchResourceError(
+            "packaged_manifest_digest_invalid",
+            "packaged patch resource digest is unavailable",
+        ) from error
+    if _SHA256_PATTERN.fullmatch(expected_digest) is None:
+        raise PatchResourceError(
+            "packaged_manifest_digest_invalid",
+            "packaged patch resource digest is invalid",
+        )
+    return load_patch_resource_registry(
+        manifest,
+        expected_manifest_sha256=expected_digest,
+        resource_root=root,
+        hash_chunk_size=hash_chunk_size,
+    )
+
+
 def load_patch_resource_registry(
     manifest_path: str | Path,
     *,
     expected_manifest_sha256: str,
     resource_root: str | Path | None = None,
     hash_chunk_size: int = 1024 * 1024,
-    apk_inspector: RootApkInspector | None = None,
 ) -> PatchResourceRegistry:
     """Load only hash-pinned, relative backend resources.
 
@@ -164,7 +195,7 @@ def load_patch_resource_registry(
     document = cast(Mapping[str, object], document_value)
     _exact_fields(
         document,
-        {"schemaVersion", "protocol", "apps", "bundles"},
+        {"schemaVersion", "protocol", "bundles"},
         "manifest",
     )
     version = document["schemaVersion"]
@@ -184,96 +215,7 @@ def load_patch_resource_registry(
             "manifest does not target the required boot-patch runner protocol",
         )
 
-    raw_apps = _bounded_list(document["apps"], "apps", _MAX_APPS)
     raw_bundles = _bounded_list(document["bundles"], "bundles", _MAX_BUNDLES)
-    app_paths: set[str] = set()
-    sources: list[RootAppSource] = []
-    source_by_key: dict[str, RootAppSource] = {}
-    for index, raw_app in enumerate(raw_apps):
-        if not isinstance(raw_app, Mapping):
-            raise PatchResourceError(
-                "manifest_schema_invalid",
-                f"apps[{index}] must be an object",
-            )
-        app_values = cast(Mapping[str, object], raw_app)
-        _exact_fields(
-            app_values,
-            {
-                "key",
-                "path",
-                "sha256",
-                "provider",
-                "flavor",
-                "version",
-                "provenance",
-                "packageName",
-                "architecture",
-            },
-            f"apps[{index}]",
-        )
-        key = _key(app_values["key"], f"apps[{index}].key")
-        if key in source_by_key:
-            raise PatchResourceError(
-                "root_app_key_duplicate",
-                f"duplicate root app key: {key}",
-            )
-        provenance = _text(app_values["provenance"], f"apps[{index}].provenance").casefold()
-        if provenance not in _TRUSTED_PROVENANCE:
-            raise PatchResourceError(
-                "root_app_provenance_untrusted",
-                f"manifest root app uses unsupported provenance: {provenance}",
-            )
-        path = _resource_file(root, app_values["path"], suffix=".apk")
-        _claim_path(path, app_paths)
-        expected_hash = _sha256_value(
-            app_values["sha256"],
-            "resource_hash_invalid",
-        )
-        digest = _sha256_stable(path, hash_chunk_size, "resource_read_failed")
-        if not hmac.compare_digest(digest, expected_hash):
-            raise PatchResourceError(
-                "resource_hash_mismatch",
-                f"root app does not match pinned SHA-256: {path}",
-            )
-        source = RootAppSource(
-            path=str(path),
-            provider=_text(app_values["provider"], f"apps[{index}].provider"),
-            flavor=_text(app_values["flavor"], f"apps[{index}].flavor"),
-            version=_text(app_values["version"], f"apps[{index}].version"),
-            provenance=provenance,
-            expected_sha256=digest,
-            package_name=_text(
-                app_values["packageName"],
-                f"apps[{index}].packageName",
-            ),
-            architecture=_text(
-                app_values["architecture"],
-                f"apps[{index}].architecture",
-            ).casefold(),
-        )
-        sources.append(source)
-        source_by_key[key] = source
-
-    rooting_service = RootingService(
-        tuple(sources),
-        hash_chunk_size=hash_chunk_size,
-        apk_inspector=apk_inspector,
-    )
-    try:
-        inventory = rooting_service.root_app_inventory()
-    except RootingPlanningError as error:
-        raise PatchResourceError(error.code, str(error)) from error
-    app_by_path = {os.path.normcase(item.path): item for item in inventory}
-    app_by_key: dict[str, RootAppInfo] = {}
-    for key, source in source_by_key.items():
-        app = app_by_path.get(os.path.normcase(source.path))
-        if app is None:  # Defensive: RootingService must preserve canonical paths.
-            raise PatchResourceError(
-                "root_app_inventory_invalid",
-                f"verified root app disappeared from inventory: {key}",
-            )
-        app_by_key[key] = app
-
     bundles: list[PatchToolBundle] = []
     for index, raw_bundle in enumerate(raw_bundles):
         if not isinstance(raw_bundle, Mapping):
@@ -284,7 +226,7 @@ def load_patch_resource_registry(
         bundle_values = cast(Mapping[str, object], raw_bundle)
         _exact_fields(
             bundle_values,
-            {"flavor", "app", "runner", "support", "compatibility"},
+            {"flavor", "runner", "support", "compatibility"},
             f"bundles[{index}]",
         )
         flavor = _text(bundle_values["flavor"], f"bundles[{index}].flavor").casefold()
@@ -293,22 +235,10 @@ def load_patch_resource_registry(
                 "patch_flavor_unsupported",
                 f"manifest uses unsupported patch flavor: {flavor}",
             )
-        app_key = _key(bundle_values["app"], f"bundles[{index}].app")
-        app = app_by_key.get(app_key)
-        if app is None:
-            raise PatchResourceError(
-                "patch_app_reference_invalid",
-                f"runner references an unknown root app: {app_key}",
-            )
-        if _provider_key(app.provider) not in _PROVIDERS_FOR_FLAVOR[flavor]:
-            raise PatchResourceError(
-                "patch_app_provider_mismatch",
-                f"{flavor} runner references incompatible provider {app.provider}",
-            )
         # One generic protocol runner or support binary may intentionally be
         # shared across flavors.  Ambiguity is rejected within each compiled
         # bundle and against every APK, where roles would overlap in one plan.
-        bundle_paths = set(app_paths)
+        bundle_paths: set[str] = set()
         runner = _manifest_artifact(
             root,
             bundle_values["runner"],
@@ -342,7 +272,7 @@ def load_patch_resource_registry(
             bundles.append(
                 PatchToolBundle(
                     flavor,
-                    app.id,
+                    "",
                     runner,
                     support,
                     architectures,
@@ -356,7 +286,7 @@ def load_patch_resource_registry(
             ) from error
 
     try:
-        BootPatchService(rooting_service, tuple(bundles))
+        BootPatchService(tool_bundles=tuple(bundles))
     except ValueError as error:
         raise PatchResourceError(
             "patch_compatibility_overlap",
@@ -367,8 +297,6 @@ def load_patch_resource_registry(
         str(manifest),
         manifest_hash,
         str(root),
-        tuple(sources),
-        rooting_service,
         tuple(bundles),
     )
 
@@ -634,16 +562,6 @@ def _text(value: object, field: str) -> str:
     return value.strip()
 
 
-def _key(value: object, field: str) -> str:
-    text = _text(value, field).casefold()
-    if not _KEY_PATTERN.fullmatch(text):
-        raise PatchResourceError(
-            "manifest_schema_invalid",
-            f"{field} contains unsupported characters",
-        )
-    return text
-
-
 def _sha256_value(value: object, code: str) -> str:
     if not isinstance(value, str) or not _SHA256_PATTERN.fullmatch(value.casefold()):
         raise PatchResourceError(code, "expected SHA-256 must contain 64 hexadecimal characters")
@@ -660,16 +578,15 @@ def _claim_path(path: Path, seen_paths: set[str]) -> None:
     seen_paths.add(key)
 
 
-def _provider_key(provider: str) -> str:
-    return provider.strip().casefold().replace(" ", "-")
-
-
 __all__ = [
+    "PACKAGED_PATCH_RESOURCE_DIRECTORY",
+    "PATCH_RESOURCE_DIGEST_NAME",
     "PATCH_RESOURCE_MANIFEST_NAME",
     "PATCH_RESOURCE_SCHEMA_VERSION",
     "PATCH_RUNNER_MARKER",
     "PATCH_RUNNER_PROTOCOL",
     "PatchResourceError",
     "PatchResourceRegistry",
+    "load_optional_packaged_patch_resource_registry",
     "load_patch_resource_registry",
 ]

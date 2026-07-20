@@ -23,11 +23,23 @@ from pathlib import Path
 from platform_utils import current_platform, repo_root, resolve_executable
 
 try:
-    from constants import APPNAME, CONFIG_FILE_NAME, VERSION
+    from constants import (
+        APPNAME as imported_appname,
+    )
+    from constants import (
+        CONFIG_FILE_NAME as imported_config_file_name,
+    )
+    from constants import (
+        VERSION as imported_version,
+    )
 except Exception:  # pragma: no cover - defensive fallback for broken imports
-    APPNAME = "PixelFlasher"
-    CONFIG_FILE_NAME = "PixelFlasher.json"
-    VERSION = "unknown"
+    imported_appname = "PixelFlasher"
+    imported_config_file_name = "PixelFlasher.json"
+    imported_version = "unknown"
+
+APPNAME = imported_appname
+CONFIG_FILE_NAME = imported_config_file_name
+VERSION = imported_version
 
 try:
     from platformdirs import user_data_dir
@@ -329,6 +341,34 @@ def _check_frontend_assets() -> list[CheckResult]:
     return results
 
 
+def _check_patch_resources() -> CheckResult:
+    try:
+        from pixelflasher_core.patch_resources import (
+            load_optional_packaged_patch_resource_registry,
+        )
+
+        registry = load_optional_packaged_patch_resource_registry(_repo_root())
+        if registry is None:
+            return CheckResult(
+                "boot_patch:runner_distribution",
+                False,
+                "packaged runner distribution is missing",
+            )
+        expected = {"magisk", "apatch", "kernelsu", "kernelsu-next", "sukisu", "wild-ksu"}
+        missing = expected - registry.ready_flavors
+        return CheckResult(
+            "boot_patch:runner_distribution",
+            not missing,
+            (
+                f"{len(registry.tool_bundles)} verified ABI runner bindings"
+                if not missing
+                else "missing flavors: " + ", ".join(sorted(missing))
+            ),
+        )
+    except Exception as exc:
+        return CheckResult("boot_patch:runner_distribution", False, str(exc))
+
+
 def run_checks() -> list[CheckResult]:
     root = _repo_root()
     checks: list[CheckResult] = [
@@ -349,6 +389,7 @@ def run_checks() -> list[CheckResult]:
         _check_module("psutil", required=False),
     ])
     checks.extend(_check_platform_tools())
+    checks.append(_check_patch_resources())
     checks.extend(_check_ui_foundation())
     checks.extend(_check_modern_entrypoints())
     checks.extend(_check_frontend_assets())

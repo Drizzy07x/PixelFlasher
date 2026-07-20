@@ -2,6 +2,7 @@ import hashlib
 import tempfile
 import unittest
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 from pixelflasher_core.boot_patch import (
@@ -209,6 +210,10 @@ class BootPatchServiceTests(unittest.TestCase):
                 self.assertEqual(("ADB", "-s", "SERIAL", "shell"), patch_request.argv[:4])
                 self.assertIn("--flavor", patch_request.argv)
                 self.assertIn(flavor, patch_request.argv)
+                self.assertEqual(
+                    ("--architecture", "", "--kmi", ""),
+                    patch_request.argv[-4:] if flavor != "apatch" else patch_request.argv[-5:-1],
+                )
                 self.assertNotIn("sh", patch_request.argv)
                 self.assertNotIn("-c", patch_request.argv)
                 self.assertTrue(compilation.device_write)
@@ -322,6 +327,23 @@ class BootPatchServiceTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "overlapping"):
                 BootPatchService(service.rooting_service, (exact, wildcard))
+
+    def test_catalog_verified_app_can_use_flavor_bound_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            boot = root / "boot.img"
+            boot.write_bytes(b"stock boot")
+            base, app, _apk, _runner = self.make_service(root, "magisk")
+            bundle = replace(base.tool_bundles["magisk"][0], app_id="")
+            service = BootPatchService(base.rooting_service, (bundle,), hash_chunk_size=2)
+
+            compilation = service.compile(
+                self.command("magisk", app.id, root / "catalog-app.img"),
+                self.make_snapshot(boot),
+            )
+
+            self.assertEqual(app.id, compilation.app.id)
+            self.assertEqual("", bundle.app_id)
 
     def test_root_app_architecture_is_revalidated_against_the_device(self):
         with tempfile.TemporaryDirectory() as directory:

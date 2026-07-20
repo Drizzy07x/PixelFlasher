@@ -320,11 +320,7 @@ class ApplicationRuntime:
         ):
             raise TypeError("patch_resource_registry must be a PatchResourceRegistry")
         self.patch_resource_registry = patch_resource_registry
-        rooting_service = (
-            patch_resource_registry.rooting_service
-            if patch_resource_registry is not None
-            else RootingService(apk_inspector=apk_inspector)
-        )
+        rooting_service = RootingService(apk_inspector=apk_inspector)
         patch_tool_bundles = (
             patch_resource_registry.tool_bundles
             if patch_resource_registry is not None

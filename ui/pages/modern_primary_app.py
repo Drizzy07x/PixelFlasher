@@ -16,6 +16,9 @@ from platformdirs import user_data_dir
 
 from constants import APPNAME, CONFIG_FILE_NAME
 from pixelflasher_core import LEGACY_V9_DATABASE_NAME, ApplicationRuntime
+from pixelflasher_core.patch_resources import (
+    load_optional_packaged_patch_resource_registry,
+)
 from pixelflasher_core.platform_tools_distribution import (
     load_optional_platform_tools_distribution,
 )
@@ -65,6 +68,9 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
         platform_tools_distribution = load_optional_platform_tools_distribution(
             repo_root() / "resources" / "platform-tools" / "runtime"
         )
+        patch_resource_registry = load_optional_packaged_patch_resource_registry(
+            repo_root()
+        )
         runtime = ApplicationRuntime.open(
             config_path,
             enable_device_monitor=True,
@@ -79,6 +85,7 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
                 if platform_tools_distribution is not None
                 else None
             ),
+            patch_resource_registry=patch_resource_registry,
         )
         app = wx.App(False)
 
