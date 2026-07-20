@@ -22,6 +22,9 @@ from pixelflasher_core.patch_resources import (
 from pixelflasher_core.platform_tools_distribution import (
     load_optional_platform_tools_distribution,
 )
+from pixelflasher_core.root_app_distribution import (
+    load_optional_root_app_distribution,
+)
 from platform_utils import repo_root
 from ui.core_command_factory import create_command_factory
 from ui.pages.modern_webview_host import (
@@ -68,6 +71,9 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
         platform_tools_distribution = load_optional_platform_tools_distribution(
             repo_root() / "resources" / "platform-tools" / "runtime"
         )
+        root_app_distribution = load_optional_root_app_distribution(
+            repo_root() / "resources" / "root-apps" / "runtime"
+        )
         patch_resource_registry = load_optional_packaged_patch_resource_registry(
             repo_root()
         )
@@ -86,6 +92,16 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
                 else None
             ),
             patch_resource_registry=patch_resource_registry,
+            root_app_catalog=(
+                root_app_distribution.catalog
+                if root_app_distribution is not None
+                else None
+            ),
+            root_app_downloader=(
+                root_app_distribution.downloader
+                if root_app_distribution is not None
+                else None
+            ),
         )
         app = wx.App(False)
 

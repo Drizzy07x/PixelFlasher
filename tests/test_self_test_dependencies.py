@@ -9,6 +9,7 @@ from self_test import (
     CheckResult,
     _check_patch_resources,
     _check_platform_tools,
+    _check_root_app_distribution,
     _write_frozen_self_test_log,
     format_results,
     run_checks,
@@ -30,6 +31,13 @@ RELEASE_METADATA_PATHS = (
 
 
 class SelfTestDependencyTests(unittest.TestCase):
+    def test_missing_root_app_distribution_is_visible_but_optional_during_migration(self):
+        result = _check_root_app_distribution()
+
+        self.assertFalse(result.required)
+        self.assertFalse(result.ok)
+        self.assertIn("not provisioned", result.message)
+
     def test_packaged_patch_runner_distribution_is_required_and_verified(self):
         result = _check_patch_resources()
 

@@ -70,6 +70,9 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
         self.assertIn("load_optional_platform_tools_distribution", self.primary_source)
         self.assertIn("platform_tools_catalog=", self.primary_source)
         self.assertIn("platform_tools_downloader=", self.primary_source)
+        self.assertIn("load_optional_root_app_distribution", self.primary_source)
+        self.assertIn("root_app_catalog=", self.primary_source)
+        self.assertIn("root_app_downloader=", self.primary_source)
         self.assertIn(
             "support_destination_registrar=runtime.register_support_destination",
             self.primary_source,
@@ -150,7 +153,9 @@ class ModernPrimaryExperienceTests(unittest.TestCase):
     def test_every_desktop_artifact_bundles_the_react_build(self):
         for spec in DESKTOP_SPECS:
             with self.subTest(spec=spec.name):
-                self.assertIn("ui/web/dist", spec.read_text(encoding="utf-8"))
+                source = spec.read_text(encoding="utf-8")
+                self.assertIn("ui/web/dist", source)
+                self.assertIn("resources/root-apps", source)
 
     def test_frontend_contract_is_buildable_without_a_runtime_server(self):
         package = (ROOT / "ui" / "web" / "package.json").read_text(encoding="utf-8")

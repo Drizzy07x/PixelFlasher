@@ -369,6 +369,29 @@ def _check_patch_resources() -> CheckResult:
         return CheckResult("boot_patch:runner_distribution", False, str(exc))
 
 
+def _check_root_app_distribution() -> CheckResult:
+    try:
+        from pixelflasher_core.root_app_distribution import (
+            load_optional_root_app_distribution,
+        )
+
+        distribution = load_optional_root_app_distribution(_repo_root() / "resources" / "root-apps" / "runtime")
+        if distribution is None:
+            return CheckResult(
+                "root_apps:signed_distribution",
+                False,
+                "signed root-app catalog is not provisioned",
+                required=False,
+            )
+        return CheckResult(
+            "root_apps:signed_distribution",
+            len(distribution.targets) == 13,
+            f"{len(distribution.targets)} authenticated provider/architecture targets",
+        )
+    except Exception as exc:
+        return CheckResult("root_apps:signed_distribution", False, str(exc))
+
+
 def run_checks() -> list[CheckResult]:
     root = _repo_root()
     checks: list[CheckResult] = [
@@ -390,6 +413,7 @@ def run_checks() -> list[CheckResult]:
     ])
     checks.extend(_check_platform_tools())
     checks.append(_check_patch_resources())
+    checks.append(_check_root_app_distribution())
     checks.extend(_check_ui_foundation())
     checks.extend(_check_modern_entrypoints())
     checks.extend(_check_frontend_assets())

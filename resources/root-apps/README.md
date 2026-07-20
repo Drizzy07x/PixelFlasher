@@ -14,3 +14,6 @@ This file is a reviewable release input, not the runtime trust root. Release
 engineering must convert it into expiring Ed25519-signed artifact manifests;
 the private key stays outside the repository and the reviewed public key is
 pinned in `pixelflasher_core/artifact_trust.py`.
+
+The audited release procedure and offline builder are documented in
+`docs/root-app-release.md`.

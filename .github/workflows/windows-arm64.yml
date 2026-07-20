@@ -121,6 +121,12 @@ jobs:
           }
           & ".\myenv\Scripts\python.exe" @catalogArguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $rootAppCatalogArguments = @("scripts/verify_root_app_catalog.py", "--root", "resources/root-apps/runtime")
+          if ($env:GITHUB_REF -notlike 'refs/tags/v10.*') {
+            $rootAppCatalogArguments += "--allow-missing"
+          }
+          & ".\myenv\Scripts\python.exe" @rootAppCatalogArguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $venvPyInstaller --log-level=DEBUG --clean --noconfirm build-on-win-arm64.spec
 
       - name: Verify Output Exists

@@ -417,6 +417,12 @@ from .root_app_catalog import (
     RootAppDownloadResult,
     RootAppManifestCatalog,
 )
+from .root_app_distribution import (
+    PackagedRootAppDistribution,
+    RootAppDistributionError,
+    load_optional_root_app_distribution,
+    load_root_app_distribution,
+)
 from .rooting import (
     ROOTING_COMMANDS,
     PifDocument,
@@ -816,6 +822,8 @@ __all__ = [
     "RootAppCatalogStatus",
     "RootAppDownloadResult",
     "RootAppManifestCatalog",
+    "PackagedRootAppDistribution",
+    "RootAppDistributionError",
     "RootAppInfo",
     "RootAppSource",
     "PreparedRootModuleUpdate",
@@ -931,7 +939,9 @@ __all__ = [
     "platform_tools_binary_names",
     "probe_platform_tools",
     "load_optional_platform_tools_distribution",
+    "load_optional_root_app_distribution",
     "load_platform_tools_distribution",
+    "load_root_app_distribution",
     "probe_scrcpy",
     "reconcile_device_selection",
     "reconcile_device_management",

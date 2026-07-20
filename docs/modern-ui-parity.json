@@ -984,11 +984,13 @@
         "pixelflasher_core/patch_resources.py:PatchResourceRegistry/load_patch_resource_registry",
         "resources/boot-patch/runner/pf_boot_patch.sh:packaged protocol runner",
         "resources/boot-patch/runtime/patch-resources.json:ABI-bound runner manifest",
+        "resources/root-apps/source-lock.json:audited official APK inputs",
+        "pixelflasher_core/root_app_distribution.py:signed catalog startup loader",
         "pixelflasher_core/runtime.py:PatchResourceRegistry composition",
         "pixelflasher_core/executor.py:SecretProcessTransport/SubprocessTransport.run_secret",
         "pixelflasher_core/engine.py:_plan_and_execute"
       ],
-      "gap": "Schema v3 independently binds packaged runners and on-demand verified APKs. The owned runner covers Magisk, APatch and four KernelSU-family LKM providers on four ABIs; signed production APK manifests, KMI-specific KernelSU Legacy images and packaged/real-device smokes remain open.",
+      "gap": "Schema v3 independently binds packaged runners and on-demand verified APKs. The owned runner covers Magisk, APatch and four KernelSU-family LKM providers on four ABIs, and all seven official APK inputs are audited behind a strict signed-catalog loader. Production catalog signing, KMI-specific KernelSU Legacy images and packaged/real-device smokes remain open.",
       "exitCriteria": [
         "Each supported patch flavor executes only with backend-pinned compatible APK and runner resources and returns a verified registered image.",
         "Secret transport, architecture/KMI selection, cancellation and failure are typed and tested."
@@ -1011,9 +1013,12 @@
         "tests/test_apatch_secret_transport.py",
         "tests/test_patch_resources.py",
         "tests/test_packaged_patch_runner.py",
+        "tests/test_root_app_source_lock.py",
+        "tests/test_root_app_distribution.py",
+        "tests/test_build_root_app_catalog.py",
         "ui/web/src/test/App.test.tsx:root workflow"
       ],
-      "blockReason": "Execution fails closed because the shipped patch-resource registry intentionally contains no real provider APKs or compatible runners.",
+      "blockReason": "Production signing key/catalog, KernelSU Legacy KMI images and packaged real-device validation are not yet provisioned.",
       "releaseGate": true,
       "legacyEvidence": [
         "README.md:46-64",
@@ -1271,10 +1276,13 @@
       "currentEvidence": [
         "pixelflasher_core/rooting.py:RootingService",
         "pixelflasher_core/root_app_catalog.py:RootAppCatalogService",
+        "pixelflasher_core/root_app_distribution.py:authenticated packaged catalog loader",
+        "resources/root-apps/source-lock.json:audited official stable APKs",
+        "scripts/build_root_app_catalog.py:offline APK inspection and signing",
         "pixelflasher_core/engine.py:_root_app_catalog_command/_compile_service_command",
         "ui/web/src/pages/root/RootPage.tsx:Rooting Apps"
       ],
-      "gap": "The signed catalog, channel/version UX, opaque download, cache verification and inspected package/signer/architecture promotion are native. Production Ed25519 catalog manifests, real provider-source smokes and packaged runner integration remain open.",
+      "gap": "The official stable source lock, real seven-APK audit, offline reinspection/signing builder, strict 13-target runtime loader, channel/version UX, opaque download and inspected promotion are delivered. Production Ed25519 key custody/final catalog generation and packaged download/install smokes remain open.",
       "exitCriteria": [
         "React lists, obtains, verifies and installs every supported rooting-app channel using opaque backend-owned artifact identifiers."
       ],
@@ -1290,6 +1298,10 @@
       ],
       "tests": [
         "tests/test_root_app_catalog.py",
+        "tests/test_apk_inspection.py",
+        "tests/test_root_app_source_lock.py",
+        "tests/test_root_app_distribution.py",
+        "tests/test_build_root_app_catalog.py",
         "tests/test_rooting_service.py",
         "tests/test_service_engine_integration.py",
         "ui/web/src/test/App.test.tsx:root workflow"
