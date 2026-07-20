@@ -152,6 +152,7 @@ class DataAdbCompilation:
     device_write: bool = False
     destructive: bool = False
     requires_confirmation: bool = False
+    mutation_request_index: int | None = None
 
 
 class DataAdbService:
@@ -406,6 +407,7 @@ class DataAdbService:
             device_write=True,
             destructive=True,
             requires_confirmation=True,
+            mutation_request_index=2,
         )
 
     def _compile_clear(
@@ -458,6 +460,7 @@ class DataAdbService:
             device_write=True,
             destructive=True,
             requires_confirmation=True,
+            mutation_request_index=0,
         )
 
     def execute(
@@ -476,7 +479,7 @@ class DataAdbService:
         results: list[OperationResult] = []
         cleanup_verified = cleanup is None
         try:
-            for request in main_requests:
+            for request_index, request in enumerate(main_requests):
                 result = executor.execute(
                     command,
                     replace(compilation.plan, requests=(request,)),
@@ -484,6 +487,22 @@ class DataAdbService:
                 )
                 results.append(result)
                 if not result.ok:
+                    if self._failure_may_follow_mutation(
+                        compilation,
+                        request_index,
+                        result,
+                    ):
+                        return OperationResult.failed(
+                            command.operation_id,
+                            code="outcome_unknown",
+                            message=(
+                                f"{compilation.action} stopped after /data/adb "
+                                "may have begun changing"
+                            ),
+                            exit_code=result.exit_code,
+                            stdout=result.stdout,
+                            stderr=result.stderr,
+                        )
                     return result
             if cleanup is not None:
                 cleaned = executor.execute(
@@ -528,6 +547,25 @@ class DataAdbService:
             self._remove_local(compilation.local_payload)
             if compilation.local_verification is not None:
                 self._remove_local(compilation.local_verification)
+
+    @staticmethod
+    def _failure_may_follow_mutation(
+        compilation: DataAdbCompilation,
+        request_index: int,
+        result: OperationResult,
+    ) -> bool:
+        boundary = compilation.mutation_request_index
+        if boundary is None or request_index < boundary:
+            return False
+        # Restore exit codes 101-114 are emitted while validating the private
+        # staging tree, before the script touches /data/adb. Any other result
+        # from that request is ambiguous (including transport loss). Clear
+        # starts deleting immediately, so every failed clear is ambiguous.
+        return not (
+            compilation.action == "restore"
+            and result.exit_code is not None
+            and 101 <= result.exit_code <= 114
+        )
 
     def _finalize_backup(
         self,
@@ -1129,7 +1167,7 @@ class DataAdbService:
             + 'cp -a "$stage/." /data/adb/ || exit 116; '
             + "command -v restorecon >/dev/null 2>&1 || exit 117; "
             + "restorecon -RF /data/adb >/dev/null 2>&1 || exit 118; "
-            + 'verify_tree /data/adb || exit $?; '
+            + 'verify_tree /data/adb || exit 119; '
             + f'printf "PF_DAB_RESTORED|{manifest.content_fingerprint}|{len(manifest.entries)}\\n"'
         )
 

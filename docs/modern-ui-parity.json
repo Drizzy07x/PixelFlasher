@@ -2226,7 +2226,7 @@
         "ui/public_bridge.py:_project_data_adb_backup",
         "ui/web/src/pages/backups/BackupsPage.tsx:BackupsPage"
       ],
-      "gap": "The native flow is implemented with opaque grants, a confined hashed container, exact destructive confirmations and verified results. Release validation still needs packaged cross-platform smoke coverage, real rooted-device coverage, disconnect/cancellation-after-mutation coverage and the remaining hostile tar variants.",
+      "gap": "The native flow is implemented with opaque grants, a confined hashed container, exact destructive confirmations and verified results. Hostile absolute/backslash paths, links, special/sparse files, duplicate identities and size limits fail closed. Restore distinguishes staging failures before mutation from cancellation, disconnects and failures after the mutation-bearing request begins. Release validation still needs packaged cross-platform smoke coverage and real rooted-device coverage.",
       "exitCriteria": [
         "Backup, restore and clear /data/adb is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
