@@ -1126,8 +1126,10 @@
         "linux"
       ],
       "tests": [
+        "tests/test_updates.py:signed manifests, expiry, URL policy, SemVer, rollback and offline behavior",
         "tests/test_modern_webview_host_contract.py:application link allow-list",
-        "ui/web/src/test/pages.behavior.test.tsx:About/help controls"
+        "ui/web/src/test/pages.behavior.test.tsx:manual update and About/help controls",
+        "ui/web/src/test/App.test.tsx:automatic update check requires persisted opt-in"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -2452,11 +2454,7 @@
         "macos",
         "linux"
       ],
-      "tests": [
-        "tests/test_updates.py:signed manifests, expiry, URL policy, SemVer, rollback and offline behavior",
-        "ui/web/src/test/pages.behavior.test.tsx:manual update control",
-        "ui/web/src/test/App.test.tsx:automatic update check requires persisted opt-in"
-      ],
+      "tests": [],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
