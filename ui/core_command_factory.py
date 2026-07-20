@@ -154,6 +154,13 @@ _NATIVE_GRANT_SPECS = (
     ),
     NativeGrantSpec(
         "native.saveFile",
+        "apps.export.destination",
+        "apps.action",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
         "tools.logcat.export",
         "tools.logcat",
         GrantTarget.FILE,
@@ -399,6 +406,23 @@ class CoreCommandFactory:
         elif command == "apps.action":
             if payload.get("action") == "install":
                 self._resolve_one(payload, "apps.install.source", "path")
+            elif payload.get("action") == "export":
+                token = payload.pop("grant", None)
+                if not isinstance(token, str):
+                    raise CommandFactoryError(
+                        "grant_required",
+                        "A native APK export grant is required.",
+                    )
+                spec = _SPECS_BY_PURPOSE["apps.export.destination"]
+                try:
+                    payload["exportDestination"] = (
+                        self.path_grants.resolve_bound_write_file(
+                            token,
+                            purpose=spec.purpose,
+                        )
+                    )
+                except GrantError as exc:
+                    raise CommandFactoryError(exc.code, str(exc)) from exc
             elif "grant" in payload:
                 raise CommandFactoryError(
                     "grant_not_applicable", "This package action does not accept a file grant."

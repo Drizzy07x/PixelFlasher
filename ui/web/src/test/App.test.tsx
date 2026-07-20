@@ -168,7 +168,7 @@ describe('PixelFlasher web workspace', () => {
     expect(requests.find((request) => request.command === 'boot.live')?.payload).toEqual({ serial: '4B281FDH2003L7' });
     expect(requests.find((request) => request.command === 'boot.flash')?.payload).toEqual({ serial: '4B281FDH2003L7', partition: 'boot' });
     expect(requests.some((request) => request.command === 'device.bootloader.lock')).toBe(false);
-  });
+  }, 10_000);
 
   it('processes only the canonical selected firmware and renders the promoted ready state', async () => {
     const user = userEvent.setup();

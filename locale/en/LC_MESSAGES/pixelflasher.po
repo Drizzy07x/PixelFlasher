@@ -5709,3 +5709,71 @@ msgstr ""
 msgctxt "web.apps.permissions.none"
 msgid "None reported"
 msgstr ""
+
+msgctxt "web.apps.action.denylistAdd"
+msgid "Add to Magisk denylist"
+msgstr ""
+
+msgctxt "web.apps.action.denylistRemove"
+msgid "Remove from Magisk denylist"
+msgstr ""
+
+msgctxt "web.apps.action.suPolicy"
+msgid "Set SU policy"
+msgstr ""
+
+msgctxt "web.apps.rootRequired"
+msgid "This action requires a rooted ADB device with Magisk available."
+msgstr ""
+
+msgctxt "web.apps.suPolicyTitle"
+msgid "Superuser policy"
+msgstr ""
+
+msgctxt "web.apps.suPolicyDetail"
+msgid "The backend verifies the package UID before changing its Magisk policy."
+msgstr ""
+
+msgctxt "web.apps.uidUnavailable"
+msgid "Refresh the package inventory to obtain a verified Android UID."
+msgstr ""
+
+msgctxt "web.apps.suPolicy"
+msgid "Policy"
+msgstr ""
+
+msgctxt "web.apps.su.allow"
+msgid "Allow"
+msgstr ""
+
+msgctxt "web.apps.su.deny"
+msgid "Deny"
+msgstr ""
+
+msgctxt "web.apps.su.revoke"
+msgid "Revoke"
+msgstr ""
+
+msgctxt "web.apps.suDuration"
+msgid "Duration"
+msgstr ""
+
+msgctxt "web.apps.su.forever"
+msgid "Forever"
+msgstr ""
+
+msgctxt "web.apps.su.minutes"
+msgid "{count} minutes"
+msgstr ""
+
+msgctxt "web.apps.suLogging"
+msgid "Log SU requests"
+msgstr ""
+
+msgctxt "web.apps.suNotification"
+msgid "Show SU notifications"
+msgstr ""
+
+msgctxt "web.apps.action.export"
+msgid "Export APK"
+msgstr ""

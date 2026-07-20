@@ -511,6 +511,22 @@ class OperationRunnerStatefulTests(unittest.TestCase):
                     "partition_erased",
                     {"partition": "metadata"},
                 ),
+                OperationPostcondition(
+                    "magisk_denylist_state",
+                    {"packages": ("com.example.app",), "listed": True},
+                ),
+                OperationPostcondition(
+                    "magisk_su_policy",
+                    {
+                        "package": "com.example.app",
+                        "uid": 10123,
+                        "state": "present",
+                        "policy": "allow",
+                        "logging": True,
+                        "notification": False,
+                        "until": 1_700_000_600,
+                    },
+                ),
             ),
         )
 
@@ -527,6 +543,14 @@ class OperationRunnerStatefulTests(unittest.TestCase):
         self.assertEqual(
             {"play_integrity_fix": "enabled"},
             dict(spec.expected_root_modules),
+        )
+        self.assertEqual(
+            {"com.example.app": True},
+            dict(spec.expected_magisk_denylist),
+        )
+        self.assertEqual(
+            {10123: "allow:1:0:1700000600"},
+            dict(spec.expected_magisk_su_policies),
         )
         self.assertEqual(("metadata",), spec.erased_partitions)
 
@@ -737,6 +761,68 @@ class OperationRunnerStatefulTests(unittest.TestCase):
 
         self.assertTrue(verified.ok)
         self.assertEqual(["package_state"], observed)
+        self.assertEqual(OperationStatus.FAILED, ambiguous.status)
+        self.assertEqual("postcondition_mismatch", ambiguous.code)
+
+    def test_package_export_requires_closed_identity_hash_and_cleanup_receipt(self):
+        package = "com.example.application"
+        file_name = f"{package}.apk"
+        candidate = replace(
+            destructive_plan(),
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "package_export_verified",
+                    {"package": package, "fileName": file_name},
+                ),
+            ),
+            confirmation_token=None,
+        )
+        plan = replace(candidate, confirmation_token=candidate.confirmation_challenge())
+        snapshot = snapshot_for(slot="b")
+
+        def receipt(remote_cleaned: bool):
+            return {
+                "action": "export",
+                "export": {
+                    "package": package,
+                    "fileName": file_name,
+                    "sha256": "a" * 64,
+                    "size": 1024,
+                    "verified": True,
+                    "remoteCleaned": remote_cleaned,
+                },
+            }
+
+        verified = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot,
+            observer=lambda *_args: True,
+        ).execute(
+            self.command_for(plan, "export-verified"),
+            plan,
+            operation_executor=lambda command, _plan, _cancellation: OperationResult.success(
+                command.operation_id,
+                code="package_export_staged",
+                value=receipt(True),
+            ),
+        )
+        ambiguous = self.runner(
+            FakeProcessTransport(),
+            provider=lambda _serial: snapshot,
+            observer=lambda *_args: True,
+        ).execute(
+            self.command_for(plan, "export-not-cleaned"),
+            plan,
+            operation_executor=lambda command, _plan, _cancellation: OperationResult.success(
+                command.operation_id,
+                code="package_export_staged",
+                value=receipt(False),
+            ),
+        )
+
+        self.assertTrue(verified.ok)
+        self.assertEqual("package_export_staged", verified.code)
         self.assertEqual(OperationStatus.FAILED, ambiguous.status)
         self.assertEqual("postcondition_mismatch", ambiguous.code)
 

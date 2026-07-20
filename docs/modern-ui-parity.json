@@ -1590,10 +1590,13 @@
         "pixelflasher_core/packages.py:PackageService/parse_package_list",
         "pixelflasher_core/packages.py:parse_package_permissions",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
+        "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._magisk_denylist_states/_magisk_su_policies",
+        "pixelflasher_core/packages.py:PackageService._compile_export/execute_export",
+        "ui/core_command_factory.py:apps.export.destination",
         "ui/public_bridge.py:_project_apps_action",
         "ui/web/src/pages/apps/AppsPage.tsx"
       ],
-      "gap": "React now exposes listing, enable/disable, uninstall with keep-data, clear-data, force-stop, launch and a bounded typed permission report. APK export/download, denylist and SU controls remain open.",
+      "gap": "Functional parity is implemented: React exposes listing, lifecycle actions, bounded permissions, Magisk denylist, SU allow/deny/revoke and verified route-free APK export with atomic publication and cleanup. Packaged cross-platform smokes remain before promotion to native.",
       "exitCriteria": [
         "Package listing, filtering, enable/disable, uninstall, download, launch, permissions, clear/kill, denylist and SU controls is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -1612,6 +1615,9 @@
       "tests": [
         "tests/test_package_service.py",
         "tests/test_package_public_contract.py",
+        "tests/test_core_command_factory.py:test_apk_export_consumes_one_use_write_grant_without_public_path",
+        "tests/test_production_postcondition_observer.py",
+        "tests/test_operation_runner_v2.py:test_extended_mutation_postconditions_compile_to_typed_probe_evidence",
         "tests/test_service_engine_integration.py:test_apps_list_runs_through_executor_and_stores_parsed_result",
         "ui/web/src/test/pages.behavior.test.tsx:runs extended package actions and renders a bounded permission report"
       ],

@@ -1054,6 +1054,10 @@ def _project_apps_action(value: object) -> JSONValue:
         "forceStop",
         "launch",
         "permissions",
+        "denylistAdd",
+        "denylistRemove",
+        "suPolicy",
+        "export",
         "install",
     }:
         raise PublicProjectionError("package action is invalid")
@@ -1136,6 +1140,42 @@ def _project_apps_action(value: object) -> JSONValue:
         ):
             raise PublicProjectionError("installed APK identity is invalid")
         return ensure_public_json({"action": "install", "apkIdentity": dict(identity)})
+    if action == "export":
+        source = _closed_record(value, fields=frozenset({"action", "export"}))
+        receipt = _closed_record(
+            source["export"],
+            fields=frozenset(
+                {
+                    "package",
+                    "fileName",
+                    "sha256",
+                    "size",
+                    "verified",
+                    "remoteCleaned",
+                }
+            ),
+        )
+        package = receipt["package"]
+        file_name = receipt["fileName"]
+        digest = receipt["sha256"]
+        size = receipt["size"]
+        if (
+            receipt["verified"] is not True
+            or receipt["remoteCleaned"] is not True
+            or not isinstance(package, str)
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", package)
+            is None
+            or not isinstance(file_name, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk", file_name, re.I)
+            is None
+            or not isinstance(digest, str)
+            or _LOWERCASE_SHA256.fullmatch(digest) is None
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or not 1 <= size <= 2 * 1024 * 1024 * 1024
+        ):
+            raise PublicProjectionError("APK export receipt is invalid")
+        return ensure_public_json({"action": "export", "export": dict(receipt)})
     source = _closed_record(value, fields=frozenset({"action"}))
     return ensure_public_json(dict(source))
 

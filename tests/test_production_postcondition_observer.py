@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +44,8 @@ class StatefulDeviceTransport:
         package_states: dict[str, str] | None = None,
         adb_endpoints: dict[str, str] | None = None,
         root_modules: dict[str, str] | None = None,
+        magisk_denylist: set[str] | None = None,
+        magisk_su_policies: dict[int, str] | None = None,
         root_available: bool = True,
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
@@ -58,6 +61,8 @@ class StatefulDeviceTransport:
         self.package_states = package_states or {}
         self.adb_endpoints = adb_endpoints or {}
         self.root_modules = root_modules or {}
+        self.magisk_denylist = magisk_denylist or set()
+        self.magisk_su_policies = magisk_su_policies or {}
         self.root_available = root_available
         self.partitions = partitions or {}
         self.partition_sizes = partition_sizes or {name: len(content) for name, content in self.partitions.items()}
@@ -165,6 +170,25 @@ class StatefulDeviceTransport:
             command = argv[6]
             if command == "id -u":
                 return TransportOutcome(0, "0\n") if self.root_available else TransportOutcome(1)
+            if command == "magisk --denylist ls":
+                return TransportOutcome(
+                    0,
+                    "".join(f"{package}|{package}\n" for package in sorted(self.magisk_denylist)),
+                )
+            if command.startswith('magisk --sqlite "SELECT \'PF_SU|\''):
+                match = re.search(r"WHERE uid = (\d+);", command)
+                if match is None:
+                    return TransportOutcome(1)
+                uid = int(match.group(1))
+                state = self.magisk_su_policies.get(uid)
+                if state is None or state == "absent":
+                    return TransportOutcome(0)
+                policy, logging, notification, until = state.split(":", 3)
+                value = "2" if policy == "allow" else "1"
+                return TransportOutcome(
+                    0,
+                    f"PF_SU|{uid}|{value}|{logging}|{notification}|{until}\n",
+                )
             for module_id, state in self.root_modules.items():
                 root = f"/data/adb/modules/{module_id}"
                 if command == f"test -d {root}":
@@ -733,6 +757,80 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             ("enabled", "disabled"),
             result.mismatches[f"package_state:{package_name}"],
         )
+
+    def test_magisk_denylist_state_is_observed_independently(self) -> None:
+        package_name = "com.example.application"
+        transport = StatefulDeviceTransport(
+            mode="adb",
+            magisk_denylist={package_name},
+        )
+        result = observer(transport).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_magisk_denylist={package_name: True},
+            )
+        )
+
+        self.assertEqual(ObservationStatus.VERIFIED, result.status)
+        self.assertIn(
+            (
+                "ADB",
+                "-s",
+                SERIAL,
+                "shell",
+                "su",
+                "-c",
+                "magisk --denylist ls",
+            ),
+            [call.argv for call in transport.calls],
+        )
+
+        mismatch = observer(
+            StatefulDeviceTransport(mode="adb", magisk_denylist=set())
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_magisk_denylist={package_name: True},
+            )
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
+
+    def test_magisk_su_policy_requires_exact_bounded_sql_evidence(self) -> None:
+        uid = 10123
+        expected = "allow:1:0:1700000600"
+        transport = StatefulDeviceTransport(
+            mode="adb",
+            magisk_su_policies={uid: expected},
+        )
+        result = observer(transport).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_magisk_su_policies={uid: expected},
+            )
+        )
+
+        self.assertEqual(ObservationStatus.VERIFIED, result.status)
+        query = next(
+            call.argv[-1]
+            for call in transport.calls
+            if call.argv[3:6] == ("shell", "su", "-c")
+            and call.argv[-1].startswith('magisk --sqlite "SELECT')
+        )
+        self.assertIn("WHERE uid = 10123;", query)
+
+        absent = observer(
+            StatefulDeviceTransport(mode="adb", magisk_su_policies={})
+        ).verify(
+            PostconditionSpec(
+                SERIAL,
+                1,
+                expected_magisk_su_policies={uid: "absent"},
+            )
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, absent.status)
 
     def test_adb_wifi_endpoint_state_uses_bounded_host_inventory(self) -> None:
         endpoint = "192.0.2.20:5555"

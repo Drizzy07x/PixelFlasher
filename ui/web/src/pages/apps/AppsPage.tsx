@@ -6,7 +6,7 @@ import type { HostSnapshot } from '../../types';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader, Toggle } from '../../components/ui';
 import { isToolchainReady, record, selectedGrant, type SharedPageProps } from '../shared';
 
-type PackageRow = (typeof demoApps)[number];
+type PackageRow = (typeof demoApps)[number] & { uid?: number | null };
 
 type InstallOptions = {
   replace: boolean;
@@ -22,7 +22,8 @@ type InstalledApkIdentity = {
   sha256: string;
 };
 
-type PackageAction = 'enable' | 'disable' | 'launch' | 'forceStop' | 'clearData' | 'uninstall' | 'permissions';
+type PackageAction = 'enable' | 'disable' | 'launch' | 'forceStop' | 'clearData' | 'uninstall' | 'permissions' | 'denylistAdd' | 'denylistRemove' | 'suPolicy' | 'export';
+type SuPolicy = 'allow' | 'deny' | 'revoke';
 
 type PermissionReport = {
   package: string;
@@ -77,6 +78,7 @@ function packageRows(result: Record<string, unknown>): PackageRow[] | null {
       version: '—',
       scope: String(item.apk_path ?? '').startsWith('/system') ? 'System' : 'User',
       enabled: true,
+      uid: typeof item.uid === 'number' && Number.isSafeInteger(item.uid) && item.uid >= 0 ? item.uid : null,
     } satisfies PackageRow];
   });
 }
@@ -107,6 +109,10 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [keepData, setKeepData] = useState(false);
   const [actionNotice, setActionNotice] = useState<PackageAction | ''>('');
   const [permissions, setPermissions] = useState<PermissionReport | null>(null);
+  const [suPolicy, setSuPolicy] = useState<SuPolicy>('allow');
+  const [suLogging, setSuLogging] = useState(true);
+  const [suNotification, setSuNotification] = useState(true);
+  const [suDuration, setSuDuration] = useState<0 | 10 | 20 | 30 | 60>(0);
   const [listedApps, setListedApps] = useState<PackageRow[]>([]);
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [installState, setInstallState] = useState<InstallState>({ phase: 'idle' });
@@ -121,7 +127,7 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const installEpoch = useRef(0);
   const feedbackRef = useRef<HTMLElement>(null);
   const snapshotApps = (snapshot as HostSnapshot & { apps?: PackageRow[] }).apps;
-  const available = window.pixelflasher?.__mock
+  const available: PackageRow[] = window.pixelflasher?.__mock
     ? demoApps
     : listedApps.length
       ? listedApps
@@ -138,6 +144,13 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   );
   const installBusy = ['picking', 'installing', 'cancelling'].includes(installState.phase);
   const deviceReady = Boolean(serial && device?.mode === 'adb' && isToolchainReady(snapshot));
+  const rootAction = ['denylistAdd', 'denylistRemove', 'suPolicy'].includes(action);
+  const singleTargetAction = action === 'permissions' || action === 'suPolicy' || action === 'export';
+  const selectedRow = selected.length === 1 ? available.find((item) => item.id === selected[0]) : undefined;
+  const actionReady = deviceReady
+    && (!rootAction || device?.rooted === true)
+    && (!singleTargetAction || selected.length === 1)
+    && (action !== 'suPolicy' || typeof selectedRow?.uid === 'number');
   const installReady = deviceReady && (!operationRunning || installBusy);
   const cancellableOperation = ['installing', 'cancelling'].includes(installState.phase)
     && operationRunning
@@ -177,17 +190,38 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   };
 
   const applyAction = async () => {
-    if (!deviceReady || !selected.length || inventoryBusy || installBusy || (action === 'permissions' && selected.length !== 1)) return;
+    if (!actionReady || !selected.length || inventoryBusy || installBusy) return;
     setInventoryBusy(true);
     setActionNotice('');
     setPermissions(null);
     try {
-      const response = await onCommand(commands.appsAction, {
+      let payload: Record<string, unknown> = {
         serial,
-        packages: selected,
+        ...(action === 'suPolicy' || action === 'export' ? { package: selected[0] } : { packages: selected }),
         action,
         ...(action === 'uninstall' ? { options: { keepData } } : {}),
-      });
+        ...(action === 'suPolicy' ? {
+          options: {
+            uid: selectedRow?.uid,
+            policy: suPolicy,
+            logging: suLogging,
+            notification: suNotification,
+            durationMinutes: suDuration,
+          },
+        } : {}),
+      };
+      if (action === 'export') {
+        const picked = await onCommand(commands.nativeSaveFile, {
+          purpose: 'apps.export.destination',
+          title: t('apps.action.export'),
+          defaultName: `${selected[0]}.apk`,
+          filters: [{ label: t('apps.apkFiles'), extensions: ['apk'] }],
+        }, { returnCancelled: true });
+        const grant = selectedGrant(picked);
+        if (!grant) return;
+        payload = { ...payload, grant };
+      }
+      const response = await onCommand(commands.appsAction, payload);
       const result = record(response?.result);
       if (!response || operationStatus(result) !== 'success') return;
       if (action === 'permissions') {
@@ -290,13 +324,40 @@ export function AppsPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
                 <option value="clearData">{t('apps.action.clearData')}</option>
                 <option value="uninstall">{t('apps.action.uninstall')}</option>
                 <option value="permissions">{t('apps.action.permissions')}</option>
+                <option value="denylistAdd">{t('apps.action.denylistAdd')}</option>
+                <option value="denylistRemove">{t('apps.action.denylistRemove')}</option>
+                <option value="suPolicy">{t('apps.action.suPolicy')}</option>
+                <option value="export">{t('apps.action.export')}</option>
               </select>
             </label>
             {action === 'uninstall' ? <label className="toolbar-locale"><input type="checkbox" checked={keepData} onChange={(event) => setKeepData(event.currentTarget.checked)} />{t('apps.keepData')}</label> : null}
-            <Button variant="primary" icon="check" onClick={() => void applyAction()} disabled={inventoryBusy || installBusy || !selected.length || !deviceReady || !available.length || (action === 'permissions' && selected.length !== 1)}>{t('common.apply')}</Button>
+            <Button variant="primary" icon="check" onClick={() => void applyAction()} disabled={inventoryBusy || installBusy || !selected.length || !actionReady || !available.length}>{t('common.apply')}</Button>
           </div>
         )}
       />
+      {rootAction && device?.rooted !== true ? (
+        <div className="inline-alert inline-alert--warning" role="status"><Icon name="warning" size={18} /><span>{t('apps.rootRequired')}</span></div>
+      ) : null}
+      {action === 'suPolicy' ? (
+        <Card>
+          <CardTitle icon="shield">{t('apps.suPolicyTitle')}</CardTitle>
+          <p>{t('apps.suPolicyDetail')}</p>
+          {selected.length === 1 && typeof selectedRow?.uid !== 'number' ? <div className="inline-alert inline-alert--warning" role="status">{t('apps.uidUnavailable')}</div> : null}
+          <div className="apps-su-controls">
+            <label>{t('apps.suPolicy')}<select value={suPolicy} onChange={(event) => setSuPolicy(event.currentTarget.value as SuPolicy)} disabled={inventoryBusy || installBusy}>
+              <option value="allow">{t('apps.su.allow')}</option>
+              <option value="deny">{t('apps.su.deny')}</option>
+              <option value="revoke">{t('apps.su.revoke')}</option>
+            </select></label>
+            <label>{t('apps.suDuration')}<select value={suDuration} onChange={(event) => setSuDuration(Number(event.currentTarget.value) as 0 | 10 | 20 | 30 | 60)} disabled={inventoryBusy || installBusy || suPolicy === 'revoke'}>
+              <option value={0}>{t('apps.su.forever')}</option>
+              {[10, 20, 30, 60].map((minutes) => <option key={minutes} value={minutes}>{t('apps.su.minutes', { count: minutes })}</option>)}
+            </select></label>
+            <label><input type="checkbox" checked={suLogging} onChange={(event) => setSuLogging(event.currentTarget.checked)} disabled={inventoryBusy || installBusy || suPolicy === 'revoke'} />{t('apps.suLogging')}</label>
+            <label><input type="checkbox" checked={suNotification} onChange={(event) => setSuNotification(event.currentTarget.checked)} disabled={inventoryBusy || installBusy || suPolicy === 'revoke'} />{t('apps.suNotification')}</label>
+          </div>
+        </Card>
+      ) : null}
       <Card className="apps-install-card" aria-busy={installBusy}>
         <CardTitle icon="android">{t('apps.install')}</CardTitle>
         {!deviceReady && !installBusy ? (

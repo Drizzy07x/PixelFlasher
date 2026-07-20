@@ -5751,3 +5751,71 @@ msgstr "已拒绝的运行时权限"
 msgctxt "web.apps.permissions.none"
 msgid "None reported"
 msgstr "未报告"
+
+msgctxt "web.apps.action.denylistAdd"
+msgid "Add to Magisk denylist"
+msgstr "添加到 Magisk 排除列表"
+
+msgctxt "web.apps.action.denylistRemove"
+msgid "Remove from Magisk denylist"
+msgstr "从 Magisk 排除列表移除"
+
+msgctxt "web.apps.action.suPolicy"
+msgid "Set SU policy"
+msgstr "设置 SU 策略"
+
+msgctxt "web.apps.rootRequired"
+msgid "This action requires a rooted ADB device with Magisk available."
+msgstr "此操作需要已 root 且可使用 Magisk 的 ADB 设备。"
+
+msgctxt "web.apps.suPolicyTitle"
+msgid "Superuser policy"
+msgstr "超级用户策略"
+
+msgctxt "web.apps.suPolicyDetail"
+msgid "The backend verifies the package UID before changing its Magisk policy."
+msgstr "后端会在更改 Magisk 策略前验证软件包 UID。"
+
+msgctxt "web.apps.uidUnavailable"
+msgid "Refresh the package inventory to obtain a verified Android UID."
+msgstr "请刷新软件包清单以获取已验证的 Android UID。"
+
+msgctxt "web.apps.suPolicy"
+msgid "Policy"
+msgstr "策略"
+
+msgctxt "web.apps.su.allow"
+msgid "Allow"
+msgstr "允许"
+
+msgctxt "web.apps.su.deny"
+msgid "Deny"
+msgstr "拒绝"
+
+msgctxt "web.apps.su.revoke"
+msgid "Revoke"
+msgstr "撤销"
+
+msgctxt "web.apps.suDuration"
+msgid "Duration"
+msgstr "时长"
+
+msgctxt "web.apps.su.forever"
+msgid "Forever"
+msgstr "永久"
+
+msgctxt "web.apps.su.minutes"
+msgid "{count} minutes"
+msgstr "{count} 分钟"
+
+msgctxt "web.apps.suLogging"
+msgid "Log SU requests"
+msgstr "记录 SU 请求"
+
+msgctxt "web.apps.suNotification"
+msgid "Show SU notifications"
+msgstr "显示 SU 通知"
+
+msgctxt "web.apps.action.export"
+msgid "Export APK"
+msgstr "导出 APK"

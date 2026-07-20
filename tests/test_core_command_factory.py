@@ -388,6 +388,54 @@ class CoreCommandFactoryTests(unittest.TestCase):
                     request_id="logcat-arbitrary-path",
                 )
 
+    def test_apk_export_consumes_one_use_write_grant_without_public_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "com.example.app.apk"
+            factory = create_command_factory(
+                lambda: AppSnapshot(revision=4, selected_serial="SERIAL-APP")
+            )
+            picker = request(
+                "native.saveFile",
+                payload={"purpose": "apps.export.destination"},
+            )
+            issued = factory.issue_native_grants(picker, (destination,))
+            payload = {
+                "serial": "SERIAL-APP",
+                "action": "export",
+                "package": "com.example.app",
+                "grant": issued["grant"],
+            }
+
+            selected = factory(request("apps.action", payload=payload))
+
+            self.assertIsInstance(
+                selected.payload["exportDestination"],
+                BoundWriteFile,
+            )
+            self.assertNotIn("grant", selected.payload)
+            self.assertNotIn(str(destination), repr(selected))
+            with self.assertRaises(CommandFactoryError) as replay:
+                factory(
+                    request(
+                        "apps.action",
+                        payload=payload,
+                        request_id="apk-export-replay",
+                    )
+                )
+            self.assertEqual("grant_not_found", replay.exception.code)
+
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "apps.action",
+                    payload={
+                        "serial": "SERIAL-APP",
+                        "action": "export",
+                        "package": "com.example.app",
+                        "destination": str(destination),
+                    },
+                    request_id="apk-export-arbitrary-path",
+                )
+
     def test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             selected = Path(directory) / "current-boot.img"

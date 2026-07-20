@@ -70,6 +70,10 @@ class StatefulPostconditionObserver:
             return self._result(self._root_app_installed(calls, expected))
         if kind == "package_state":
             return self._result(self._package_state(calls, expected))
+        if kind == "magisk_denylist_state":
+            return self._result(self._magisk_denylist_state(calls, expected))
+        if kind == "magisk_su_policy":
+            return self._result(self._magisk_su_policy(calls, expected))
         if kind == "remote_files_written":
             return self._result(self._remote_files_written(calls, expected))
         if kind == "adb_wifi_endpoint_state":
@@ -306,6 +310,69 @@ class StatefulPostconditionObserver:
             any(all(part in request.argv for part in prefix) and request.argv[-1] == package for request in calls)
             for package in packages
         )
+
+    @staticmethod
+    def _magisk_denylist_state(
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        raw_packages = expected.get("packages")
+        listed = expected.get("listed")
+        if isinstance(raw_packages, str) or not isinstance(raw_packages, Sequence):
+            return False
+        packages = tuple(item for item in cast(Sequence[object], raw_packages) if isinstance(item, str))
+        if len(packages) != len(raw_packages) or not isinstance(listed, bool):
+            return False
+        verb = "add" if listed else "rm"
+        expected_commands = {f"magisk --denylist {verb} {package}" for package in packages}
+        actual = {
+            argument
+            for request in calls
+            for argument in request.argv
+            if argument.startswith("magisk --denylist ")
+        }
+        return expected_commands <= actual
+
+    @staticmethod
+    def _magisk_su_policy(
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        package = expected.get("package")
+        uid = expected.get("uid")
+        state = expected.get("state")
+        policy = expected.get("policy")
+        logging = expected.get("logging")
+        notification = expected.get("notification")
+        until = expected.get("until")
+        if (
+            not isinstance(package, str)
+            or not isinstance(uid, int)
+            or isinstance(uid, bool)
+            or state not in {"present", "absent"}
+            or policy not in {"allow", "deny", "revoke"}
+            or not isinstance(logging, bool)
+            or not isinstance(notification, bool)
+            or not isinstance(until, int)
+            or isinstance(until, bool)
+        ):
+            return False
+        scripts = tuple(
+            argument
+            for request in calls
+            for argument in request.argv
+            if argument.startswith("observed=$(pm list packages -U ")
+        )
+        if len(scripts) != 1:
+            return False
+        script = scripts[0]
+        if f"pm list packages -U {package}" not in script or f"package:{package} uid:{uid}" not in script:
+            return False
+        if state == "absent":
+            return f"DELETE FROM policies WHERE uid = {uid};" in script
+        value = 2 if policy == "allow" else 1
+        values = f"VALUES ({uid}, {value}, {int(logging)}, {int(notification)}, {until});"
+        return values in script
 
     @classmethod
     def _remote_files_written(

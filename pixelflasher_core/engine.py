@@ -1345,6 +1345,19 @@ class CommandEngine:
                 ),
                 cancellation=planning_token,
             )
+        if isinstance(compilation, PackageCompilation) and compilation.action == "export":
+            return self._execute_process(
+                planned,
+                cancellation=planning_token,
+                operation_executor=(
+                    lambda command, _plan, cancellation: self.package_service.execute_export(
+                        compilation,
+                        command,
+                        self.executor,
+                        cancellation,
+                    )
+                ),
+            )
         return self._execute_process(
             planned,
             lambda result: self._parse_service_result(
@@ -1743,6 +1756,7 @@ class CommandEngine:
             tokens = tuple(self._cancellations.values())
         for token in tokens:
             token.cancel()
+        self.package_service.shutdown()
         self.device_tools_service.shutdown()
         self.support_package_service.shutdown()
 

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 from pixelflasher_core.apk_inspection import (
@@ -20,6 +21,7 @@ from pixelflasher_core.contracts import (
     ToolchainInfo,
 )
 from pixelflasher_core.executor import CommandExecutor, FakeProcessTransport, TransportOutcome
+from pixelflasher_core.grants import GrantAccess, PathGrantStore
 from pixelflasher_core.packages import (
     CancellationProbe,
     PackageCompilation,
@@ -63,6 +65,7 @@ class PackageServiceTests(unittest.TestCase):
         self.service = PackageService(
             hash_chunk_size=2,
             apk_inspector=StubApkInspector(),
+            clock=lambda: 1_700_000_000,
         )
 
     def compile(
@@ -421,6 +424,315 @@ class PackageServiceTests(unittest.TestCase):
             dict(compilation.plan.postconditions[1].expected),
         )
 
+    def test_denylist_actions_require_root_and_declare_independent_state(self):
+        with self.assertRaises(PackagePlanningError) as unrooted:
+            self.compile(
+                "apps.action",
+                {"action": "denylistAdd", "package": "com.example.application"},
+            )
+        self.assertEqual("package_root_required", unrooted.exception.code)
+
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        compilation = self.compile(
+            "apps.action",
+            {
+                "action": "denylistRemove",
+                "packages": ["com.example.alpha", "com.example.beta"],
+            },
+        )
+
+        self.assertEqual(
+            (
+                "ADB",
+                "-s",
+                "SERIAL",
+                "shell",
+                "su",
+                "-c",
+                "magisk --denylist rm com.example.alpha",
+            ),
+            compilation.plan.requests[0].argv,
+        )
+        self.assertEqual(
+            {
+                "packages": ("com.example.alpha", "com.example.beta"),
+                "listed": False,
+            },
+            dict(compilation.plan.postconditions[0].expected),
+        )
+        self.assertEqual("magisk_denylist_state", compilation.plan.postconditions[0].kind)
+
+    def test_su_policy_binds_package_uid_flags_and_backend_expiry(self):
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        compilation = self.compile(
+            "apps.action",
+            {
+                "action": "suPolicy",
+                "package": "com.example.application",
+                "options": {
+                    "uid": 10123,
+                    "policy": "allow",
+                    "logging": True,
+                    "notification": False,
+                    "durationMinutes": 10,
+                },
+            },
+        )
+
+        script = compilation.plan.request.argv[-1]
+        self.assertIn("pm list packages -U com.example.application", script)
+        self.assertIn("package:com.example.application uid:10123", script)
+        self.assertIn("VALUES (10123, 2, 1, 0, 1700000600);", script)
+        self.assertEqual(
+            {
+                "package": "com.example.application",
+                "uid": 10123,
+                "state": "present",
+                "policy": "allow",
+                "logging": True,
+                "notification": False,
+                "until": 1_700_000_600,
+            },
+            dict(compilation.plan.postconditions[0].expected),
+        )
+
+        revoked = self.compile(
+            "apps.action",
+            {
+                "action": "suPolicy",
+                "package": "com.example.application",
+                "options": {
+                    "uid": 10123,
+                    "policy": "revoke",
+                    "logging": False,
+                    "notification": False,
+                    "durationMinutes": 0,
+                },
+            },
+        )
+        self.assertIn("DELETE FROM policies WHERE uid = 10123;", revoked.plan.request.argv[-1])
+        self.assertEqual("absent", revoked.plan.postconditions[0].expected["state"])
+
+    def test_su_policy_rejects_ambiguous_targets_and_unbounded_options(self):
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        base = {
+            "action": "suPolicy",
+            "package": "com.example.application",
+            "options": {
+                "uid": 10123,
+                "policy": "allow",
+                "logging": True,
+                "notification": True,
+                "durationMinutes": 10,
+            },
+        }
+        cases = (
+            ({**base, "packages": ["com.example.application"]}, "package_target_ambiguous"),
+            ({**base, "options": {**base["options"], "uid": -1}}, "package_uid_invalid"),
+            (
+                {**base, "options": {**base["options"], "durationMinutes": 15}},
+                "package_su_duration_invalid",
+            ),
+        )
+        for payload, code in cases:
+            with self.subTest(code=code), self.assertRaises(PackagePlanningError) as rejected:
+                self.compile("apps.action", payload)
+            self.assertEqual(code, rejected.exception.code)
+
+    def test_export_stages_verifies_publishes_and_cleans_without_public_path(self):
+        class ExportTransport:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def run(self, request, cancellation):
+                self.calls.append(request)
+                if cancellation.cancelled:
+                    return TransportOutcome(None, cancelled=True)
+                if "pull" in request.argv:
+                    Path(request.argv[-1]).write_bytes(b"verified exported apk")
+                return TransportOutcome(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "com.example.verified.apk"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="apps.export.destination",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="apps.export.destination",
+            )
+            service = PackageService(
+                hash_chunk_size=3,
+                apk_inspector=StubApkInspector(),
+                temporary_root=directory,
+            )
+            command = AppCommand(
+                "apps.action",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={
+                    "action": "export",
+                    "package": "com.example.verified",
+                    "exportDestination": bound,
+                },
+            )
+            compilation = service.compile(command, self.snapshot)
+            transport = ExportTransport()
+
+            result = service.execute_export(
+                compilation,
+                command,
+                CommandExecutor(transport),
+                CancellationToken(),
+            )
+
+            self.assertTrue(result.ok, result)
+            self.assertEqual(b"verified exported apk", destination.read_bytes())
+            self.assertEqual("com.example.verified", result.value["export"]["package"])
+            self.assertTrue(result.value["export"]["remoteCleaned"])
+            self.assertNotIn(str(destination), repr(compilation))
+            self.assertFalse(compilation.export_staging.exists())
+            self.assertIn(
+                ("ADB", "-s", "SERIAL", "shell", "rm", "-f", "--", compilation.export_remote),
+                [call.argv for call in transport.calls],
+            )
+
+    def test_export_rejects_raw_destination(self):
+        with self.assertRaises(PackagePlanningError) as raw:
+            self.compile(
+                "apps.action",
+                {
+                    "action": "export",
+                    "package": "com.example.verified",
+                    "exportDestination": "C:/private/app.apk",
+                },
+            )
+        self.assertEqual("package_export_grant_required", raw.exception.code)
+
+    def test_export_runs_end_to_end_through_engine_and_execution_postcondition(self):
+        class ExportTransport:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def run(self, request, cancellation):
+                self.calls.append(request)
+                if cancellation.cancelled:
+                    return TransportOutcome(None, cancelled=True)
+                if "pull" in request.argv:
+                    Path(request.argv[-1]).write_bytes(b"engine verified apk")
+                return TransportOutcome(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "com.example.verified.apk"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="apps.export.destination",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="apps.export.destination",
+            )
+            service = PackageService(
+                apk_inspector=StubApkInspector(),
+                temporary_root=directory,
+            )
+            transport = ExportTransport()
+            engine = make_test_command_engine(
+                store=AppStateStore(self.snapshot),
+                executor=CommandExecutor(transport),
+                package_service=service,
+                interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            )
+
+            result = engine.execute(
+                AppCommand(
+                    "apps.action",
+                    expected_revision=self.snapshot.revision,
+                    target_serial="SERIAL",
+                    payload={
+                        "action": "export",
+                        "package": "com.example.verified",
+                        "exportDestination": bound,
+                    },
+                )
+            )
+
+            self.assertTrue(result.ok, result)
+            self.assertEqual("package_export_staged", result.code)
+            self.assertEqual(b"engine verified apk", destination.read_bytes())
+            self.assertEqual("export", result.value["action"])
+
+    def test_export_identity_mismatch_never_publishes_destination(self):
+        class WrongInspector(StubApkInspector):
+            def inspect(self, path, *, cancellation=None):
+                identity = super().inspect(path, cancellation=cancellation)
+                return replace(identity, package_name="com.example.other")
+
+        class ExportTransport:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def run(self, request, cancellation):
+                self.calls.append(request)
+                if "pull" in request.argv:
+                    Path(request.argv[-1]).write_bytes(b"wrong identity apk")
+                return TransportOutcome(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "com.example.verified.apk"
+            grants = PathGrantStore()
+            issued = grants.issue_file(
+                destination,
+                purpose="apps.export.destination",
+                access=GrantAccess.WRITE,
+            )
+            bound = grants.resolve_bound_write_file(
+                issued.token,
+                purpose="apps.export.destination",
+            )
+            service = PackageService(
+                apk_inspector=WrongInspector(),
+                temporary_root=directory,
+            )
+            command = AppCommand(
+                "apps.action",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={
+                    "action": "export",
+                    "package": "com.example.verified",
+                    "exportDestination": bound,
+                },
+            )
+            compilation = service.compile(command, self.snapshot)
+            transport = ExportTransport()
+
+            result = service.execute_export(
+                compilation,
+                command,
+                CommandExecutor(transport),
+                CancellationToken(),
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual("package_export_identity_mismatch", result.code)
+            self.assertFalse(destination.exists())
+            self.assertFalse(compilation.export_staging.exists())
+
     def test_install_rejects_non_apk_and_non_boolean_options(self):
         with tempfile.TemporaryDirectory() as directory:
             text = Path(directory) / "payload.txt"
@@ -524,6 +836,42 @@ class PackageServiceTests(unittest.TestCase):
                 [("ADB", "-s", "SERIAL", "install", str(apk.resolve()))],
                 transport.calls,
             )
+
+    def test_root_package_action_cannot_succeed_without_magisk_postcondition(self):
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        transport = FakeProcessTransport([TransportOutcome(0)])
+        observed: list[str] = []
+
+        def reject_observation(_plan, condition, _snapshot):
+            observed.append(condition.kind)
+            return False
+
+        engine = make_test_command_engine(
+            store=AppStateStore(self.snapshot),
+            executor=CommandExecutor(transport),
+            package_service=self.service,
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+            postcondition_observer=reject_observation,
+        )
+
+        result = engine.execute(
+            AppCommand(
+                "apps.action",
+                expected_revision=self.snapshot.revision,
+                target_serial="SERIAL",
+                payload={
+                    "action": "denylistAdd",
+                    "package": "com.example.application",
+                },
+            )
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual("postcondition_mismatch", result.code)
+        self.assertEqual(["magisk_denylist_state"], observed)
 
     def test_requires_selected_online_adb_device_and_validated_toolchain(self):
         cases = (

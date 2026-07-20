@@ -2147,6 +2147,23 @@ code {
   padding-left: 1.25rem;
 }
 
+.apps-su-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.apps-su-controls label {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.apps-su-controls label:has(input[type='checkbox']) {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
 .apps-install-feedback {
   display: flex;
   align-items: center;

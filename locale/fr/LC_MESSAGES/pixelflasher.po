@@ -5746,3 +5746,71 @@ msgstr "Autorisations d’exécution refusées"
 msgctxt "web.apps.permissions.none"
 msgid "None reported"
 msgstr "Aucune signalée"
+
+msgctxt "web.apps.action.denylistAdd"
+msgid "Add to Magisk denylist"
+msgstr "Ajouter à la liste d'exclusion Magisk"
+
+msgctxt "web.apps.action.denylistRemove"
+msgid "Remove from Magisk denylist"
+msgstr "Retirer de la liste d'exclusion Magisk"
+
+msgctxt "web.apps.action.suPolicy"
+msgid "Set SU policy"
+msgstr "Définir la politique SU"
+
+msgctxt "web.apps.rootRequired"
+msgid "This action requires a rooted ADB device with Magisk available."
+msgstr "Cette action nécessite un appareil ADB rooté avec Magisk disponible."
+
+msgctxt "web.apps.suPolicyTitle"
+msgid "Superuser policy"
+msgstr "Politique superutilisateur"
+
+msgctxt "web.apps.suPolicyDetail"
+msgid "The backend verifies the package UID before changing its Magisk policy."
+msgstr "Le backend vérifie l'UID du paquet avant de modifier sa politique Magisk."
+
+msgctxt "web.apps.uidUnavailable"
+msgid "Refresh the package inventory to obtain a verified Android UID."
+msgstr "Actualisez l'inventaire des paquets pour obtenir un UID Android vérifié."
+
+msgctxt "web.apps.suPolicy"
+msgid "Policy"
+msgstr "Politique"
+
+msgctxt "web.apps.su.allow"
+msgid "Allow"
+msgstr "Autoriser"
+
+msgctxt "web.apps.su.deny"
+msgid "Deny"
+msgstr "Refuser"
+
+msgctxt "web.apps.su.revoke"
+msgid "Revoke"
+msgstr "Révoquer"
+
+msgctxt "web.apps.suDuration"
+msgid "Duration"
+msgstr "Durée"
+
+msgctxt "web.apps.su.forever"
+msgid "Forever"
+msgstr "Toujours"
+
+msgctxt "web.apps.su.minutes"
+msgid "{count} minutes"
+msgstr "{count} minutes"
+
+msgctxt "web.apps.suLogging"
+msgid "Log SU requests"
+msgstr "Journaliser les requêtes SU"
+
+msgctxt "web.apps.suNotification"
+msgid "Show SU notifications"
+msgstr "Afficher les notifications SU"
+
+msgctxt "web.apps.action.export"
+msgid "Export APK"
+msgstr "Exporter l’APK"

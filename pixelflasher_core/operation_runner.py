@@ -1341,6 +1341,7 @@ class OperationRunner:
             "host_artifact_written",
             "adb_wifi_pairing_recorded",
             "package_data_cleared",
+            "package_export_verified",
             "logcat_buffers_cleared",
             "view_intent_accepted",
         }
@@ -1350,6 +1351,24 @@ class OperationRunner:
         postcondition: OperationPostcondition,
     ) -> None:
         expected = postcondition.expected
+        if postcondition.kind == "package_export_verified":
+            if set(expected) != {"package", "fileName"}:
+                raise ValueError("APK export postcondition fields are invalid")
+            package = expected.get("package")
+            file_name = expected.get("fileName")
+            if (
+                not isinstance(package, str)
+                or re.fullmatch(
+                    r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+",
+                    package,
+                )
+                is None
+                or not isinstance(file_name, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk", file_name, re.I)
+                is None
+            ):
+                raise ValueError("APK export identity is invalid")
+            return
         if postcondition.kind == "adb_wifi_pairing_recorded":
             if set(expected) != {"endpoint"}:
                 raise ValueError("ADB Wi-Fi pairing postcondition fields are invalid")
@@ -1512,6 +1531,8 @@ class OperationRunner:
                 )
             if postcondition.kind == "adb_wifi_pairing_recorded":
                 evidence = self._verify_wifi_pairing_evidence(postcondition, result)
+            elif postcondition.kind == "package_export_verified":
+                evidence = self._verify_package_export_evidence(postcondition, result)
             elif postcondition.kind == "package_data_cleared":
                 evidence = self._verify_package_clear_evidence(postcondition, result)
             elif postcondition.kind == "logcat_buffers_cleared":
@@ -1525,6 +1546,55 @@ class OperationRunner:
         return OperationResult.success(
             plan.plan_id,
             code="execution_postconditions_satisfied",
+        )
+
+    @staticmethod
+    def _verify_package_export_evidence(
+        postcondition: OperationPostcondition,
+        result: OperationResult,
+    ) -> OperationResult:
+        value = OperationRunner._result_value_mapping(cast(object, result.value))
+        export = value.get("export")
+        if not isinstance(export, Mapping):
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_unverified",
+                message="APK export returned no closed verification receipt",
+            )
+        receipt = cast(Mapping[object, object], export)
+        package = postcondition.expected["package"]
+        file_name = postcondition.expected["fileName"]
+        digest = receipt.get("sha256")
+        size = receipt.get("size")
+        if (
+            value.get("action") != "export"
+            or set(receipt)
+            != {
+                "package",
+                "fileName",
+                "sha256",
+                "size",
+                "verified",
+                "remoteCleaned",
+            }
+            or receipt.get("package") != package
+            or receipt.get("fileName") != file_name
+            or receipt.get("verified") is not True
+            or receipt.get("remoteCleaned") is not True
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or not 1 <= size <= 2 * 1024 * 1024 * 1024
+        ):
+            return OperationResult.failed(
+                result.operation_id,
+                code="postcondition_mismatch",
+                message="APK export receipt does not prove identity, hash, publication, and cleanup",
+            )
+        return OperationResult.success(
+            result.operation_id,
+            code="package_export_verified",
         )
 
     def _verify_wifi_pairing_evidence(
@@ -1855,6 +1925,8 @@ class OperationRunner:
         expected_package_states: dict[str, str] = {}
         expected_adb_endpoints: dict[str, bool] = {}
         expected_root_modules: dict[str, str] = {}
+        expected_magisk_denylist: dict[str, bool] = {}
+        expected_magisk_su_policies: dict[int, str] = {}
         erased_partitions: list[str] = []
 
         def bind(current: object, value: object, name: str) -> object:
@@ -1969,6 +2041,82 @@ class OperationRunner:
                     if current_state is not None and current_state != package_state:
                         raise ValueError("conflicting package state postconditions")
                     expected_package_states[package_name] = package_state
+            elif postcondition.kind == "magisk_denylist_state":
+                if set(expected) != {"packages", "listed"}:
+                    raise ValueError("Magisk denylist postcondition fields are invalid")
+                package_values = expected.get("packages")
+                listed = expected.get("listed")
+                if isinstance(package_values, str) or not isinstance(
+                    package_values,
+                    (tuple, list),
+                ):
+                    raise TypeError("Magisk denylist targets must be an array")
+                if not isinstance(listed, bool):
+                    raise TypeError("Magisk denylist state must be a boolean")
+                values = cast(tuple[object, ...] | list[object], package_values)
+                if not values or len(values) > 100:
+                    raise ValueError("Magisk denylist targets are outside their bounds")
+                for package_name in values:
+                    if not isinstance(package_name, str) or not package_name:
+                        raise TypeError("Magisk denylist targets must be package names")
+                    current = expected_magisk_denylist.get(package_name)
+                    if current is not None and current is not listed:
+                        raise ValueError("conflicting Magisk denylist postconditions")
+                    expected_magisk_denylist[package_name] = listed
+            elif postcondition.kind == "magisk_su_policy":
+                if set(expected) != {
+                    "package",
+                    "uid",
+                    "state",
+                    "policy",
+                    "logging",
+                    "notification",
+                    "until",
+                }:
+                    raise ValueError("Magisk SU postcondition fields are invalid")
+                package_name = expected.get("package")
+                uid = expected.get("uid")
+                state = expected.get("state")
+                policy = expected.get("policy")
+                logging = expected.get("logging")
+                notification = expected.get("notification")
+                until = expected.get("until")
+                if not isinstance(package_name, str) or not package_name:
+                    raise TypeError("Magisk SU package is invalid")
+                if (
+                    not isinstance(uid, int)
+                    or isinstance(uid, bool)
+                    or not 0 <= uid <= 2_147_483_647
+                ):
+                    raise ValueError("Magisk SU UID is invalid")
+                if state not in {"present", "absent"} or policy not in {
+                    "allow",
+                    "deny",
+                    "revoke",
+                }:
+                    raise ValueError("Magisk SU policy state is invalid")
+                if not isinstance(logging, bool) or not isinstance(notification, bool):
+                    raise TypeError("Magisk SU flags are invalid")
+                if (
+                    not isinstance(until, int)
+                    or isinstance(until, bool)
+                    or not 0 <= until <= 9_999_999_999
+                ):
+                    raise ValueError("Magisk SU expiry is invalid")
+                if state == "absent":
+                    if policy != "revoke":
+                        raise ValueError("absent Magisk SU policy must be a revocation")
+                    canonical = "absent"
+                else:
+                    if policy not in {"allow", "deny"}:
+                        raise ValueError("present Magisk SU policy must allow or deny")
+                    canonical = (
+                        f"{policy}:{int(logging)}:{int(notification)}:{until}"
+                    )
+                current = expected_magisk_su_policies.get(uid)
+                if current is not None and current != canonical:
+                    raise ValueError("conflicting Magisk SU policy postconditions")
+                expected_magisk_su_policies[uid] = canonical
             elif postcondition.kind == "remote_files_written":
                 raw_mode = expected.get("mode")
                 if raw_mode is not None:
@@ -2064,6 +2212,8 @@ class OperationRunner:
             remote_hashes=remote_hashes,
             expected_adb_endpoints=expected_adb_endpoints,
             expected_root_modules=expected_root_modules,
+            expected_magisk_denylist=expected_magisk_denylist,
+            expected_magisk_su_policies=expected_magisk_su_policies,
             erased_partitions=tuple(erased_partitions),
         )
 

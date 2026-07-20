@@ -24,6 +24,8 @@ _PARTITION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _PACKAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$")
 _REPORTED_PACKAGE_PATH_PATTERN = re.compile(r"^/(?:[A-Za-z0-9._+~=@%:-]{1,160}/)*[A-Za-z0-9._+~=@%:-]{1,160}$")
 _MODULE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
+_SU_POLICY_STATE_PATTERN = re.compile(r"^(?:absent|(?:allow|deny):[01]:[01]:\d{1,10})$")
+_SU_POLICY_ROW_PATTERN = re.compile(r"^PF_SU\|(\d{1,10})\|([12])\|([01])\|([01])\|(\d{1,10})$")
 _FASTBOOT_FETCH_PATTERN = re.compile(r"(?mi)^\s*fetch(?:\s|:)")
 _MAX_PROPERTY_OUTPUT_BYTES = 4 * 1024
 _MAX_REMOTE_HASH_OUTPUT_BYTES = 64 * 1024
@@ -60,6 +62,10 @@ def _empty_booleans() -> Mapping[str, bool]:
     return {}
 
 
+def _empty_int_strings() -> Mapping[int, str]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class DeviceObservation:
     serial: str
@@ -75,6 +81,8 @@ class DeviceObservation:
     package_states: Mapping[str, str] = field(default_factory=_empty_hashes)
     adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
+    magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
+    magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     erased_partitions: Mapping[str, bool] = field(default_factory=_empty_booleans)
     safe_mode: bool | None = None
     ota_idle: bool | None = None
@@ -92,6 +100,21 @@ class DeviceObservation:
             raise TypeError("observed ADB endpoint states must be booleans")
         if any(not isinstance(value, str) for value in self.root_modules.values()):
             raise TypeError("observed root module states must be strings")
+        if any(
+            not isinstance(package, str)
+            or _PACKAGE_PATTERN.fullmatch(package) is None
+            or not isinstance(value, bool)
+            for package, value in self.magisk_denylist.items()
+        ):
+            raise TypeError("observed Magisk denylist states must be booleans")
+        if any(
+            not isinstance(uid, int)
+            or isinstance(uid, bool)
+            or not isinstance(value, str)
+            or _SU_POLICY_STATE_PATTERN.fullmatch(value) is None
+            for uid, value in self.magisk_su_policies.items()
+        ):
+            raise TypeError("observed Magisk SU policies are invalid")
         if any(not isinstance(value, bool) for value in self.erased_partitions.values()):
             raise TypeError("observed erased partition states must be booleans")
         object.__setattr__(self, "remote_hashes", MappingProxyType(dict(self.remote_hashes)))
@@ -108,6 +131,16 @@ class DeviceObservation:
             MappingProxyType(dict(self.adb_endpoints)),
         )
         object.__setattr__(self, "root_modules", MappingProxyType(dict(self.root_modules)))
+        object.__setattr__(
+            self,
+            "magisk_denylist",
+            MappingProxyType(dict(self.magisk_denylist)),
+        )
+        object.__setattr__(
+            self,
+            "magisk_su_policies",
+            MappingProxyType(dict(self.magisk_su_policies)),
+        )
         object.__setattr__(
             self,
             "erased_partitions",
@@ -175,6 +208,8 @@ class PostconditionSpec:
     expected_package_states: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_adb_endpoints: Mapping[str, bool] = field(default_factory=_empty_booleans)
     expected_root_modules: Mapping[str, str] = field(default_factory=_empty_hashes)
+    expected_magisk_denylist: Mapping[str, bool] = field(default_factory=_empty_booleans)
+    expected_magisk_su_policies: Mapping[int, str] = field(default_factory=_empty_int_strings)
     erased_partitions: tuple[str, ...] = ()
     expected_safe_mode: bool | None = None
     expected_ota_idle: bool | None = None
@@ -230,6 +265,22 @@ class PostconditionSpec:
             for value in self.expected_root_modules.values()
         ):
             raise ValueError("expected root module state is invalid")
+        if any(
+            not isinstance(package, str)
+            or _PACKAGE_PATTERN.fullmatch(package) is None
+            or not isinstance(listed, bool)
+            for package, listed in self.expected_magisk_denylist.items()
+        ):
+            raise ValueError("expected Magisk denylist state is invalid")
+        if any(
+            not isinstance(uid, int)
+            or isinstance(uid, bool)
+            or not 0 <= uid <= 2_147_483_647
+            or not isinstance(state, str)
+            or _SU_POLICY_STATE_PATTERN.fullmatch(state) is None
+            for uid, state in self.expected_magisk_su_policies.items()
+        ):
+            raise ValueError("expected Magisk SU policy is invalid")
         if any(not isinstance(value, str) or not value for value in self.erased_partitions) or len(
             self.erased_partitions
         ) != len(set(self.erased_partitions)):
@@ -255,6 +306,16 @@ class PostconditionSpec:
             self,
             "expected_root_modules",
             MappingProxyType(dict(self.expected_root_modules)),
+        )
+        object.__setattr__(
+            self,
+            "expected_magisk_denylist",
+            MappingProxyType(dict(self.expected_magisk_denylist)),
+        )
+        object.__setattr__(
+            self,
+            "expected_magisk_su_policies",
+            MappingProxyType(dict(self.expected_magisk_su_policies)),
         )
         object.__setattr__(self, "erased_partitions", tuple(self.erased_partitions))
 
@@ -564,6 +625,20 @@ class ProcessDeviceObservationProbe:
                     token,
                     timeout,
                 ),
+                magisk_denylist=self._magisk_denylist_states(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
+                magisk_su_policies=self._magisk_su_policies(
+                    spec,
+                    toolchain,
+                    mode,
+                    token,
+                    timeout,
+                ),
             )
         )
 
@@ -858,6 +933,97 @@ class ProcessDeviceObservationProbe:
             if disabled is None or pending_remove is None:
                 continue
             observed[module_id] = "pending_remove" if pending_remove else "disabled" if disabled else "enabled"
+        return observed
+
+    def _magisk_denylist_states(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[str, bool]:
+        packages = tuple(spec.expected_magisk_denylist)
+        if mode != "adb" or not packages or len(packages) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        outcome = self._run(
+            (
+                toolchain.adb,
+                "-s",
+                spec.serial,
+                "shell",
+                "su",
+                "-c",
+                "magisk --denylist ls",
+            ),
+            token,
+            timeout,
+            output_limit_bytes=_MAX_ADB_INVENTORY_OUTPUT_BYTES,
+        )
+        if not self._successful(outcome, _MAX_ADB_INVENTORY_OUTPUT_BYTES):
+            return {}
+        assert outcome is not None
+        listed: set[str] = set()
+        for raw_line in outcome.stdout.splitlines():
+            package = raw_line.strip().split("|", 1)[0]
+            if _PACKAGE_PATTERN.fullmatch(package) is not None:
+                listed.add(package)
+        return {package: package in listed for package in packages}
+
+    def _magisk_su_policies(
+        self,
+        spec: PostconditionSpec,
+        toolchain: ToolchainInfo,
+        mode: str,
+        token: CancellationToken,
+        timeout: float,
+    ) -> dict[int, str]:
+        policies = tuple(spec.expected_magisk_su_policies)
+        if mode != "adb" or not policies or len(policies) > self.max_hash_targets:
+            return {}
+        if not self._root_available(toolchain, spec.serial, token, timeout):
+            return {}
+        observed: dict[int, str] = {}
+        for uid in policies:
+            if token.cancelled:
+                break
+            sql = (
+                "SELECT 'PF_SU|' || uid || '|' || policy || '|' || logging || "
+                "'|' || notification || '|' || until FROM policies "
+                f"WHERE uid = {uid};"
+            )
+            outcome = self._run(
+                (
+                    toolchain.adb,
+                    "-s",
+                    spec.serial,
+                    "shell",
+                    "su",
+                    "-c",
+                    f'magisk --sqlite "{sql}"',
+                ),
+                token,
+                timeout,
+                output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
+            )
+            if not self._successful(outcome, _MAX_PROPERTY_OUTPUT_BYTES):
+                continue
+            assert outcome is not None
+            lines = tuple(line.strip() for line in outcome.stdout.splitlines() if line.strip())
+            if not lines:
+                observed[uid] = "absent"
+                continue
+            if len(lines) != 1:
+                continue
+            match = _SU_POLICY_ROW_PATTERN.fullmatch(lines[0])
+            if match is None or int(match.group(1)) != uid:
+                continue
+            policy = "allow" if match.group(2) == "2" else "deny"
+            observed[uid] = (
+                f"{policy}:{match.group(3)}:{match.group(4)}:{int(match.group(5))}"
+            )
         return observed
 
     def _adb_endpoint_states(
@@ -1782,6 +1948,22 @@ class PostconditionObserver:
         for module_id, expected in spec.expected_root_modules.items():
             actual = observation.root_modules.get(module_id)
             key = f"root_module:{module_id}"
+            if actual is None:
+                missing.append(key)
+            elif actual != expected:
+                mismatches[key] = (expected, actual)
+
+        for package_name, expected in spec.expected_magisk_denylist.items():
+            actual = observation.magisk_denylist.get(package_name)
+            key = f"magisk_denylist:{package_name}"
+            if actual is None:
+                missing.append(key)
+            elif actual is not expected:
+                mismatches[key] = (expected, actual)
+
+        for uid, expected in spec.expected_magisk_su_policies.items():
+            actual = observation.magisk_su_policies.get(uid)
+            key = f"magisk_su_policy:{uid}"
             if actual is None:
                 missing.append(key)
             elif actual != expected:

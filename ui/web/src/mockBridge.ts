@@ -1497,6 +1497,19 @@ export function installDevelopmentBridge() {
                   bounded: true,
                 },
               }));
+            } else if (request.payload.action === 'export') {
+              const packageName = typeof request.payload.package === 'string' ? request.payload.package : 'com.example.selected';
+              respond(request, success('APK exported.', {
+                action: 'export',
+                export: {
+                  package: packageName,
+                  fileName: `${packageName}.apk`,
+                  sha256: '7'.repeat(64),
+                  size: 1024,
+                  verified: true,
+                  remoteCleaned: true,
+                },
+              }));
             } else {
               respond(request, success('Command accepted.', { action: request.payload.action }));
             }
@@ -1504,9 +1517,10 @@ export function installDevelopmentBridge() {
           }
           case 'apps.list':
             respond(request, success('Packages listed.', {
-              packages: demoApps.map((app) => ({
+              packages: demoApps.map((app, index) => ({
                 package: app.id,
                 apk_path: app.scope === 'System' ? `/system/app/${app.id}.apk` : `/data/app/${app.id}.apk`,
+                uid: 10000 + index,
               })),
             }));
             break;

@@ -8,12 +8,15 @@ then compiles exact ``adb`` argv tuples which are still evaluated by
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+import tempfile
+import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Protocol, cast
+from typing import BinaryIO, Protocol, cast
 
 from .apk_inspection import (
     ApkIdentity,
@@ -22,6 +25,7 @@ from .apk_inspection import (
     ApkInspector,
     CancellationProbe,
 )
+from .cancellation import CancellationToken
 from .contracts import (
     AppCommand,
     AppSnapshot,
@@ -29,13 +33,17 @@ from .contracts import (
     FileArtifact,
     OperationPlan,
     OperationPostcondition,
+    OperationResult,
     OperationRisk,
     ProcessRequest,
 )
+from .executor import CommandExecutor
+from .grants import AtomicWriteOutcomeUnknownError, BoundWriteFile, GrantError
 
 PACKAGE_COMMANDS = frozenset({"apps.list", "apps.action"})
 
 _PACKAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$")
+_EXPORT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,254}\.apk$", re.I)
 _LIST_SCOPES = {
     "all": (),
     "user": ("-3",),
@@ -52,6 +60,10 @@ _PACKAGE_ACTIONS = frozenset(
         "forceStop",
         "launch",
         "permissions",
+        "denylistAdd",
+        "denylistRemove",
+        "suPolicy",
+        "export",
         "install",
     }
 )
@@ -108,6 +120,9 @@ class PackageCompilation:
     requires_confirmation: bool = False
     apk_identity: ApkIdentity | None = None
     packages: tuple[str, ...] = ()
+    export_destination: BoundWriteFile | None = field(default=None, repr=False)
+    export_staging: Path | None = field(default=None, repr=False)
+    export_remote: str = field(default="", repr=False)
 
     def to_dict(self) -> dict[str, object]:
         value: dict[str, object] = {
@@ -135,11 +150,24 @@ class PackageService:
         *,
         hash_chunk_size: int = 1024 * 1024,
         apk_inspector: ApkIdentityInspector | None = None,
+        clock: Callable[[], float] = time.time,
+        temporary_root: str | os.PathLike[str] | None = None,
     ) -> None:
         if hash_chunk_size <= 0:
             raise ValueError("hash_chunk_size must be positive")
         self.hash_chunk_size = hash_chunk_size
         self.apk_inspector = apk_inspector or ApkInspector()
+        self.clock = clock
+        self._owned_temporary_root: tempfile.TemporaryDirectory[str] | None = None
+        if temporary_root is None:
+            self._owned_temporary_root = tempfile.TemporaryDirectory(
+                prefix="pixelflasher-package-export-"
+            )
+            self.temporary_root = Path(self._owned_temporary_root.name).resolve()
+        else:
+            self.temporary_root = Path(temporary_root).resolve(strict=True)
+            if not self.temporary_root.is_dir():
+                raise ValueError("temporary_root must be an existing directory")
 
     def compile(
         self,
@@ -212,7 +240,15 @@ class PackageService:
     ) -> PackageCompilation:
         self._validate_payload(
             command,
-            {"serial", "action", "package", "packages", "path", "options"},
+            {
+                "serial",
+                "action",
+                "package",
+                "packages",
+                "path",
+                "options",
+                "exportDestination",
+            },
         )
         raw_action = command.payload.get("action")
         if not isinstance(raw_action, str) or raw_action not in _PACKAGE_ACTIONS:
@@ -229,9 +265,23 @@ class PackageService:
                 adb,
                 cancellation,
             )
+        if action == "export":
+            return self._compile_export(command, snapshot, device, adb)
 
         options = self._options(command.payload.get("options"))
-        allowed_options: set[str] = {"keepData"} if action == "uninstall" else set()
+        allowed_options: set[str]
+        if action == "uninstall":
+            allowed_options = {"keepData"}
+        elif action == "suPolicy":
+            allowed_options = {
+                "uid",
+                "policy",
+                "logging",
+                "notification",
+                "durationMinutes",
+            }
+        else:
+            allowed_options = set()
         unknown_options = set(options) - allowed_options
         if unknown_options:
             raise PackagePlanningError(
@@ -239,14 +289,34 @@ class PackageService:
                 f"unsupported option for {action}: {sorted(unknown_options)[0]}",
             )
         packages = self._packages(command.payload)
-        if action == "permissions" and len(packages) != 1:
+        if action in {"permissions", "suPolicy"} and len(packages) != 1:
             raise PackagePlanningError(
-                "package_permissions_target_invalid",
-                "permission inspection requires exactly one package",
+                (
+                    "package_permissions_target_invalid"
+                    if action == "permissions"
+                    else "package_su_target_invalid"
+                ),
+                f"{action} requires exactly one package",
             )
+        root_action = action in {"denylistAdd", "denylistRemove", "suPolicy"}
+        if root_action and not device.root:
+            raise PackagePlanningError(
+                "package_root_required",
+                f"{action} requires a rooted ADB device",
+            )
+        su_expected: dict[str, object] | None = None
+        if action == "suPolicy":
+            su_expected = self._su_policy_expected(packages[0], options)
         requests = tuple(
             ProcessRequest(
-                self._package_argv(adb, device.serial, action, package, options),
+                self._package_argv(
+                    adb,
+                    device.serial,
+                    action,
+                    package,
+                    options,
+                    su_expected=su_expected,
+                ),
                 timeout_seconds=120.0 if action in _DESTRUCTIVE_ACTIONS else 30.0,
             )
             for package in packages
@@ -268,6 +338,26 @@ class PackageService:
         )
         if action == "permissions":
             postconditions: tuple[OperationPostcondition, ...] = ()
+        elif action in {"denylistAdd", "denylistRemove"}:
+            postconditions = (
+                OperationPostcondition(
+                    "magisk_denylist_state",
+                    {
+                        "packages": packages,
+                        "listed": action == "denylistAdd",
+                    },
+                    "Magisk independently reports every requested denylist state",
+                ),
+            )
+        elif action == "suPolicy":
+            assert su_expected is not None
+            postconditions = (
+                OperationPostcondition(
+                    "magisk_su_policy",
+                    su_expected,
+                    "Magisk independently reports the exact requested SU policy",
+                ),
+            )
         elif action == "clearData":
             postconditions = (
                 OperationPostcondition(
@@ -305,6 +395,279 @@ class PackageService:
             requires_confirmation=action != "permissions",
             packages=packages,
         )
+
+    def _compile_export(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> PackageCompilation:
+        if set(command.payload) - {
+            "serial",
+            "action",
+            "package",
+            "packages",
+            "exportDestination",
+        }:
+            raise PackagePlanningError(
+                "invalid_package_payload",
+                "APK export accepts only a package and an opaque destination grant",
+            )
+        packages = self._packages(command.payload)
+        if len(packages) != 1:
+            raise PackagePlanningError(
+                "package_export_target_invalid",
+                "APK export requires exactly one package",
+            )
+        destination = command.payload.get("exportDestination")
+        if not isinstance(destination, BoundWriteFile):
+            raise PackagePlanningError(
+                "package_export_grant_required",
+                "APK export requires an opaque native write grant",
+            )
+        if _EXPORT_NAME_PATTERN.fullmatch(destination.name) is None:
+            raise PackagePlanningError(
+                "package_export_destination_invalid",
+                "APK export destination must use the .apk extension",
+            )
+        package = packages[0]
+        nonce = hashlib.sha256(command.operation_id.encode("utf-8")).hexdigest()[:32]
+        local_staging = self.temporary_root / f"{nonce}.apk"
+        remote_staging = f"/data/local/tmp/pixelflasher-export-{nonce}.apk"
+        allowed_paths = (
+            "/data/app/*.apk",
+            "/system/app/*.apk",
+            "/system/priv-app/*.apk",
+            "/product/app/*.apk",
+            "/product/priv-app/*.apk",
+            "/vendor/app/*.apk",
+            "/odm/app/*.apk",
+            "/apex/*.apk",
+        )
+        path_cases = "|".join(allowed_paths)
+        stage_script = (
+            f"actual=$(pm path {package} | sed -n '1s/^package://p'); "
+            f'case "$actual" in {path_cases}) '
+            f'cp -- "$actual" {remote_staging} && chmod 0600 {remote_staging};; '
+            "*) echo PF_APK_PATH_INVALID >&2; exit 87;; esac"
+        )
+        requests = (
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "sh", "-c", stage_script),
+                timeout_seconds=30.0,
+            ),
+            ProcessRequest(
+                (adb, "-s", device.serial, "pull", remote_staging, str(local_staging)),
+                timeout_seconds=600.0,
+                output_limit_bytes=64 * 1024,
+            ),
+            ProcessRequest(
+                (adb, "-s", device.serial, "shell", "rm", "-f", "--", remote_staging),
+                timeout_seconds=30.0,
+            ),
+        )
+        plan = self._base_plan(
+            snapshot,
+            device,
+            requests,
+            label=f"Export {package} from {device.serial}",
+            risk=OperationRisk.MUTATING,
+            postconditions=(
+                OperationPostcondition(
+                    "package_export_verified",
+                    {"package": package, "fileName": destination.name},
+                    "the staged APK identity, hash, atomic publication, and remote cleanup are verified",
+                ),
+            ),
+        )
+        return PackageCompilation(
+            plan,
+            "export",
+            requires_confirmation=True,
+            packages=(package,),
+            export_destination=destination,
+            export_staging=local_staging,
+            export_remote=remote_staging,
+        )
+
+    def execute_export(
+        self,
+        compilation: PackageCompilation,
+        command: AppCommand,
+        executor: CommandExecutor,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        destination = compilation.export_destination
+        staging = compilation.export_staging
+        if (
+            compilation.action != "export"
+            or destination is None
+            or staging is None
+            or not compilation.export_remote
+            or len(compilation.plan.requests) != 3
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="package_export_plan_invalid",
+                message="APK export has no complete typed staging plan",
+            )
+        cleanup_request = compilation.plan.requests[2]
+        remote_cleaned = False
+        try:
+            for request in compilation.plan.requests[:2]:
+                subplan = replace(
+                    compilation.plan,
+                    requests=(request,),
+                )
+                result = executor.execute(command, subplan, cancellation)
+                if not result.ok:
+                    return result
+            cleanup_plan = replace(
+                compilation.plan,
+                requests=(cleanup_request,),
+            )
+            cleanup = executor.execute(command, cleanup_plan, CancellationToken())
+            if not cleanup.ok:
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="package_export_cleanup_failed",
+                    message="remote APK staging could not be removed",
+                )
+            remote_cleaned = True
+            return self._publish_export(
+                compilation,
+                command.operation_id,
+                cancellation,
+            )
+        finally:
+            if not remote_cleaned:
+                cleanup_plan = replace(
+                    compilation.plan,
+                    requests=(cleanup_request,),
+                )
+                executor.execute(command, cleanup_plan, CancellationToken())
+            try:
+                staging.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _publish_export(
+        self,
+        compilation: PackageCompilation,
+        operation_id: str,
+        cancellation: CancellationToken,
+    ) -> OperationResult:
+        destination = compilation.export_destination
+        staging = compilation.export_staging
+        package = compilation.packages[0] if compilation.packages else ""
+        assert destination is not None and staging is not None
+        try:
+            info = staging.stat()
+            if not staging.is_file() or not 1 <= info.st_size <= 2 * 1024 * 1024 * 1024:
+                raise PackageResultError(
+                    "package_export_size_invalid",
+                    "staged APK size is outside its allowed bounds",
+                )
+            identity = self.apk_inspector.inspect(staging, cancellation=cancellation)
+            if (
+                not isinstance(identity, ApkIdentity)
+                or not identity.verified
+                or identity.package_name != package
+            ):
+                raise PackageResultError(
+                    "package_export_identity_mismatch",
+                    "staged APK identity does not match the requested package",
+                )
+            copied = 0
+            with destination.begin_atomic_replace() as transaction:
+                with staging.open("rb") as source:
+                    while chunk := source.read(self.hash_chunk_size):
+                        if cancellation.cancelled:
+                            raise InterruptedError("APK export was cancelled")
+                        transaction.stream.write(chunk)
+                        copied += len(chunk)
+                if copied != info.st_size:
+                    raise PackageResultError(
+                        "package_export_copy_incomplete",
+                        "staged APK copy is incomplete",
+                    )
+                transaction.stream.flush()
+                os.fsync(transaction.stream.fileno())
+                if cancellation.cancelled:
+                    raise InterruptedError("APK export was cancelled")
+                transaction.commit()
+                with transaction.open_committed() as committed:
+                    digest = self._hash_stream(
+                        committed,
+                        cancellation,
+                        published=True,
+                    )
+            if digest != identity.sha256:
+                raise PackageResultError(
+                    "package_export_hash_mismatch",
+                    "published APK hash differs from the verified staged APK",
+                )
+        except InterruptedError:
+            return OperationResult.cancelled(
+                operation_id,
+                code="package_export_cancelled",
+                message="APK export was cancelled before publication completed",
+            )
+        except AtomicWriteOutcomeUnknownError as error:
+            return OperationResult.failed(
+                operation_id,
+                code="outcome_unknown",
+                message=str(error),
+            )
+        except (ApkInspectionError, GrantError, OSError, PackageResultError) as error:
+            return OperationResult.failed(
+                operation_id,
+                code=getattr(error, "code", "package_export_failed"),
+                message=str(error),
+            )
+        return OperationResult.success(
+            operation_id,
+            code="package_export_staged",
+            message="APK identity, hash, publication, and cleanup were verified",
+            value={
+                "action": "export",
+                "export": {
+                    "package": package,
+                    "fileName": destination.name,
+                    "sha256": identity.sha256,
+                    "size": copied,
+                    "verified": True,
+                    "remoteCleaned": True,
+                },
+            },
+        )
+
+    @staticmethod
+    def _hash_stream(
+        stream: BinaryIO,
+        cancellation: CancellationToken,
+        *,
+        published: bool = False,
+    ) -> str:
+        digest = hashlib.sha256()
+        while True:
+            if cancellation.cancelled:
+                if published:
+                    raise AtomicWriteOutcomeUnknownError(
+                        "APK export was cancelled after atomic publication"
+                    )
+                raise InterruptedError("APK export was cancelled")
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                return digest.hexdigest()
+            digest.update(chunk)
+
+    def shutdown(self) -> None:
+        owned = self._owned_temporary_root
+        self._owned_temporary_root = None
+        if owned is not None:
+            owned.cleanup()
 
     def _compile_install(
         self,
@@ -415,6 +778,8 @@ class PackageService:
         action: str,
         package: str,
         options: Mapping[str, object],
+        *,
+        su_expected: Mapping[str, object] | None = None,
     ) -> tuple[str, ...]:
         prefix = (adb, "-s", serial, "shell")
         if action == "enable":
@@ -440,7 +805,85 @@ class PackageService:
             )
         if action == "permissions":
             return (*prefix, "dumpsys", "package", package)
+        if action in {"denylistAdd", "denylistRemove"}:
+            verb = "add" if action == "denylistAdd" else "rm"
+            return (*prefix, "su", "-c", f"magisk --denylist {verb} {package}")
+        if action == "suPolicy":
+            if su_expected is None:
+                raise AssertionError("SU policy action has no compiled policy")
+            uid = cast(int, su_expected["uid"])
+            state = cast(str, su_expected["state"])
+            if state == "absent":
+                sql = f"DELETE FROM policies WHERE uid = {uid};"
+            else:
+                policy = 2 if su_expected["policy"] == "allow" else 1
+                logging = int(cast(bool, su_expected["logging"]))
+                notification = int(cast(bool, su_expected["notification"]))
+                until = cast(int, su_expected["until"])
+                sql = (
+                    "INSERT OR REPLACE INTO policies "
+                    "(uid, policy, logging, notification, until) "
+                    f"VALUES ({uid}, {policy}, {logging}, {notification}, {until});"
+                )
+            expected_record = f"package:{package} uid:{uid}"
+            mutation = f'magisk --sqlite "{sql}"'
+            script = (
+                f"observed=$(pm list packages -U {package}); "
+                f'case "$observed" in *"{expected_record}"*) '
+                f"exec su -c '{mutation}';; *) "
+                "echo PF_UID_MISMATCH >&2; exit 86;; esac"
+            )
+            return (*prefix, "sh", "-c", script)
         raise AssertionError(f"unhandled package action: {action}")
+
+    def _su_policy_expected(
+        self,
+        package: str,
+        options: Mapping[str, object],
+    ) -> dict[str, object]:
+        uid = options.get("uid")
+        policy = options.get("policy")
+        logging = options.get("logging")
+        notification = options.get("notification")
+        duration = options.get("durationMinutes")
+        if (
+            not isinstance(uid, int)
+            or isinstance(uid, bool)
+            or not 0 <= uid <= 2_147_483_647
+        ):
+            raise PackagePlanningError(
+                "package_uid_invalid",
+                "SU policy requires a bounded Android UID",
+            )
+        if policy not in {"allow", "deny", "revoke"}:
+            raise PackagePlanningError(
+                "package_su_policy_invalid",
+                "SU policy must be allow, deny, or revoke",
+            )
+        if not isinstance(logging, bool) or not isinstance(notification, bool):
+            raise PackagePlanningError(
+                "package_su_option_invalid",
+                "SU logging and notification options must be booleans",
+            )
+        if (
+            not isinstance(duration, int)
+            or isinstance(duration, bool)
+            or duration not in {0, 10, 20, 30, 60}
+        ):
+            raise PackagePlanningError(
+                "package_su_duration_invalid",
+                "SU duration must be 0, 10, 20, 30, or 60 minutes",
+            )
+        until = 0 if duration == 0 else int(self.clock()) + duration * 60
+        return {
+            "package": package,
+            "uid": uid,
+            "state": "absent" if policy == "revoke" else "present",
+            "policy": policy,
+            "logging": logging,
+            "notification": notification,
+            "until": until,
+        }
 
     @staticmethod
     def _options(raw_options: object) -> Mapping[str, object]:

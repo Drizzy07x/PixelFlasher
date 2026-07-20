@@ -294,8 +294,9 @@ describe('apps, backups and settings workflows', () => {
     const serial = snapshot.devices[0].serial;
     const onCommand = commandHost((command, payload) => {
       if (command === 'apps.list') return { result: { status: 'SUCCESS', value: { packages: [
-        { package: 'com.example.user', apk_path: '/data/app/example.apk' },
+        { package: 'com.example.user', apk_path: '/data/app/example.apk', uid: 10123 },
       ] } } };
+      if (command === 'native.saveFile') return { result: { status: 'SUCCESS', value: { data: { grant: 'apk-write-once' } } } };
       if (command === 'apps.action' && payload.action === 'permissions') return { result: {
         status: 'SUCCESS',
         value: {
@@ -328,6 +329,41 @@ describe('apps, backups and settings workflows', () => {
       serial,
       packages: ['com.example.user'],
       action: 'permissions',
+    });
+
+    await user.selectOptions(screen.getByLabelText('Apply changes'), 'suPolicy');
+    await user.selectOptions(screen.getByLabelText('Policy'), 'deny');
+    await user.selectOptions(screen.getByLabelText('Duration'), '20');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('apps.action', {
+      serial,
+      package: 'com.example.user',
+      action: 'suPolicy',
+      options: {
+        uid: 10123,
+        policy: 'deny',
+        logging: true,
+        notification: true,
+        durationMinutes: 20,
+      },
+    }));
+
+    await user.click(await screen.findByRole('checkbox', { name: /com.example.user/ }));
+    await user.selectOptions(screen.getByLabelText('Apply changes'), 'export');
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('native.saveFile', {
+      purpose: 'apps.export.destination',
+      title: 'Export APK',
+      defaultName: 'com.example.user.apk',
+      filters: [{ label: 'Android application packages', extensions: ['apk'] }],
+    }, { returnCancelled: true }));
+    expect(onCommand).toHaveBeenCalledWith('apps.action', {
+      serial,
+      package: 'com.example.user',
+      action: 'export',
+      grant: 'apk-write-once',
     });
   });
 
