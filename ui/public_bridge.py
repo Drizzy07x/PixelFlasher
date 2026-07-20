@@ -371,6 +371,7 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "highContrast": _boolean(source.get("highContrast")),
         "reducedMotion": _boolean(source.get("reducedMotion")),
         "zoom": _integer(source.get("zoom"), default=100),
+        "expertMode": _boolean(source.get("expertMode")),
     }
 
 

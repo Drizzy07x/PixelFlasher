@@ -8,6 +8,7 @@ export interface ModernPreferences {
   highContrast: boolean;
   reducedMotion: boolean;
   zoom: number;
+  expertMode: boolean;
 }
 export type RouteId =
   | 'dashboard'

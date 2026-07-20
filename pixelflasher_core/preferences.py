@@ -32,6 +32,7 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "highContrast": ("highContrast", "high_contrast"),
     "reducedMotion": ("reducedMotion", "reduced_motion"),
     "zoom": ("zoom", "ui_zoom", "uiZoom"),
+    "expertMode": ("expertMode", "expert_mode", "advanced_options"),
 }
 
 type StoreLike = ConfigStore | str | os.PathLike[str]
@@ -158,6 +159,7 @@ def _legacy_mirrors(
         "highContrast": preferences.high_contrast,
         "reducedMotion": preferences.reduced_motion,
         "zoom": preferences.zoom,
+        "expertMode": preferences.expert_mode,
     }
     preferred_keys = {
         "theme": "theme",
@@ -165,6 +167,7 @@ def _legacy_mirrors(
         "highContrast": "high_contrast",
         "reducedMotion": "reduced_motion",
         "zoom": "ui_zoom",
+        "expertMode": "advanced_options",
     }
     mirrors: dict[str, object] = {}
     for field, aliases in _LEGACY_ALIASES.items():

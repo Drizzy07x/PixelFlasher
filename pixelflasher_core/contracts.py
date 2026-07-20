@@ -40,6 +40,7 @@ _PREFERENCE_FIELDS = frozenset(
         "highContrast",
         "reducedMotion",
         "zoom",
+        "expertMode",
     }
 )
 
@@ -61,6 +62,7 @@ class ModernPreferences:
     high_contrast: bool = False
     reduced_motion: bool = False
     zoom: int = 100
+    expert_mode: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
@@ -92,6 +94,11 @@ class ModernPreferences:
             raise PreferencesError(
                 "zoom_invalid",
                 f"zoom must be between {MIN_ZOOM} and {MAX_ZOOM}",
+            )
+        if not isinstance(self.expert_mode, bool):
+            raise PreferencesError(
+                "expert_mode_invalid",
+                "expertMode must be a boolean",
             )
 
     @classmethod
@@ -142,6 +149,7 @@ class ModernPreferences:
             high_contrast=raw.get("highContrast", defaults.high_contrast),
             reduced_motion=raw.get("reducedMotion", defaults.reduced_motion),
             zoom=raw.get("zoom", defaults.zoom),
+            expert_mode=raw.get("expertMode", defaults.expert_mode),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -152,6 +160,7 @@ class ModernPreferences:
             "highContrast": self.high_contrast,
             "reducedMotion": self.reduced_motion,
             "zoom": self.zoom,
+            "expertMode": self.expert_mode,
         }
 
 

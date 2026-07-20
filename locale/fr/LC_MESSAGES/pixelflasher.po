@@ -6341,3 +6341,11 @@ msgstr "Supprimer le favori"
 msgctxt "web.root.pifFavoriteDeleteConfirm"
 msgid "Confirm favorite deletion"
 msgstr "Confirmer la suppression du favori"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.expertDetail"
+msgid "Reveals advanced flashing, device, root, and diagnostic controls."
+msgstr "Affiche les contrôles avancés de flash, d’appareil, de root et de diagnostic."

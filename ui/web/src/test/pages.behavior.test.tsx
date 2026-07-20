@@ -433,7 +433,7 @@ describe('apps, backups and settings workflows', () => {
   it('exposes bounded appearance and accessibility controls', async () => {
     const user = userEvent.setup();
     const callbacks = {
-      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(),
+      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(),
     };
     const { rerender } = page(
       <SettingsPage
@@ -442,18 +442,21 @@ describe('apps, backups and settings workflows', () => {
         highContrast={false} onHighContrastChange={callbacks.contrast}
         reducedMotion={false} onReducedMotionChange={callbacks.motion}
         zoom={80} onZoomChange={callbacks.zoom}
+        expertMode={false} onExpertModeChange={callbacks.expert}
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Light' }));
     await user.selectOptions(screen.getByLabelText('Language'), 'zh_TW');
     await user.click(screen.getByRole('checkbox', { name: /High contrast/ }));
     await user.click(screen.getByRole('checkbox', { name: /Reduce motion/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Expert Mode/ }));
     await user.click(screen.getByRole('button', { name: 'Zoom out' }));
     await user.click(screen.getByRole('button', { name: 'Reset zoom' }));
     expect(callbacks.theme).toHaveBeenCalledWith('light');
     expect(callbacks.locale).toHaveBeenCalledWith('zh_TW');
     expect(callbacks.contrast).toHaveBeenCalledWith(true);
     expect(callbacks.motion).toHaveBeenCalledWith(true);
+    expect(callbacks.expert).toHaveBeenCalledWith(true);
     expect(callbacks.zoom).toHaveBeenCalledWith(80);
     expect(callbacks.zoom).toHaveBeenCalledWith(100);
 
@@ -463,6 +466,7 @@ describe('apps, backups and settings workflows', () => {
       highContrast onHighContrastChange={callbacks.contrast}
       reducedMotion onReducedMotionChange={callbacks.motion}
       zoom={200} onZoomChange={callbacks.zoom}
+      expertMode onExpertModeChange={callbacks.expert}
     /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(callbacks.zoom).toHaveBeenCalledWith(200);

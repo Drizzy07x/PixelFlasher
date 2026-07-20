@@ -81,6 +81,7 @@ const defaultPreferences: ModernPreferences = {
   highContrast: false,
   reducedMotion: false,
   zoom: 100,
+  expertMode: false,
 };
 
 function mockPreferences(): ModernPreferences {
@@ -89,6 +90,7 @@ function mockPreferences(): ModernPreferences {
   const highContrast = storedValue<unknown>('pf.highContrast', defaultPreferences.highContrast);
   const reducedMotion = storedValue<unknown>('pf.reducedMotion', defaultPreferences.reducedMotion);
   const zoom = storedValue<unknown>('pf.zoom', defaultPreferences.zoom);
+  const expertMode = storedValue<unknown>('pf.expertMode', defaultPreferences.expertMode);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -98,6 +100,7 @@ function mockPreferences(): ModernPreferences {
     highContrast: typeof highContrast === 'boolean' ? highContrast : false,
     reducedMotion: typeof reducedMotion === 'boolean' ? reducedMotion : false,
     zoom: typeof zoom === 'number' && Number.isInteger(zoom) && zoom >= 80 && zoom <= 200 ? zoom : 100,
+    expertMode: typeof expertMode === 'boolean' ? expertMode : false,
   };
 }
 
@@ -169,7 +172,7 @@ function PixelFlasherApp({
   const [snapshot, setSnapshot] = useState<HostSnapshot>(() => window.pixelflasher?.__mock ? demoSnapshot : emptyHostSnapshot);
   const selectedSerials = snapshot.selectedSerials ?? [];
   const [theme, setTheme] = useState<Theme>(initialPreferences.theme);
-  const [expertMode, setExpertMode] = useState(() => isMockHost ? storedValue('pf.expertMode', false) : false);
+  const [expertMode, setExpertMode] = useState(initialPreferences.expertMode);
   const [highContrast, setHighContrast] = useState(initialPreferences.highContrast);
   const [reducedMotion, setReducedMotion] = useState(initialPreferences.reducedMotion);
   const [zoom, setZoom] = useState(initialPreferences.zoom);
@@ -423,6 +426,7 @@ function PixelFlasherApp({
     setHighContrast(preferences.highContrast);
     setReducedMotion(preferences.reducedMotion);
     setZoom(preferences.zoom);
+    setExpertMode(preferences.expertMode);
   }, [onLocaleChange]);
 
   useEffect(() => {
@@ -477,6 +481,10 @@ function PixelFlasherApp({
 
   const changeZoom = useCallback((value: number) => {
     void changePreferences({ zoom: Math.max(80, Math.min(200, value)) });
+  }, [changePreferences]);
+
+  const changeExpertMode = useCallback((value: boolean) => {
+    void changePreferences({ expertMode: value });
   }, [changePreferences]);
 
   useEffect(() => {
@@ -833,6 +841,8 @@ function PixelFlasherApp({
           onReducedMotionChange={changeReducedMotion}
           zoom={zoom}
           onZoomChange={changeZoom}
+          expertMode={expertMode}
+          onExpertModeChange={changeExpertMode}
         />
       );
     }
@@ -867,7 +877,7 @@ function PixelFlasherApp({
         <div className="sidebar__spacer" />
         <label className="expert-toggle">
           <span><Icon name="tools" size={18} /><strong>{t('mode.expert')}</strong></span>
-          <input type="checkbox" checked={expertMode} onChange={(event) => setExpertMode(event.currentTarget.checked)} aria-label={t('mode.expert')} />
+          <input type="checkbox" checked={expertMode} onChange={(event) => changeExpertMode(event.currentTarget.checked)} aria-label={t('mode.expert')} />
           <span className="expert-toggle__track" aria-hidden="true"><span /></span>
         </label>
         <div className="sidebar__meta">

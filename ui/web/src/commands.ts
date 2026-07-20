@@ -364,6 +364,7 @@ export interface BridgePayloadByCommand {
   };
   "settings.get": Record<string, never>;
   "settings.update": {
+    "expertMode"?: boolean;
     "highContrast"?: boolean;
     "locale"?: string;
     "reducedMotion"?: boolean;
@@ -839,7 +840,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.rootPifTransform]: {"content":{"kind":"string","required":true},"firstApi":{"kind":"integer","required":false},"inputFormat":{"kind":"string","required":true},"keepUnknown":{"kind":"boolean","required":true},"normalize":{"kind":"boolean","required":true},"outputFormat":{"kind":"string","required":true},"sortKeys":{"kind":"boolean","required":true}},
   [commands.secretIssue]: {"purpose":{"kind":"string","required":true},"secret":{"kind":"string","required":true}},
   [commands.settingsGet]: {},
-  [commands.settingsUpdate]: {"highContrast":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"reducedMotion":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"zoom":{"kind":"integer","required":false}},
+  [commands.settingsUpdate]: {"expertMode":{"kind":"boolean","required":false},"highContrast":{"kind":"boolean","required":false},"locale":{"kind":"string","required":false},"reducedMotion":{"kind":"boolean","required":false},"theme":{"kind":"string","required":false},"zoom":{"kind":"integer","required":false}},
   [commands.snapshotGet]: {},
   [commands.supportCreate]: {"grant":{"kind":"string","required":true},"includeConfig":{"kind":"boolean","required":false},"includeLogs":{"kind":"boolean","required":false},"includeState":{"kind":"boolean","required":false},"includeSystemInfo":{"kind":"boolean","required":false}},
   [commands.toolsAvb]: {"action":{"kind":"string","required":true},"currentSecurityPatch":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"patchFingerprint":{"kind":"boolean","required":false}},

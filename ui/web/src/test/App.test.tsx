@@ -14,6 +14,7 @@ const hostPreferences: ModernPreferences = {
   highContrast: false,
   reducedMotion: false,
   zoom: 100,
+  expertMode: false,
 };
 
 function installPreferencesHost(
@@ -639,6 +640,7 @@ describe('PixelFlasher web workspace', () => {
     window.localStorage.setItem('pf.highContrast', JSON.stringify(true));
     window.localStorage.setItem('pf.reducedMotion', JSON.stringify(true));
     window.localStorage.setItem('pf.zoom', JSON.stringify(80));
+    window.localStorage.setItem('pf.expertMode', JSON.stringify(true));
     const postMessage = vi.spyOn(developmentBridge!, 'postMessage');
 
     render(<App />);
@@ -649,6 +651,7 @@ describe('PixelFlasher web workspace', () => {
       expect(document.documentElement.dataset.motion).toBe('reduced');
       expect(document.documentElement.style.fontSize).toBe('80%');
       expect(document.documentElement.lang).toBe('it');
+      expect(document.querySelector<HTMLInputElement>('.expert-toggle input')).toBeChecked();
     });
     const commands = postMessage.mock.calls.map(([raw]) => (JSON.parse(raw) as BridgeRequest).command);
     expect(commands).not.toContain('settings.get');
@@ -664,6 +667,7 @@ describe('PixelFlasher web workspace', () => {
       highContrast: true,
       reducedMotion: true,
       zoom: 200,
+      expertMode: true,
     });
 
     render(<App />);
@@ -673,6 +677,7 @@ describe('PixelFlasher web workspace', () => {
       expect(document.documentElement.dataset.motion).toBe('reduced');
       expect(document.documentElement.style.fontSize).toBe('200%');
       expect(document.documentElement.lang).toBe('fr');
+      expect(document.querySelector<HTMLInputElement>('.expert-toggle input')).toBeChecked();
     });
     expect(requests.some((request) => request.command === 'settings.get')).toBe(true);
     expect(requests.some((request) => request.command === 'settings.update')).toBe(false);
@@ -691,6 +696,12 @@ describe('PixelFlasher web workspace', () => {
     expect(await screen.findByText('Preferences saved.')).toBeVisible();
     expect(requests.find((request) => request.command === 'settings.update')).toMatchObject({
       payload: { theme: 'light' },
+      expectedRevision: 7,
+    });
+    await user.click(screen.getByRole('checkbox', { name: 'Expert Mode' }));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Expert Mode' })).toBeChecked());
+    expect(requests.find((request) => request.command === 'settings.update' && request.payload.expertMode === true)).toMatchObject({
+      payload: { expertMode: true },
       expectedRevision: 7,
     });
     expect(window.localStorage.length).toBe(0);

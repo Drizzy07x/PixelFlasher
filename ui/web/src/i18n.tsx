@@ -743,6 +743,7 @@ export const sourceMessages = {
   'settings.shortcutZoom': 'Ctrl/Cmd + Plus, Minus, or 0 changes zoom',
   'settings.shortcutFocus': 'Tab moves focus; Enter or Space activates controls',
   'settings.localPersistence': 'Preferences are saved by the PixelFlasher host on this computer.',
+  'settings.expertDetail': 'Reveals advanced flashing, device, root, and diagnostic controls.',
   'notice.mock': 'Development mock active',
   'notice.updated': 'Workspace updated',
   'notice.error': 'Could not complete the request',

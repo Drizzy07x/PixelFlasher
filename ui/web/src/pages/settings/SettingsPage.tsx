@@ -13,6 +13,8 @@ export function SettingsPage({
   onReducedMotionChange,
   zoom,
   onZoomChange,
+  expertMode,
+  onExpertModeChange,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -24,6 +26,8 @@ export function SettingsPage({
   onReducedMotionChange: (value: boolean) => void;
   zoom: number;
   onZoomChange: (value: number) => void;
+  expertMode: boolean;
+  onExpertModeChange: (value: boolean) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -58,6 +62,12 @@ export function SettingsPage({
                 <Button variant="ghost" onClick={() => onZoomChange(Math.min(200, zoom + 10))} aria-label={t('settings.zoomIn')}>+</Button>
               </div>
             </div>
+          </div>
+        </Card>
+        <Card>
+          <CardTitle icon="tools">{t('mode.expert')}</CardTitle>
+          <div className="toggle-stack">
+            <Toggle checked={expertMode} onChange={onExpertModeChange} label={t('mode.expert')} description={t('settings.expertDetail')} />
           </div>
         </Card>
         <Card>

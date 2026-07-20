@@ -56,6 +56,7 @@ export const demoSnapshot: HostSnapshot = {
     highContrast: false,
     reducedMotion: false,
     zoom: 100,
+    expertMode: false,
   },
   deviceManagement: {
     schemaVersion: 1,

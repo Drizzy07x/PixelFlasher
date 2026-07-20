@@ -97,11 +97,11 @@ class RuntimePreferencesTests(unittest.TestCase):
                 AppCommand(
                     "settings.update",
                     expected_revision=0,
-                    payload={"theme": "light", "locale": "es", "zoom": 200},
+                    payload={"theme": "light", "locale": "es", "zoom": 200, "expertMode": True},
                 )
             )
 
-            expected = ModernPreferences("light", "es", False, True, 200)
+            expected = ModernPreferences("light", "es", False, True, 200, True)
             self.assertTrue(result.ok)
             self.assertEqual("settings_updated", result.code)
             self.assertEqual(expected.to_dict(), result.value["preferences"])
@@ -112,6 +112,7 @@ class RuntimePreferencesTests(unittest.TestCase):
             self.assertEqual({"preserve": True}, payload["unrelated"])
             self.assertEqual("light", payload["theme"])
             self.assertEqual("es", payload["language"])
+            self.assertTrue(payload["advanced_options"])
             self.assertEqual(
                 expected.to_dict(),
                 runtime.config_document.values[PREFERENCES_KEY],

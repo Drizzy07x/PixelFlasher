@@ -21,6 +21,7 @@ const snapshotPreferences = {
   highContrast: false,
   reducedMotion: false,
   zoom: 100,
+  expertMode: false,
 };
 
 const originalBridge = window.pixelflasher;
@@ -61,6 +62,7 @@ describe('bridge v2 validation boundaries', () => {
     { schemaVersion: 1, theme: 'dark', locale: 'en', highContrast: false, reducedMotion: false, zoom: 100.5 },
     { schemaVersion: 1, theme: 'dark', locale: 'en', highContrast: false, reducedMotion: false, zoom: 79 },
     { schemaVersion: 1, theme: 'dark', locale: 'en', highContrast: false, reducedMotion: false, zoom: 201 },
+    { ...snapshotPreferences, expertMode: 'yes' },
   ])('rejects malformed preferences %#', (value) => {
     expect(() => normalizePreferences(value)).toThrow(BridgeError);
   });
@@ -74,6 +76,7 @@ describe('bridge v2 validation boundaries', () => {
         highContrast: locale === 'fr',
         reducedMotion: locale === 'it',
         zoom: 100,
+        expertMode: locale === 'zh_TW',
       }).locale).toBe(locale);
     }
   });

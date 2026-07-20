@@ -878,6 +878,19 @@ describe('bounded Logcat viewer', () => {
           }));
           return;
         }
+        if (request.command === commands.settingsUpdate) {
+          hostSnapshot.preferences = {
+            ...hostSnapshot.preferences,
+            ...request.payload,
+          };
+          queueMicrotask(() => respond(request, {
+            status: 'SUCCESS',
+            code: 'settings_updated',
+            value: { preferences: hostSnapshot.preferences },
+            revision: hostSnapshot.revision,
+          }));
+          return;
+        }
         if (request.command === commands.toolsLogcat) {
           logcatRequest = request;
           return;
@@ -895,6 +908,7 @@ describe('bounded Logcat viewer', () => {
     const navigation = within(await screen.findByRole('navigation', { name: 'Tasks' }));
     await user.click(navigation.getByRole('button', { name: 'Tools' }));
     await user.click(screen.getByRole('checkbox', { name: /Expert Mode/i }));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /Expert Mode/i })).toBeChecked());
     await user.click(await screen.findByRole('button', { name: /Logcat/i }));
     const workspace = document.querySelector('.tool-workspace') as HTMLElement;
     await user.click(within(workspace).getByRole('button', { name: 'Bounded stream' }));

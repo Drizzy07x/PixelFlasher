@@ -6342,3 +6342,11 @@ msgstr "删除收藏"
 msgctxt "web.root.pifFavoriteDeleteConfirm"
 msgid "Confirm favorite deletion"
 msgstr "确认删除收藏"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.expertDetail"
+msgid "Reveals advanced flashing, device, root, and diagnostic controls."
+msgstr "显示高级刷写、设备、Root 和诊断控件。"

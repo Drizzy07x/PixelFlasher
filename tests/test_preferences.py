@@ -28,6 +28,7 @@ class ModernPreferencesValidationTests(unittest.TestCase):
         self.assertFalse(defaults.high_contrast)
         self.assertFalse(defaults.reduced_motion)
         self.assertEqual(100, defaults.zoom)
+        self.assertFalse(defaults.expert_mode)
         self.assertEqual(80, MIN_ZOOM)
         self.assertEqual(200, MAX_ZOOM)
 
@@ -77,6 +78,7 @@ class ModernPreferencesValidationTests(unittest.TestCase):
             ({"zoom": 100.0}, "zoom_invalid"),
             ({"zoom": MIN_ZOOM - 1}, "zoom_invalid"),
             ({"zoom": MAX_ZOOM + 1}, "zoom_invalid"),
+            ({"expertMode": 1}, "expert_mode_invalid"),
         )
         for values, code in cases:
             with self.subTest(values=values):
@@ -122,6 +124,7 @@ class PreferencePersistenceTests(unittest.TestCase):
                         "high_contrast": True,
                         "reduced_motion": True,
                         "ui_zoom": 130,
+                        "advanced_options": True,
                         "toolbar": {"visible": {"partition_manager": True}},
                     }
                 ),
@@ -131,7 +134,7 @@ class PreferencePersistenceTests(unittest.TestCase):
             preferences = load_preferences(path)
 
             self.assertEqual(
-                ModernPreferences("light", "zh_TW", True, True, 130),
+                ModernPreferences("light", "zh_TW", True, True, 130, True),
                 preferences,
             )
             # Loading a schema-0 9.x file migrates only after exact backups.

@@ -46,6 +46,7 @@ const defaultPreferences: ModernPreferences = {
   highContrast: false,
   reducedMotion: false,
   zoom: 100,
+  expertMode: false,
 };
 
 export function commandTimeoutMs(command: BridgeCommand) {
@@ -68,6 +69,7 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     !Number.isInteger(raw.zoom) ||
     raw.zoom < 80 ||
     raw.zoom > 200
+    || typeof raw.expertMode !== 'boolean'
   ) {
     throw new BridgeError('Host returned invalid preferences.');
   }
@@ -78,6 +80,7 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     highContrast: raw.highContrast,
     reducedMotion: raw.reducedMotion,
     zoom: raw.zoom,
+    expertMode: raw.expertMode,
   };
 }
 

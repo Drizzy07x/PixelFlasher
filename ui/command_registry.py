@@ -1703,6 +1703,7 @@ _COMMAND_SPECS = (
             ("highContrast", PayloadKind.BOOLEAN),
             ("reducedMotion", PayloadKind.BOOLEAN),
             ("zoom", PayloadKind.INTEGER),
+            ("expertMode", PayloadKind.BOOLEAN),
         ),
         owner=CommandOwner.SETTINGS,
         **_LIVE,

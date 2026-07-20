@@ -8,8 +8,9 @@ const snapshotPreferences = {
   theme: 'dark' as const,
   locale: 'en' as const,
   highContrast: false,
-  reducedMotion: false,
-  zoom: 100,
+      reducedMotion: false,
+      zoom: 100,
+      expertMode: false,
 };
 
 function hostFor(responseResult: (request: BridgeRequest) => Record<string, unknown>) {
@@ -133,6 +134,7 @@ describe('PixelFlasher bridge protocol', () => {
       highContrast: true,
       reducedMotion: true,
       zoom: 120,
+      expertMode: true,
     };
     const postMessage = hostFor((request) => ({
       status: 'SUCCESS',

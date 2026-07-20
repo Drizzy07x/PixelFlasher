@@ -62,6 +62,7 @@ const defaultPreferences: ModernPreferences = {
   highContrast: false,
   reducedMotion: false,
   zoom: 100,
+  expertMode: false,
 };
 
 function storedValue<T>(key: string, fallback: T): T {
@@ -79,6 +80,7 @@ function mockPreferences(): ModernPreferences {
   const highContrast = storedValue('pf.highContrast', defaultPreferences.highContrast);
   const reducedMotion = storedValue('pf.reducedMotion', defaultPreferences.reducedMotion);
   const zoom = storedValue('pf.zoom', defaultPreferences.zoom);
+  const expertMode = storedValue('pf.expertMode', defaultPreferences.expertMode);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -86,6 +88,7 @@ function mockPreferences(): ModernPreferences {
     highContrast: typeof highContrast === 'boolean' ? highContrast : false,
     reducedMotion: typeof reducedMotion === 'boolean' ? reducedMotion : false,
     zoom: typeof zoom === 'number' && Number.isInteger(zoom) && zoom >= 80 && zoom <= 200 ? zoom : 100,
+    expertMode: typeof expertMode === 'boolean' ? expertMode : false,
   };
 }
 
@@ -96,6 +99,7 @@ function persistMockPreferences(preferences: ModernPreferences) {
     ['pf.highContrast', preferences.highContrast],
     ['pf.reducedMotion', preferences.reducedMotion],
     ['pf.zoom', preferences.zoom],
+    ['pf.expertMode', preferences.expertMode],
   ];
   try {
     entries.forEach(([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)));
@@ -105,7 +109,7 @@ function persistMockPreferences(preferences: ModernPreferences) {
 }
 
 function updatedMockPreferences(payload: Record<string, unknown>): ModernPreferences | null {
-  const allowed = new Set(['schemaVersion', 'theme', 'locale', 'highContrast', 'reducedMotion', 'zoom']);
+  const allowed = new Set(['schemaVersion', 'theme', 'locale', 'highContrast', 'reducedMotion', 'zoom', 'expertMode']);
   if (Object.keys(payload).some((key) => !allowed.has(key))) return null;
   const current = mockPreferences();
   const next = { ...current, ...payload } as Record<string, unknown>;
@@ -120,6 +124,7 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     !Number.isInteger(next.zoom) ||
     next.zoom < 80 ||
     next.zoom > 200
+    || typeof next.expertMode !== 'boolean'
   ) return null;
   return next as unknown as ModernPreferences;
 }
