@@ -10,6 +10,7 @@ from pixelflasher_core import (
     BoundReadFile,
     BoundWriteFile,
     GrantAccess,
+    GrantError,
     SensitiveText,
 )
 from ui.bridge_contract import BRIDGE_VERSION, BridgeProtocolError, BridgeRequest
@@ -361,6 +362,58 @@ class CoreCommandFactoryTests(unittest.TestCase):
                     "tools.logcat",
                     payload={"destination": str(destination)},
                     request_id="logcat-arbitrary-path",
+                )
+
+    def test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            selected = Path(directory) / "current-boot.img"
+            selected.write_bytes(b"current boot")
+            factory = create_command_factory(lambda: AppSnapshot(revision=4))
+            picker = request(
+                "native.pickFile",
+                payload={"purpose": "tools.avb.currentBoot", "title": "Current boot"},
+            )
+            issued = factory.issue_native_grants(picker, (selected,))
+
+            command = factory(
+                request(
+                    "tools.avb",
+                    payload={
+                        "action": "prepareDowngrade",
+                        "grant": issued["grant"],
+                        "patchFingerprint": True,
+                    },
+                )
+            )
+
+            self.assertIsInstance(command.payload["currentBoot"], BoundReadFile)
+            self.assertNotIn("grant", command.payload)
+            self.assertNotIn(str(selected), repr(command))
+            replay = factory(
+                request(
+                    "tools.avb",
+                    payload={
+                        "action": "prepareDowngrade",
+                        "grant": issued["grant"],
+                    },
+                    request_id="avb-replay",
+                )
+            )
+            replacement = Path(directory) / "replacement.img"
+            replacement.write_bytes(b"changed after approval")
+            replacement.replace(selected)
+            with self.assertRaises(GrantError) as changed:
+                replay.payload["currentBoot"].open_verified()
+            self.assertEqual("grant_resource_changed", changed.exception.code)
+
+            with self.assertRaises(BridgeProtocolError):
+                request(
+                    "tools.avb",
+                    payload={
+                        "action": "prepareDowngrade",
+                        "currentBootPath": str(selected),
+                    },
+                    request_id="avb-raw-path",
                 )
 
     def test_wifi_secret_grant_is_one_use_and_never_serializes_plaintext(self):

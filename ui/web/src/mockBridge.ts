@@ -1288,6 +1288,23 @@ export function installDevelopmentBridge() {
               })),
             );
             break;
+          case 'tools.avb':
+            respond(request, {
+              status: 'SUCCESS',
+              code: 'downgrade_artifact_registered',
+              message: 'Verified downgrade artifact created.',
+              value: {
+                artifact: {
+                  role: 'downgrade:boot',
+                  sha256: 'a'.repeat(64),
+                  securityPatch: typeof request.payload.currentSecurityPatch === 'string'
+                    ? request.payload.currentSecurityPatch
+                    : '2025-02-05',
+                  verified: true,
+                },
+              },
+            });
+            break;
           case 'support.create':
             respond(request, success('Created redacted support package.', {
               displayName: 'PixelFlasher-support.zip',

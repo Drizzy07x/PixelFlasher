@@ -27,6 +27,8 @@ from pixelflasher_core.contracts import (
 )
 from pixelflasher_core.executor import CancellationToken
 from pixelflasher_core.planner import OperationPlanner, ProcessedArtifactRepository
+from pixelflasher_core.store import AppStateStore
+from tests.command_engine_factory import make_test_command_engine
 
 
 def digest(path: Path) -> str:
@@ -327,6 +329,116 @@ class AvbDowngradeTests(unittest.TestCase):
                 after["com.android.build.boot.fingerprint"],
             )
             self.assertEqual("boot", after["Partition Name"])
+
+    def test_command_engine_registers_public_result_without_exposing_paths(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service, repository, firmware_hash, _current = self.make_service(root)
+            snapshot = AppSnapshot(
+                revision=0,
+                firmware=FirmwareInfo(
+                    str(root / "factory.zip"),
+                    "factory",
+                    "old-build",
+                    firmware_hash,
+                    True,
+                    True,
+                ),
+                plan=FlashPlan("keepData", fingerprint="downgrade-plan", dry_run=True),
+            )
+            store = AppStateStore(snapshot)
+            planner = OperationPlanner(artifact_repository=repository)
+            engine = make_test_command_engine(
+                store=store,
+                operation_planner=planner,
+                avb_downgrade_service=service,
+            )
+
+            result = engine.execute(
+                AppCommand(
+                    "tools.avb",
+                    expected_revision=0,
+                    operation_id="avb-command",
+                    payload={
+                        "action": "prepareDowngrade",
+                        "currentSecurityPatch": "2026-07-05",
+                        "patchFingerprint": False,
+                    },
+                )
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual("downgrade_artifact_ready", result.code)
+            self.assertNotIn(str(root), repr(result.to_dict()))
+            value = result.value
+            self.assertIsInstance(value, dict)
+            assert isinstance(value, dict)
+            self.assertEqual("downgrade:boot", value["artifact"]["role"])
+            completed = store.snapshot()
+            self.assertEqual(2, completed.revision)
+            self.assertIsNone(completed.active_operation)
+            self.assertEqual(result, completed.last_result)
+
+    def test_command_engine_rejects_raw_path_and_unprocessed_firmware(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service, repository, firmware_hash, _current = self.make_service(root)
+            planner = OperationPlanner(artifact_repository=repository)
+            processed_store = AppStateStore(
+                AppSnapshot(
+                    firmware=FirmwareInfo(
+                        str(root / "factory.zip"),
+                        "factory",
+                        "old-build",
+                        firmware_hash,
+                        True,
+                        True,
+                    )
+                )
+            )
+            raw_path = make_test_command_engine(
+                store=processed_store,
+                operation_planner=planner,
+                avb_downgrade_service=service,
+            ).execute(
+                AppCommand(
+                    "tools.avb",
+                    expected_revision=0,
+                    payload={
+                        "action": "prepareDowngrade",
+                        "currentBoot": str(root / "current-boot.img"),
+                    },
+                )
+            )
+            unprocessed_store = AppStateStore(
+                AppSnapshot(
+                    firmware=FirmwareInfo(
+                        str(root / "factory.zip"),
+                        "factory",
+                        "old-build",
+                        firmware_hash,
+                        True,
+                        False,
+                    )
+                )
+            )
+            unprocessed = make_test_command_engine(
+                store=unprocessed_store,
+                operation_planner=planner,
+                avb_downgrade_service=service,
+            ).execute(
+                AppCommand(
+                    "tools.avb",
+                    expected_revision=0,
+                    payload={
+                        "action": "prepareDowngrade",
+                        "currentSecurityPatch": "2026-07-05",
+                    },
+                )
+            )
+
+            self.assertEqual("avb_downgrade_source_invalid", raw_path.code)
+            self.assertEqual("processed_factory_firmware_required", unprocessed.code)
 
 
 if __name__ == "__main__":

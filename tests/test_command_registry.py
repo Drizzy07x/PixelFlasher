@@ -91,6 +91,7 @@ class CommandRegistryTests(unittest.TestCase):
             # A single request may contain 32 sequential pushes, each with a
             # ten-minute process boundary, followed by postcondition checks.
             "tools.pushFiles": 330 * 60_000,
+            "tools.avb": 30 * 60_000,
         }
 
         for command, minimum in minimum_timeout_ms.items():
@@ -140,6 +141,39 @@ class CommandRegistryTests(unittest.TestCase):
         self.assertEqual({"grant", "source"}, set(fields))
         self.assertFalse(fields["grant"].required)
         self.assertTrue(fields["source"].required)
+
+    def test_avb_downgrade_payload_requires_one_verified_current_source(self):
+        valid = (
+            {"action": "prepareDowngrade", "grant": "A" * 32},
+            {
+                "action": "prepareDowngrade",
+                "currentSecurityPatch": "2026-07-05",
+                "patchFingerprint": False,
+            },
+        )
+        for index, payload in enumerate(valid):
+            with self.subTest(valid=index):
+                BridgeRequest.from_json(_request("tools.avb", payload))
+
+        invalid = (
+            {"action": "prepareDowngrade"},
+            {
+                "action": "prepareDowngrade",
+                "grant": "A" * 32,
+                "currentSecurityPatch": "2026-07-05",
+            },
+            {"action": "inspect", "currentSecurityPatch": "2026-07-05"},
+            {"action": "prepareDowngrade", "currentSecurityPatch": "2026-7-5"},
+            {
+                "action": "prepareDowngrade",
+                "currentSecurityPatch": "2026-07-05",
+                "patchFingerprint": True,
+            },
+        )
+        for index, payload in enumerate(invalid):
+            with self.subTest(invalid=index), self.assertRaises(BridgeProtocolError) as error:
+                BridgeRequest.from_json(_request("tools.avb", payload))
+            self.assertEqual("invalid_payload", error.exception.code)
 
     def test_device_tools_accept_only_the_adb_state_supported_by_the_service(self):
         for command in (

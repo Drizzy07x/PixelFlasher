@@ -2029,12 +2029,14 @@
       "currentEvidence": [
         "ui/web/src/pages/flash/FlashWizard.tsx:FlashWizard",
         "ui/web/src/App.tsx:prepareFlash",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:prepareAvbDowngrade",
         "pixelflasher_core/avb_downgrade.py:DowngradePatchService",
+        "pixelflasher_core/engine.py:CommandEngine._prepare_avb_downgrade",
         "pixelflasher_core/planner.py:_normalized_flash_options/_validate_ota_options/_image_flash",
         "tests/test_avb_downgrade.py:AvbDowngradeTests",
         "tests/test_operation_planner.py:test_inactive_slot_is_resolved_from_backend_observed_state"
       ],
-      "gap": "The verified downgrade producer and planner contract are implemented; the bridge/React creation flow plus packaged and hardware option-matrix validation remain open.",
+      "gap": "The verified downgrade producer, grant-bound bridge command and React creation flow are implemented; packaged and hardware option-matrix validation remain open.",
       "exitCriteria": [
         "Both/inactive slots, verity/verification, force, no-reboot, downgrade and temporary-root options is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward.",
@@ -2063,6 +2065,8 @@
         "tests/test_operation_planner.py:test_property_wipe_modes_never_compile_preserve_intent",
         "tests/test_operation_planner.py:test_property_downgrade_compiles_only_for_factory_preserve_modes",
         "tests/test_avb_downgrade.py:AvbDowngradeTests",
+        "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected",
+        "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace",
         "ui/web/src/test/flash-wizard.behavior.test.tsx:five-step flash planning edge behavior"
       ],
       "blockReason": null,
@@ -2234,9 +2238,13 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/avb_downgrade.py:DowngradePatchService/BundledAvbDowngradeTool",
-        "tests/test_avb_downgrade.py:AvbDowngradeTests"
+        "pixelflasher_core/engine.py:CommandEngine._prepare_avb_downgrade",
+        "ui/core_command_factory.py:CoreCommandFactory._resolve_native_grants",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:prepareAvbDowngrade",
+        "tests/test_avb_downgrade.py:AvbDowngradeTests",
+        "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace"
       ],
-      "gap": "The headless AVB downgrade producer exists, but no modern keybox/XML services or bridge/React AVB flow exists yet.",
+      "gap": "The AVB downgrade producer has a closed bridge contract, opaque native grant and React Expert flow; keybox/XML services plus packaged and hardware validation remain open.",
       "exitCriteria": [
         "Keybox validation, binary XML decode and AVB image/downgrade tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2250,7 +2258,10 @@
         "linux"
       ],
       "tests": [
-        "tests/test_avb_downgrade.py:AvbDowngradeTests"
+        "tests/test_avb_downgrade.py:AvbDowngradeTests",
+        "tests/test_core_command_factory.py:CoreCommandFactoryTests.test_avb_current_boot_grant_stays_bound_and_raw_paths_are_rejected",
+        "tests/test_command_registry.py:CommandRegistryTests.test_avb_downgrade_payload_requires_one_verified_current_source",
+        "ui/web/src/test/avb-downgrade.test.tsx:AVB downgrade workspace"
       ],
       "blockReason": null,
       "releaseGate": true,

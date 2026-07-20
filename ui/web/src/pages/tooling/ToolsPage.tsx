@@ -17,7 +17,7 @@ import {
   type LogcatUiState,
 } from './LogcatPanel';
 
-type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | null;
+type ToolPanel = 'scrcpy' | 'wifi' | 'logcat' | 'partitions' | 'push' | 'avb' | null;
 type PartitionRow = { name: string; sizeBytes: number | null; partitionType: string };
 type WifiService = {
   id: string;
@@ -250,6 +250,9 @@ export function ToolsPage({
   const [scrcpyTurnScreenOff, setScrcpyTurnScreenOff] = useState(false);
   const [scrcpyShowTouches, setScrcpyShowTouches] = useState(false);
   const [scrcpyNoAudio, setScrcpyNoAudio] = useState(false);
+  const [avbSource, setAvbSource] = useState<'image' | 'manual'>('image');
+  const [avbSecurityPatch, setAvbSecurityPatch] = useState('');
+  const [avbPatchFingerprint, setAvbPatchFingerprint] = useState(true);
   const [wifiAction, setWifiAction] = useState<'pair' | 'connect' | 'disconnect' | 'status'>('status');
   const [wifiHost, setWifiHost] = useState('192.168.1.42');
   const [wifiPort, setWifiPort] = useState(5555);
@@ -604,6 +607,46 @@ export function ToolsPage({
     }
   };
 
+  const avbFirmwareReady = snapshot.firmware?.kind === 'factory'
+    && snapshot.firmware.verified === true
+    && snapshot.firmware.processed === true
+    && typeof snapshot.firmware.hash === 'string'
+    && /^[a-f0-9]{64}$/i.test(snapshot.firmware.hash);
+  const prepareAvbDowngrade = async () => {
+    if (!avbFirmwareReady || busy) return;
+    if (avbSource === 'manual') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(avbSecurityPatch)) return;
+      await runTool(commands.toolsAvb, {
+        action: 'prepareDowngrade',
+        currentSecurityPatch: avbSecurityPatch,
+        patchFingerprint: false,
+      }, { returnCancelled: true, returnFailed: true });
+      return;
+    }
+    setBusy('avb-current-boot-picker');
+    try {
+      const picked = await onCommand(commands.nativePickFile, {
+        purpose: 'tools.avb.currentBoot',
+        title: t('tools.avbChooseBoot'),
+        filters: [{ label: t('tools.avbCurrentBoot'), extensions: ['img'] }],
+      });
+      const grant = selectedGrant(picked);
+      if (!grant) return;
+      setBusy('');
+      await runTool(commands.toolsAvb, {
+        action: 'prepareDowngrade',
+        grant,
+        patchFingerprint: avbPatchFingerprint,
+      }, {
+        expectedRevision: picked?.revision,
+        returnCancelled: true,
+        returnFailed: true,
+      });
+    } finally {
+      setBusy('');
+    }
+  };
+
   const openPanel = (next: ToolPanel) => {
     setPanel(next);
     setResult(null);
@@ -650,7 +693,7 @@ export function ToolsPage({
       { id: 'logcat', icon: 'logs', title: t('tools.logs'), detail: t('tools.logcatDetail'), disabled: !adbReady, run: () => openPanel('logcat') },
       { id: 'partition', icon: 'slot', title: t('tools.partition'), detail: t('tools.partitionDetail'), disabled: !fastbootReady, run: () => openPanel('partitions') },
       { id: 'bootloader', icon: 'bootloader', title: t('tools.bootloader'), detail: t('tools.bootloaderDetail'), disabled: !primary || !isToolchainReady(snapshot), run: () => { if (primary) void runTool(commands.deviceReboot, { serial: primary.serial, mode: 'bootloader' }); } },
-      { id: 'integrity', icon: 'shield', title: t('tools.integrity'), detail: t('tools.integrityBlocked'), disabled: true, run: () => {} },
+      { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), disabled: !avbFirmwareReady, run: () => openPanel('avb') },
     ] satisfies ToolCard[] : []),
   ];
   const pushProgress = typeof activePush?.progress === 'number' && Number.isFinite(activePush.progress)
@@ -691,8 +734,8 @@ export function ToolsPage({
 
       {panel ? (
         <Card className="tool-workspace" aria-busy={Boolean(busy)}>
-          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
-            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : t('tools.wifi')}
+          <CardTitle icon={panel === 'scrcpy' ? 'devices' : panel === 'logcat' ? 'logs' : panel === 'partitions' ? 'slot' : panel === 'push' ? 'folder' : panel === 'avb' ? 'shield' : 'adb'} after={<Button variant="ghost" onClick={() => setPanel(null)}>{t('common.close')}</Button>}>
+            {panel === 'scrcpy' ? t('tools.scrcpy') : panel === 'logcat' ? t('tools.logs') : panel === 'partitions' ? t('tools.partition') : panel === 'push' ? t('tools.push') : panel === 'avb' ? t('tools.avbDowngrade') : t('tools.wifi')}
           </CardTitle>
           {panel === 'scrcpy' ? (
             <div className="tool-panel-body scrcpy-panel">
@@ -816,6 +859,80 @@ export function ToolsPage({
                     </li>
                   ))}
                 </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {panel === 'avb' ? (
+            <div className="tool-panel-body avb-downgrade-panel">
+              {!avbFirmwareReady ? (
+                <div className="inline-alert inline-alert--warning">
+                  <Icon name="warningPng" size={18} />
+                  <span>{t('tools.avbFactoryRequired')}</span>
+                </div>
+              ) : null}
+              <p className="tool-help">{t('tools.avbDowngradeDetail')}</p>
+              <fieldset className="scrcpy-toggle-grid">
+                <legend>{t('tools.avbCurrentSource')}</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="avb-source"
+                    value="image"
+                    checked={avbSource === 'image'}
+                    onChange={() => setAvbSource('image')}
+                    disabled={Boolean(busy)}
+                  />
+                  {t('tools.avbCurrentBoot')}
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="avb-source"
+                    value="manual"
+                    checked={avbSource === 'manual'}
+                    onChange={() => setAvbSource('manual')}
+                    disabled={Boolean(busy)}
+                  />
+                  {t('tools.avbManualSpl')}
+                </label>
+              </fieldset>
+              {avbSource === 'manual' ? (
+                <div className="tool-form-grid">
+                  <label>
+                    <span>{t('tools.avbManualSpl')}</span>
+                    <input
+                      type="date"
+                      value={avbSecurityPatch}
+                      onChange={(event) => setAvbSecurityPatch(event.currentTarget.value)}
+                      disabled={Boolean(busy)}
+                    />
+                  </label>
+                  <p className="tool-help">{t('tools.avbManualHelp')}</p>
+                </div>
+              ) : (
+                <label className="tool-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={avbPatchFingerprint}
+                    onChange={(event) => setAvbPatchFingerprint(event.currentTarget.checked)}
+                    disabled={Boolean(busy)}
+                  />
+                  <span>{t('tools.avbPatchFingerprint')}</span>
+                </label>
+              )}
+              <Button
+                variant="primary"
+                icon="shield"
+                onClick={() => void prepareAvbDowngrade()}
+                disabled={Boolean(busy) || !avbFirmwareReady || (avbSource === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(avbSecurityPatch))}
+              >
+                {avbSource === 'image' ? t('tools.avbChooseBoot') : t('tools.avbPrepare')}
+              </Button>
+              {typeof record(record(result?.value).artifact).sha256 === 'string' ? (
+                <div className="artifact-hash">
+                  <Badge tone="success">{t('tools.avbVerified')}</Badge>
+                  <code>{String(record(record(result?.value).artifact).sha256)}</code>
+                </div>
               ) : null}
             </div>
           ) : null}

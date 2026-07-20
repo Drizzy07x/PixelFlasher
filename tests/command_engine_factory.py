@@ -11,10 +11,19 @@ import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from pixelflasher_core.avb_downgrade import (
+    BundledAvbDowngradeTool,
+    DowngradePatchService,
+)
 from pixelflasher_core.backups import BackupService
 from pixelflasher_core.boot_inventory import BootInventoryService
 from pixelflasher_core.boot_patch import BootPatchService, PatchToolBundle
-from pixelflasher_core.contracts import AppCommand, OperationResult, ToolchainInfo
+from pixelflasher_core.contracts import (
+    AppCommand,
+    FileArtifact,
+    OperationResult,
+    ToolchainInfo,
+)
 from pixelflasher_core.device_tools import DeviceToolsService
 from pixelflasher_core.devices import DeviceService
 from pixelflasher_core.engine import (
@@ -81,6 +90,7 @@ def make_test_command_engine(
     postcondition_observer: PostconditionObserverLike | None = None,
     firmware_catalog_service: FirmwareCatalogService | None = None,
     root_app_catalog_service: RootAppCatalogService | None = None,
+    avb_downgrade_service: DowngradePatchService | None = None,
 ) -> CommandEngine:
     """Compose a complete engine graph for focused unit tests."""
 
@@ -155,6 +165,18 @@ def make_test_command_engine(
         / "root-app-downloads",
         rooting_service=rooting_service,
     )
+    if avb_downgrade_service is None:
+        key = Path(__file__).resolve().parents[1] / "testkey_rsa4096.pem"
+        signing_key = FileArtifact(
+            str(key),
+            DowngradePatchService.hash_file(key),
+            "avb-signing-key",
+        )
+        avb_downgrade_service = DowngradePatchService(
+            operation_planner.artifact_repository,
+            Path(tempfile.gettempdir()) / "pixelflasher-tests" / "avb-downgrade",
+            BundledAvbDowngradeTool(signing_key),
+        )
     return CommandEngine(
         store=store,
         executor=executor,
@@ -185,4 +207,5 @@ def make_test_command_engine(
         device_scan_state_updater=None,
         firmware_catalog_service=firmware_catalog_service,
         root_app_catalog_service=root_app_catalog_service,
+        avb_downgrade_service=avb_downgrade_service,
     )

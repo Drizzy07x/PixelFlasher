@@ -5498,3 +5498,47 @@ msgstr ""
 msgctxt "web.root.appAvailable"
 msgid "Available locally"
 msgstr ""
+
+msgctxt "web.tools.avbDowngrade"
+msgid "AVB downgrade patch"
+msgstr "Correctif de rétrogradation AVB"
+
+msgctxt "web.tools.avbDowngradeDetail"
+msgid "Create a firmware-bound downgrade boot image from processed factory firmware."
+msgstr "Créez une image boot de rétrogradation liée au firmware à partir d'un firmware factory traité."
+
+msgctxt "web.tools.avbCurrentSource"
+msgid "Current system source"
+msgstr "Source du système actuel"
+
+msgctxt "web.tools.avbCurrentBoot"
+msgid "Current boot image"
+msgstr "Image boot actuelle"
+
+msgctxt "web.tools.avbManualSpl"
+msgid "Security patch date"
+msgstr "Date du correctif de sécurité"
+
+msgctxt "web.tools.avbChooseBoot"
+msgid "Choose current boot image"
+msgstr "Choisir l'image boot actuelle"
+
+msgctxt "web.tools.avbPatchFingerprint"
+msgid "Copy the current boot fingerprint"
+msgstr "Copier l'empreinte de l'image boot actuelle"
+
+msgctxt "web.tools.avbPrepare"
+msgid "Prepare downgrade artifact"
+msgstr "Préparer l'artefact de rétrogradation"
+
+msgctxt "web.tools.avbFactoryRequired"
+msgid "Select and process verified factory firmware first."
+msgstr "Sélectionnez et traitez d'abord un firmware factory vérifié."
+
+msgctxt "web.tools.avbManualHelp"
+msgid "Enter the current system security patch in YYYY-MM-DD format."
+msgstr "Saisissez le correctif de sécurité du système actuel au format AAAA-MM-JJ."
+
+msgctxt "web.tools.avbVerified"
+msgid "Verified artifact"
+msgstr "Artefact vérifié"

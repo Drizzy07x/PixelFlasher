@@ -76,6 +76,7 @@ class SafetyPolicy:
             "tools.wifi",
             "tools.wifi.status",
             "tools.wifi.discover",
+            "tools.avb",
             "device.inspect",
             "device.openUrl",
             "backups.create",
@@ -133,6 +134,19 @@ class SafetyPolicy:
                     False,
                     "support_target_not_allowed",
                     "support package creation is a local operation",
+                )
+        if command.kind == "tools.avb":
+            if command.operation_plan is not None:
+                return SafetyDecision(
+                    False,
+                    "untrusted_operation_plan",
+                    "AVB downgrade preparation does not accept a process plan",
+                )
+            if command.target_serial is not None:
+                return SafetyDecision(
+                    False,
+                    "avb_target_not_allowed",
+                    "AVB downgrade preparation is bound to canonical firmware state",
                 )
         if (
             command.kind == CommandKind.FLASH_EXECUTE.value

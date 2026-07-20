@@ -16,7 +16,7 @@ import tempfile
 import threading
 from collections.abc import Mapping
 from contextlib import redirect_stderr, redirect_stdout, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from io import StringIO
@@ -96,6 +96,7 @@ class DowngradePatchResult:
     current_security_patch: str = ""
     target_security_patch: str = ""
     registration_checkpoint: ProcessedArtifactCheckpoint | None = None
+    output_created: bool = field(default=False, repr=False)
 
     @property
     def ok(self) -> bool:
@@ -375,6 +376,7 @@ class DowngradePatchService:
                 current_spl,
                 target_spl,
                 checkpoint,
+                committed_created,
             )
         except _DowngradeCancelled:
             return DowngradePatchResult(
@@ -404,6 +406,18 @@ class DowngradePatchService:
             if staging is not None:
                 with suppress(OSError):
                     shutil.rmtree(staging)
+
+    def rollback(self, result: DowngradePatchResult) -> None:
+        if not result.ok or result.registration_checkpoint is None:
+            return
+        self.repository.rollback(result.registration_checkpoint)
+        if result.output_created and result.artifact is not None:
+            output = Path(result.artifact.path).resolve(strict=False)
+            root = self.output_root.resolve(strict=False)
+            if output.parent != root:
+                raise RuntimeError("downgrade rollback output escaped the service root")
+            with suppress(FileNotFoundError):
+                output.unlink()
 
     def _verify_artifact(self, artifact: FileArtifact, code: DowngradePatchCode) -> Path:
         try:

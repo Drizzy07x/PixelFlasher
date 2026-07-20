@@ -15,6 +15,10 @@ from constants import VERSION
 
 from .apk_inspection import ApkInspector
 from .artifact_downloads import ArtifactDownloader
+from .avb_downgrade import (
+    BundledAvbDowngradeTool,
+    DowngradePatchService,
+)
 from .backups import BackupService
 from .boot_inventory import BootInventoryService
 from .boot_patch import BootPatchService
@@ -28,6 +32,7 @@ from .contracts import (
     CommandAck,
     DeviceInfo,
     DeviceManagementState,
+    FileArtifact,
     FirmwareInfo,
     FlashPlan,
     InteractionDecision,
@@ -222,6 +227,17 @@ class ApplicationRuntime:
             self.firmware_artifact_cache_root,
             payload_extractor=BuiltinPayloadExtractor(),
         )
+        avb_key_path = self._packaged_avb_signing_key_path()
+        avb_signing_key = FileArtifact(
+            str(avb_key_path),
+            DowngradePatchService.hash_file(avb_key_path),
+            "avb-signing-key",
+        )
+        avb_downgrade_service = DowngradePatchService(
+            operation_planner.artifact_repository,
+            self._avb_downgrade_cache_path(config_store.path),
+            BundledAvbDowngradeTool(avb_signing_key),
+        )
         support_package_service = (
             SupportPackageV2Service(
                 config_store.path,
@@ -321,6 +337,7 @@ class ApplicationRuntime:
             device_scan_state_updater=self._activate_device_scan,
             firmware_catalog_service=self.firmware_catalog_service,
             root_app_catalog_service=self.root_app_catalog_service,
+            avb_downgrade_service=avb_downgrade_service,
         )
         self.engine = PixelFlasherEngine(
             command_engine=self.command_engine,
@@ -1476,9 +1493,18 @@ class ApplicationRuntime:
         return Path(__file__).resolve().parents[1] / "android_devices.json"
 
     @staticmethod
+    def _packaged_avb_signing_key_path() -> Path:
+        return Path(__file__).resolve().parents[1] / "testkey_rsa4096.pem"
+
+    @staticmethod
     def _firmware_artifact_cache_path(config_path: str | Path) -> Path:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "firmware-artifacts"
+
+    @staticmethod
+    def _avb_downgrade_cache_path(config_path: str | Path) -> Path:
+        resolved = Path(config_path).expanduser().resolve(strict=False)
+        return resolved.parent / f".{resolved.name}.cache" / "avb-downgrade"
 
     @staticmethod
     def _firmware_download_cache_path(config_path: str | Path) -> Path:

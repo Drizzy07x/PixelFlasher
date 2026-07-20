@@ -366,6 +366,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "tools.logcat",
                         "tools.logcat.clear",
                         "tools.pushFiles",
+                        "tools.avb",
                         "tools.scrcpy.setup",
                         "tools.wifi.discover",
                     }:
@@ -774,6 +775,36 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 project_operation_result(
                     "tools.pushFiles",
                     OperationResult.success("push", value=value),
+                )
+
+    def test_avb_downgrade_receipt_is_closed_verified_and_route_free(self):
+        value = {
+            "artifact": {"sha256": "a" * 64, "role": "downgrade:boot"},
+            "currentSecurityPatch": "2025-03-05",
+            "targetSecurityPatch": "2025-02-05",
+            "verified": True,
+        }
+        projected = project_operation_result(
+            "tools.avb",
+            OperationResult.success("avb", value=value),
+        )
+        self.assertEqual(value, projected["value"])
+        self.assert_route_free(projected)
+
+        hostile_values = (
+            {**value, "path": r"C:\\private\\downgrade.img"},
+            {**value, "artifact": {**value["artifact"], "path": "/private/output.img"}},
+            {**value, "artifact": {**value["artifact"], "sha256": "A" * 64}},
+            {**value, "artifact": {**value["artifact"], "role": "partition:boot"}},
+            {**value, "verified": False},
+            {**value, "currentSecurityPatch": "2025-02-05"},
+            {**value, "currentSecurityPatch": "2025-02-30"},
+        )
+        for hostile in hostile_values:
+            with self.subTest(hostile=hostile), self.assertRaises(PublicProjectionError):
+                project_operation_result(
+                    "tools.avb",
+                    OperationResult.success("avb", value=hostile),
                 )
 
     def test_generic_host_serializer_rejects_python_paths_and_host_path_strings(self):

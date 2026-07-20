@@ -409,7 +409,7 @@ describe('PixelFlasher web workspace', () => {
     expect(screen.getByRole('button', { name: /Partition manager/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Bootloader console/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /ADB Shell/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Integrity check/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /AVB downgrade patch/i })).toBeDisabled();
   });
 
   it('emits exact bounded Tools payloads and clears the Wi-Fi pairing secret', async () => {

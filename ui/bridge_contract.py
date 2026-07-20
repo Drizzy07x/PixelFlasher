@@ -257,6 +257,28 @@ def _validate_payload_values(
         if not isinstance(secret, str) or not secret or len(secret) > 256 or "\x00" in secret:
             _payload_error("secret value is invalid", request_id)
 
+    if command == "tools.avb":
+        if payload.get("action") != "prepareDowngrade":
+            _payload_error("tools.avb action is invalid", request_id)
+        has_grant = "grant" in payload
+        has_security_patch = "currentSecurityPatch" in payload
+        if has_grant == has_security_patch:
+            _payload_error(
+                "tools.avb requires exactly one current boot grant or security patch",
+                request_id,
+            )
+        security_patch = payload.get("currentSecurityPatch")
+        if has_security_patch and (
+            not isinstance(security_patch, str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", security_patch)
+        ):
+            _payload_error("tools.avb security patch must use YYYY-MM-DD", request_id)
+        if payload.get("patchFingerprint") is True and not has_grant:
+            _payload_error(
+                "tools.avb fingerprint patching requires a current boot grant",
+                request_id,
+            )
+
     if command == "interaction.respond":
         if not _nonempty_string(payload.get("operationId"), limit=128):
             _payload_error("interaction.respond operationId is required", request_id)

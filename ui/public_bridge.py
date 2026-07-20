@@ -14,6 +14,7 @@ import ntpath
 import posixpath
 import re
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date
 from typing import cast
 
 from pixelflasher_core import AppSnapshot, OperationResult, is_valid_target_serial
@@ -37,6 +38,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "tools.logcat",
         "tools.logcat.clear",
         "tools.pushFiles",
+        "tools.avb",
         "tools.scrcpy.setup",
         "tools.wifi.discover",
     }
@@ -2071,6 +2073,51 @@ def _project_support(value: object) -> JSONValue:
     })
 
 
+def _project_avb_downgrade(value: object) -> JSONValue:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "artifact",
+                "currentSecurityPatch",
+                "targetSecurityPatch",
+                "verified",
+            }
+        ),
+    )
+    artifact = _closed_record(
+        source["artifact"],
+        fields=frozenset({"sha256", "role"}),
+    )
+    digest = artifact["sha256"]
+    current_patch = source["currentSecurityPatch"]
+    target_patch = source["targetSecurityPatch"]
+    if (
+        not isinstance(digest, str)
+        or not _LOWERCASE_SHA256.fullmatch(digest)
+        or artifact["role"] != "downgrade:boot"
+        or source["verified"] is not True
+        or not isinstance(current_patch, str)
+        or not isinstance(target_patch, str)
+    ):
+        raise PublicProjectionError("AVB downgrade artifact receipt is invalid")
+    try:
+        current_date = date.fromisoformat(current_patch)
+        target_date = date.fromisoformat(target_patch)
+    except ValueError as error:
+        raise PublicProjectionError("AVB downgrade security patch is invalid") from error
+    if target_date >= current_date:
+        raise PublicProjectionError("AVB downgrade security patch order is invalid")
+    return ensure_public_json(
+        {
+            "artifact": {"sha256": digest, "role": "downgrade:boot"},
+            "currentSecurityPatch": current_patch,
+            "targetSecurityPatch": target_patch,
+            "verified": True,
+        }
+    )
+
+
 def _project_native_grant(value: object) -> JSONValue:
     source = _record(value)
     data = source.get("data", source)
@@ -2159,6 +2206,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "tools.logcat": _project_logcat,
     "tools.logcat.clear": _project_logcat_clear,
     "tools.pushFiles": _project_push_files,
+    "tools.avb": _project_avb_downgrade,
     "tools.scrcpy": _project_none,
     "tools.scrcpy.setup": _project_scrcpy_setup,
     "tools.wifi": _project_none,

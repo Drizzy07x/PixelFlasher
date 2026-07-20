@@ -5503,3 +5503,47 @@ msgstr ""
 msgctxt "web.root.appAvailable"
 msgid "Available locally"
 msgstr ""
+
+msgctxt "web.tools.avbDowngrade"
+msgid "AVB downgrade patch"
+msgstr "AVB 降级补丁"
+
+msgctxt "web.tools.avbDowngradeDetail"
+msgid "Create a firmware-bound downgrade boot image from processed factory firmware."
+msgstr "从已处理的工厂固件创建与固件绑定的降级启动镜像。"
+
+msgctxt "web.tools.avbCurrentSource"
+msgid "Current system source"
+msgstr "当前系统来源"
+
+msgctxt "web.tools.avbCurrentBoot"
+msgid "Current boot image"
+msgstr "当前启动镜像"
+
+msgctxt "web.tools.avbManualSpl"
+msgid "Security patch date"
+msgstr "安全补丁日期"
+
+msgctxt "web.tools.avbChooseBoot"
+msgid "Choose current boot image"
+msgstr "选择当前启动镜像"
+
+msgctxt "web.tools.avbPatchFingerprint"
+msgid "Copy the current boot fingerprint"
+msgstr "复制当前启动镜像指纹"
+
+msgctxt "web.tools.avbPrepare"
+msgid "Prepare downgrade artifact"
+msgstr "准备降级工件"
+
+msgctxt "web.tools.avbFactoryRequired"
+msgid "Select and process verified factory firmware first."
+msgstr "请先选择并处理已验证的工厂固件。"
+
+msgctxt "web.tools.avbManualHelp"
+msgid "Enter the current system security patch in YYYY-MM-DD format."
+msgstr "请以 YYYY-MM-DD 格式输入当前系统安全补丁日期。"
+
+msgctxt "web.tools.avbVerified"
+msgid "Verified artifact"
+msgstr "已验证工件"

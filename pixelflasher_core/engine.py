@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
 import threading
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
@@ -12,6 +14,11 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 from uuid import uuid4
 
+from .avb_downgrade import (
+    DowngradePatchResult,
+    DowngradePatchService,
+    DowngradePatchStatus,
+)
 from .backups import (
     BACKUP_COMMANDS,
     BackupCompilation,
@@ -78,6 +85,7 @@ from .firmware_catalog import (
     FirmwareCatalogService,
     FirmwareCatalogStatus,
 )
+from .grants import BoundReadFile, GrantError
 from .interaction import InteractionTimeoutError
 from .operation_runner import (
     CancellationCleanup,
@@ -236,9 +244,12 @@ class CommandEngine:
         device_scan_state_updater: DeviceScanStateUpdater | None,
         firmware_catalog_service: FirmwareCatalogService,
         root_app_catalog_service: RootAppCatalogService,
+        avb_downgrade_service: DowngradePatchService,
     ) -> None:
         if firmware_artifact_service.repository is not operation_planner.artifact_repository:
             raise ValueError("firmware artifact service and operation planner must share one repository")
+        if avb_downgrade_service.repository is not operation_planner.artifact_repository:
+            raise ValueError("AVB downgrade service and operation planner must share one repository")
         if operation_runner.executor is not executor:
             raise ValueError("operation runner and command engine must share one executor")
         if operation_runner.safety_policy is not safety_policy:
@@ -286,6 +297,7 @@ class CommandEngine:
         self.firmware_repository = firmware_repository
         self.firmware_catalog_service = firmware_catalog_service
         self.root_app_catalog_service = root_app_catalog_service
+        self.avb_downgrade_service = avb_downgrade_service
         self.support_package_service = support_package_service
         self.snapshot_provider = snapshot_provider
         self.postcondition_observer = postcondition_observer
@@ -357,11 +369,272 @@ class CommandEngine:
             return self._update_flash_plan(command)
         if command.kind == "flash.plan.preview":
             return self._preview_flash_plan(command)
+        if command.kind == "tools.avb":
+            return self._prepare_avb_downgrade(command)
         return OperationResult.failed(
             command.operation_id,
             code="command_unknown",
             message=f"unsupported command kind: {command.kind}",
         )
+
+    def _prepare_avb_downgrade(self, command: AppCommand) -> OperationResult:
+        allowed_fields = {
+            "action",
+            "currentBoot",
+            "currentSecurityPatch",
+            "patchFingerprint",
+        }
+        if set(command.payload) - allowed_fields or command.payload.get("action") != "prepareDowngrade":
+            return OperationResult.failed(
+                command.operation_id,
+                code="avb_downgrade_payload_invalid",
+                message="tools.avb requires the canonical prepareDowngrade payload",
+            )
+        current_resource = command.payload.get("currentBoot")
+        current_security_patch = command.payload.get("currentSecurityPatch", "")
+        patch_fingerprint = command.payload.get("patchFingerprint", False)
+        if not isinstance(patch_fingerprint, bool):
+            return OperationResult.failed(
+                command.operation_id,
+                code="avb_downgrade_payload_invalid",
+                message="patchFingerprint must be a boolean",
+            )
+        if not isinstance(current_security_patch, str):
+            return OperationResult.failed(
+                command.operation_id,
+                code="avb_downgrade_source_invalid",
+                message="current security patch must be a string",
+            )
+        has_current_resource = isinstance(current_resource, BoundReadFile)
+        has_security_patch = bool(current_security_patch)
+        if has_current_resource == has_security_patch:
+            return OperationResult.failed(
+                command.operation_id,
+                code="avb_downgrade_source_invalid",
+                message="choose exactly one verified current boot image or security patch",
+            )
+        if current_resource is not None and not isinstance(current_resource, BoundReadFile):
+            return OperationResult.failed(
+                command.operation_id,
+                code="avb_downgrade_source_invalid",
+                message="current boot must be a purpose-bound native file grant",
+            )
+        if patch_fingerprint and current_resource is None:
+            return OperationResult.failed(
+                command.operation_id,
+                code="current_fingerprint_unavailable",
+                message="fingerprint patching requires a verified current boot image",
+            )
+        initial = self.store.snapshot()
+        decision = self.safety_policy.evaluate(command, initial)
+        if not decision.allowed:
+            return self._denied(command, decision.code, decision.message)
+        if (
+            initial.firmware.type.casefold() != "factory"
+            or not initial.firmware.verified
+            or not initial.firmware.processed
+            or not initial.firmware.hash
+        ):
+            return OperationResult.failed(
+                command.operation_id,
+                code="processed_factory_firmware_required",
+                message="select and process verified factory firmware before preparing downgrade boot",
+            )
+
+        token = self._register_cancellation(command)
+        if token is None:
+            return self._denied(command, "operation_busy", "operation id is already active")
+        processing: DowngradePatchResult | None = None
+        try:
+            with self._operation_guard(token) as acquired:
+                if not acquired or token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="downgrade_patch_cancelled",
+                        cancelled_message="downgrade patch creation was cancelled before it started",
+                        timeout_message="downgrade patch creation timed out before it started",
+                    )
+                snapshot = self.store.snapshot()
+                decision = self.safety_policy.evaluate(command, snapshot)
+                if not decision.allowed:
+                    return self._denied(command, decision.code, decision.message)
+                if snapshot.firmware != initial.firmware or snapshot.plan != initial.plan:
+                    return self._denied(
+                        command,
+                        "avb_downgrade_context_changed",
+                        "firmware or flash plan changed before downgrade preparation",
+                    )
+                try:
+                    active = self.store.begin_operation(
+                        command.operation_id,
+                        expected_revision=snapshot.revision,
+                        kind="tools.avb",
+                        label="Prepare AVB downgrade boot",
+                    )
+                except StaleRevisionError as error:
+                    return self._denied(command, "stale_revision", str(error))
+                except ValueError as error:
+                    return self._denied(command, "operation_busy", str(error))
+
+                current_artifact: FileArtifact | None = None
+                try:
+                    if isinstance(current_resource, BoundReadFile):
+                        current_artifact = self._materialize_avb_current_boot(
+                            current_resource,
+                            token,
+                        )
+                    processing = self.avb_downgrade_service.create(
+                        firmware_hash=snapshot.firmware.hash,
+                        plan_fingerprint=snapshot.plan.fingerprint,
+                        current_boot=current_artifact,
+                        current_security_patch=(
+                            current_security_patch
+                            if isinstance(current_security_patch, str)
+                            else ""
+                        ),
+                        patch_fingerprint=patch_fingerprint,
+                        cancellation=token,
+                    )
+                except (GrantError, OSError, ValueError) as error:
+                    processing = None
+                    result = (
+                        self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="downgrade_patch_cancelled",
+                            cancelled_message="downgrade patch creation was cancelled",
+                            timeout_message="downgrade patch creation timed out",
+                        )
+                        if token.cancelled
+                        else OperationResult.failed(
+                            command.operation_id,
+                            code="current_boot_materialization_failed",
+                            message=str(error),
+                        )
+                    )
+                else:
+                    if processing.status is DowngradePatchStatus.CANCELLED:
+                        result = self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code=processing.code.value,
+                            cancelled_message=processing.message,
+                            timeout_message="downgrade patch creation timed out",
+                        )
+                    elif not processing.ok or processing.artifact is None:
+                        result = OperationResult.failed(
+                            command.operation_id,
+                            code=processing.code.value,
+                            message=processing.message,
+                        )
+                    else:
+                        result = OperationResult.success(
+                            command.operation_id,
+                            code=processing.code.value,
+                            message=processing.message,
+                            value={
+                                "artifact": {
+                                    "sha256": processing.artifact.sha256,
+                                    "role": processing.artifact.role,
+                                },
+                                "currentSecurityPatch": processing.current_security_patch,
+                                "targetSecurityPatch": processing.target_security_patch,
+                                "verified": True,
+                            },
+                        )
+                finally:
+                    if current_artifact is not None:
+                        shutil.rmtree(Path(current_artifact.path).parent, ignore_errors=True)
+
+                current = self.store.snapshot()
+                context_changed = (
+                    current.revision != active.revision
+                    or current.active_operation is None
+                    or current.active_operation.operation_id != command.operation_id
+                    or current.firmware != snapshot.firmware
+                    or current.plan != snapshot.plan
+                )
+                if result.ok and (token.cancelled or context_changed):
+                    result = (
+                        self._stopped_result(
+                            command,
+                            token,
+                            cancelled_code="downgrade_patch_cancelled",
+                            cancelled_message="downgrade patch creation was cancelled before promotion",
+                            timeout_message="downgrade patch creation timed out before promotion",
+                        )
+                        if token.cancelled
+                        else OperationResult.failed(
+                            command.operation_id,
+                            code="avb_downgrade_context_changed",
+                            message="firmware or flash plan changed while preparing downgrade boot",
+                        )
+                    )
+                if processing is not None and processing.ok and not result.ok:
+                    result = self._rollback_avb_downgrade(command, processing, result)
+                try:
+                    self.store.complete_operation(
+                        result,
+                        expected_revision=active.revision if result.ok else None,
+                    )
+                except (StaleRevisionError, TypeError, ValueError) as error:
+                    fallback = OperationResult.failed(
+                        command.operation_id,
+                        code="avb_downgrade_state_promotion_failed",
+                        message=str(error),
+                    )
+                    if processing is not None and processing.ok and result.ok:
+                        fallback = self._rollback_avb_downgrade(
+                            command, processing, fallback
+                        )
+                    self._abort_operation_safely(fallback)
+                    return fallback
+                return result
+        finally:
+            self._unregister_cancellation(command.operation_id)
+
+    def _materialize_avb_current_boot(
+        self,
+        resource: BoundReadFile,
+        cancellation: CancellationToken,
+    ) -> FileArtifact:
+        root = self.avb_downgrade_service.output_root
+        root.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix="current-boot-", dir=root))
+        destination = staging / "current-boot.img"
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with resource.open_verified() as source, destination.open("xb") as output:
+                while chunk := source.read(1024 * 1024):
+                    if cancellation.cancelled:
+                        raise OSError("current boot materialization was cancelled")
+                    size += len(chunk)
+                    if size > self.avb_downgrade_service.maximum_image_bytes:
+                        raise ValueError("current boot image exceeds the configured size limit")
+                    digest.update(chunk)
+                    output.write(chunk)
+            return FileArtifact(str(destination), digest.hexdigest(), "partition:boot")
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+
+    def _rollback_avb_downgrade(
+        self,
+        command: AppCommand,
+        processing: DowngradePatchResult,
+        intended: OperationResult,
+    ) -> OperationResult:
+        try:
+            self.avb_downgrade_service.rollback(processing)
+        except Exception:
+            return OperationResult.failed(
+                command.operation_id,
+                code="avb_downgrade_rollback_failed",
+                message="downgrade artifact could not be rolled back safely",
+            )
+        return intended
 
     def _compile_service_command(self, command: AppCommand) -> OperationResult:
         """Compile one bounded domain intent, then use the common safe executor."""
