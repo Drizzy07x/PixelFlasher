@@ -42,6 +42,7 @@ from pixelflasher_core import (
     ProgressEvent,
     SnapshotChanged,
 )
+from platform_utils import open_path
 from ui.bridge_contract import (
     BRIDGE_CHANNEL,
     BridgeProtocolError,
@@ -539,6 +540,11 @@ class _SerialCommandWorker:
             command.request_cancellation()
             return True
 
+    @property
+    def has_pending_commands(self) -> bool:
+        with self._lock:
+            return bool(self._accepted_commands)
+
     def shutdown(self, *, timeout_seconds: float = 10.0) -> bool:
         if timeout_seconds < 0:
             raise ValueError("timeout_seconds must not be negative")
@@ -631,6 +637,7 @@ def create_modern_webview_frame(
     *,
     command_factory: CoreCommandFactory,
     support_destination_registrar: SupportDestinationRegistrar,
+    application_directories: Mapping[str, str | Path] | None = None,
     parent: wx.Window | None = None,
     index_path: Path | None = None,
 ) -> ModernWebViewFrame:
@@ -640,6 +647,7 @@ def create_modern_webview_frame(
         engine=engine,
         command_factory=command_factory,
         support_destination_registrar=support_destination_registrar,
+        application_directories=application_directories,
         parent=parent,
         index_path=index_path,
     )
@@ -654,6 +662,7 @@ class ModernWebViewFrame(wx.Frame):
         engine: EngineProtocol,
         command_factory: CoreCommandFactory,
         support_destination_registrar: SupportDestinationRegistrar,
+        application_directories: Mapping[str, str | Path] | None = None,
         parent: wx.Window | None = None,
         index_path: Path | None = None,
     ) -> None:
@@ -671,6 +680,11 @@ class ModernWebViewFrame(wx.Frame):
         self._command_factory = command_factory
         self._index_path = (index_path or frontend_index_path()).resolve()
         self._asset_root = self._index_path.parent
+        self._application_directories = {
+            target: Path(path).expanduser().absolute()
+            for target, path in (application_directories or {}).items()
+            if target in {"configuration", "logs", "cache"}
+        }
         self._loaded = False
         self._closing = False
         self._pending_messages: list[dict[str, Any]] = []
@@ -791,6 +805,9 @@ class ModernWebViewFrame(wx.Frame):
 
         if request.command == "secret.issue":
             self._handle_secret_issue(request)
+            return
+        if request.command in {"app.openFolder", "app.exit"}:
+            self._handle_application_request(request)
             return
         if request.command.startswith("native."):
             self._handle_native_request(request)
@@ -1067,6 +1084,103 @@ class ModernWebViewFrame(wx.Frame):
             ),
         )
 
+    def _handle_application_request(self, request: BridgeRequest) -> None:
+        snapshot = self._engine.snapshot()
+        if request.expected_revision != snapshot.revision:
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={
+                        "code": "revision_conflict",
+                        "message": "Application state changed before the shell action.",
+                    },
+                ),
+            )
+            return
+
+        if request.command == "app.openFolder":
+            target = request.payload.get("target")
+            directory = self._application_directories.get(
+                target if isinstance(target, str) else ""
+            )
+            if directory is None or directory.is_symlink() or not directory.is_dir():
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=False,
+                        error={
+                            "code": "application_directory_unavailable",
+                            "message": "The requested application folder is unavailable.",
+                        },
+                    ),
+                )
+                return
+            try:
+                open_path(directory)
+            except Exception:
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=False,
+                        error={
+                            "code": "application_directory_open_failed",
+                            "message": "The application folder could not be opened.",
+                        },
+                    ),
+                )
+                return
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=True,
+                    result={
+                        "status": "SUCCESS",
+                        "code": "application_directory_opened",
+                        "message": "Application folder opened.",
+                        "target": target,
+                        "revision": snapshot.revision,
+                    },
+                ),
+            )
+            return
+
+        if self._has_active_work(snapshot):
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={
+                        "code": "operation_active",
+                        "message": "Cancel or finish the active operation before exiting PixelFlasher.",
+                    },
+                ),
+            )
+            return
+        self._complete_request(
+            request,
+            response_envelope(
+                request.request_id,
+                ok=True,
+                result={
+                    "status": "SUCCESS",
+                    "code": "exit_requested",
+                    "message": "PixelFlasher is closing.",
+                    "revision": snapshot.revision,
+                },
+            ),
+        )
+        wx.CallAfter(self.Close)
+
+    def _has_active_work(self, snapshot: AppSnapshot | None = None) -> bool:
+        current = snapshot or self._engine.snapshot()
+        return current.active_operation is not None or self._command_worker.has_pending_commands
+
     def _handle_secret_issue(self, request: BridgeRequest) -> None:
         try:
             data = self._command_factory.issue_secret(request)
@@ -1202,6 +1316,19 @@ class ModernWebViewFrame(wx.Frame):
     def _on_close(self, event: wx.CloseEvent) -> None:
         if self._closing:
             event.Skip()
+            return
+        if self._has_active_work() and event.CanVeto():
+            event.Veto()
+            self._emit(
+                event_envelope(
+                    "runtime",
+                    {
+                        "status": "exitBlocked",
+                        "message": "Cancel or finish the active operation before exiting PixelFlasher.",
+                    },
+                    revision=_revision(self._engine.snapshot()),
+                )
+            )
             return
         self._closing = True
         # Wake a producer held by bounded logcat backpressure before engine

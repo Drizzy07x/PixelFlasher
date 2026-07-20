@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from pixelflasher_core import (
+    ActiveOperation,
     AppCommand,
     AppSnapshot,
     CommandAck,
@@ -31,7 +32,7 @@ from ui.pages.modern_webview_host import (
     _safe_wildcard,
     _SerialCommandWorker,
 )
-from ui.public_bridge import PublicProjectionError
+from ui.public_bridge import PublicProjectionError, project_operation_result
 
 
 def request(request_id="request-1", *, command="device.scan", payload=None):
@@ -93,6 +94,152 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         )
         self.assertTrue(responses[0]["ok"])
         self.assertEqual("cancellation_requested", responses[0]["result"]["code"])
+
+    def test_application_folders_are_backend_owned_and_never_disclose_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory) / "logs"
+            logs.mkdir()
+            responses: list[dict] = []
+            host = SimpleNamespace(
+                _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+                _application_directories={"logs": logs},
+                _complete_request=lambda _request, message: responses.append(message),
+            )
+            with patch("ui.pages.modern_webview_host.open_path") as opened:
+                ModernWebViewFrame._handle_application_request(
+                    host,
+                    request(
+                        "open-logs",
+                        command="app.openFolder",
+                        payload={"target": "logs"},
+                    ),
+                )
+
+            opened.assert_called_once_with(logs)
+            self.assertTrue(responses[0]["ok"])
+            self.assertEqual("application_directory_opened", responses[0]["result"]["code"])
+            self.assertNotIn(str(logs), json.dumps(responses[0]))
+
+        projected = project_operation_result(
+            "app.openFolder",
+            OperationResult.success("open-folder", value={"target": "logs"}),
+        )
+        self.assertEqual({"target": "logs"}, projected["value"])
+        with self.assertRaises(PublicProjectionError):
+            project_operation_result(
+                "app.openFolder",
+                OperationResult.success(
+                    "open-folder-hostile",
+                    value={"target": "logs", "path": "C:/secret"},
+                ),
+            )
+
+    def test_application_folder_and_exit_fail_closed_on_stale_or_active_state(self):
+        responses: list[dict] = []
+        snapshot = AppSnapshot(
+            revision=4,
+            active_operation=ActiveOperation("operation-1", "flash.execute"),
+        )
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: snapshot),
+            _application_directories={},
+            _complete_request=lambda _request, message: responses.append(message),
+            _has_active_work=lambda _snapshot: True,
+        )
+        ModernWebViewFrame._handle_application_request(
+            host,
+            request("stale-folder", command="app.openFolder", payload={"target": "logs"}),
+        )
+        ModernWebViewFrame._handle_application_request(
+            host,
+            request("active-exit", command="app.exit", payload={},),
+        )
+
+        self.assertEqual("revision_conflict", responses[0]["error"]["code"])
+        self.assertEqual("revision_conflict", responses[1]["error"]["code"])
+
+        responses.clear()
+        snapshot = AppSnapshot(
+            revision=3,
+            active_operation=ActiveOperation("operation-1", "flash.execute"),
+        )
+        ModernWebViewFrame._handle_application_request(
+            host,
+            request("active-exit-current", command="app.exit", payload={}),
+        )
+        self.assertEqual("operation_active", responses[0]["error"]["code"])
+
+    def test_application_folder_rejects_a_backend_target_that_became_a_symlink(self):
+        responses: list[dict] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _application_directories={
+                "logs": SimpleNamespace(
+                    is_symlink=lambda: True,
+                    is_dir=lambda: True,
+                )
+            },
+            _complete_request=lambda _request, message: responses.append(message),
+        )
+        with patch("ui.pages.modern_webview_host.open_path") as opened:
+            ModernWebViewFrame._handle_application_request(
+                host,
+                request(
+                    "symlink-folder",
+                    command="app.openFolder",
+                    payload={"target": "logs"},
+                ),
+            )
+
+        opened.assert_not_called()
+        self.assertEqual(
+            "application_directory_unavailable",
+            responses[0]["error"]["code"],
+        )
+
+    def test_idle_exit_acks_before_requesting_the_native_close(self):
+        responses: list[dict] = []
+        closed: list[bool] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _application_directories={},
+            _complete_request=lambda _request, message: responses.append(message),
+            _has_active_work=lambda _snapshot: False,
+            Close=lambda: closed.append(True),
+        )
+        with patch(
+            "ui.pages.modern_webview_host.wx.CallAfter",
+            side_effect=lambda callback, *args: callback(*args),
+        ):
+            ModernWebViewFrame._handle_application_request(
+                host,
+                request("idle-exit", command="app.exit", payload={}),
+            )
+
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual("exit_requested", responses[0]["result"]["code"])
+        self.assertEqual([True], closed)
+
+    def test_native_window_close_is_vetoed_without_a_classic_dialog_during_work(self):
+        emitted: list[dict] = []
+        vetoed: list[bool] = []
+        host = SimpleNamespace(
+            _closing=False,
+            _has_active_work=lambda: True,
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _emit=lambda message: emitted.append(message),
+        )
+        event = SimpleNamespace(
+            CanVeto=lambda: True,
+            Veto=lambda: vetoed.append(True),
+            Skip=lambda: self.fail("active close must not skip"),
+        )
+
+        ModernWebViewFrame._on_close(host, event)
+
+        self.assertEqual([True], vetoed)
+        self.assertEqual("exitBlocked", emitted[0]["payload"]["status"])
+        self.assertFalse(host._closing)
 
     def test_engine_worker_cancels_an_accepted_command_before_fifo_execution(self):
         first_started = threading.Event()

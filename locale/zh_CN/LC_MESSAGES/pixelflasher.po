@@ -6508,3 +6508,32 @@ msgstr "等宽字体大小"
 msgctxt "web.settings.fontSizeDetail"
 msgid "Scale monospace workspaces from 6 to 50 points."
 msgstr "将等宽工作区缩放为 6 到 50 磅。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.applicationFiles"
+msgid "Application folders and lifecycle"
+msgstr "应用文件夹和生命周期"
+
+msgctxt "web.settings.applicationFilesDetail"
+msgid ""
+"Open backend-owned folders without exposing their paths to the WebView."
+msgstr "打开由后端管理的文件夹，而不向 WebView 公开其路径。"
+
+msgctxt "web.settings.openConfiguration"
+msgid "Open configuration folder"
+msgstr "打开配置文件夹"
+
+msgctxt "web.settings.openLogs"
+msgid "Open logs folder"
+msgstr "打开日志文件夹"
+
+msgctxt "web.settings.openCache"
+msgid "Open verified cache"
+msgstr "打开已验证的缓存"
+
+msgctxt "web.settings.exitBlocked"
+msgid "Cancel or finish the active operation before exiting PixelFlasher."
+msgstr "退出 PixelFlasher 前，请取消或完成当前操作。"

@@ -434,7 +434,7 @@ describe('apps, backups and settings workflows', () => {
   it('exposes bounded appearance and accessibility controls', async () => {
     const user = userEvent.setup();
     const callbacks = {
-      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(),
+      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(), application: vi.fn(),
     };
     const { rerender } = page(
       <SettingsPage
@@ -445,6 +445,7 @@ describe('apps, backups and settings workflows', () => {
         zoom={80} onZoomChange={callbacks.zoom}
         expertMode={false} onExpertModeChange={callbacks.expert}
         preferences={demoSnapshot.preferences} onMaintenancePreferenceChange={callbacks.maintenance}
+        onApplicationCommand={callbacks.application}
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Light' }));
@@ -459,6 +460,10 @@ describe('apps, backups and settings workflows', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });
     await user.click(screen.getByRole('button', { name: 'Zoom out' }));
     await user.click(screen.getByRole('button', { name: 'Reset zoom' }));
+    await user.click(screen.getByRole('button', { name: 'Open configuration folder' }));
+    await user.click(screen.getByRole('button', { name: 'Open logs folder' }));
+    await user.click(screen.getByRole('button', { name: 'Open verified cache' }));
+    await user.click(screen.getByRole('button', { name: 'Exit PixelFlasher' }));
     expect(callbacks.theme).toHaveBeenCalledWith('light');
     expect(callbacks.locale).toHaveBeenCalledWith('zh_TW');
     expect(callbacks.contrast).toHaveBeenCalledWith(true);
@@ -470,6 +475,10 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.maintenance).toHaveBeenCalledWith('rebootTimeoutSeconds', 180);
     expect(callbacks.zoom).toHaveBeenCalledWith(80);
     expect(callbacks.zoom).toHaveBeenCalledWith(100);
+    expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'configuration');
+    expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'logs');
+    expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'cache');
+    expect(callbacks.application).toHaveBeenCalledWith('exit');
 
     rerender(<I18nProvider locale="en"><SettingsPage
       theme="light" onThemeChange={callbacks.theme}
@@ -479,6 +488,7 @@ describe('apps, backups and settings workflows', () => {
       zoom={200} onZoomChange={callbacks.zoom}
       expertMode onExpertModeChange={callbacks.expert}
       preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
+      onApplicationCommand={callbacks.application}
     /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
     await user.click(screen.getByRole('checkbox', { name: /Low-memory processing/ }));

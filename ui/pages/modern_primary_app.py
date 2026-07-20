@@ -50,6 +50,7 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
             runtime.engine,
             command_factory=create_command_factory(runtime.engine.snapshot),
             support_destination_registrar=runtime.register_support_destination,
+            application_directories=_application_directories_for_config(config_path),
             index_path=index_path,
         )
         # Keep lifecycle owners reachable for the duration of the native loop.
@@ -82,6 +83,27 @@ def _config_path_from_argv(argv: tuple[str, ...]) -> Path:
             if value:
                 return Path(value).expanduser().resolve()
     return Path(user_data_dir(APPNAME, appauthor=False, roaming=True)) / CONFIG_FILE_NAME
+
+
+def _application_directories_for_config(config_path: Path) -> dict[str, Path]:
+    """Create only backend-owned shell folders and keep their paths out of React."""
+
+    root = config_path.expanduser().absolute().parent
+    directories = {
+        "configuration": root,
+        "logs": root / "logs",
+        "cache": root / f".{config_path.name}.cache",
+    }
+    for directory in directories.values():
+        if directory.exists():
+            continue
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # Startup remains available. The host returns a typed unavailable
+            # result if the user later asks to open this directory.
+            pass
+    return directories
 
 
 __all__ = ["launch_modern_primary"]

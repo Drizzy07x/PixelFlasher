@@ -17,6 +17,7 @@ export function SettingsPage({
   onExpertModeChange,
   preferences,
   onMaintenancePreferenceChange,
+  onApplicationCommand,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -34,6 +35,10 @@ export function SettingsPage({
   onMaintenancePreferenceChange: (
     field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize',
     value: boolean | number | string,
+  ) => void;
+  onApplicationCommand: (
+    action: 'openFolder' | 'exit',
+    target?: 'configuration' | 'logs' | 'cache',
   ) => void;
 }) {
   const { t } = useI18n();
@@ -161,6 +166,16 @@ export function SettingsPage({
             <li><kbd>Ctrl</kbd><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd><span>{t('settings.shortcutZoom')}</span></li>
             <li><kbd>Tab</kbd><kbd>Enter</kbd><span>{t('settings.shortcutFocus')}</span></li>
           </ul>
+        </Card>
+        <Card className="settings-application-shell">
+          <CardTitle icon="folder">{t('settings.applicationFiles')}</CardTitle>
+          <p className="settings-card-detail">{t('settings.applicationFilesDetail')}</p>
+          <div className="settings-shell-actions">
+            <Button icon="settings" onClick={() => onApplicationCommand('openFolder', 'configuration')}>{t('settings.openConfiguration')}</Button>
+            <Button icon="logs" onClick={() => onApplicationCommand('openFolder', 'logs')}>{t('settings.openLogs')}</Button>
+            <Button icon="folder" onClick={() => onApplicationCommand('openFolder', 'cache')}>{t('settings.openCache')}</Button>
+            <Button variant="danger" icon="close" onClick={() => onApplicationCommand('exit')}>{t('settings.exitApplication')}</Button>
+          </div>
         </Card>
       </div>
     </>

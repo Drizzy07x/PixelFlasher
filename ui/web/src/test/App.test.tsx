@@ -729,6 +729,9 @@ describe('PixelFlasher web workspace', () => {
     });
     const navigation = within(screen.getByRole('navigation', { name: 'Tasks' }));
     await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('button', { name: 'Open configuration folder' }));
+    await waitFor(() => expect(requests.some((request) => request.command === 'app.openFolder' && request.payload.target === 'configuration')).toBe(true));
+    expect(requests.find((request) => request.command === 'app.openFolder')?.payload).toEqual({ target: 'configuration' });
     await user.click(screen.getByRole('checkbox', { name: /Custom monospace font/ }));
     await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.customizeFont === true)).toBe(true));
     await user.selectOptions(screen.getByLabelText('Monospace font'), 'Consolas');
@@ -740,6 +743,27 @@ describe('PixelFlasher web workspace', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });
     await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.rebootTimeoutSeconds === 180)).toBe(true));
     expect(window.localStorage.length).toBe(0);
+  });
+
+  it('surfaces a native close veto without opening a classic dialog', async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    installPreferencesHost(hostPreferences);
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Modern UI' });
+
+    window.dispatchEvent(new CustomEvent('pixelflasher:message', {
+      detail: {
+        version: 2,
+        event: 'runtime',
+        revision: 7,
+        payload: {
+          status: 'exitBlocked',
+          message: 'Cancel or finish the active operation before exiting PixelFlasher.',
+        },
+      },
+    }));
+
+    expect(await screen.findByText('Cancel or finish the active operation before exiting PixelFlasher.')).toBeVisible();
   });
 
   it('does not apply or announce a failed host preference update as success', async () => {

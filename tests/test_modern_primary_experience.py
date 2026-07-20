@@ -1,8 +1,10 @@
 import ast
+import tempfile
 import unittest
 from pathlib import Path
 
 from ui.bridge_contract import ALLOWED_COMMANDS, BRIDGE_CHANNEL, BRIDGE_VERSION
+from ui.pages.modern_primary_app import _application_directories_for_config
 
 ROOT = Path(__file__).resolve().parents[1]
 PIXELFLASHER_SOURCE = ROOT / "PixelFlasher.py"
@@ -19,6 +21,18 @@ DESKTOP_SPECS = (
 
 
 class ModernPrimaryExperienceTests(unittest.TestCase):
+    def test_shell_directories_are_derived_from_config_without_browser_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "PixelFlasher.json"
+            targets = _application_directories_for_config(config)
+            self.assertEqual(
+                {"configuration", "logs", "cache"},
+                set(targets),
+            )
+            self.assertEqual(Path(directory), targets["configuration"])
+            self.assertTrue(targets["logs"].is_dir())
+            self.assertTrue(targets["cache"].is_dir())
+
     @classmethod
     def setUpClass(cls):
         cls.entry_source = PIXELFLASHER_SOURCE.read_text(encoding="utf-8")

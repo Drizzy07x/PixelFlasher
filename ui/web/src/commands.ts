@@ -4,6 +4,8 @@
 export const bridgeVersion = 2 as const;
 
 export const commands = {
+  appExit: "app.exit",
+  appOpenFolder: "app.openFolder",
   appReady: "app.ready",
   appsAction: "apps.action",
   appsList: "apps.list",
@@ -93,6 +95,10 @@ export const commands = {
 export type BridgeCommand = (typeof commands)[keyof typeof commands];
 
 export interface BridgePayloadByCommand {
+  "app.exit": Record<string, never>;
+  "app.openFolder": {
+    "target": string;
+  };
   "app.ready": Record<string, never>;
   "apps.action": {
     "action": string;
@@ -494,6 +500,8 @@ export type BridgeCommandRequest = {
 }[BridgeCommand];
 
 export const allowedCommands = [
+  commands.appExit,
+  commands.appOpenFolder,
   commands.appReady,
   commands.appsAction,
   commands.appsList,
@@ -587,6 +595,8 @@ export const revisionOptionalCommands = new Set<BridgeCommand>([
 ]);
 
 export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
+  [commands.appExit]: 60000,
+  [commands.appOpenFolder]: 60000,
   [commands.appReady]: 60000,
   [commands.appsAction]: 1200000,
   [commands.appsList]: 300000,
@@ -674,6 +684,8 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
 };
 
 export const bridgeCommandMetadata = {
+  [commands.appExit]: {"owner":"application","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.exit","confirmation":"none","postconditions":["window_close_requested"]},
+  [commands.appOpenFolder]: {"owner":"application","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.open_folder","confirmation":"none","postconditions":["backend_owned_directory_open_requested"]},
   [commands.appReady]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"native_host.lifecycle","confirmation":"none","postconditions":["snapshot_emitted"]},
   [commands.appsAction]: {"owner":"applications","mutability":"mutating","risk":"device_write","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"apps.action","confirmation":"standard","postconditions":["package_state_verified"]},
   [commands.appsList]: {"owner":"applications","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb","recovery","sideload"],"planner":"apps.inventory","confirmation":"none","postconditions":["packages_returned"]},
@@ -792,6 +804,8 @@ export const bridgePayloadSchemas: Readonly<Record<
   BridgeCommand,
   Readonly<Record<string, GeneratedPayloadField>>
 >> = {
+  [commands.appExit]: {},
+  [commands.appOpenFolder]: {"target":{"kind":"string","required":true}},
   [commands.appReady]: {},
   [commands.appsAction]: {"action":{"kind":"string","required":true},"grant":{"kind":"string","required":false},"options":{"kind":"object","required":false},"package":{"kind":"string","required":false},"packages":{"kind":"string_array","required":false},"scope":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.appsList]: {"scope":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},

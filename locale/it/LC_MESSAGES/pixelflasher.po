@@ -6511,3 +6511,33 @@ msgstr "Dimensione del carattere monospaziato"
 msgctxt "web.settings.fontSizeDetail"
 msgid "Scale monospace workspaces from 6 to 50 points."
 msgstr "Ridimensiona le aree di lavoro monospaziate da 6 a 50 punti."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.applicationFiles"
+msgid "Application folders and lifecycle"
+msgstr "Cartelle e ciclo di vita dell’applicazione"
+
+msgctxt "web.settings.applicationFilesDetail"
+msgid ""
+"Open backend-owned folders without exposing their paths to the WebView."
+msgstr ""
+"Apre le cartelle gestite dal backend senza esporne i percorsi alla WebView."
+
+msgctxt "web.settings.openConfiguration"
+msgid "Open configuration folder"
+msgstr "Apri cartella di configurazione"
+
+msgctxt "web.settings.openLogs"
+msgid "Open logs folder"
+msgstr "Apri cartella dei log"
+
+msgctxt "web.settings.openCache"
+msgid "Open verified cache"
+msgstr "Apri cache verificata"
+
+msgctxt "web.settings.exitBlocked"
+msgid "Cancel or finish the active operation before exiting PixelFlasher."
+msgstr "Annulla o completa l’operazione attiva prima di uscire da PixelFlasher."

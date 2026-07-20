@@ -27,6 +27,7 @@ JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 ResultProjector = Callable[[object], JSONValue | None]
 _STRICT_STRUCTURED_RESULTS = frozenset(
     {
+        "app.openFolder",
         "apps.action",
         "device.openUrl",
         "device.inspect",
@@ -3567,6 +3568,14 @@ def _project_native_grant(value: object) -> JSONValue:
     return None
 
 
+def _project_application_folder(value: object) -> JSONValue:
+    source = _closed_record(value, fields=frozenset({"target"}))
+    target = source.get("target")
+    if target not in {"configuration", "logs", "cache"}:
+        raise PublicProjectionError("application folder target is invalid")
+    return {"target": cast(str, target)}
+
+
 def _public_grant(value: object) -> dict[str, JSONValue]:
     source = _record(value)
     raw_expiry = source.get("expiresInSeconds")
@@ -3586,6 +3595,8 @@ def _public_grant(value: object) -> dict[str, JSONValue]:
 # a projector is deliberate; adding a registry command without choosing one is
 # an import-time error in CI and production.
 PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
+    "app.exit": _project_none,
+    "app.openFolder": _project_application_folder,
     "app.ready": _project_none,
     "apps.action": _project_apps_action,
     "apps.list": _project_apps_list,

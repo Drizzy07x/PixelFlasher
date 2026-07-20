@@ -471,6 +471,18 @@ export function installDevelopmentBridge() {
         }
 
         switch (request.command) {
+          case 'app.openFolder': {
+            const target = request.payload.target;
+            if (!['configuration', 'logs', 'cache'].includes(String(target))) {
+              emit(errorMessage('The requested application folder is unavailable.', request));
+              return;
+            }
+            respond(request, { status: 'SUCCESS', code: 'application_directory_opened', message: 'Application folder opened.', target });
+            return;
+          }
+          case 'app.exit':
+            respond(request, { status: 'SUCCESS', code: 'exit_requested', message: 'PixelFlasher is closing.' });
+            return;
           case 'snapshot.get':
             respond(request, structuredClone(snapshot) as unknown as Record<string, unknown>);
             publishSnapshot();

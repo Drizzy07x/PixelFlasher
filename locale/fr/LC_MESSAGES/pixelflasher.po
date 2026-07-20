@@ -6509,3 +6509,33 @@ msgstr "Taille de la police à chasse fixe"
 msgctxt "web.settings.fontSizeDetail"
 msgid "Scale monospace workspaces from 6 to 50 points."
 msgstr "Ajuste les espaces de travail à chasse fixe de 6 à 50 points."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.applicationFiles"
+msgid "Application folders and lifecycle"
+msgstr "Dossiers et cycle de vie de l’application"
+
+msgctxt "web.settings.applicationFilesDetail"
+msgid ""
+"Open backend-owned folders without exposing their paths to the WebView."
+msgstr ""
+"Ouvrez les dossiers gérés par le backend sans exposer leurs chemins au WebView."
+
+msgctxt "web.settings.openConfiguration"
+msgid "Open configuration folder"
+msgstr "Ouvrir le dossier de configuration"
+
+msgctxt "web.settings.openLogs"
+msgid "Open logs folder"
+msgstr "Ouvrir le dossier des journaux"
+
+msgctxt "web.settings.openCache"
+msgid "Open verified cache"
+msgstr "Ouvrir le cache vérifié"
+
+msgctxt "web.settings.exitBlocked"
+msgid "Cancel or finish the active operation before exiting PixelFlasher."
+msgstr "Annulez ou terminez l’opération active avant de quitter PixelFlasher."

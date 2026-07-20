@@ -40,6 +40,24 @@ def _request(command, payload=None, revision=1):
 
 
 class CommandRegistryTests(unittest.TestCase):
+    def test_application_shell_commands_are_closed_and_host_owned(self):
+        open_folder = COMMAND_REGISTRY["app.openFolder"]
+        exit_app = COMMAND_REGISTRY["app.exit"]
+        self.assertEqual(CommandOwner.APPLICATION, open_folder.owner)
+        self.assertEqual({"target"}, set(open_folder.payload.fields))
+        self.assertTrue(open_folder.payload.fields["target"].required)
+        self.assertEqual({}, dict(exit_app.payload.fields))
+        self.assertEqual("native_host.open_folder", open_folder.planner)
+        self.assertEqual("native_host.exit", exit_app.planner)
+        BridgeRequest.from_json(
+            _request("app.openFolder", {"target": "configuration"})
+        )
+        BridgeRequest.from_json(_request("app.exit"))
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest.from_json(_request("app.openFolder", {"path": "C:/secret"}))
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest.from_json(_request("app.openFolder", {"target": "C:/secret"}))
+
     def test_root_recovery_commands_are_closed_and_live(self):
         shizuku = COMMAND_REGISTRY["tools.shizuku"]
         sos = COMMAND_REGISTRY["tools.sos"]

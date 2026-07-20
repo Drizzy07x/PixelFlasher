@@ -395,6 +395,14 @@ function PixelFlasherApp({
       });
     };
     const unsubscribe = bridge.subscribe((event) => {
+      if (event.event === 'runtime' && event.payload.status === 'exitBlocked') {
+        setNotice({
+          tone: 'warning',
+          message: typeof event.payload.message === 'string'
+            ? event.payload.message
+            : t('settings.exitBlocked'),
+        });
+      }
       const nextSnapshot = snapshotFromEvent(event);
       if (nextSnapshot) {
         // A completion snapshot is delivered after the final progress event
@@ -712,6 +720,16 @@ function PixelFlasherApp({
     }
   }, [reportError, snapshot.revision]);
 
+  const runApplicationCommand = useCallback((
+    action: 'openFolder' | 'exit',
+    target?: 'configuration' | 'logs' | 'cache',
+  ) => {
+    void runCommand(
+      action === 'openFolder' ? commands.appOpenFolder : commands.appExit,
+      action === 'openFolder' && target ? { target } : {},
+    );
+  }, [runCommand]);
+
   const cancelUnsafeLogcat = useCallback((operationId: string) => runCommand(
     commands.operationCancel,
     { operationId },
@@ -924,6 +942,7 @@ function PixelFlasherApp({
           onExpertModeChange={changeExpertMode}
           preferences={applicationPreferences}
           onMaintenancePreferenceChange={changeMaintenancePreference}
+          onApplicationCommand={runApplicationCommand}
         />
       );
     }

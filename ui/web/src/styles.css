@@ -4008,6 +4008,25 @@ code {
   line-height: 1.4;
 }
 
+.settings-application-shell {
+  grid-column: 1 / -1;
+}
+
+.settings-card-detail {
+  margin: 0;
+  padding: 0.85rem 1rem 0;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+.settings-shell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem 1rem;
+}
+
 .empty-state {
   display: flex;
   min-height: 12rem;

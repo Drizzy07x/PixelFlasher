@@ -227,6 +227,13 @@ def _validate_payload_values(
     payload: Mapping[str, Any],
     request_id: str,
 ) -> None:
+    if command == "app.openFolder" and payload.get("target") not in {
+        "configuration",
+        "logs",
+        "cache",
+    }:
+        _payload_error("app.openFolder target is invalid", request_id)
+
     if "grant" in payload:
         _require_grant(payload["grant"], "grant", request_id)
     if "grants" in payload:
