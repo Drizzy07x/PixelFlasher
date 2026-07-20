@@ -194,6 +194,7 @@ class CommandRegistryTests(unittest.TestCase):
                 "unsupported",
             ),
             ("settings.update", {"zoom": True}, "integer"),
+            ("settings.update", {"toolbarShowTheme": "yes"}, "boolean"),
             (
                 "tools.wifi",
                 {"action": "connect", "host": "192.0.2.20", "port": "37123"},
