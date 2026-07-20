@@ -4027,6 +4027,25 @@ code {
   padding: 0.85rem 1rem 1rem;
 }
 
+.settings-console {
+  grid-column: 1 / -1;
+}
+
+.settings-console-output {
+  min-height: 8rem;
+  max-height: 18rem;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: var(--font-mono-size, 0.875rem);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .empty-state {
   display: flex;
   min-height: 12rem;

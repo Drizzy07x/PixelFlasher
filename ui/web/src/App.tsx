@@ -34,6 +34,21 @@ type ReinforcedChallenge = {
   requiredText: string;
 };
 
+const MAX_APPLICATION_CONSOLE_LINES = 200;
+
+function consoleLineFromEvent(event: { event: string; payload: Record<string, unknown> }): string | null {
+  if (event.event !== 'progress' && event.event !== 'runtime') return null;
+  const message = typeof event.payload.message === 'string' ? event.payload.message.trim() : '';
+  if (!message || message.length > 480 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(message)) return null;
+  const status = typeof event.payload.status === 'string'
+    ? event.payload.status.toUpperCase()
+    : event.event.toUpperCase();
+  const percent = typeof event.payload.percent === 'number' && Number.isInteger(event.payload.percent)
+    ? ` ${Math.max(0, Math.min(100, event.payload.percent))}%`
+    : '';
+  return `[${status}${percent}] ${message}`;
+}
+
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -234,6 +249,7 @@ function PixelFlasherApp({
   const [zoom, setZoom] = useState(initialPreferences.zoom);
   const [applicationPreferences, setApplicationPreferences] = useState(initialPreferences);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [applicationConsoleLines, setApplicationConsoleLines] = useState<readonly string[]>([]);
   const [logcatUiState, setLogcatUiState] = useState<LogcatUiState>(initialLogcatUiState);
   const [logcatProgressBatch, setLogcatProgressBatch] = useState<readonly ActiveOperation[]>([]);
   const [pushUiState, setPushUiState] = useState<PushUiState>(initialPushUiState);
@@ -395,6 +411,13 @@ function PixelFlasherApp({
       });
     };
     const unsubscribe = bridge.subscribe((event) => {
+      const consoleLine = consoleLineFromEvent(event);
+      if (consoleLine) {
+        setApplicationConsoleLines((current) => [
+          ...current.slice(-(MAX_APPLICATION_CONSOLE_LINES - 1)),
+          consoleLine,
+        ]);
+      }
       if (event.event === 'runtime' && event.payload.status === 'exitBlocked') {
         setNotice({
           tone: 'warning',
@@ -730,6 +753,27 @@ function PixelFlasherApp({
     );
   }, [runCommand]);
 
+  const clearApplicationConsole = useCallback(() => {
+    setApplicationConsoleLines([]);
+  }, []);
+
+  const exportApplicationConsole = useCallback(async () => {
+    if (!applicationConsoleLines.length) return;
+    const picker = await runCommand(
+      commands.nativeSaveFile,
+      {
+        purpose: 'app.console.export',
+        title: t('settings.consoleExportTitle'),
+        defaultName: 'PixelFlasher-console.txt',
+        filters: [{ label: t('settings.textFiles'), extensions: ['txt'] }],
+      },
+      { returnCancelled: true, suppressNotice: true },
+    );
+    const grant = objectValue(objectValue(picker?.result).data).grant;
+    if (typeof grant !== 'string' || !grant) return;
+    await runCommand(commands.appConsoleExport, { grant, lines: [...applicationConsoleLines] });
+  }, [applicationConsoleLines, runCommand, t]);
+
   const cancelUnsafeLogcat = useCallback((operationId: string) => runCommand(
     commands.operationCancel,
     { operationId },
@@ -943,6 +987,9 @@ function PixelFlasherApp({
           preferences={applicationPreferences}
           onMaintenancePreferenceChange={changeMaintenancePreference}
           onApplicationCommand={runApplicationCommand}
+          applicationConsoleLines={applicationConsoleLines}
+          onApplicationConsoleClear={clearApplicationConsole}
+          onApplicationConsoleExport={exportApplicationConsole}
         />
       );
     }

@@ -766,6 +766,47 @@ describe('PixelFlasher web workspace', () => {
     expect(await screen.findByText('Cancel or finish the active operation before exiting PixelFlasher.')).toBeVisible();
   });
 
+  it('keeps a bounded public console and exports it only through a native grant', async () => {
+    const user = userEvent.setup();
+    const postMessage = vi.spyOn(developmentBridge!, 'postMessage');
+    render(<App />);
+    const navigation = within(await screen.findByRole('navigation', { name: 'Tasks' }));
+
+    window.dispatchEvent(new CustomEvent('pixelflasher:message', {
+      detail: {
+        version: 2,
+        event: 'progress',
+        revision: 7,
+        payload: {
+          operation_id: 'console-operation',
+          phase: 'running',
+          status: 'running',
+          percent: 50,
+          message: 'Processing firmware.',
+        },
+      },
+    }));
+
+    await user.click(navigation.getByRole('button', { name: 'Settings' }));
+    expect(await screen.findByText('[RUNNING 50%] Processing firmware.')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Export redacted console' }));
+    await waitFor(() => {
+      const requests = postMessage.mock.calls.map(([raw]) => JSON.parse(raw) as BridgeRequest);
+      expect(requests.find((request) => request.command === 'native.saveFile')?.payload).toEqual({
+        purpose: 'app.console.export',
+        title: 'Export PixelFlasher console',
+        defaultName: 'PixelFlasher-console.txt',
+        filters: [{ label: 'Text files', extensions: ['txt'] }],
+      });
+      expect(requests.find((request) => request.command === 'app.console.export')?.payload).toEqual({
+        grant: 'w'.repeat(64),
+        lines: ['[RUNNING 50%] Processing firmware.'],
+      });
+    });
+    await user.click(screen.getByRole('button', { name: 'Clear console' }));
+    expect(await screen.findByText('No operation messages yet.')).toBeVisible();
+  });
+
   it('does not apply or announce a failed host preference update as success', async () => {
     const user = userEvent.setup();
     await new Promise((resolve) => window.setTimeout(resolve, 80));

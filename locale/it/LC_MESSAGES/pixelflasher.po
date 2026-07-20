@@ -6541,3 +6541,36 @@ msgstr "Apri cache verificata"
 msgctxt "web.settings.exitBlocked"
 msgid "Cancel or finish the active operation before exiting PixelFlasher."
 msgstr "Annulla o completa l’operazione attiva prima di uscire da PixelFlasher."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.console"
+msgid "Application console"
+msgstr "Console dell’applicazione"
+
+msgctxt "web.settings.consoleDetail"
+msgid ""
+"Shows a bounded, redacted record of operation progress for this session."
+msgstr "Mostra un registro limitato e redatto dell’avanzamento delle operazioni di questa sessione."
+
+msgctxt "web.settings.consoleEmpty"
+msgid "No operation messages yet."
+msgstr "Nessun messaggio operativo."
+
+msgctxt "web.settings.consoleClear"
+msgid "Clear console"
+msgstr "Cancella console"
+
+msgctxt "web.settings.consoleExport"
+msgid "Export redacted console"
+msgstr "Esporta console redatta"
+
+msgctxt "web.settings.consoleExportTitle"
+msgid "Export PixelFlasher console"
+msgstr "Esporta console PixelFlasher"
+
+msgctxt "web.settings.textFiles"
+msgid "Text files"
+msgstr "File di testo"

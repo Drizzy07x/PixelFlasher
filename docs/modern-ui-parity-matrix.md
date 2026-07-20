@@ -200,7 +200,7 @@ becomes implicit success.
 | Backups | Raw-backup inventory/results are persistent and route-free; complete the distinct Magisk list/import/delete behavior. |
 | Root and integrity | `/data/adb` backup/restore/clear, PIF/TargetedFix, PI analysis, Shizuku and SOS. |
 | Developer/personal tools | Production signed keybox revocation evidence, packaged validation of the native AVB downgrade, bounded binary-XML and local keybox flows, and arbitrary My Tools commands. |
-| Application shell | About/help, remaining 9.x/expert preferences, toolbar customization, update/link actions and console controls. Backend-owned Configuration, Logs and Cache folders plus safe revisioned exit are implemented without exposing paths or opening classic dialogs. |
+| Application shell | About/help, remaining 9.x/expert preferences, toolbar customization and update/link actions. Backend-owned Configuration, Logs and Cache folders, safe revisioned exit and a bounded redacted console with clear plus atomic one-use-grant export are implemented without exposing paths or opening classic dialogs. |
 
 The JSON inventory maps each individual menu/context-menu and primary-control
 handler into one of these capability groups, including selection-only actions

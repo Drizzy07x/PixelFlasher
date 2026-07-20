@@ -6537,3 +6537,36 @@ msgstr "打开已验证的缓存"
 msgctxt "web.settings.exitBlocked"
 msgid "Cancel or finish the active operation before exiting PixelFlasher."
 msgstr "退出 PixelFlasher 前，请取消或完成当前操作。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.console"
+msgid "Application console"
+msgstr "应用程序控制台"
+
+msgctxt "web.settings.consoleDetail"
+msgid ""
+"Shows a bounded, redacted record of operation progress for this session."
+msgstr "显示本次会话中经过脱敏且数量受限的操作进度记录。"
+
+msgctxt "web.settings.consoleEmpty"
+msgid "No operation messages yet."
+msgstr "尚无操作消息。"
+
+msgctxt "web.settings.consoleClear"
+msgid "Clear console"
+msgstr "清空控制台"
+
+msgctxt "web.settings.consoleExport"
+msgid "Export redacted console"
+msgstr "导出脱敏控制台"
+
+msgctxt "web.settings.consoleExportTitle"
+msgid "Export PixelFlasher console"
+msgstr "导出 PixelFlasher 控制台"
+
+msgctxt "web.settings.textFiles"
+msgid "Text files"
+msgstr "文本文件"

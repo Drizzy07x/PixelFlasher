@@ -434,7 +434,7 @@ describe('apps, backups and settings workflows', () => {
   it('exposes bounded appearance and accessibility controls', async () => {
     const user = userEvent.setup();
     const callbacks = {
-      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(), application: vi.fn(),
+      theme: vi.fn(), locale: vi.fn(), contrast: vi.fn(), motion: vi.fn(), zoom: vi.fn(), expert: vi.fn(), maintenance: vi.fn(), application: vi.fn(), consoleClear: vi.fn(), consoleExport: vi.fn(),
     };
     const { rerender } = page(
       <SettingsPage
@@ -446,6 +446,9 @@ describe('apps, backups and settings workflows', () => {
         expertMode={false} onExpertModeChange={callbacks.expert}
         preferences={demoSnapshot.preferences} onMaintenancePreferenceChange={callbacks.maintenance}
         onApplicationCommand={callbacks.application}
+        applicationConsoleLines={['[PROGRESS 50%] Processing firmware.']}
+        onApplicationConsoleClear={callbacks.consoleClear}
+        onApplicationConsoleExport={callbacks.consoleExport}
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Light' }));
@@ -464,6 +467,8 @@ describe('apps, backups and settings workflows', () => {
     await user.click(screen.getByRole('button', { name: 'Open logs folder' }));
     await user.click(screen.getByRole('button', { name: 'Open verified cache' }));
     await user.click(screen.getByRole('button', { name: 'Exit PixelFlasher' }));
+    await user.click(screen.getByRole('button', { name: 'Clear console' }));
+    await user.click(screen.getByRole('button', { name: 'Export redacted console' }));
     expect(callbacks.theme).toHaveBeenCalledWith('light');
     expect(callbacks.locale).toHaveBeenCalledWith('zh_TW');
     expect(callbacks.contrast).toHaveBeenCalledWith(true);
@@ -479,6 +484,8 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'logs');
     expect(callbacks.application).toHaveBeenCalledWith('openFolder', 'cache');
     expect(callbacks.application).toHaveBeenCalledWith('exit');
+    expect(callbacks.consoleClear).toHaveBeenCalledOnce();
+    expect(callbacks.consoleExport).toHaveBeenCalledOnce();
 
     rerender(<I18nProvider locale="en"><SettingsPage
       theme="light" onThemeChange={callbacks.theme}
@@ -489,6 +496,9 @@ describe('apps, backups and settings workflows', () => {
       expertMode onExpertModeChange={callbacks.expert}
       preferences={{ ...demoSnapshot.preferences, expertMode: true, rebootTimeoutSeconds: 200 }} onMaintenancePreferenceChange={callbacks.maintenance}
       onApplicationCommand={callbacks.application}
+      applicationConsoleLines={[]}
+      onApplicationConsoleClear={callbacks.consoleClear}
+      onApplicationConsoleExport={callbacks.consoleExport}
     /></I18nProvider>);
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
     await user.click(screen.getByRole('checkbox', { name: /Low-memory processing/ }));

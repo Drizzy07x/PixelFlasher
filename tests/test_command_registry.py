@@ -41,9 +41,12 @@ def _request(command, payload=None, revision=1):
 
 class CommandRegistryTests(unittest.TestCase):
     def test_application_shell_commands_are_closed_and_host_owned(self):
+        console_export = COMMAND_REGISTRY["app.console.export"]
         open_folder = COMMAND_REGISTRY["app.openFolder"]
         exit_app = COMMAND_REGISTRY["app.exit"]
         self.assertEqual(CommandOwner.APPLICATION, open_folder.owner)
+        self.assertEqual({"grant", "lines"}, set(console_export.payload.fields))
+        self.assertEqual("native_host.console_export", console_export.planner)
         self.assertEqual({"target"}, set(open_folder.payload.fields))
         self.assertTrue(open_folder.payload.fields["target"].required)
         self.assertEqual({}, dict(exit_app.payload.fields))
@@ -53,10 +56,23 @@ class CommandRegistryTests(unittest.TestCase):
             _request("app.openFolder", {"target": "configuration"})
         )
         BridgeRequest.from_json(_request("app.exit"))
+        BridgeRequest.from_json(
+            _request(
+                "app.console.export",
+                {"grant": "g" * 64, "lines": ["[PROGRESS] Ready."]},
+            )
+        )
         with self.assertRaises(BridgeProtocolError):
             BridgeRequest.from_json(_request("app.openFolder", {"path": "C:/secret"}))
         with self.assertRaises(BridgeProtocolError):
             BridgeRequest.from_json(_request("app.openFolder", {"target": "C:/secret"}))
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest.from_json(
+                _request(
+                    "app.console.export",
+                    {"grant": "g" * 64, "lines": ["x" * 513]},
+                )
+            )
 
     def test_root_recovery_commands_are_closed_and_live(self):
         shizuku = COMMAND_REGISTRY["tools.shizuku"]

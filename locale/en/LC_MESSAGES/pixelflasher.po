@@ -6495,3 +6495,36 @@ msgstr ""
 msgctxt "web.settings.exitBlocked"
 msgid "Cancel or finish the active operation before exiting PixelFlasher."
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.console"
+msgid "Application console"
+msgstr ""
+
+msgctxt "web.settings.consoleDetail"
+msgid ""
+"Shows a bounded, redacted record of operation progress for this session."
+msgstr ""
+
+msgctxt "web.settings.consoleEmpty"
+msgid "No operation messages yet."
+msgstr ""
+
+msgctxt "web.settings.consoleClear"
+msgid "Clear console"
+msgstr ""
+
+msgctxt "web.settings.consoleExport"
+msgid "Export redacted console"
+msgstr ""
+
+msgctxt "web.settings.consoleExportTitle"
+msgid "Export PixelFlasher console"
+msgstr ""
+
+msgctxt "web.settings.textFiles"
+msgid "Text files"
+msgstr ""

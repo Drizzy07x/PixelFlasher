@@ -12,6 +12,7 @@ from pixelflasher_core import (
     AppCommand,
     AppSnapshot,
     CommandAck,
+    GrantAccess,
     InteractionKind,
     InteractionRequest,
     OperationFinished,
@@ -21,6 +22,7 @@ from pixelflasher_core import (
     SnapshotChanged,
 )
 from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest
+from ui.core_command_factory import create_command_factory
 from ui.pages.modern_webview_host import (
     ModernWebViewFrame,
     ReplayAction,
@@ -133,6 +135,65 @@ class ModernWebViewHostContractTests(unittest.TestCase):
                     value={"target": "logs", "path": "C:/secret"},
                 ),
             )
+
+    def test_application_console_export_is_bounded_atomic_and_route_free(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "console.txt"
+            factory = create_command_factory(lambda: AppSnapshot(revision=3))
+            grant = factory.path_grants.issue_file(
+                destination,
+                purpose="app.console.export",
+                access=GrantAccess.WRITE,
+            )
+            responses: list[dict] = []
+            host = SimpleNamespace(
+                _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+                _command_factory=factory,
+                _complete_request=lambda _request, message: responses.append(message),
+            )
+
+            ModernWebViewFrame._handle_application_request(
+                host,
+                request(
+                    "console-export",
+                    command="app.console.export",
+                    payload={
+                        "grant": grant.token,
+                        "lines": ["[PROGRESS 50%] Processing firmware."],
+                    },
+                ),
+            )
+
+            self.assertEqual(
+                "[PROGRESS 50%] Processing firmware.\n",
+                destination.read_text(encoding="utf-8"),
+            )
+            self.assertTrue(responses[0]["ok"])
+            self.assertEqual("console_exported", responses[0]["result"]["code"])
+            self.assertNotIn(str(destination), json.dumps(responses[0]))
+
+    def test_application_console_export_rejects_a_host_route_before_consuming_grant(self):
+        factory = create_command_factory(lambda: AppSnapshot(revision=3))
+        responses: list[dict] = []
+        host = SimpleNamespace(
+            _engine=SimpleNamespace(snapshot=lambda: AppSnapshot(revision=3)),
+            _command_factory=factory,
+            _complete_request=lambda _request, message: responses.append(message),
+        )
+
+        ModernWebViewFrame._handle_application_request(
+            host,
+            request(
+                "unsafe-console-export",
+                command="app.console.export",
+                payload={
+                    "grant": "g" * 64,
+                    "lines": ["Opened C:/Users/Alice/private.txt"],
+                },
+            ),
+        )
+
+        self.assertEqual("console_export_not_redacted", responses[0]["error"]["code"])
 
     def test_application_folder_and_exit_fail_closed_on_stale_or_active_state(self):
         responses: list[dict] = []

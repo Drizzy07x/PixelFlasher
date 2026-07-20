@@ -234,6 +234,19 @@ def _validate_payload_values(
     }:
         _payload_error("app.openFolder target is invalid", request_id)
 
+    if command == "app.console.export":
+        lines = payload.get("lines")
+        if not isinstance(lines, list) or any(
+            not isinstance(line, str)
+            or not line
+            or len(line) > 512
+            or not line.isprintable()
+            for line in lines
+        ):
+            _payload_error("app.console.export lines are invalid", request_id)
+        if sum(len(line.encode("utf-8")) + 1 for line in lines) > 65_536:
+            _payload_error("app.console.export payload is too large", request_id)
+
     if "grant" in payload:
         _require_grant(payload["grant"], "grant", request_id)
     if "grants" in payload:

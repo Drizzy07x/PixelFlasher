@@ -309,6 +309,23 @@ _LIVE: _LiveArguments = {"implemented": True, "exposed": True}
 
 _COMMAND_SPECS = (
     _command(
+        "app.console.export",
+        "appConsoleExport",
+        _payload(
+            ("grant", PayloadKind.STRING, True),
+            ("lines", PayloadKind.STRING_ARRAY, True, 1, 200),
+        ),
+        owner=CommandOwner.APPLICATION,
+        **_LIVE,
+        mutability=CommandMutability.MUTATING,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.HOST_WRITE,
+        valid_device_states=ANY_DEVICE_STATE,
+        target_scope=TargetScope.APPLICATION,
+        planner="native_host.console_export",
+        postconditions=("bounded_redacted_console_exported",),
+    ),
+    _command(
         "app.openFolder",
         "appOpenFolder",
         _payload(("target", PayloadKind.STRING, True)),

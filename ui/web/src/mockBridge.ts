@@ -471,6 +471,9 @@ export function installDevelopmentBridge() {
         }
 
         switch (request.command) {
+          case 'app.console.export':
+            respond(request, { status: 'SUCCESS', code: 'console_exported', message: 'Redacted console exported.' });
+            return;
           case 'app.openFolder': {
             const target = request.payload.target;
             if (!['configuration', 'logs', 'cache'].includes(String(target))) {

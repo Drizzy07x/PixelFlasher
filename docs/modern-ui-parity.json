@@ -2500,7 +2500,7 @@
         "ui/pages/modern_webview_host.py:_handle_application_request/_on_close",
         "ui/pages/modern_primary_app.py:_application_directories_for_config"
       ],
-      "gap": "Backend-owned Configuration, Logs and Cache folders plus safe application exit are native, revisioned and route-free. Native close is vetoed while work is active without a classic dialog. Toolbar customization and bounded redacted console clear/export remain absent; packaged lifecycle smokes remain open.",
+      "gap": "Backend-owned Configuration, Logs and Cache folders, safe application exit and a 200-line public console with clear plus atomic one-use-grant export are native, revisioned and route-free. Native close is vetoed while work is active without a classic dialog. Toolbar customization and packaged lifecycle smokes remain open.",
       "exitCriteria": [
         "Toolbar layout, language selection, folders, console controls and exit are available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2517,7 +2517,8 @@
         "ui/web/src/test/App.test.tsx:supports keyboard task navigation and interface zoom",
         "ui/web/src/test/App.test.tsx:surfaces a native close veto without opening a classic dialog",
         "ui/web/src/test/pages.behavior.test.tsx:application folder and exit controls",
-        "tests/test_modern_webview_host_contract.py:backend-owned folder and lifecycle contracts"
+        "tests/test_modern_webview_host_contract.py:backend-owned folder, lifecycle and atomic console export contracts",
+        "ui/web/src/test/App.test.tsx:bounded console clear and native-grant export"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -2529,6 +2530,7 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
+        "app.console.export",
         "app.openFolder",
         "app.exit",
         "device.manager.policy",

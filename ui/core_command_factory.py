@@ -185,6 +185,13 @@ _NATIVE_GRANT_SPECS = (
     ),
     NativeGrantSpec(
         "native.saveFile",
+        "app.console.export",
+        "app.console.export",
+        GrantTarget.FILE,
+        GrantAccess.WRITE,
+    ),
+    NativeGrantSpec(
+        "native.saveFile",
         "apps.export.destination",
         "apps.action",
         GrantTarget.FILE,
@@ -340,6 +347,23 @@ class CoreCommandFactory:
         if spec.multiple:
             return {"grants": public, "purpose": spec.purpose}
         return public[0]
+
+    def resolve_application_console_export(self, token: object) -> BoundWriteFile:
+        """Consume the one-use destination selected for the public console."""
+
+        if not isinstance(token, str):
+            raise CommandFactoryError(
+                "grant_required",
+                "A native console export destination is required.",
+            )
+        spec = _SPECS_BY_PURPOSE["app.console.export"]
+        try:
+            return self.path_grants.resolve_bound_write_file(
+                token,
+                purpose=spec.purpose,
+            )
+        except GrantError as exc:
+            raise CommandFactoryError(exc.code, str(exc)) from exc
 
     def validate_secret_issue_request(self, request: BridgeRequest) -> str:
         request.validate()

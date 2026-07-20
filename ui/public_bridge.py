@@ -3595,6 +3595,7 @@ def _public_grant(value: object) -> dict[str, JSONValue]:
 # a projector is deliberate; adding a registry command without choosing one is
 # an import-time error in CI and production.
 PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
+    "app.console.export": _project_none,
     "app.exit": _project_none,
     "app.openFolder": _project_application_folder,
     "app.ready": _project_none,

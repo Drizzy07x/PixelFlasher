@@ -806,7 +806,7 @@ class ModernWebViewFrame(wx.Frame):
         if request.command == "secret.issue":
             self._handle_secret_issue(request)
             return
-        if request.command in {"app.openFolder", "app.exit"}:
+        if request.command in {"app.console.export", "app.openFolder", "app.exit"}:
             self._handle_application_request(request)
             return
         if request.command.startswith("native."):
@@ -1096,6 +1096,92 @@ class ModernWebViewFrame(wx.Frame):
                         "code": "revision_conflict",
                         "message": "Application state changed before the shell action.",
                     },
+                ),
+            )
+            return
+
+        if request.command == "app.console.export":
+            lines = request.payload.get("lines")
+            if not isinstance(lines, list):
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=False,
+                        error={
+                            "code": "console_export_invalid",
+                            "message": "The console export is invalid.",
+                        },
+                    ),
+                )
+                return
+            safe_lines = [
+                safe_public_message(line, fallback="Operation update.")
+                for line in lines
+            ]
+            if safe_lines != lines:
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=False,
+                        error={
+                            "code": "console_export_not_redacted",
+                            "message": "The console export contains unsafe content.",
+                        },
+                    ),
+                )
+                return
+            try:
+                destination = self._command_factory.resolve_application_console_export(
+                    request.payload.get("grant")
+                )
+                if not destination.name.casefold().endswith(".txt"):
+                    raise CommandFactoryError(
+                        "console_export_extension_invalid",
+                        "The console export must use the .txt extension.",
+                    )
+                payload = ("\n".join(safe_lines) + "\n").encode("utf-8")
+                with destination.begin_atomic_replace() as transaction:
+                    transaction.stream.write(payload)
+                    transaction.stream.flush()
+                    os.fsync(transaction.stream.fileno())
+                    transaction.commit()
+                    with transaction.open_committed() as committed:
+                        if committed.read() != payload:
+                            raise OSError("committed console export differs from payload")
+            except CommandFactoryError as exc:
+                code = exc.code
+                message = safe_public_message(
+                    str(exc),
+                    fallback="The console export could not be written.",
+                )
+            except Exception:
+                code = "console_export_failed"
+                message = "The console export could not be written."
+            else:
+                self._complete_request(
+                    request,
+                    response_envelope(
+                        request.request_id,
+                        ok=True,
+                        result={
+                            "status": "SUCCESS",
+                            "code": "console_exported",
+                            "message": "Redacted console exported.",
+                            "lineCount": len(safe_lines),
+                            "byteCount": len(payload),
+                            "revision": snapshot.revision,
+                        },
+                    ),
+                )
+                return
+            self._complete_request(
+                request,
+                response_envelope(
+                    request.request_id,
+                    ok=False,
+                    error={"code": code, "message": message},
                 ),
             )
             return

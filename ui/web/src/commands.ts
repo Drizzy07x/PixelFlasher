@@ -4,6 +4,7 @@
 export const bridgeVersion = 2 as const;
 
 export const commands = {
+  appConsoleExport: "app.console.export",
   appExit: "app.exit",
   appOpenFolder: "app.openFolder",
   appReady: "app.ready",
@@ -95,6 +96,10 @@ export const commands = {
 export type BridgeCommand = (typeof commands)[keyof typeof commands];
 
 export interface BridgePayloadByCommand {
+  "app.console.export": {
+    "grant": string;
+    "lines": string[];
+  };
   "app.exit": Record<string, never>;
   "app.openFolder": {
     "target": string;
@@ -500,6 +505,7 @@ export type BridgeCommandRequest = {
 }[BridgeCommand];
 
 export const allowedCommands = [
+  commands.appConsoleExport,
   commands.appExit,
   commands.appOpenFolder,
   commands.appReady,
@@ -595,6 +601,7 @@ export const revisionOptionalCommands = new Set<BridgeCommand>([
 ]);
 
 export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
+  [commands.appConsoleExport]: 60000,
   [commands.appExit]: 60000,
   [commands.appOpenFolder]: 60000,
   [commands.appReady]: 60000,
@@ -684,6 +691,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
 };
 
 export const bridgeCommandMetadata = {
+  [commands.appConsoleExport]: {"owner":"application","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.console_export","confirmation":"none","postconditions":["bounded_redacted_console_exported"]},
   [commands.appExit]: {"owner":"application","mutability":"mutating","risk":"none","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.exit","confirmation":"none","postconditions":["window_close_requested"]},
   [commands.appOpenFolder]: {"owner":"application","mutability":"read_only","risk":"host_read","expectedRevision":"required","validDeviceStates":["*"],"planner":"native_host.open_folder","confirmation":"none","postconditions":["backend_owned_directory_open_requested"]},
   [commands.appReady]: {"owner":"application","mutability":"read_only","risk":"none","expectedRevision":"optional","validDeviceStates":["*"],"planner":"native_host.lifecycle","confirmation":"none","postconditions":["snapshot_emitted"]},
@@ -804,6 +812,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   BridgeCommand,
   Readonly<Record<string, GeneratedPayloadField>>
 >> = {
+  [commands.appConsoleExport]: {"grant":{"kind":"string","required":true},"lines":{"kind":"string_array","required":true,"minItems":1,"maxItems":200}},
   [commands.appExit]: {},
   [commands.appOpenFolder]: {"target":{"kind":"string","required":true}},
   [commands.appReady]: {},

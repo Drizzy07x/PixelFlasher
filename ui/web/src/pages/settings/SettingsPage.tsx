@@ -18,6 +18,9 @@ export function SettingsPage({
   preferences,
   onMaintenancePreferenceChange,
   onApplicationCommand,
+  applicationConsoleLines,
+  onApplicationConsoleClear,
+  onApplicationConsoleExport,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -40,6 +43,9 @@ export function SettingsPage({
     action: 'openFolder' | 'exit',
     target?: 'configuration' | 'logs' | 'cache',
   ) => void;
+  applicationConsoleLines: readonly string[];
+  onApplicationConsoleClear: () => void;
+  onApplicationConsoleExport: () => void;
 }) {
   const { t } = useI18n();
   const standardFontFaces = ['Courier', 'Cascadia Code', 'Consolas', 'SFMono-Regular', 'Menlo', 'Monaco', 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono'];
@@ -175,6 +181,19 @@ export function SettingsPage({
             <Button icon="logs" onClick={() => onApplicationCommand('openFolder', 'logs')}>{t('settings.openLogs')}</Button>
             <Button icon="folder" onClick={() => onApplicationCommand('openFolder', 'cache')}>{t('settings.openCache')}</Button>
             <Button variant="danger" icon="close" onClick={() => onApplicationCommand('exit')}>{t('settings.exitApplication')}</Button>
+          </div>
+        </Card>
+        <Card className="settings-console">
+          <CardTitle icon="logs">{t('settings.console')}</CardTitle>
+          <p className="settings-card-detail">{t('settings.consoleDetail')}</p>
+          <div className="settings-console-output" role="log" aria-live="polite" aria-label={t('settings.console')}>
+            {applicationConsoleLines.length
+              ? applicationConsoleLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)
+              : <span>{t('settings.consoleEmpty')}</span>}
+          </div>
+          <div className="settings-shell-actions">
+            <Button icon="close" disabled={!applicationConsoleLines.length} onClick={onApplicationConsoleClear}>{t('settings.consoleClear')}</Button>
+            <Button icon="backup" disabled={!applicationConsoleLines.length} onClick={onApplicationConsoleExport}>{t('settings.consoleExport')}</Button>
           </div>
         </Card>
       </div>
