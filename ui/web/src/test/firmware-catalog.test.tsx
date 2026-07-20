@@ -52,6 +52,19 @@ describe('official firmware catalog', () => {
         'factory_flash_script',
         'factory_image_archive',
       ],
+      trust: {
+        status: 'manifest_verified',
+        packageSignature: 'not_applicable',
+        sourceAuthentication: 'signed_manifest',
+        code: 'firmware_manifest_verified',
+        signerSha256: [],
+        confirmationRequired: false,
+        evidence: [
+          'archive_sha256_bound',
+          'signed_catalog_manifest',
+          'manifest_size_and_sha256_matched',
+        ],
+      },
     };
     const onCommand: SharedPageProps['onCommand'] = vi.fn(async (command) => ({
       result: command === 'firmware.catalog.refresh'
@@ -72,6 +85,7 @@ describe('official firmware catalog', () => {
     expect(onCommand).toHaveBeenCalledWith('firmware.download', { artifactId });
     expect(await screen.findByRole('list', { name: 'Firmware verification' })).toBeVisible();
     expect(screen.getByText('5 checks passed')).toBeVisible();
+    expect(screen.getByText('Official signed manifest')).toBeVisible();
   });
 
   it('fails closed for an open catalog DTO', async () => {

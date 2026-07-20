@@ -41,6 +41,7 @@ from pixelflasher_core.executor import CommandExecutor
 from pixelflasher_core.firmware import FirmwareInspector
 from pixelflasher_core.firmware_artifacts import FirmwareArtifactService
 from pixelflasher_core.firmware_catalog import FirmwareCatalogService
+from pixelflasher_core.firmware_signatures import FirmwarePackageSignatureVerifier
 from pixelflasher_core.keybox_validation import KeyboxValidationService
 from pixelflasher_core.module_updates import RootModuleUpdateService
 from pixelflasher_core.my_tools import MyToolsRepository, MyToolsService
@@ -55,7 +56,11 @@ from pixelflasher_core.packages import PackageService
 from pixelflasher_core.partitions import PartitionService
 from pixelflasher_core.planner import OperationPlanner
 from pixelflasher_core.platform_tools_setup import PlatformToolsSetupService
-from pixelflasher_core.repositories import FirmwareRepository
+from pixelflasher_core.repositories import (
+    ArtifactRepository,
+    FirmwareRepository,
+    RepositoryError,
+)
 from pixelflasher_core.root_app_catalog import RootAppCatalogService
 from pixelflasher_core.rooting import RootApkInspector, RootingService
 from pixelflasher_core.safety import SafetyPolicy
@@ -85,6 +90,7 @@ def make_test_command_engine(
     toolchain_state_updater: ToolchainStateUpdater | None = None,
     device_service: DeviceService | None = None,
     firmware_inspector: FirmwareInspector | None = None,
+    firmware_signature_verifier: FirmwarePackageSignatureVerifier | None = None,
     operation_planner: OperationPlanner | None = None,
     package_service: PackageService | None = None,
     partition_service: PartitionService | None = None,
@@ -142,7 +148,41 @@ def make_test_command_engine(
         / "scrcpy",
     )
     firmware_inspector = firmware_inspector or FirmwareInspector()
+    firmware_signature_verifier = (
+        firmware_signature_verifier or FirmwarePackageSignatureVerifier()
+    )
     operation_planner = operation_planner or OperationPlanner()
+    owned_firmware_repository_root: Path | None = None
+    owned_firmware_artifact_repository: ArtifactRepository | None = None
+    seeded_firmware = store.snapshot().firmware
+    if (
+        firmware_repository is None
+        and seeded_firmware.verified
+        and seeded_firmware.path
+        and seeded_firmware.hash
+        and Path(seeded_firmware.path).is_file()
+    ):
+        owned_firmware_repository_root = Path(
+            tempfile.mkdtemp(prefix="pixelflasher-firmware-repository-tests-")
+        )
+        owned_firmware_artifact_repository = ArtifactRepository(
+            owned_firmware_repository_root
+        )
+        firmware_repository = FirmwareRepository(owned_firmware_artifact_repository)
+        try:
+            firmware_repository.import_selection(
+                seeded_firmware.path,
+                firmware_type=seeded_firmware.type,
+                build=seeded_firmware.build,
+                expected_sha256=seeded_firmware.hash,
+                package_signature="user_confirmed",
+            )
+        except (OSError, RepositoryError, TypeError, ValueError):
+            owned_firmware_artifact_repository.close()
+            shutil.rmtree(owned_firmware_repository_root, ignore_errors=True)
+            owned_firmware_repository_root = None
+            owned_firmware_artifact_repository = None
+            firmware_repository = None
     if firmware_artifact_service is None:
         cache_root = (
             Path(firmware_artifact_cache_root)
@@ -229,6 +269,7 @@ def make_test_command_engine(
         scrcpy_setup_service=scrcpy_setup_service,
         device_service=device_service,
         firmware_inspector=firmware_inspector,
+        firmware_signature_verifier=firmware_signature_verifier,
         operation_planner=operation_planner,
         package_service=package_service,
         partition_service=partition_service,
@@ -269,4 +310,22 @@ def make_test_command_engine(
         weakref.finalize(engine, shutil.rmtree, owned_my_tools_root, True)
     if owned_module_update_root is not None:
         weakref.finalize(engine, shutil.rmtree, owned_module_update_root, True)
+    if (
+        owned_firmware_repository_root is not None
+        and owned_firmware_artifact_repository is not None
+    ):
+        weakref.finalize(
+            engine,
+            _cleanup_firmware_repository,
+            owned_firmware_artifact_repository,
+            owned_firmware_repository_root,
+        )
     return engine
+
+
+def _cleanup_firmware_repository(
+    repository: ArtifactRepository,
+    root: Path,
+) -> None:
+    repository.close()
+    shutil.rmtree(root, ignore_errors=True)

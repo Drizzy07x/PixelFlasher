@@ -524,11 +524,13 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/firmware.py:FirmwareInspector",
+        "pixelflasher_core/firmware_signatures.py:FirmwarePackageSignatureVerifier",
+        "pixelflasher_core/cms_verification.py:verify_detached_cms_stream",
         "pixelflasher_core/engine.py:_inspect_and_promote_firmware",
         "ui/public_bridge.py:_project_firmware_inspection",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
-      "gap": "Factory/full-OTA identification, official and user-supplied provenance, closed verification diagnostics and transactional selection are delivered. Cryptographic package-signature policy, manual retry UX and packaged cross-platform smokes remain open.",
+      "gap": "Factory/full-OTA identification, official and user-supplied provenance, streaming Android whole-file OTA signature verification, signed-manifest authentication, hash-bound one-use confirmation for unrecognized packages, closed trust diagnostics and transactional selection are delivered. Manual retry UX, production signer roots and packaged cross-platform smokes remain open.",
       "exitCriteria": [
         "Select and identify a factory or full OTA package is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -544,6 +546,8 @@
       "tests": [
         "tests/test_headless_services.py:FirmwareInspectorTests/EngineServiceIntegrationTests",
         "tests/test_firmware_catalog.py",
+        "tests/test_firmware_signatures.py",
+        "tests/test_firmware_trust_engine.py",
         "tests/test_firmware_engine_integration.py:test_revision_change_after_import_rolls_back_new_firmware_object",
         "ui/web/src/test/firmware-catalog.test.tsx"
       ],

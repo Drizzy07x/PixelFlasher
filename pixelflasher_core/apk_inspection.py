@@ -30,6 +30,12 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import TYPE_CHECKING, BinaryIO, Final, Protocol
 
+from .cms_verification import (
+    CmsVerificationCode,
+    CmsVerificationError,
+    verify_detached_cms,
+)
+
 if TYPE_CHECKING:
     from cryptography import x509
     from cryptography.hazmat.primitives.hashes import HashAlgorithm
@@ -2000,6 +2006,26 @@ _CMS_ECDSA_OIDS: Final[Mapping[str, str]] = MappingProxyType(
 
 
 def _verify_cms_signature(cms: bytes, content: bytes) -> tuple[str, ...]:
+    try:
+        return verify_detached_cms(cms, content)
+    except CmsVerificationError as error:
+        code = {
+            CmsVerificationCode.STRUCTURE_INVALID: ApkInspectionCode.SIGNATURE_BLOCK_INVALID,
+            CmsVerificationCode.SIGNATURE_UNSUPPORTED: ApkInspectionCode.SIGNATURE_UNSUPPORTED,
+            CmsVerificationCode.SIGNATURE_INVALID: ApkInspectionCode.SIGNATURE_INVALID,
+            CmsVerificationCode.CONTENT_DIGEST_MISMATCH: ApkInspectionCode.CONTENT_DIGEST_MISMATCH,
+            CmsVerificationCode.CRYPTOGRAPHY_UNAVAILABLE: ApkInspectionCode.CRYPTOGRAPHY_UNAVAILABLE,
+            CmsVerificationCode.CANCELLED: ApkInspectionCode.INSPECTION_FAILED,
+        }[error.code]
+        raise _ParseFailure(code, str(error)) from error
+
+
+def _legacy_verify_cms_signature(  # pyright: ignore[reportUnusedFunction]
+    cms: bytes,
+    content: bytes,
+) -> tuple[str, ...]:
+    """Previous local implementation retained until the shared verifier soak completes."""
+
     try:
         from cryptography.hazmat.primitives.serialization import pkcs7
     except ImportError as error:

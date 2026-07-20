@@ -76,6 +76,7 @@ from .firmware_catalog import (
     FirmwareCatalogService,
     FirmwareManifestCatalog,
 )
+from .firmware_signatures import FirmwarePackageSignatureVerifier
 from .interaction import InteractionBroker
 from .keybox_validation import KeyboxValidationService
 from .module_updates import RootModuleUpdateService
@@ -385,6 +386,7 @@ class ApplicationRuntime:
             scrcpy_setup_service=self.scrcpy_setup_service,
             device_service=self.device_service,
             firmware_inspector=FirmwareInspector(),
+            firmware_signature_verifier=FirmwarePackageSignatureVerifier(),
             operation_planner=operation_planner,
             package_service=PackageService(apk_inspector=apk_inspector),
             partition_service=PartitionService(),
@@ -1881,15 +1883,13 @@ class ApplicationRuntime:
             if (
                 existing is not None
                 and existing.metadata.get("firmwareType") == firmware.type
-                and existing.metadata.get("firmwareBuild") == firmware.build
+                and str(existing.metadata.get("firmwareBuild", "")).casefold()
+                == firmware.build.casefold()
             ):
                 return existing
-            return self.firmware_repository.import_selection(
-                firmware.path,
-                firmware_type=firmware.type,
-                build=firmware.build,
-                expected_sha256=firmware.hash,
-            )
+            # A legacy/config-only selection has no modern package trust
+            # receipt.  Do not silently mint one while persisting state.
+            return None
         except (OSError, RepositoryError, TypeError, ValueError):
             return None
 

@@ -6995,3 +6995,30 @@ msgid ""
 "Publishes a verified boot.tar beside the patched image for compatible "
 "Samsung workflows."
 msgstr "Publie un boot.tar vérifié à côté de l’image corrigée pour les flux Samsung compatibles."
+msgctxt "web.firmware.trust"
+msgid "Package trust"
+msgstr "Confiance du paquet"
+
+msgctxt "web.firmware.trust.manifest_verified"
+msgid "Official signed manifest"
+msgstr "Manifeste officiel signé"
+
+msgctxt "web.firmware.trust.package_verified"
+msgid "Trusted OTA signer"
+msgstr "Signataire OTA approuvé"
+
+msgctxt "web.firmware.trust.user_confirmed"
+msgid "Confirmed for this SHA-256"
+msgstr "Confirmé pour ce SHA-256"
+
+msgctxt "web.firmware.signature.verified"
+msgid "OTA signature verified"
+msgstr "Signature OTA vérifiée"
+
+msgctxt "web.firmware.signature.unsigned"
+msgid "No OTA signature"
+msgstr "Aucune signature OTA"
+
+msgctxt "web.firmware.signature.not_applicable"
+msgid "Catalog or package confirmation"
+msgstr "Confirmation du catalogue ou du paquet"

@@ -844,6 +844,67 @@ def _project_device_scan(value: object) -> JSONValue:
     )
 
 
+def _project_firmware_trust(value: object) -> dict[str, JSONValue]:
+    source = _closed_record(
+        value,
+        fields=frozenset(
+            {
+                "status",
+                "packageSignature",
+                "sourceAuthentication",
+                "code",
+                "signerSha256",
+                "confirmationRequired",
+                "evidence",
+            }
+        ),
+    )
+    if source["status"] not in {"manifest_verified", "package_verified", "user_confirmed"}:
+        raise PublicProjectionError("firmware trust status is invalid")
+    if source["packageSignature"] not in {"verified", "unsigned", "not_applicable"}:
+        raise PublicProjectionError("firmware package signature status is invalid")
+    if source["sourceAuthentication"] not in {
+        "signed_manifest",
+        "trusted_package_signer",
+        "user_confirmation",
+    }:
+        raise PublicProjectionError("firmware source authentication is invalid")
+    code = source["code"]
+    if not isinstance(code, str) or not re.fullmatch(r"[a-z0-9_]+", code):
+        raise PublicProjectionError("firmware trust code is invalid")
+    if source["confirmationRequired"] is not False:
+        raise PublicProjectionError("accepted firmware cannot require confirmation")
+    signers = _closed_bounded_strings(
+        source["signerSha256"],
+        maximum_items=32,
+        maximum_item_utf8_bytes=64,
+        maximum_utf8_bytes=2_048,
+    )
+    if any(_LOWERCASE_SHA256.fullmatch(item) is None for item in signers):
+        raise PublicProjectionError("firmware signer identity is invalid")
+    evidence = _closed_bounded_strings(
+        source["evidence"],
+        maximum_items=8,
+        maximum_item_utf8_bytes=64,
+        maximum_utf8_bytes=512,
+    )
+    allowed = {
+        "archive_sha256_bound",
+        "signed_catalog_manifest",
+        "manifest_size_and_sha256_matched",
+        "ota_whole_file_signature",
+        "trusted_signer_matched",
+        "one_time_hash_bound_confirmation",
+        "ota_whole_file_signature_verified",
+    }
+    if not evidence or any(item not in allowed for item in evidence):
+        raise PublicProjectionError("firmware trust evidence is invalid")
+    return cast(
+        dict[str, JSONValue],
+        ensure_public_json({**source, "signerSha256": signers, "evidence": evidence}),
+    )
+
+
 def _project_firmware_inspection(value: object) -> dict[str, JSONValue]:
     source = _closed_record(
         value,
@@ -860,6 +921,7 @@ def _project_firmware_inspection(value: object) -> dict[str, JSONValue]:
                 "expectedDevices",
                 "compatibility",
                 "evidence",
+                "trust",
             }
         ),
     )
@@ -914,7 +976,15 @@ def _project_firmware_inspection(value: object) -> dict[str, JSONValue]:
         raise PublicProjectionError("firmware inspection evidence is invalid")
     return cast(
         dict[str, JSONValue],
-        ensure_public_json({**source, "detectedDevices": detected, "expectedDevices": expected, "evidence": evidence}),
+        ensure_public_json(
+            {
+                **source,
+                "detectedDevices": detected,
+                "expectedDevices": expected,
+                "evidence": evidence,
+                "trust": _project_firmware_trust(source["trust"]),
+            }
+        ),
     )
 
 

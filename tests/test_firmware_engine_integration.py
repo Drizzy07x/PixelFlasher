@@ -156,6 +156,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
         planner = OperationPlanner()
         service = FirmwareArtifactService(planner.artifact_repository, cache)
         engine = CommandEngine(
+            interaction_handler=lambda _request: True,
             store=AppStateStore(snapshot or selected_snapshot()),
             operation_planner=planner,
             firmware_artifact_service=service,
@@ -216,6 +217,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             repository = ArtifactRepository(root / "repository")
             firmware_repository = FirmwareRepository(repository)
             engine = CommandEngine(
+                interaction_handler=lambda _request: True,
                 store=AppStateStore(selected_snapshot()),
                 operation_planner=planner,
                 firmware_artifact_service=FirmwareArtifactService(
@@ -288,6 +290,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             firmware_repository = FirmwareRepository(repository)
             store = AppStateStore(selected_snapshot())
             engine = CommandEngine(
+                interaction_handler=lambda _request: True,
                 store=store,
                 operation_planner=planner,
                 firmware_artifact_service=FirmwareArtifactService(
@@ -449,7 +452,10 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                     ]
                 )
             )
-            runtime = ApplicationRuntime.open(config)
+            runtime = ApplicationRuntime.open(
+                config,
+                interaction_handler=lambda _request: True,
+            )
             try:
                 selected = runtime.execute(
                     AppCommand(
@@ -570,6 +576,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 root / "cancel-cache",
             )
             cancel_engine = CommandEngine(
+                interaction_handler=lambda _request: True,
                 store=AppStateStore(cancel_snapshot),
                 operation_planner=planner,
                 firmware_artifact_service=blocking,
@@ -616,6 +623,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
             store = AppStateStore(original)
             engine = CommandEngine(
+                interaction_handler=lambda _request: True,
                 store=store,
                 operation_planner=planner,
                 firmware_artifact_service=service,
@@ -660,6 +668,13 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
             repository = ArtifactRepository(root / "repository")
             firmware_repository = FirmwareRepository(repository)
+            selection_record = firmware_repository.import_selection(
+                firmware,
+                firmware_type="factory",
+                build="42",
+                expected_sha256=selected.hash,
+                package_signature="user_confirmed",
+            )
             processed_repository = PersistentProcessedArtifactRepository(
                 firmware_repository,
             )
@@ -670,6 +685,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
             store = AppStateStore(selected_snapshot(selected))
             engine = CommandEngine(
+                interaction_handler=lambda _request: True,
                 store=store,
                 operation_planner=planner,
                 firmware_artifact_service=service,
@@ -693,15 +709,15 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
 
             self.assertFalse(worker.is_alive())
             self.assertEqual("firmware_selection_changed", results[0].code)
-            self.assertEqual((), firmware_repository.list())
-            self.assertEqual((), repository.list())
+            self.assertEqual((selection_record,), firmware_repository.list())
+            self.assertEqual((selection_record,), repository.list())
             self.assertEqual(
-                (),
-                tuple(
+                (selection_record.path,),
+                tuple(sorted(
                     path
                     for path in repository.objects_root.rglob("*")
                     if path.is_file()
-                ),
+                )),
             )
             self.assertEqual(
                 (),
@@ -808,7 +824,10 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             config = root / "PixelFlasher.json"
             factory = root / "factory.zip"
             write_factory(factory)
-            runtime = ApplicationRuntime.open(config)
+            runtime = ApplicationRuntime.open(
+                config,
+                interaction_handler=lambda _request: True,
+            )
             expected_cache = root / ".PixelFlasher.json.cache" / "firmware-artifacts"
 
             selected = runtime.execute(

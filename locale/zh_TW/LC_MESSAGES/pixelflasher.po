@@ -6984,3 +6984,30 @@ msgid ""
 "Publishes a verified boot.tar beside the patched image for compatible "
 "Samsung workflows."
 msgstr "在修補後的映像旁產生經過驗證的 boot.tar，用於相容的三星流程。"
+msgctxt "web.firmware.trust"
+msgid "Package trust"
+msgstr "軟體包信任"
+
+msgctxt "web.firmware.trust.manifest_verified"
+msgid "Official signed manifest"
+msgstr "官方簽署資訊清單"
+
+msgctxt "web.firmware.trust.package_verified"
+msgid "Trusted OTA signer"
+msgstr "受信任的 OTA 簽署者"
+
+msgctxt "web.firmware.trust.user_confirmed"
+msgid "Confirmed for this SHA-256"
+msgstr "已為此 SHA-256 確認"
+
+msgctxt "web.firmware.signature.verified"
+msgid "OTA signature verified"
+msgstr "OTA 簽章已驗證"
+
+msgctxt "web.firmware.signature.unsigned"
+msgid "No OTA signature"
+msgstr "無 OTA 簽章"
+
+msgctxt "web.firmware.signature.not_applicable"
+msgid "Catalog or package confirmation"
+msgstr "目錄或軟體包確認"

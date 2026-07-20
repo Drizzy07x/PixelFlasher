@@ -227,6 +227,12 @@ from .firmware_catalog import (
     MappingFirmwareManifestCatalog,
     UnavailableFirmwareManifestCatalog,
 )
+from .firmware_signatures import (
+    FirmwarePackageSignatureVerifier,
+    FirmwareTrustEvidence,
+    FirmwareTrustStatus,
+    PackageSignatureStatus,
+)
 from .grants import (
     BoundReadFile,
     BoundWriteFile,
@@ -646,6 +652,10 @@ __all__ = [
     "FirmwareInspection",
     "FirmwareInspector",
     "FirmwareKind",
+    "FirmwarePackageSignatureVerifier",
+    "FirmwareTrustEvidence",
+    "FirmwareTrustStatus",
+    "PackageSignatureStatus",
     "FLASHABLE_PARTITIONS",
     "FirmwareArtifactLimits",
     "FirmwareArtifactService",

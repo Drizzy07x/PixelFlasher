@@ -516,7 +516,7 @@ class FirmwareInspectorTests(unittest.TestCase):
 
             self.assertEqual(FirmwareKind.FACTORY, factory_result.kind)
             self.assertEqual("husky", factory_result.device)
-            self.assertEqual("ap4a.250", factory_result.build)
+            self.assertEqual("AP4A.250", factory_result.build)
             self.assertEqual(hashlib.sha256(factory.read_bytes()).hexdigest(), factory_result.sha256)
             self.assertEqual(FirmwareKind.OTA, ota_result.kind)
             self.assertEqual("123456", ota_result.build)
@@ -716,7 +716,10 @@ class EngineServiceIntegrationTests(unittest.TestCase):
                 selected_serial="A",
                 toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
             )
-            engine = CommandEngine(store=AppStateStore(initial))
+            engine = CommandEngine(
+                store=AppStateStore(initial),
+                interaction_handler=lambda _request: True,
+            )
 
             selected = engine.execute(
                 AppCommand("firmware.select", expected_revision=0, payload={"path": str(ota)})

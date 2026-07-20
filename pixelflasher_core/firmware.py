@@ -70,6 +70,7 @@ class FirmwareInspection:
         *,
         expected_devices: Sequence[str] = (),
         provenance: str,
+        trust: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         """Return bounded verification evidence without paths or raw metadata."""
 
@@ -106,6 +107,7 @@ class FirmwareInspection:
             "expectedDevices": list(expected),
             "compatibility": compatibility,
             "evidence": evidence,
+            "trust": dict(trust or {}),
         }
 
 
@@ -278,7 +280,12 @@ class FirmwareInspector:
         metadata = self._read_metadata(archive, metadata_info) if metadata_info else {}
 
         inner_image = next(
-            (name for name in basenames if name.startswith("image-") and name.endswith(".zip")),
+            (
+                PurePosixPath(info.filename.replace("\\", "/")).name
+                for info in infos
+                if PurePosixPath(info.filename.replace("\\", "/")).name.casefold().startswith("image-")
+                and PurePosixPath(info.filename.replace("\\", "/")).name.casefold().endswith(".zip")
+            ),
             "",
         )
         factory = bool(inner_image) and ("flash-all.sh" in basenames or "flash-all.bat" in basenames)

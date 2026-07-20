@@ -1295,6 +1295,8 @@ class FirmwareRepository:
         firmware_type: str,
         build: str,
         expected_sha256: str,
+        package_signature: str,
+        signer_sha256: Iterable[str] = (),
         provenance: ArtifactProvenance = ArtifactProvenance.USER_SUPPLIED,
         device_codenames: Iterable[str] = (),
         cancellation: CancellationProbe | None = None,
@@ -1316,6 +1318,22 @@ class FirmwareRepository:
         if not isinstance(provenance, ArtifactProvenance):
             raise TypeError("provenance must be ArtifactProvenance")
         digest = _validate_digest(expected_sha256)
+        normalized_signature = str(package_signature).strip().casefold()
+        if normalized_signature not in {
+            "manifest_verified",
+            "package_verified",
+            "user_confirmed",
+        }:
+            raise RepositoryError(
+                "firmware_signature_invalid",
+                "selected firmware must have accepted trust evidence",
+            )
+        signer_digests = tuple(
+            dict.fromkeys(
+                _validate_digest(str(value), field_name="signer_sha256")
+                for value in signer_sha256
+            )
+        )
         codenames = tuple(
             sorted(
                 {
@@ -1332,6 +1350,8 @@ class FirmwareRepository:
                 normalized_type,
                 normalized_build,
                 provenance.value,
+                normalized_signature,
+                *signer_digests,
                 *codenames,
             )
         )
@@ -1342,10 +1362,12 @@ class FirmwareRepository:
             provenance=provenance,
             expected_sha256=digest,
             device_codenames=codenames,
+            signature=";".join(signer_digests),
             metadata={
                 "recordType": FIRMWARE_SELECTION_RECORD_TYPE,
                 "firmwareBuild": normalized_build,
                 "firmwareType": normalized_type,
+                "packageSignature": normalized_signature,
             },
             artifact_id=artifact_id,
             cancellation=cancellation,

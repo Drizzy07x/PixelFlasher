@@ -49,6 +49,7 @@ from .boot_patch import (
     BootPatchService,
 )
 from .cancellation import CancellationReason, CancellationToken
+from .cms_verification import CmsVerificationCode, CmsVerificationError
 from .contracts import (
     AppCommand,
     AppEvent,
@@ -63,6 +64,7 @@ from .contracts import (
     FirmwareInfo,
     FlashPlan,
     InteractionDecision,
+    InteractionKind,
     InteractionRequest,
     InteractionResponse,
     OperationFinished,
@@ -98,6 +100,12 @@ from .firmware_artifacts import (
 from .firmware_catalog import (
     FirmwareCatalogService,
     FirmwareCatalogStatus,
+)
+from .firmware_signatures import (
+    FirmwarePackageSignatureVerifier,
+    FirmwareTrustEvidence,
+    FirmwareTrustStatus,
+    PackageSignatureStatus,
 )
 from .grants import BoundReadFile, GrantError
 from .interaction import InteractionTimeoutError
@@ -145,7 +153,7 @@ from .partitions import (
 from .planner import PLANNED_COMMANDS, OperationPlanner
 from .platform_tools import PlatformToolsStatus
 from .platform_tools_setup import PlatformToolsSetupService
-from .repositories import ArtifactProvenance, FirmwareRepository, RepositoryError
+from .repositories import ArtifactProvenance, ArtifactRecord, FirmwareRepository, RepositoryError
 from .root_app_catalog import (
     RootAppCatalogService,
     RootAppCatalogStatus,
@@ -262,6 +270,7 @@ class CommandEngine:
         scrcpy_setup_service: ScrcpySetupService,
         device_service: DeviceService,
         firmware_inspector: FirmwareInspector,
+        firmware_signature_verifier: FirmwarePackageSignatureVerifier,
         operation_planner: OperationPlanner,
         package_service: PackageService,
         partition_service: PartitionService,
@@ -325,6 +334,7 @@ class CommandEngine:
         self.device_scan_state_updater = device_scan_state_updater
         self.device_service = device_service
         self.firmware_inspector = firmware_inspector
+        self.firmware_signature_verifier = firmware_signature_verifier
         self.operation_planner = operation_planner
         self.firmware_artifact_service = firmware_artifact_service
         self.package_service = package_service
@@ -357,6 +367,7 @@ class CommandEngine:
         self._lifecycle_lock = threading.RLock()
         self._cancellation_lock = threading.RLock()
         self._cancellations: dict[str, CancellationToken] = {}
+        self._firmware_trust_receipts: dict[str, FirmwareTrustEvidence] = {}
         self._shutdown = False
 
     def execute(self, command: AppCommand) -> OperationResult:
@@ -3020,6 +3031,101 @@ class CommandEngine:
                 code="firmware_kind_mismatch",
                 message=f"selected package is {inspection.kind.value}, expected {expected_kind}",
             )
+        try:
+            trust = self.firmware_signature_verifier.verify(
+                inspection.path,
+                kind=inspection.kind,
+                official_manifest_verified=provenance is ArtifactProvenance.OFFICIAL,
+                cancellation=token,
+            )
+        except CmsVerificationError as error:
+            if error.code is CmsVerificationCode.CANCELLED or token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="firmware_cancelled",
+                    cancelled_message="firmware trust verification was cancelled",
+                    timeout_message="firmware trust verification timed out",
+                )
+            return OperationResult.failed(
+                command.operation_id,
+                code=error.code.value,
+                message="firmware package signature could not be verified",
+            )
+        if trust.status is FirmwareTrustStatus.REJECTED:
+            return OperationResult.failed(
+                command.operation_id,
+                code=trust.code,
+                message="firmware package signature is invalid",
+            )
+        if trust.confirmation_required:
+            challenge = f"TRUST FIRMWARE {inspection.sha256[:8].upper()}"
+            interaction = InteractionRequest(
+                operation_id=command.operation_id,
+                kind=InteractionKind.CONFIRM,
+                title="Confirm unrecognized firmware",
+                message=(
+                    "The package is not authenticated by the signed official catalog or a "
+                    f"trusted OTA signer. Type {challenge} to trust this exact SHA-256 once."
+                ),
+                expected_revision=snapshot.revision,
+                reinforced=True,
+                confirmation_nonce=challenge,
+                _timeout_seconds=token.remaining_seconds,
+            )
+            try:
+                response = self.interaction_handler(interaction)
+            except InteractionTimeoutError:
+                if token.reason is CancellationReason.DEADLINE:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_cancelled",
+                        cancelled_message="firmware trust confirmation expired",
+                        timeout_message="firmware trust confirmation timed out",
+                    )
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="interaction_timed_out",
+                    message="firmware trust confirmation timed out",
+                )
+            except Exception:
+                if token.cancelled:
+                    return self._stopped_result(
+                        command,
+                        token,
+                        cancelled_code="firmware_cancelled",
+                        cancelled_message="firmware trust confirmation was cancelled",
+                        timeout_message="firmware trust confirmation timed out",
+                    )
+                return OperationResult.failed(
+                    command.operation_id,
+                    code="interaction_error",
+                    message="firmware trust confirmation failed",
+                )
+            accepted = response is True or response is InteractionDecision.ACCEPTED
+            if not accepted:
+                return OperationResult.cancelled(
+                    command.operation_id,
+                    code="firmware_trust_not_confirmed",
+                    message="firmware package was not trusted",
+                )
+            if token.cancelled:
+                return self._stopped_result(
+                    command,
+                    token,
+                    cancelled_code="firmware_cancelled",
+                    cancelled_message="firmware selection was cancelled during confirmation",
+                    timeout_message="firmware trust confirmation timed out",
+                )
+            current = self.store.snapshot()
+            if current.revision != snapshot.revision:
+                return self._denied(
+                    command,
+                    "stale_revision",
+                    f"state revision changed: expected {snapshot.revision}, current {current.revision}",
+                )
+            trust = trust.confirmed()
         if self.firmware_repository is not None:
             try:
                 existing_artifact_ids = {item.artifact_id for item in self.firmware_repository.list()}
@@ -3028,6 +3134,8 @@ class CommandEngine:
                     firmware_type=inspection.kind.value,
                     build=inspection.build,
                     expected_sha256=inspection.sha256,
+                    package_signature=trust.status.value,
+                    signer_sha256=trust.signer_sha256,
                     device_codenames=(inspection.device,) if inspection.device else (),
                     provenance=provenance,
                     cancellation=token,
@@ -3090,6 +3198,7 @@ class CommandEngine:
                 imported_artifact_id,
                 imported_artifact_created,
             )
+        self._firmware_trust_receipts[inspection.sha256] = trust
         return replace(
             result,
             code="firmware_selected",
@@ -3099,6 +3208,7 @@ class CommandEngine:
                 "inspection": inspection.to_public_diagnostics(
                     expected_devices=expected_devices,
                     provenance=provenance.value,
+                    trust=trust.to_public_dict(),
                 ),
             },
         )
@@ -3617,7 +3727,6 @@ class CommandEngine:
                         "firmware_selection_changed",
                         "selected firmware changed before processing started",
                     )
-
                 try:
                     active_snapshot = self.store.begin_operation(
                         command.operation_id,
@@ -4003,6 +4112,9 @@ class CommandEngine:
             for device in selected_snapshot.devices
             if device.serial in selected_snapshot.selected_serials and device.codename
         )
+        trust = self._firmware_trust_for_snapshot(selected_snapshot)
+        if trust is None:
+            raise ValueError("firmware trust receipt is unavailable")
         return {
             "processing": {
                 "status": processing.status.value,
@@ -4010,6 +4122,7 @@ class CommandEngine:
                 "inspection": processing.inspection.to_public_diagnostics(
                     expected_devices=expected_devices,
                     provenance=provenance,
+                    trust=trust.to_public_dict(),
                 ),
                 "artifacts": [
                     {
@@ -4025,6 +4138,68 @@ class CommandEngine:
             "firmware": processing.firmware.to_dict(),
             "boot": stock_boot.to_dict() if stock_boot is not None else None,
         }
+
+    def _firmware_trust_for_snapshot(
+        self,
+        snapshot: AppSnapshot,
+    ) -> FirmwareTrustEvidence | None:
+        digest = snapshot.firmware.hash.casefold()
+        if not digest:
+            return None
+        in_memory = self._firmware_trust_receipts.get(digest)
+        if in_memory is not None and in_memory.accepted:
+            return in_memory
+        if self.firmware_repository is None:
+            return None
+        record = self.firmware_repository.resolve_selection(sha256=digest)
+        if record is None:
+            return None
+        return self._firmware_trust_from_record(record)
+
+    @staticmethod
+    def _firmware_trust_from_record(
+        record: ArtifactRecord,
+    ) -> FirmwareTrustEvidence | None:
+        raw_status = record.metadata.get("packageSignature")
+        try:
+            status = FirmwareTrustStatus(str(raw_status))
+        except ValueError:
+            return None
+        if status not in {
+            FirmwareTrustStatus.MANIFEST_VERIFIED,
+            FirmwareTrustStatus.PACKAGE_VERIFIED,
+            FirmwareTrustStatus.USER_CONFIRMED,
+        }:
+            return None
+        firmware_type = str(record.metadata.get("firmwareType", ""))
+        signer_sha256 = tuple(item for item in record.signature.split(";") if item)
+        package_signature = (
+            PackageSignatureStatus.VERIFIED
+            if signer_sha256
+            else PackageSignatureStatus.UNSIGNED
+            if firmware_type == "ota"
+            else PackageSignatureStatus.NOT_APPLICABLE
+        )
+        authentication = {
+            FirmwareTrustStatus.MANIFEST_VERIFIED: "signed_manifest",
+            FirmwareTrustStatus.PACKAGE_VERIFIED: "trusted_package_signer",
+            FirmwareTrustStatus.USER_CONFIRMED: "user_confirmation",
+        }[status]
+        code = {
+            FirmwareTrustStatus.MANIFEST_VERIFIED: "firmware_manifest_verified",
+            FirmwareTrustStatus.PACKAGE_VERIFIED: "firmware_package_signature_trusted",
+            FirmwareTrustStatus.USER_CONFIRMED: "firmware_trust_user_confirmed",
+        }[status]
+        try:
+            return FirmwareTrustEvidence(
+                status,
+                package_signature,
+                authentication,
+                code,
+                signer_sha256,
+            )
+        except ValueError:
+            return None
 
     def _stock_boot_from_processing(
         self,

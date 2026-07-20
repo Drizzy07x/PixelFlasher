@@ -608,6 +608,19 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 "factory_flash_script",
                 "factory_image_archive",
             ],
+            "trust": {
+                "status": "manifest_verified",
+                "packageSignature": "not_applicable",
+                "sourceAuthentication": "signed_manifest",
+                "code": "firmware_manifest_verified",
+                "signerSha256": [],
+                "confirmationRequired": False,
+                "evidence": [
+                    "archive_sha256_bound",
+                    "signed_catalog_manifest",
+                    "manifest_size_and_sha256_matched",
+                ],
+            },
         }
         download = {
             "artifact": entry,

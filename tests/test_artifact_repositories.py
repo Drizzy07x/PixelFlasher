@@ -89,12 +89,14 @@ class ArtifactRepositoryTests(unittest.TestCase):
                 firmware_type="factory",
                 build="AP4A.260705.001",
                 expected_sha256=digest,
+                package_signature="user_confirmed",
             )
             official = firmware.import_selection(
                 package,
                 firmware_type="factory",
                 build="AP4A.260705.001",
                 expected_sha256=digest,
+                package_signature="manifest_verified",
                 provenance=ArtifactProvenance.OFFICIAL,
             )
 

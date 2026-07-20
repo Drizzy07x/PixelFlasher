@@ -27,6 +27,17 @@ type FirmwareInspection = {
   expectedDevices: string[];
   compatibility: 'matched' | 'unverified' | 'not_checked';
   evidence: string[];
+  trust: FirmwareTrust;
+};
+
+type FirmwareTrust = {
+  status: 'manifest_verified' | 'package_verified' | 'user_confirmed';
+  packageSignature: 'verified' | 'unsigned' | 'not_applicable';
+  sourceAuthentication: 'signed_manifest' | 'trusted_package_signer' | 'user_confirmation';
+  code: string;
+  signerSha256: string[];
+  confirmationRequired: false;
+  evidence: string[];
 };
 
 const ARTIFACT_ID = /^[0-9a-f]{32}$/;
@@ -62,7 +73,7 @@ function inspectionDiagnostics(value: unknown): FirmwareInspection | null {
   const source = value as Record<string, unknown>;
   const fields = [
     'type', 'sha256', 'build', 'device', 'code', 'ok', 'provenance',
-    'detectedDevices', 'expectedDevices', 'compatibility', 'evidence',
+    'detectedDevices', 'expectedDevices', 'compatibility', 'evidence', 'trust',
   ];
   if (Object.keys(source).length !== fields.length || fields.some((field) => !(field in source))) return null;
   if (
@@ -77,7 +88,30 @@ function inspectionDiagnostics(value: unknown): FirmwareInspection | null {
     || !Array.isArray(source.expectedDevices) || source.expectedDevices.some((item) => typeof item !== 'string')
     || !Array.isArray(source.evidence) || !source.evidence.length || source.evidence.some((item) => typeof item !== 'string')
   ) return null;
+  const trust = trustDiagnostics(source.trust);
+  if (!trust) return null;
+  source.trust = trust;
   return source as FirmwareInspection;
+}
+
+function trustDiagnostics(value: unknown): FirmwareTrust | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const fields = [
+    'status', 'packageSignature', 'sourceAuthentication', 'code',
+    'signerSha256', 'confirmationRequired', 'evidence',
+  ];
+  if (Object.keys(source).length !== fields.length || fields.some((field) => !(field in source))) return null;
+  if (
+    !['manifest_verified', 'package_verified', 'user_confirmed'].includes(String(source.status))
+    || !['verified', 'unsigned', 'not_applicable'].includes(String(source.packageSignature))
+    || !['signed_manifest', 'trusted_package_signer', 'user_confirmation'].includes(String(source.sourceAuthentication))
+    || typeof source.code !== 'string' || !/^[a-z0-9_]+$/.test(source.code)
+    || !Array.isArray(source.signerSha256) || source.signerSha256.some((item) => typeof item !== 'string' || !SHA256.test(item))
+    || source.confirmationRequired !== false
+    || !Array.isArray(source.evidence) || !source.evidence.length || source.evidence.some((item) => typeof item !== 'string')
+  ) return null;
+  return source as FirmwareTrust;
 }
 
 function responseInspection(response: unknown, processed = false): FirmwareInspection | null {
@@ -260,8 +294,12 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
                 <span><small>{t('firmware.compatibility')}</small><strong>{t(`firmware.compatibility.${inspection.compatibility}`)}</strong></span>
                 <span><small>{t('firmware.detectedDevice')}</small><strong>{inspection.detectedDevices.join(', ') || t('common.none')}</strong></span>
                 <span><small>{t('firmware.provenance')}</small><strong>{inspection.provenance}</strong></span>
+                <span><small>{t('firmware.trust')}</small><strong>{t(`firmware.trust.${inspection.trust.status}`)}</strong></span>
                 <span><small>SHA-256</small><strong>{inspection.sha256.slice(0, 12)}…</strong></span>
-                <Badge tone={inspection.compatibility === 'matched' ? 'success' : 'warning'}>{t('firmware.evidenceCount', { count: inspection.evidence.length })}</Badge>
+                <span>
+                  <Badge tone="success">{t(`firmware.signature.${inspection.trust.packageSignature}`)}</Badge>
+                  <small>{t('firmware.evidenceCount', { count: inspection.evidence.length })}</small>
+                </span>
               </div>
             </div>
           ) : null}

@@ -66,7 +66,10 @@ class RuntimeArtifactRepositoryTests(unittest.TestCase):
             decoy = root / "decoy.zip"
             _write_factory(source)
             decoy.write_bytes(b"private decoy")
-            runtime = ApplicationRuntime.open(config)
+            runtime = ApplicationRuntime.open(
+                config,
+                interaction_handler=lambda _request: True,
+            )
 
             selected = runtime.execute(
                 AppCommand(
@@ -138,6 +141,7 @@ class RuntimeArtifactRepositoryTests(unittest.TestCase):
                 firmware_type="factory",
                 build="AP4A.260705.001",
                 expected_sha256=hashlib.sha256(package.read_bytes()).hexdigest(),
+                package_signature="user_confirmed",
             )
             boot_record = runtime.boot_repository.import_selection(
                 boot,
