@@ -6164,3 +6164,19 @@ msgstr "Confirmar importación del perfil para {package}"
 msgctxt "web.root.targetedFixImportRun"
 msgid "Import and verify target profile"
 msgstr "Importar y verificar perfil de destino"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.droidGuardCleanup"
+msgid "Clean DroidGuard cache"
+msgstr "Limpiar caché de DroidGuard"
+
+msgctxt "web.root.droidGuardConfirm"
+msgid "Confirm DroidGuard cache deletion"
+msgstr "Confirmar eliminación de la caché de DroidGuard"
+
+msgctxt "web.root.droidGuardCleanupRun"
+msgid "Clean and verify cache"
+msgstr "Limpiar y verificar caché"

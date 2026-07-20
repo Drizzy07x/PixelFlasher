@@ -1804,12 +1804,22 @@ class CommandEngine:
                     "pif.add_target",
                     "pif.delete_target",
                     "pif.import_target_profile",
+                    "pif.cleanup_droidguard",
                 }
             ):
                 return OperationResult.failed(
                     result.operation_id,
                     code="pif_action_compilation_invalid",
                     message="PIF action returned an invalid compilation",
+                )
+            if compilation.action == "pif.cleanup_droidguard":
+                return replace(
+                    result,
+                    code="droidguard_cache_cleaned",
+                    message="DroidGuard cache absence was independently verified",
+                    value={"action": "cleanupDroidGuard", "verified": True},
+                    stdout="",
+                    stderr="",
                 )
             action_names = {
                 "pif.delete_profile": "deleteProfile",

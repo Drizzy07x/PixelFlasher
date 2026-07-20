@@ -266,6 +266,31 @@ class PifInventoryPublicContractTests(unittest.TestCase):
                 with self.assertRaises(BridgeProtocolError):
                     BridgeRequest(2, "bad-target-import", "tools.pif", hostile, 7).validate()
 
+    def test_droidguard_cleanup_contract_requires_serial_phrase_and_verified_receipt(self):
+        payload = {
+            "serial": "SERIAL",
+            "action": "cleanupDroidGuard",
+            "confirmationText": "CLEANUP DG SERIAL",
+        }
+        request = BridgeRequest(2, "dg-clean", "tools.pif", payload, 7)
+        self.assertIs(request, request.validate())
+        projected = project_operation_result(
+            "tools.pif",
+            OperationResult.success(
+                "dg-clean",
+                value={"action": "cleanupDroidGuard", "verified": True},
+            ),
+        )["value"]
+        self.assertEqual({"action": "cleanupDroidGuard", "verified": True}, projected)
+        with self.assertRaises(BridgeProtocolError):
+            BridgeRequest(
+                2,
+                "bad-dg",
+                "tools.pif",
+                {**payload, "confirmationText": "CLEANUP DG"},
+                7,
+            ).validate()
+
 
 if __name__ == "__main__":
     unittest.main()

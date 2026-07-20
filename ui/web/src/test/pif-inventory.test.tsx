@@ -210,4 +210,25 @@ describe('PIF and TargetedFix inventory', () => {
       grant: 'opaque-target-grant',
     });
   });
+
+  it('requires the serial-bound phrase before cleaning DroidGuard cache', async () => {
+    const user = userEvent.setup();
+    const onCommand = vi.fn(async () => ({
+      result: { status: 'SUCCESS', value: { action: 'cleanupDroidGuard', verified: true } },
+    }));
+    const { snapshot } = renderRoot(onCommand);
+    const card = screen.getByText('PIF and TargetedFix profiles').closest('.card');
+    if (!card) throw new Error('PIF inventory card missing');
+    await user.click(within(card as HTMLElement).getByRole('button', { name: 'Clean DroidGuard cache' }));
+    const phrase = `CLEANUP DG ${snapshot.devices[0].serial.slice(-6).toUpperCase()}`;
+    const run = within(card as HTMLElement).getByRole('button', { name: 'Clean and verify cache' });
+    expect(run).toBeDisabled();
+    await user.type(within(card as HTMLElement).getByLabelText(/Confirm DroidGuard cache deletion/), phrase);
+    await user.click(run);
+    expect(onCommand).toHaveBeenLastCalledWith('tools.pif', {
+      serial: snapshot.devices[0].serial,
+      action: 'cleanupDroidGuard',
+      confirmationText: phrase,
+    });
+  });
 });

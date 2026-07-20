@@ -2320,6 +2320,28 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(2, len(transport.calls))
 
+    def test_droidguard_cleanup_returns_success_only_after_absence_observation(self):
+        engine, transport = self.engine_for(
+            "adb",
+            [TransportOutcome(0)],
+            root=True,
+            interaction_handler=lambda _request: InteractionDecision.ACCEPTED,
+        )
+        result = engine.execute(
+            command(
+                "tools.pif",
+                {
+                    "serial": "SERIAL",
+                    "action": "cleanupDroidGuard",
+                    "confirmationText": "CLEANUP DG SERIAL",
+                },
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual("droidguard_cache_cleaned", result.code)
+        self.assertEqual({"action": "cleanupDroidGuard", "verified": True}, result.value)
+        self.assertIn("app_dg_cache", transport.calls[0].argv[6])
+
     def test_root_recovery_commands_require_confirmation_and_verified_postconditions(self):
         cases = (
             (

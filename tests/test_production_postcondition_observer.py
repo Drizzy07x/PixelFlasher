@@ -55,6 +55,7 @@ class StatefulDeviceTransport:
         shizuku_running: bool = False,
         all_modules_disabled: bool = False,
         data_adb_empty: bool = False,
+        droidguard_cache_empty: bool = False,
         root_available: bool = True,
         partitions: dict[str, bytes] | None = None,
         partition_sizes: dict[str, int] | None = None,
@@ -81,6 +82,7 @@ class StatefulDeviceTransport:
         self.shizuku_running = shizuku_running
         self.all_modules_disabled = all_modules_disabled
         self.data_adb_empty = data_adb_empty
+        self.droidguard_cache_empty = droidguard_cache_empty
         self.root_available = root_available
         self.partitions = partitions or {}
         self.partition_sizes = partition_sizes or {name: len(content) for name, content in self.partitions.items()}
@@ -238,6 +240,13 @@ class StatefulDeviceTransport:
                 return TransportOutcome(0 if self.all_modules_disabled else 1)
             if command == 'test -d /data/adb && [ -z "$(find /data/adb -mindepth 1 -print -quit)" ]':
                 return TransportOutcome(0 if self.data_adb_empty else 1)
+            if command == (
+                "[ ! -e /data/data/com.google.android.gms/app_dg_cache ] && "
+                "{ [ ! -d /data/data/com.google.android.gms/databases ] || "
+                "[ -z \"$(find /data/data/com.google.android.gms/databases -maxdepth 1 "
+                "-name 'dg.db*' -print -quit 2>/dev/null)\" ]; }"
+            ):
+                return TransportOutcome(0 if self.droidguard_cache_empty else 1)
             pif_paths = {
                 "pif.custom_json": "/data/adb/modules/playintegrityfix/custom.pif.json",
                 "pif.custom_prop": "/data/adb/modules/playintegrityfix/custom.pif.prop",
@@ -835,6 +844,20 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
                 1,
                 expected_targeted_fix_profile_hashes={"../private:json": digest},
             )
+
+    def test_droidguard_cleanup_requires_independent_absence_evidence(self) -> None:
+        verified = observer(
+            StatefulDeviceTransport(mode="adb", droidguard_cache_empty=True)
+        ).verify(
+            PostconditionSpec(SERIAL, 1, expected_droidguard_cache_empty=True)
+        )
+        self.assertEqual(ObservationStatus.VERIFIED, verified.status)
+
+        timer = FakeTime()
+        mismatch = observer(StatefulDeviceTransport(mode="adb"), timer=timer).verify(
+            PostconditionSpec(SERIAL, 0.2, expected_droidguard_cache_empty=True)
+        )
+        self.assertEqual(ObservationStatus.MISMATCH, mismatch.status)
 
     def test_root_recovery_aggregate_states_require_explicit_device_evidence(self) -> None:
         verified = observer(

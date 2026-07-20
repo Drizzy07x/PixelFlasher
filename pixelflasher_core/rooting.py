@@ -529,12 +529,15 @@ class RootingService:
             "addTarget",
             "deleteTarget",
             "importTargetProfile",
+            "cleanupDroidGuard",
         }:
             raise RootingPlanningError(
                 "pif_action_invalid",
                 "PIF action is not supported",
             )
         assert isinstance(action, str)
+        if action == "cleanupDroidGuard":
+            return self._compile_droidguard_cleanup(command, snapshot, device, adb)
         if action == "importTargetProfile":
             return self._compile_targeted_fix_profile_import(command, snapshot, device, adb)
         if action in {"addTarget", "deleteTarget"}:
@@ -629,6 +632,57 @@ class RootingService:
                 ),
             ),
             pif_profile_id=profile_id,
+            device_write=True,
+            destructive=True,
+            requires_confirmation=True,
+        )
+
+    def _compile_droidguard_cleanup(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        adb: str,
+    ) -> RootingCompilation:
+        unexpected = {"profileId", "targetPackage", "targetFormat", "path"}.intersection(
+            command.payload
+        )
+        if unexpected:
+            raise RootingPlanningError(
+                "droidguard_cleanup_payload_ambiguous",
+                "DroidGuard cleanup does not accept profile, package, format, or path fields",
+            )
+        required = f"CLEANUP DG {device.serial[-6:].upper()}"
+        if command.payload.get("confirmationText") != required:
+            raise RootingPlanningError(
+                "droidguard_cleanup_confirmation_required",
+                f"confirmationText must be exactly {required}",
+            )
+        cache = "/data/data/com.google.android.gms/app_dg_cache"
+        databases = "/data/data/com.google.android.gms/databases"
+        script = f"rm -rf -- {cache} {databases}/dg.db*"
+        request = ProcessRequest(
+            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            timeout_seconds=30.0,
+            output_limit_bytes=16 * 1024,
+        )
+        return RootingCompilation(
+            "pif.cleanup_droidguard",
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Clean DroidGuard cache on {device.serial}",
+                data_behavior="droidguard_cache_delete",
+                risk=OperationRisk.DESTRUCTIVE,
+                postconditions=(
+                    OperationPostcondition(
+                        "droidguard_cache_state",
+                        {"empty": True},
+                        "DroidGuard cache directory and databases are absent",
+                    ),
+                ),
+            ),
             device_write=True,
             destructive=True,
             requires_confirmation=True,

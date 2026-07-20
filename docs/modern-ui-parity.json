@@ -2231,7 +2231,7 @@
         "ui/public_bridge.py:_project_pi_analysis",
         "ui/web/src/pages/root/RootPage.tsx:RootPage"
       ],
-      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion and import are serial-confirmed and independently observed. TargetedFix package add/delete validates package identity and installation, atomically rewrites its backend-owned target list and observes final membership. Per-package JSON/PROP import uses its own purpose-bound grant, strict format validation, confined staging, alternate-format removal and an independent single-active-file SHA-256 observation. The modern editor, cleanup/check workflows and packaged rooted-device validation remain.",
+      "gap": "Native read-only PI Analysis and PIF/TargetedFix inventory are implemented with fixed backend collection, strict parsing and closed public DTOs. Canonical profile deletion/import and TargetedFix add/delete/import are serial-confirmed and independently observed. Per-package JSON/PROP import uses its own purpose-bound grant, strict validation, confined staging, alternate-format removal and a single-active-file SHA-256 observation. DroidGuard cleanup is a fixed backend mutation with an exact serial phrase and independent absence proof for its canonical cache and database files. The modern editor, interactive check workflow and packaged rooted-device validation remain.",
       "exitCriteria": [
         "PIF/TargetedFix management and Play Integrity analysis is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -2257,6 +2257,7 @@
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_pif_profile_import_returns_only_the_independently_verified_hash",
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_targeted_fix_target_changes_return_only_verified_package_identity",
         "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_targeted_fix_profile_import_returns_only_verified_hash_metadata",
+        "tests/test_service_engine_integration.py:ServiceEngineIntegrationTests.test_droidguard_cleanup_returns_success_only_after_absence_observation",
         "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_pif_profile_state_uses_only_canonical_backend_path",
         "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_pif_profile_hash_requires_exact_root_readback",
         "tests/test_production_postcondition_observer.py:ProductionPostconditionObserverTests.test_targeted_fix_target_state_requires_exact_root_readback",

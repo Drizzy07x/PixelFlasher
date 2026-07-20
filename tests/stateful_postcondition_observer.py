@@ -112,6 +112,8 @@ class StatefulPostconditionObserver:
             return self._result(self._targeted_fix_target_state(plan, calls, expected))
         if kind == "targeted_fix_profile_hash":
             return self._result(self._targeted_fix_profile_hash(plan, calls, expected))
+        if kind == "droidguard_cache_state":
+            return self._result(self._droidguard_cache_state(plan, calls, expected))
         return self._unverified(f"the fake has no probe for {kind}")
 
     @staticmethod
@@ -409,6 +411,26 @@ class StatefulPostconditionObserver:
             and f"/{package}.{profile_format}" in shell_text
             and "chmod 0600" in shell_text
         )
+
+    @staticmethod
+    def _droidguard_cache_state(
+        plan: OperationPlan,
+        calls: tuple[ProcessRequest, ...],
+        expected: Mapping[str, object],
+    ) -> bool:
+        if expected != {"empty": True}:
+            return False
+        exact = (
+            "ADB",
+            "-s",
+            plan.target_serial,
+            "shell",
+            "su",
+            "-c",
+            "rm -rf -- /data/data/com.google.android.gms/app_dg_cache "
+            "/data/data/com.google.android.gms/databases/dg.db*",
+        )
+        return any(request.argv == exact for request in calls)
 
     @staticmethod
     def _package_state(

@@ -2048,6 +2048,7 @@ class OperationRunner:
         expected_shizuku_running: bool | None = None
         expected_magisk_modules_disabled: bool | None = None
         expected_data_adb_empty: bool | None = None
+        expected_droidguard_cache_empty: bool | None = None
         erased_partitions: list[str] = []
 
         def bind(current: object, value: object, name: str) -> object:
@@ -2303,6 +2304,17 @@ class OperationRunner:
                     bool,
                     bind(expected_data_adb_empty, empty, "/data/adb empty state"),
                 )
+            elif postcondition.kind == "droidguard_cache_state":
+                if set(expected) != {"empty"} or expected.get("empty") is not True:
+                    raise ValueError("DroidGuard cache postcondition must require empty=true")
+                expected_droidguard_cache_empty = cast(
+                    bool,
+                    bind(
+                        expected_droidguard_cache_empty,
+                        True,
+                        "DroidGuard cache state",
+                    ),
+                )
             elif postcondition.kind == "remote_files_written":
                 raw_mode = expected.get("mode")
                 if raw_mode is not None:
@@ -2465,6 +2477,7 @@ class OperationRunner:
             expected_shizuku_running=expected_shizuku_running,
             expected_magisk_modules_disabled=expected_magisk_modules_disabled,
             expected_data_adb_empty=expected_data_adb_empty,
+            expected_droidguard_cache_empty=expected_droidguard_cache_empty,
             erased_partitions=tuple(erased_partitions),
         )
 

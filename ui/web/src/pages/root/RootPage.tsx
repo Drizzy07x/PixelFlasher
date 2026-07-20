@@ -419,6 +419,8 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [targetedFixImportPackage, setTargetedFixImportPackage] = useState('');
   const [targetedFixImportGrant, setTargetedFixImportGrant] = useState('');
   const [targetedFixImportConfirmation, setTargetedFixImportConfirmation] = useState('');
+  const [droidGuardConfirmation, setDroidGuardConfirmation] = useState('');
+  const [droidGuardPending, setDroidGuardPending] = useState(false);
   const [busy, setBusy] = useState('');
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
@@ -835,6 +837,26 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     }
   };
 
+  const cleanupDroidGuard = async () => {
+    if (!rootedAdb || !primary || busy) return;
+    const required = `CLEANUP DG ${primary.serial.slice(-6).toUpperCase()}`;
+    if (droidGuardConfirmation !== required) return;
+    setBusy('droidguard-cleanup');
+    try {
+      const response = await onCommand(commands.toolsPif, {
+        serial: primary.serial,
+        action: 'cleanupDroidGuard',
+        confirmationText: droidGuardConfirmation,
+      });
+      if (operationSucceeded(response)) {
+        setDroidGuardPending(false);
+        setDroidGuardConfirmation('');
+      }
+    } finally {
+      setBusy('');
+    }
+  };
+
   const refreshBootImages = async () => {
     if (busy) return;
     setBusy('boot:list');
@@ -1152,6 +1174,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               </select>
             </label>
             <Button icon="folderPng" onClick={() => void preparePifImport()} disabled={Boolean(busy) || !rootedAdb}>{t('root.pifImport')}</Button>
+            <Button variant="danger" onClick={() => { setDroidGuardPending(true); setDroidGuardConfirmation(''); }} disabled={Boolean(busy) || !rootedAdb}>{t('root.droidGuardCleanup')}</Button>
             <Button icon="scan" onClick={() => void refreshPifInventory()} disabled={Boolean(busy) || !rootedAdb}>{t('common.refresh')}</Button>
           </div>
         )}>{t('root.pifInventoryTitle')}</CardTitle>
@@ -1281,6 +1304,19 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
             <span className="button-row">
               <Button variant="danger" onClick={() => void importTargetedFixProfile()} disabled={Boolean(busy) || targetedFixImportConfirmation !== `IMPORT TARGET ${targetedFixImportPackage} ${targetedFixProfileFormat.toUpperCase()} ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.targetedFixImportRun')}</Button>
               <Button variant="ghost" onClick={() => { setTargetedFixImportPackage(''); setTargetedFixImportGrant(''); setTargetedFixImportConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
+            </span>
+          </div>
+        ) : null}
+        {droidGuardPending && primary ? (
+          <div className="root-footer root-footer--wrap">
+            <label className="select-field">
+              <span>{t('root.droidGuardConfirm')}</span>
+              <small><code>{`CLEANUP DG ${primary.serial.slice(-6).toUpperCase()}`}</code></small>
+              <input value={droidGuardConfirmation} onChange={(event) => setDroidGuardConfirmation(event.currentTarget.value.slice(0, 128))} autoComplete="off" spellCheck={false} disabled={Boolean(busy)} />
+            </label>
+            <span className="button-row">
+              <Button variant="danger" onClick={() => void cleanupDroidGuard()} disabled={Boolean(busy) || droidGuardConfirmation !== `CLEANUP DG ${primary.serial.slice(-6).toUpperCase()}`}>{t('root.droidGuardCleanupRun')}</Button>
+              <Button variant="ghost" onClick={() => { setDroidGuardPending(false); setDroidGuardConfirmation(''); }} disabled={Boolean(busy)}>{t('common.cancel')}</Button>
             </span>
           </div>
         ) : null}

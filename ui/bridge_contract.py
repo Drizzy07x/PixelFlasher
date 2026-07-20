@@ -359,7 +359,15 @@ def _validate_payload_values(
         if not _nonempty_string(serial, limit=256):
             _payload_error("tools.pif serial is invalid", request_id)
         action = payload.get("action")
-        if action in {"deleteProfile", "importProfile"}:
+        if action == "cleanupDroidGuard":
+            if any(
+                field in payload
+                for field in ("profileId", "targetPackage", "targetFormat", "grant")
+            ):
+                _payload_error("tools.pif DroidGuard cleanup payload is invalid", request_id)
+            assert isinstance(serial, str)
+            required = f"CLEANUP DG {serial[-6:].upper()}"
+        elif action in {"deleteProfile", "importProfile"}:
             if (
                 profile_id not in canonical_profiles
                 or "targetPackage" in payload

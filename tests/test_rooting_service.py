@@ -539,6 +539,42 @@ class RootingServiceTests(unittest.TestCase):
             inspect_targeted_fix_profile_stream("../private", "json", io.BytesIO(b"{}"))
         self.assertEqual("targeted_fix_package_invalid", raised.exception.code)
 
+    def test_droidguard_cleanup_is_fixed_confirmed_and_postcondition_gated(self):
+        compilation = RootingService().compile(
+            self.command(
+                "tools.pif",
+                {
+                    "serial": "SERIAL",
+                    "action": "cleanupDroidGuard",
+                    "confirmationText": "CLEANUP DG SERIAL",
+                },
+            ),
+            self.snapshot,
+        )
+        self.assertEqual("pif.cleanup_droidguard", compilation.action)
+        assert compilation.plan is not None
+        self.assertEqual(
+            "rm -rf -- /data/data/com.google.android.gms/app_dg_cache "
+            "/data/data/com.google.android.gms/databases/dg.db*",
+            compilation.plan.request.argv[6],
+        )
+        self.assertEqual("droidguard_cache_state", compilation.plan.postconditions[0].kind)
+        self.assertEqual({"empty": True}, compilation.plan.postconditions[0].expected)
+
+        with self.assertRaises(RootingPlanningError) as raised:
+            RootingService().compile(
+                self.command(
+                    "tools.pif",
+                    {
+                        "serial": "SERIAL",
+                        "action": "cleanupDroidGuard",
+                        "confirmationText": "CLEANUP DG",
+                    },
+                ),
+                self.snapshot,
+            )
+        self.assertEqual("droidguard_cleanup_confirmation_required", raised.exception.code)
+
     def test_pif_inventory_accepts_one_targeted_fix_prop_profile_but_rejects_ambiguity(self):
         encoded = base64.b64encode(b"com.google.android.gms").decode("ascii")
         output = pif_inventory_output().replace(

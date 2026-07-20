@@ -6168,3 +6168,19 @@ msgstr "确认导入 {package} 的配置文件"
 msgctxt "web.root.targetedFixImportRun"
 msgid "Import and verify target profile"
 msgstr "导入并验证目标配置文件"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.droidGuardCleanup"
+msgid "Clean DroidGuard cache"
+msgstr "清理 DroidGuard 缓存"
+
+msgctxt "web.root.droidGuardConfirm"
+msgid "Confirm DroidGuard cache deletion"
+msgstr "确认删除 DroidGuard 缓存"
+
+msgctxt "web.root.droidGuardCleanupRun"
+msgid "Clean and verify cache"
+msgstr "清理并验证缓存"
