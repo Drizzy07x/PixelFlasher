@@ -5,6 +5,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from pixelflasher_core.config_store import ConfigStore
 from pixelflasher_core.preferences import (
     MAX_ZOOM,
@@ -122,6 +125,99 @@ class ModernPreferencesValidationTests(unittest.TestCase):
                 with self.assertRaises(PreferencesError) as raised:
                     ModernPreferences.from_mapping(values)
                 self.assertEqual(code, raised.exception.code)
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        theme=st.sampled_from(("dark", "light")),
+        locale=st.sampled_from(SUPPORTED_LOCALES),
+        flags=st.lists(st.booleans(), min_size=20, max_size=20),
+        zoom=st.integers(min_value=MIN_ZOOM, max_value=MAX_ZOOM),
+        reboot_timeout=st.integers(min_value=1, max_value=3600),
+        font_face=st.sampled_from(("Courier", "Cascadia Code", "Noto Sans Mono")),
+        font_size=st.integers(min_value=6, max_value=50),
+        toolbar_position=st.sampled_from(("top", "right", "bottom", "left")),
+    )
+    def test_property_every_valid_preference_round_trips_without_loss(
+        self,
+        theme: str,
+        locale: str,
+        flags: list[bool],
+        zoom: int,
+        reboot_timeout: int,
+        font_face: str,
+        font_size: int,
+        toolbar_position: str,
+    ) -> None:
+        value = ModernPreferences(
+            theme=theme,
+            locale=locale,
+            high_contrast=flags[0],
+            reduced_motion=flags[1],
+            zoom=zoom,
+            expert_mode=flags[2],
+            automatic_update_check=flags[3],
+            check_disk_space=flags[4],
+            check_bootloader_unlocked=flags[5],
+            check_firmware_hash=flags[6],
+            check_module_updates=flags[7],
+            show_notifications=flags[8],
+            reboot_timeout_seconds=reboot_timeout,
+            offer_patch_methods=flags[9],
+            show_recovery_patching=flags[10],
+            keep_patch_temporary_files=flags[11],
+            use_busybox_shell=flags[12],
+            low_memory_mode=flags[13],
+            extra_image_extracts=flags[14],
+            show_custom_rom_options=flags[15],
+            keybox_index=flags[16],
+            customize_font=flags[17],
+            font_face=font_face,
+            font_size=font_size,
+            toolbar_position=toolbar_position,
+            toolbar_show_device=flags[18],
+            toolbar_show_theme=flags[19],
+            toolbar_show_language=flags[0],
+            create_boot_tar=flags[1],
+        )
+
+        encoded = value.to_dict()
+        self.assertEqual(value, ModernPreferences.from_mapping(encoded, require_schema=True))
+        self.assertEqual(PREFERENCES_SCHEMA_VERSION, encoded["schemaVersion"])
+        self.assertEqual(value.create_boot_tar, encoded["createBootTar"])
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        field=st.sampled_from(
+            (
+                "automaticUpdateCheck",
+                "checkDiskSpace",
+                "checkBootloaderUnlocked",
+                "checkFirmwareHash",
+                "checkModuleUpdates",
+                "showNotifications",
+                "offerPatchMethods",
+                "showRecoveryPatching",
+                "keepPatchTemporaryFiles",
+                "useBusyboxShell",
+                "lowMemoryMode",
+                "extraImageExtracts",
+                "showCustomRomOptions",
+                "keyboxIndex",
+                "customizeFont",
+                "toolbarShowDevice",
+                "toolbarShowTheme",
+                "toolbarShowLanguage",
+                "createBootTar",
+            )
+        ),
+        invalid=st.one_of(st.none(), st.integers(), st.text(max_size=12), st.lists(st.booleans(), max_size=2)),
+    )
+    def test_property_boolean_preferences_reject_non_booleans(self, field: str, invalid: object) -> None:
+        if isinstance(invalid, bool):
+            return
+        with self.assertRaises(PreferencesError) as raised:
+            ModernPreferences.from_mapping({field: invalid})
+        self.assertEqual("maintenance_preference_invalid", raised.exception.code)
 
 
 class PreferencePersistenceTests(unittest.TestCase):

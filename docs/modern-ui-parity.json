@@ -252,7 +252,7 @@
       "area": "navigation",
       "capability": "Settings workspace",
       "owner": "navigation",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "ui/web/src/pages/Pages.tsx:SettingsPage",
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
@@ -261,7 +261,7 @@
         "pixelflasher_core/legacy_preference_policy.py:closed 31-option migration policy",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences"
       ],
-      "gap": "Theme, locale, accessibility, zoom, Expert Mode, flash safety, maintenance, patch/processing/keybox preferences, validated monospace font settings and toolbar layout are host-persisted through one revisioned contract. Expert controls remain undisclosed until the host confirms Expert Mode. All 31 advanced 9.x options have explicit migrated, safely replaced or policy-enforced outcomes; backend-owned folder actions and PTY/My Tools replace arbitrary path/shell preferences. Packaged restart/accessibility smokes remain open.",
+      "gap": "",
       "exitCriteria": [
         "The React Settings workspace exposes every supported versioned preference and persists it through ConfigStore."
       ],
@@ -1231,7 +1231,7 @@
       "area": "settings",
       "capability": "Edit PixelFlasher application settings",
       "owner": "settings",
-      "modernStatus": "partial",
+      "modernStatus": "native",
       "currentEvidence": [
         "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
         "pixelflasher_core/legacy_preference_policy.py:closed 31-option migration policy",
@@ -1241,7 +1241,7 @@
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
         "ui/web/src/bridge.ts:getPreferences/updatePreferences"
       ],
-      "gap": "Presentation, Expert Mode, flash safety, maintenance, nine patch/processing/keybox settings, monospace family/size and toolbar layout are validated, host-persisted, revisioned and mirrored to their 9.x keys. A closed registry exhaustively classifies all 31 advanced 9.x options as migrated, safely replaced or policy-enforced; createBootTar drives verified atomic Odin archive generation. React applies changes only after confirmed success and hides expert controls until host confirmation. Expanded property coverage and packaged cross-platform visual/accessibility smokes remain open.",
+      "gap": "",
       "exitCriteria": [
         "Edit PixelFlasher application settings is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
