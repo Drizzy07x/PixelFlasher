@@ -395,6 +395,10 @@ def _public_preferences(value: object) -> dict[str, JSONValue]:
         "customizeFont": _boolean(source.get("customizeFont")),
         "fontFace": _string(source.get("fontFace"), default="Courier"),
         "fontSize": _integer(source.get("fontSize"), default=12),
+        "toolbarPosition": _string(source.get("toolbarPosition"), default="top"),
+        "toolbarShowDevice": _boolean(source.get("toolbarShowDevice"), default=True),
+        "toolbarShowTheme": _boolean(source.get("toolbarShowTheme"), default=True),
+        "toolbarShowLanguage": _boolean(source.get("toolbarShowLanguage"), default=True),
     }
 
 

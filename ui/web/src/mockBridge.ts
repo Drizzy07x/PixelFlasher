@@ -86,6 +86,10 @@ const defaultPreferences: ModernPreferences = {
   customizeFont: false,
   fontFace: 'Courier',
   fontSize: 12,
+  toolbarPosition: 'top',
+  toolbarShowDevice: true,
+  toolbarShowTheme: true,
+  toolbarShowLanguage: true,
 };
 
 function storedValue<T>(key: string, fallback: T): T {
@@ -122,6 +126,10 @@ function mockPreferences(): ModernPreferences {
   const customizeFont = storedValue('pf.customizeFont', false);
   const fontFace = storedValue('pf.fontFace', 'Courier');
   const fontSize = storedValue('pf.fontSize', 12);
+  const toolbarPosition = storedValue('pf.toolbarPosition', 'top');
+  const toolbarShowDevice = storedValue('pf.toolbarShowDevice', true);
+  const toolbarShowTheme = storedValue('pf.toolbarShowTheme', true);
+  const toolbarShowLanguage = storedValue('pf.toolbarShowLanguage', true);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -149,6 +157,11 @@ function mockPreferences(): ModernPreferences {
     customizeFont: typeof customizeFont === 'boolean' ? customizeFont : false,
     fontFace: validFontFace(fontFace) ? fontFace : 'Courier',
     fontSize: typeof fontSize === 'number' && Number.isInteger(fontSize) && fontSize >= 6 && fontSize <= 50 ? fontSize : 12,
+    toolbarPosition: typeof toolbarPosition === 'string' && ['top', 'right', 'bottom', 'left'].includes(toolbarPosition)
+      ? toolbarPosition as ModernPreferences['toolbarPosition'] : 'top',
+    toolbarShowDevice: typeof toolbarShowDevice === 'boolean' ? toolbarShowDevice : true,
+    toolbarShowTheme: typeof toolbarShowTheme === 'boolean' ? toolbarShowTheme : true,
+    toolbarShowLanguage: typeof toolbarShowLanguage === 'boolean' ? toolbarShowLanguage : true,
   };
 }
 
@@ -178,6 +191,10 @@ function persistMockPreferences(preferences: ModernPreferences) {
     ['pf.customizeFont', preferences.customizeFont],
     ['pf.fontFace', preferences.fontFace],
     ['pf.fontSize', preferences.fontSize],
+    ['pf.toolbarPosition', preferences.toolbarPosition],
+    ['pf.toolbarShowDevice', preferences.toolbarShowDevice],
+    ['pf.toolbarShowTheme', preferences.toolbarShowTheme],
+    ['pf.toolbarShowLanguage', preferences.toolbarShowLanguage],
   ];
   try {
     entries.forEach(([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)));
@@ -193,7 +210,8 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     'checkModuleUpdates', 'showNotifications', 'rebootTimeoutSeconds',
     'offerPatchMethods', 'showRecoveryPatching', 'keepPatchTemporaryFiles', 'useBusyboxShell',
     'lowMemoryMode', 'extraImageExtracts', 'showCustomRomOptions', 'keyboxIndex',
-    'customizeFont', 'fontFace', 'fontSize',
+    'customizeFont', 'fontFace', 'fontSize', 'toolbarPosition', 'toolbarShowDevice',
+    'toolbarShowTheme', 'toolbarShowLanguage',
   ]);
   if (Object.keys(payload).some((key) => !allowed.has(key))) return null;
   const current = mockPreferences();
@@ -234,6 +252,11 @@ function updatedMockPreferences(payload: Record<string, unknown>): ModernPrefere
     || !Number.isInteger(next.fontSize)
     || next.fontSize < 6
     || next.fontSize > 50
+    || (next.toolbarPosition !== 'top' && next.toolbarPosition !== 'right'
+      && next.toolbarPosition !== 'bottom' && next.toolbarPosition !== 'left')
+    || typeof next.toolbarShowDevice !== 'boolean'
+    || typeof next.toolbarShowTheme !== 'boolean'
+    || typeof next.toolbarShowLanguage !== 'boolean'
   ) return null;
   return next as unknown as ModernPreferences;
 }

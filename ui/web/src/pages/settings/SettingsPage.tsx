@@ -1,5 +1,5 @@
 import { localeOptions, useI18n } from '../../i18n';
-import type { Locale, ModernPreferences, Theme } from '../../types';
+import type { Locale, ModernPreferences, Theme, ToolbarPosition } from '../../types';
 import { Button, Card, CardTitle, Icon, PageHeader, Toggle } from '../../components/ui';
 
 export function SettingsPage({
@@ -36,7 +36,7 @@ export function SettingsPage({
   onExpertModeChange: (value: boolean) => void;
   preferences: ModernPreferences;
   onMaintenancePreferenceChange: (
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize',
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize' | 'toolbarPosition' | 'toolbarShowDevice' | 'toolbarShowTheme' | 'toolbarShowLanguage',
     value: boolean | number | string,
   ) => void;
   onApplicationCommand: (
@@ -110,6 +110,22 @@ export function SettingsPage({
             />
             <small id="font-size-detail">{t('settings.fontSizeDetail')}</small>
           </label>
+          <div className="settings-section settings-toolbar-layout">
+            <label className="select-field">
+              <span>{t('settings.toolbarPosition')}</span>
+              <select value={preferences.toolbarPosition} onChange={(event) => onMaintenancePreferenceChange('toolbarPosition', event.currentTarget.value as ToolbarPosition)}>
+                <option value="top">{t('settings.toolbarTop')}</option>
+                <option value="right">{t('settings.toolbarRight')}</option>
+                <option value="bottom">{t('settings.toolbarBottom')}</option>
+                <option value="left">{t('settings.toolbarLeft')}</option>
+              </select>
+            </label>
+            <div className="toggle-stack">
+              <Toggle checked={preferences.toolbarShowDevice} onChange={(value) => onMaintenancePreferenceChange('toolbarShowDevice', value)} label={t('settings.toolbarDevice')} description={t('settings.toolbarDeviceDetail')} />
+              <Toggle checked={preferences.toolbarShowTheme} onChange={(value) => onMaintenancePreferenceChange('toolbarShowTheme', value)} label={t('settings.toolbarTheme')} description={t('settings.toolbarThemeDetail')} />
+              <Toggle checked={preferences.toolbarShowLanguage} onChange={(value) => onMaintenancePreferenceChange('toolbarShowLanguage', value)} label={t('settings.toolbarLanguage')} description={t('settings.toolbarLanguageDetail')} />
+            </div>
+          </div>
         </Card>
         <Card>
           <CardTitle icon="tools">{t('mode.expert')}</CardTitle>

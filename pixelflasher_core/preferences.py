@@ -63,6 +63,10 @@ _LEGACY_ALIASES: Mapping[str, tuple[str, ...]] = {
     "customizeFont": ("customizeFont", "customize_font"),
     "fontFace": ("fontFace", "pf_font_face"),
     "fontSize": ("fontSize", "pf_font_size"),
+    "toolbarPosition": ("toolbarPosition",),
+    "toolbarShowDevice": ("toolbarShowDevice",),
+    "toolbarShowTheme": ("toolbarShowTheme",),
+    "toolbarShowLanguage": ("toolbarShowLanguage",),
 }
 
 type StoreLike = ConfigStore | str | os.PathLike[str]
@@ -176,6 +180,17 @@ def _legacy_preferences(values: Mapping[str, Any]) -> dict[str, Any]:
                     f"legacy preference aliases {first_key} and {key} disagree",
                 )
         migrated[field] = first_value
+    toolbar = values.get("toolbar")
+    if isinstance(toolbar, Mapping) and "tb_position" in toolbar:
+        toolbar_values = cast(Mapping[str, object], toolbar)
+        nested_position = toolbar_values["tb_position"]
+        existing_position = migrated.get("toolbarPosition")
+        if existing_position is not None and existing_position != nested_position:
+            raise PreferencesError(
+                "legacy_preference_ambiguous",
+                "legacy toolbar position aliases disagree",
+            )
+        migrated["toolbarPosition"] = nested_position
     return migrated
 
 
@@ -208,6 +223,10 @@ def _legacy_mirrors(
         "customizeFont": preferences.customize_font,
         "fontFace": preferences.font_face,
         "fontSize": preferences.font_size,
+        "toolbarPosition": preferences.toolbar_position,
+        "toolbarShowDevice": preferences.toolbar_show_device,
+        "toolbarShowTheme": preferences.toolbar_show_theme,
+        "toolbarShowLanguage": preferences.toolbar_show_language,
     }
     preferred_keys = {
         "theme": "theme",
@@ -234,6 +253,10 @@ def _legacy_mirrors(
         "customizeFont": "customize_font",
         "fontFace": "pf_font_face",
         "fontSize": "pf_font_size",
+        "toolbarPosition": "toolbarPosition",
+        "toolbarShowDevice": "toolbarShowDevice",
+        "toolbarShowTheme": "toolbarShowTheme",
+        "toolbarShowLanguage": "toolbarShowLanguage",
     }
     mirrors: dict[str, object] = {}
     for field, aliases in _LEGACY_ALIASES.items():
@@ -242,6 +265,11 @@ def _legacy_mirrors(
         for alias in aliases:
             if alias in values:
                 mirrors[alias] = value
+    toolbar = values.get("toolbar")
+    if isinstance(toolbar, Mapping) and "tb_position" in toolbar:
+        modern_toolbar = dict(cast(Mapping[str, object], toolbar))
+        modern_toolbar["tb_position"] = preferences.toolbar_position
+        mirrors["toolbar"] = modern_toolbar
     return mirrors
 
 

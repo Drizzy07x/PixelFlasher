@@ -33,6 +33,10 @@ const hostPreferences: ModernPreferences = {
   customizeFont: false,
   fontFace: 'Courier',
   fontSize: 12,
+  toolbarPosition: 'top',
+  toolbarShowDevice: true,
+  toolbarShowTheme: true,
+  toolbarShowLanguage: true,
 };
 
 function installPreferencesHost(
@@ -732,6 +736,12 @@ describe('PixelFlasher web workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Open configuration folder' }));
     await waitFor(() => expect(requests.some((request) => request.command === 'app.openFolder' && request.payload.target === 'configuration')).toBe(true));
     expect(requests.find((request) => request.command === 'app.openFolder')?.payload).toEqual({ target: 'configuration' });
+    await user.selectOptions(screen.getByLabelText('Toolbar position'), 'left');
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.toolbarPosition === 'left')).toBe(true));
+    expect(document.querySelector('.workspace')).toHaveClass('workspace--toolbar-left');
+    await user.click(screen.getByRole('checkbox', { name: /Theme controls/ }));
+    await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.toolbarShowTheme === false)).toBe(true));
+    expect(document.querySelector('.workspace-toolbar .mini-segmented')).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /Custom monospace font/ }));
     await waitFor(() => expect(requests.some((request) => request.command === 'settings.update' && request.payload.customizeFont === true)).toBe(true));
     await user.selectOptions(screen.getByLabelText('Monospace font'), 'Consolas');

@@ -70,6 +70,10 @@ const defaultPreferences: ModernPreferences = {
   customizeFont: false,
   fontFace: 'Courier',
   fontSize: 12,
+  toolbarPosition: 'top',
+  toolbarShowDevice: true,
+  toolbarShowTheme: true,
+  toolbarShowLanguage: true,
 };
 
 export function commandTimeoutMs(command: BridgeCommand) {
@@ -117,6 +121,11 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     || !Number.isInteger(raw.fontSize)
     || raw.fontSize < 6
     || raw.fontSize > 50
+    || (raw.toolbarPosition !== 'top' && raw.toolbarPosition !== 'right'
+      && raw.toolbarPosition !== 'bottom' && raw.toolbarPosition !== 'left')
+    || typeof raw.toolbarShowDevice !== 'boolean'
+    || typeof raw.toolbarShowTheme !== 'boolean'
+    || typeof raw.toolbarShowLanguage !== 'boolean'
   ) {
     throw new BridgeError('Host returned invalid preferences.');
   }
@@ -146,6 +155,10 @@ export function normalizePreferences(input: unknown): ModernPreferences {
     customizeFont: raw.customizeFont,
     fontFace: raw.fontFace,
     fontSize: raw.fontSize,
+    toolbarPosition: raw.toolbarPosition,
+    toolbarShowDevice: raw.toolbarShowDevice,
+    toolbarShowTheme: raw.toolbarShowTheme,
+    toolbarShowLanguage: raw.toolbarShowLanguage,
   };
 }
 

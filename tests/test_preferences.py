@@ -39,6 +39,10 @@ class ModernPreferencesValidationTests(unittest.TestCase):
         self.assertFalse(defaults.customize_font)
         self.assertEqual("Courier", defaults.font_face)
         self.assertEqual(12, defaults.font_size)
+        self.assertEqual("top", defaults.toolbar_position)
+        self.assertTrue(defaults.toolbar_show_device)
+        self.assertTrue(defaults.toolbar_show_theme)
+        self.assertTrue(defaults.toolbar_show_language)
         self.assertEqual(80, MIN_ZOOM)
         self.assertEqual(200, MAX_ZOOM)
 
@@ -105,6 +109,11 @@ class ModernPreferencesValidationTests(unittest.TestCase):
             ({"fontSize": True}, "font_size_invalid"),
             ({"fontSize": 5}, "font_size_invalid"),
             ({"fontSize": 51}, "font_size_invalid"),
+            ({"toolbarPosition": "floating"}, "toolbar_position_invalid"),
+            ({"toolbarPosition": 1}, "toolbar_position_invalid"),
+            ({"toolbarShowDevice": 1}, "maintenance_preference_invalid"),
+            ({"toolbarShowTheme": "yes"}, "maintenance_preference_invalid"),
+            ({"toolbarShowLanguage": None}, "maintenance_preference_invalid"),
         )
         for values, code in cases:
             with self.subTest(values=values):
@@ -169,7 +178,11 @@ class PreferencePersistenceTests(unittest.TestCase):
                         "customize_font": True,
                         "pf_font_face": "Cascadia Code",
                         "pf_font_size": 18,
-                        "toolbar": {"visible": {"partition_manager": True}},
+                        "toolbar": {
+                            "tb_position": "right",
+                            "tb_show_text": True,
+                            "visible": {"partition_manager": True},
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -203,6 +216,7 @@ class PreferencePersistenceTests(unittest.TestCase):
                     customize_font=True,
                     font_face="Cascadia Code",
                     font_size=18,
+                    toolbar_position="right",
                 ),
                 preferences,
             )
@@ -210,7 +224,11 @@ class PreferencePersistenceTests(unittest.TestCase):
             migrated = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(2, migrated["_pixelflasher_core_schema"])
             self.assertEqual(
-                {"visible": {"partition_manager": True}},
+                {
+                    "tb_position": "right",
+                    "tb_show_text": True,
+                    "visible": {"partition_manager": True},
+                },
                 migrated["toolbar"],
             )
             original = {

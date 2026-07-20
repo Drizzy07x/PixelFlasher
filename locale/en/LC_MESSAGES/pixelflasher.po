@@ -6528,3 +6528,35 @@ msgstr ""
 msgctxt "web.settings.textFiles"
 msgid "Text files"
 msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.toolbarPosition"
+msgid "Toolbar position"
+msgstr ""
+
+msgctxt "web.settings.toolbarDevice"
+msgid "Device context"
+msgstr ""
+
+msgctxt "web.settings.toolbarDeviceDetail"
+msgid "Show the selected and connected device count."
+msgstr ""
+
+msgctxt "web.settings.toolbarTheme"
+msgid "Theme controls"
+msgstr ""
+
+msgctxt "web.settings.toolbarThemeDetail"
+msgid "Show quick dark and light theme controls."
+msgstr ""
+
+msgctxt "web.settings.toolbarLanguage"
+msgid "Language control"
+msgstr ""
+
+msgctxt "web.settings.toolbarLanguageDetail"
+msgid "Show the language selector in the toolbar."
+msgstr ""

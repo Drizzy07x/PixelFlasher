@@ -75,6 +75,10 @@ export const demoSnapshot: HostSnapshot = {
     customizeFont: false,
     fontFace: 'Courier',
     fontSize: 12,
+    toolbarPosition: 'top',
+    toolbarShowDevice: true,
+    toolbarShowTheme: true,
+    toolbarShowLanguage: true,
   },
   deviceManagement: {
     schemaVersion: 1,

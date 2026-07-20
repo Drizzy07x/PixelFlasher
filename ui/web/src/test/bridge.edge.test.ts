@@ -40,6 +40,10 @@ const snapshotPreferences = {
   customizeFont: false,
   fontFace: 'Courier',
   fontSize: 12,
+  toolbarPosition: 'top' as const,
+  toolbarShowDevice: true,
+  toolbarShowTheme: true,
+  toolbarShowLanguage: true,
 };
 
 const originalBridge = window.pixelflasher;
@@ -90,6 +94,10 @@ describe('bridge v2 validation boundaries', () => {
     { ...snapshotPreferences, fontFace: 'Font; color: red' },
     { ...snapshotPreferences, fontSize: 5 },
     { ...snapshotPreferences, fontSize: 51 },
+    { ...snapshotPreferences, toolbarPosition: 'floating' },
+    { ...snapshotPreferences, toolbarShowDevice: 1 },
+    { ...snapshotPreferences, toolbarShowTheme: 'yes' },
+    { ...snapshotPreferences, toolbarShowLanguage: null },
   ])('rejects malformed preferences %#', (value) => {
     expect(() => normalizePreferences(value)).toThrow(BridgeError);
   });
@@ -106,6 +114,13 @@ describe('bridge v2 validation boundaries', () => {
         zoom: 100,
         expertMode: locale === 'zh_TW',
       }).locale).toBe(locale);
+    }
+  });
+
+  it('accepts every supported toolbar position at the preference boundary', () => {
+    for (const toolbarPosition of ['top', 'right', 'bottom', 'left'] as const) {
+      expect(normalizePreferences({ ...snapshotPreferences, toolbarPosition }).toolbarPosition)
+        .toBe(toolbarPosition);
     }
   });
 

@@ -6561,3 +6561,35 @@ msgstr "匯出 PixelFlasher 主控台"
 msgctxt "web.settings.textFiles"
 msgid "Text files"
 msgstr "文字檔案"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.toolbarPosition"
+msgid "Toolbar position"
+msgstr "工具列位置"
+
+msgctxt "web.settings.toolbarDevice"
+msgid "Device context"
+msgstr "裝置內容"
+
+msgctxt "web.settings.toolbarDeviceDetail"
+msgid "Show the selected and connected device count."
+msgstr "顯示已選取與已連線的裝置數量。"
+
+msgctxt "web.settings.toolbarTheme"
+msgid "Theme controls"
+msgstr "主題控制項"
+
+msgctxt "web.settings.toolbarThemeDetail"
+msgid "Show quick dark and light theme controls."
+msgstr "顯示深色與淺色主題的快速控制項。"
+
+msgctxt "web.settings.toolbarLanguage"
+msgid "Language control"
+msgstr "語言控制項"
+
+msgctxt "web.settings.toolbarLanguageDetail"
+msgid "Show the language selector in the toolbar."
+msgstr "在工具列中顯示語言選擇器。"

@@ -24,7 +24,7 @@ import {
   type LogcatUiState,
   type PushUiState,
 } from './pages/Pages';
-import type { ActiveOperation, HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme } from './types';
+import type { ActiveOperation, HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme, ToolbarPosition } from './types';
 
 type Notice = { tone: 'success' | 'warning' | 'error'; message: string };
 type CommandResponse = { result: Record<string, unknown>; revision?: number };
@@ -115,6 +115,10 @@ const defaultPreferences: ModernPreferences = {
   customizeFont: false,
   fontFace: 'Courier',
   fontSize: 12,
+  toolbarPosition: 'top',
+  toolbarShowDevice: true,
+  toolbarShowTheme: true,
+  toolbarShowLanguage: true,
 };
 
 function mockPreferences(): ModernPreferences {
@@ -142,6 +146,10 @@ function mockPreferences(): ModernPreferences {
   const customizeFont = storedValue<unknown>('pf.customizeFont', false);
   const fontFace = storedValue<unknown>('pf.fontFace', 'Courier');
   const fontSize = storedValue<unknown>('pf.fontSize', 12);
+  const toolbarPosition = storedValue<unknown>('pf.toolbarPosition', 'top');
+  const toolbarShowDevice = storedValue<unknown>('pf.toolbarShowDevice', true);
+  const toolbarShowTheme = storedValue<unknown>('pf.toolbarShowTheme', true);
+  const toolbarShowLanguage = storedValue<unknown>('pf.toolbarShowLanguage', true);
   return {
     schemaVersion: 1,
     theme: theme === 'light' ? 'light' : 'dark',
@@ -172,6 +180,11 @@ function mockPreferences(): ModernPreferences {
     fontFace: typeof fontFace === 'string' && fontFace.length >= 1 && fontFace.length <= 96
       && fontFace === fontFace.trim() && !/[\u0000-\u001f\u007f"'\\,;{}()]/u.test(fontFace) ? fontFace : 'Courier',
     fontSize: typeof fontSize === 'number' && Number.isInteger(fontSize) && fontSize >= 6 && fontSize <= 50 ? fontSize : 12,
+    toolbarPosition: typeof toolbarPosition === 'string' && ['top', 'right', 'bottom', 'left'].includes(toolbarPosition)
+      ? toolbarPosition as ToolbarPosition : 'top',
+    toolbarShowDevice: typeof toolbarShowDevice === 'boolean' ? toolbarShowDevice : true,
+    toolbarShowTheme: typeof toolbarShowTheme === 'boolean' ? toolbarShowTheme : true,
+    toolbarShowLanguage: typeof toolbarShowLanguage === 'boolean' ? toolbarShowLanguage : true,
   };
 }
 
@@ -380,8 +393,12 @@ function PixelFlasherApp({
       persist('pf.customizeFont', applicationPreferences.customizeFont);
       persist('pf.fontFace', applicationPreferences.fontFace);
       persist('pf.fontSize', applicationPreferences.fontSize);
+      persist('pf.toolbarPosition', applicationPreferences.toolbarPosition);
+      persist('pf.toolbarShowDevice', applicationPreferences.toolbarShowDevice);
+      persist('pf.toolbarShowTheme', applicationPreferences.toolbarShowTheme);
+      persist('pf.toolbarShowLanguage', applicationPreferences.toolbarShowLanguage);
     }
-  }, [theme, highContrast, reducedMotion, zoom, locale, expertMode, applicationPreferences.customizeFont, applicationPreferences.fontFace, applicationPreferences.fontSize, isMockHost]);
+  }, [theme, highContrast, reducedMotion, zoom, locale, expertMode, applicationPreferences, isMockHost]);
 
   useEffect(() => {
     snapshotRevisionRef.current = snapshot.revision;
@@ -591,7 +608,7 @@ function PixelFlasherApp({
   }, [changePreferences]);
 
   const changeMaintenancePreference = useCallback((
-    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize',
+    field: 'automaticUpdateCheck' | 'checkDiskSpace' | 'checkBootloaderUnlocked' | 'checkFirmwareHash' | 'checkModuleUpdates' | 'showNotifications' | 'rebootTimeoutSeconds' | 'offerPatchMethods' | 'showRecoveryPatching' | 'keepPatchTemporaryFiles' | 'useBusyboxShell' | 'lowMemoryMode' | 'extraImageExtracts' | 'showCustomRomOptions' | 'keyboxIndex' | 'customizeFont' | 'fontFace' | 'fontSize' | 'toolbarPosition' | 'toolbarShowDevice' | 'toolbarShowTheme' | 'toolbarShowLanguage',
     value: boolean | number | string,
   ) => {
     void changePreferences({ [field]: value });
@@ -1034,23 +1051,23 @@ function PixelFlasherApp({
         </div>
       </aside>
 
-      <div className="workspace">
+      <div className={`workspace workspace--toolbar-${applicationPreferences.toolbarPosition}`}>
         <div className="workspace-toolbar">
-          <div className="device-context">
+          {applicationPreferences.toolbarShowDevice ? <div className="device-context">
             <span className="device-context__icon"><Icon name="devices" size={18} /></span>
             <span><strong>{selectedSerials.length || snapshot.devices.length}</strong><small>{t('status.devices', { count: snapshot.devices.length })}</small></span>
-          </div>
+          </div> : null}
           <div className="toolbar-controls">
-            <div className="mini-segmented" role="group" aria-label={t('settings.theme')}>
+            {applicationPreferences.toolbarShowTheme ? <div className="mini-segmented" role="group" aria-label={t('settings.theme')}>
               <button type="button" onClick={() => changeTheme('dark')} aria-pressed={theme === 'dark'}>{t('settings.dark')}</button>
               <button type="button" onClick={() => changeTheme('light')} aria-pressed={theme === 'light'}>{t('settings.light')}</button>
-            </div>
-            <label className="toolbar-locale">
+            </div> : null}
+            {applicationPreferences.toolbarShowLanguage ? <label className="toolbar-locale">
               <span className="sr-only">{t('settings.language')}</span>
               <select value={locale} onChange={(event) => changeLocale(event.currentTarget.value as Locale)}>
                 {localeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
               </select>
-            </label>
+            </label> : null}
           </div>
         </div>
         <main id="main-content" className="main-content" tabIndex={-1}>

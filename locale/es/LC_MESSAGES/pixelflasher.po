@@ -6573,3 +6573,35 @@ msgstr "Exportar consola de PixelFlasher"
 msgctxt "web.settings.textFiles"
 msgid "Text files"
 msgstr "Archivos de texto"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.settings.toolbarPosition"
+msgid "Toolbar position"
+msgstr "Posición de la barra de herramientas"
+
+msgctxt "web.settings.toolbarDevice"
+msgid "Device context"
+msgstr "Contexto del dispositivo"
+
+msgctxt "web.settings.toolbarDeviceDetail"
+msgid "Show the selected and connected device count."
+msgstr "Muestra la cantidad de dispositivos seleccionados y conectados."
+
+msgctxt "web.settings.toolbarTheme"
+msgid "Theme controls"
+msgstr "Controles de tema"
+
+msgctxt "web.settings.toolbarThemeDetail"
+msgid "Show quick dark and light theme controls."
+msgstr "Muestra controles rápidos para los temas oscuro y claro."
+
+msgctxt "web.settings.toolbarLanguage"
+msgid "Language control"
+msgstr "Control de idioma"
+
+msgctxt "web.settings.toolbarLanguageDetail"
+msgid "Show the language selector in the toolbar."
+msgstr "Muestra el selector de idioma en la barra de herramientas."

@@ -120,6 +120,10 @@ class RuntimePreferencesTests(unittest.TestCase):
                         "customizeFont": True,
                         "fontFace": "Cascadia Code",
                         "fontSize": 18,
+                        "toolbarPosition": "left",
+                        "toolbarShowDevice": False,
+                        "toolbarShowTheme": False,
+                        "toolbarShowLanguage": True,
                     },
                 )
             )
@@ -149,6 +153,10 @@ class RuntimePreferencesTests(unittest.TestCase):
                 customize_font=True,
                 font_face="Cascadia Code",
                 font_size=18,
+                toolbar_position="left",
+                toolbar_show_device=False,
+                toolbar_show_theme=False,
+                toolbar_show_language=True,
             )
             self.assertTrue(result.ok)
             self.assertEqual("settings_updated", result.code)
@@ -179,6 +187,10 @@ class RuntimePreferencesTests(unittest.TestCase):
             self.assertTrue(payload["customize_font"])
             self.assertEqual("Cascadia Code", payload["pf_font_face"])
             self.assertEqual(18, payload["pf_font_size"])
+            self.assertEqual("left", payload["toolbarPosition"])
+            self.assertFalse(payload["toolbarShowDevice"])
+            self.assertFalse(payload["toolbarShowTheme"])
+            self.assertTrue(payload["toolbarShowLanguage"])
             self.assertEqual(
                 expected.to_dict(),
                 runtime.config_document.values[PREFERENCES_KEY],

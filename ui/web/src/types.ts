@@ -1,5 +1,6 @@
 export type Locale = 'en' | 'es' | 'fr' | 'it' | 'zh_CN' | 'zh_TW';
 export type Theme = 'dark' | 'light';
+export type ToolbarPosition = 'top' | 'right' | 'bottom' | 'left';
 
 export interface ModernPreferences {
   schemaVersion: 1;
@@ -27,6 +28,10 @@ export interface ModernPreferences {
   customizeFont: boolean;
   fontFace: string;
   fontSize: number;
+  toolbarPosition: ToolbarPosition;
+  toolbarShowDevice: boolean;
+  toolbarShowTheme: boolean;
+  toolbarShowLanguage: boolean;
 }
 export type RouteId =
   | 'dashboard'

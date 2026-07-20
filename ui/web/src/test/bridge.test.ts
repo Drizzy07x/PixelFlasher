@@ -29,6 +29,10 @@ const snapshotPreferences = {
   customizeFont: false,
   fontFace: 'Courier',
   fontSize: 12,
+  toolbarPosition: 'top' as const,
+  toolbarShowDevice: true,
+  toolbarShowTheme: true,
+  toolbarShowLanguage: true,
 };
 
 function hostFor(responseResult: (request: BridgeRequest) => Record<string, unknown>) {

@@ -27,6 +27,7 @@ PREFERENCES_SCHEMA_KEY = "schemaVersion"
 PREFERENCES_SCHEMA_VERSION = 1
 SUPPORTED_THEMES = ("dark", "light")
 SUPPORTED_LOCALES = ("en", "es", "fr", "it", "zh_CN", "zh_TW")
+SUPPORTED_TOOLBAR_POSITIONS = ("top", "right", "bottom", "left")
 MIN_ZOOM = 80
 MAX_ZOOM = 200
 MIN_MONOSPACE_FONT_SIZE = 6
@@ -35,6 +36,7 @@ MAX_FONT_FACE_LENGTH = 96
 MAX_MANAGED_DEVICE_TIMESTAMP = 253_402_300_799
 _SUPPORTED_THEME_SET = frozenset(SUPPORTED_THEMES)
 _SUPPORTED_LOCALE_SET = frozenset(SUPPORTED_LOCALES)
+_SUPPORTED_TOOLBAR_POSITION_SET = frozenset(SUPPORTED_TOOLBAR_POSITIONS)
 _PREFERENCE_FIELDS = frozenset(
     {
         PREFERENCES_SCHEMA_KEY,
@@ -62,6 +64,10 @@ _PREFERENCE_FIELDS = frozenset(
         "customizeFont",
         "fontFace",
         "fontSize",
+        "toolbarPosition",
+        "toolbarShowDevice",
+        "toolbarShowTheme",
+        "toolbarShowLanguage",
     }
 )
 
@@ -102,6 +108,10 @@ class ModernPreferences:
     customize_font: bool = False
     font_face: str = "Courier"
     font_size: int = 12
+    toolbar_position: str = "top"
+    toolbar_show_device: bool = True
+    toolbar_show_theme: bool = True
+    toolbar_show_language: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.theme, str) or self.theme not in _SUPPORTED_THEME_SET:
@@ -155,6 +165,9 @@ class ModernPreferences:
             ("showCustomRomOptions", self.show_custom_rom_options),
             ("keyboxIndex", self.keybox_index),
             ("customizeFont", self.customize_font),
+            ("toolbarShowDevice", self.toolbar_show_device),
+            ("toolbarShowTheme", self.toolbar_show_theme),
+            ("toolbarShowLanguage", self.toolbar_show_language),
         )
         for public_name, value in boolean_preferences:
             if not isinstance(value, bool):
@@ -170,6 +183,14 @@ class ModernPreferences:
             raise PreferencesError(
                 "reboot_timeout_invalid",
                 "rebootTimeoutSeconds must be an integer between 1 and 3600",
+            )
+        if (
+            not isinstance(self.toolbar_position, str)
+            or self.toolbar_position not in _SUPPORTED_TOOLBAR_POSITION_SET
+        ):
+            raise PreferencesError(
+                "toolbar_position_invalid",
+                "toolbarPosition must be exactly top, right, bottom, or left",
             )
         if (
             not isinstance(self.font_face, str)
@@ -285,6 +306,18 @@ class ModernPreferences:
             customize_font=raw.get("customizeFont", defaults.customize_font),
             font_face=raw.get("fontFace", defaults.font_face),
             font_size=raw.get("fontSize", defaults.font_size),
+            toolbar_position=raw.get(
+                "toolbarPosition", defaults.toolbar_position
+            ),
+            toolbar_show_device=raw.get(
+                "toolbarShowDevice", defaults.toolbar_show_device
+            ),
+            toolbar_show_theme=raw.get(
+                "toolbarShowTheme", defaults.toolbar_show_theme
+            ),
+            toolbar_show_language=raw.get(
+                "toolbarShowLanguage", defaults.toolbar_show_language
+            ),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -314,6 +347,10 @@ class ModernPreferences:
             "customizeFont": self.customize_font,
             "fontFace": self.font_face,
             "fontSize": self.font_size,
+            "toolbarPosition": self.toolbar_position,
+            "toolbarShowDevice": self.toolbar_show_device,
+            "toolbarShowTheme": self.toolbar_show_theme,
+            "toolbarShowLanguage": self.toolbar_show_language,
         }
 
 

@@ -460,6 +460,10 @@ describe('apps, backups and settings workflows', () => {
     await user.click(screen.getByRole('checkbox', { name: /Automatic application update checks/ }));
     expect(screen.getByLabelText('Monospace font')).toBeDisabled();
     await user.click(screen.getByRole('checkbox', { name: /Custom monospace font/ }));
+    await user.selectOptions(screen.getByLabelText('Toolbar position'), 'right');
+    await user.click(screen.getByRole('checkbox', { name: /Device context/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Theme controls/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Language control/ }));
     fireEvent.change(screen.getByRole('spinbutton', { name: /Android startup timeout/ }), { target: { value: '180' } });
     await user.click(screen.getByRole('button', { name: 'Zoom out' }));
     await user.click(screen.getByRole('button', { name: 'Reset zoom' }));
@@ -477,6 +481,10 @@ describe('apps, backups and settings workflows', () => {
     expect(callbacks.maintenance).toHaveBeenCalledWith('checkDiskSpace', false);
     expect(callbacks.maintenance).toHaveBeenCalledWith('automaticUpdateCheck', true);
     expect(callbacks.maintenance).toHaveBeenCalledWith('customizeFont', true);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('toolbarPosition', 'right');
+    expect(callbacks.maintenance).toHaveBeenCalledWith('toolbarShowDevice', false);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('toolbarShowTheme', false);
+    expect(callbacks.maintenance).toHaveBeenCalledWith('toolbarShowLanguage', false);
     expect(callbacks.maintenance).toHaveBeenCalledWith('rebootTimeoutSeconds', 180);
     expect(callbacks.zoom).toHaveBeenCalledWith(80);
     expect(callbacks.zoom).toHaveBeenCalledWith(100);
