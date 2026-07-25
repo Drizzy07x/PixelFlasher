@@ -1,0 +1,5 @@
+*.sh text eol=lf
+resources/boot-patch/runner/* text eol=lf
+resources/ota/runner/* text eol=lf
+*.dex binary
+

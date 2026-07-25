@@ -1,5 +1,9 @@
 # -*- mode: python -*-
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(SPECPATH)))
 from build_artifact_policy import RETIRED_UI_MODULES
 
 block_cipher = None

@@ -1,3 +1,4 @@
+import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -12,6 +13,8 @@ def write_tool_pair(directory: Path) -> tuple[Path, Path]:
     fastboot = directory / "fastboot.exe"
     adb.write_bytes(b"")
     fastboot.write_bytes(b"")
+    adb.chmod(adb.stat().st_mode | stat.S_IXUSR)
+    fastboot.chmod(fastboot.stat().st_mode | stat.S_IXUSR)
     return adb.resolve(), fastboot.resolve()
 
 

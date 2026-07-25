@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import stat
 import threading
 import unittest
 import zipfile
@@ -54,6 +55,8 @@ def make_toolchain_files(directory: Path):
     fastboot = directory / "fastboot.exe"
     adb.write_bytes(content)
     fastboot.write_bytes(content)
+    adb.chmod(adb.stat().st_mode | stat.S_IXUSR)
+    fastboot.chmod(fastboot.stat().st_mode | stat.S_IXUSR)
     return adb.resolve(), fastboot.resolve()
 
 

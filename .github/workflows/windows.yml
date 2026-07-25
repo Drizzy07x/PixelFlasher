@@ -97,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           (Get-Content requirements.txt) | Where-Object { $_ -notmatch '^\s*wxPython' } | Set-Content requirements_no_wx.txt
-          & $env:PYTHON_EXE -m pip install -r requirements_no_wx.txt
+          & $env:PYTHON_EXE -m pip install -r requirements_no_wx.txt -r requirements-dev.txt
 
       - name: List modules and their versions
         shell: pwsh
@@ -115,10 +115,13 @@ jobs:
       - name: Run beta-safe checks before packaging
         shell: pwsh
         run: |
+          $env:TEMP = Join-Path $env:GITHUB_WORKSPACE ".tmp"
+          $env:TMP = $env:TEMP
+          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
           & $env:PYTHON_EXE -m py_compile PixelFlasher.py self_test.py diagnostics.py platform_utils.py config.py ui/bridge_contract.py ui/core_command_factory.py ui/pages/modern_primary_app.py ui/pages/modern_webview_host.py tools/create_beta_bundle.py
           & $env:PYTHON_EXE -m compileall -q pixelflasher_core
           & $env:PYTHON_EXE PixelFlasher.py --self-test
-          & $env:PYTHON_EXE -m unittest discover -s tests -v
+          & $env:PYTHON_EXE -m pytest
 
       - name: Build application
         shell: pwsh

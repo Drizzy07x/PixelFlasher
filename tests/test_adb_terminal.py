@@ -273,7 +273,8 @@ class AdbTerminalDeliveryTests(unittest.TestCase):
         requirements = Path("requirements.txt").read_text(encoding="utf-8")
         self.assertIn('pywinpty==3.0.5; sys_platform == "win32"', requirements)
         backend = Path("pixelflasher_core/adb_terminal.py").read_text(encoding="utf-8")
-        self.assertIn("backend=Backend.ConPTY", backend)
+        self.assertIn('importlib.import_module("winpty.enums")', backend)
+        self.assertIn("backend=backend.ConPTY", backend)
         for path in (Path("build-on-win.spec"), Path("build-on-win-arm64.spec")):
             with self.subTest(path=path):
                 source = path.read_text(encoding="utf-8")

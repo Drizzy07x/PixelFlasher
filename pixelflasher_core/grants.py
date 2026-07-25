@@ -920,7 +920,7 @@ class _Win32Api:
                 disposition=self._FILE_OPEN,
             )
         except OSError as error:
-            if error.winerror in {2, 3}:
+            if getattr(error, "winerror", None) in {2, 3}:
                 return None
             raise
         try:
@@ -948,7 +948,7 @@ class _Win32Api:
         )
 
     def stream_from_handle(self, handle: int, mode: str) -> BinaryIO:
-        flags = os.O_BINARY | (os.O_RDWR if "+" in mode else os.O_RDONLY)
+        flags = int(getattr(os, "O_BINARY", 0)) | (os.O_RDWR if "+" in mode else os.O_RDONLY)
         try:
             descriptor = int(self._msvcrt.open_osfhandle(handle, flags))
         except Exception:
@@ -1088,7 +1088,7 @@ class _Win32WriteAnchor:
                 )
                 break
             except OSError as error:
-                if error.winerror in {80, 183}:
+                if getattr(error, "winerror", None) in {80, 183}:
                     continue
                 raise
         if temporary_handle < 0:

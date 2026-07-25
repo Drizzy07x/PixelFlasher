@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import errno
+import importlib
 import os
 import signal
 import socket
@@ -121,6 +122,10 @@ class TerminalBackend(Protocol):
         on_output: Callable[[bytes], None],
         on_exit: Callable[[int | None], None],
     ) -> TerminalProcess: ...
+
+
+class _WinPtyBackendEnum(Protocol):
+    ConPTY: int
 
 
 class _WinPtyProcess(Protocol):
@@ -719,15 +724,16 @@ class WindowsConPtyBackend:
         if not sys.platform.startswith("win"):
             raise OSError("Windows ConPTY backend is unavailable")
         try:
-            from winpty import PtyProcess
-            from winpty.enums import Backend
+            winpty = importlib.import_module("winpty")
+            winpty_enums = importlib.import_module("winpty.enums")
         except ImportError as error:
             raise OSError("pywinpty is required for Windows ConPTY") from error
-        factory = cast(_WinPtyFactory, PtyProcess)
+        factory = cast(_WinPtyFactory, winpty.PtyProcess)
+        backend = cast(_WinPtyBackendEnum, winpty_enums.Backend)
         process = factory.spawn(
             list(argv),
             dimensions=(rows, columns),
-            backend=Backend.ConPTY,
+            backend=backend.ConPTY,
         )
         process.fileobj.settimeout(0.2)
         terminal = _WindowsTerminalProcess(process)

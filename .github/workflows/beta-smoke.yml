@@ -33,7 +33,7 @@ jobs:
       - name: Install CI runtime dependencies
         run: |
           python -c "from pathlib import Path; lines = Path('requirements.txt').read_text().splitlines(True); Path('requirements-ci.txt').write_text(''.join(line for line in lines if not line.lstrip().startswith('wxPython')))"
-          python -m pip install -r requirements-ci.txt
+          python -m pip install -r requirements-ci.txt -r requirements-dev.txt
 
       - name: Build the required React WebView bundle
         run: |
@@ -50,4 +50,4 @@ jobs:
         run: python PixelFlasher.py --self-test
 
       - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+        run: python -m pytest

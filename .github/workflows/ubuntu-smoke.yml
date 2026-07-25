@@ -75,7 +75,7 @@ jobs:
         run: python -m ruff check pixelflasher_core ui scripts tests
 
       - name: Type-check the strict modern core
-        run: python -m pyright --pythonpath "$(command -v python)" pixelflasher_core
+        run: python -m pyright --pythonpath "$(command -v python)" --pythonplatform Linux pixelflasher_core
 
       - name: Run the Python suite with the RC1 coverage gate
         run: python -m pytest --cov=pixelflasher_core --cov-report=term-missing --cov-fail-under=80

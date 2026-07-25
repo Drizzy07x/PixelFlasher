@@ -4,6 +4,9 @@ from pathlib import Path
 import wx
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
+import sys
+
+sys.path.insert(0, str(Path(SPECPATH)))
 from build_artifact_policy import RETIRED_UI_MODULES
 
 wx_dir = Path(wx.__file__).resolve().parent

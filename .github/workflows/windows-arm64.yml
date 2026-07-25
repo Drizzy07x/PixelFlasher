@@ -91,9 +91,10 @@ jobs:
         run: |
           $venvPip = ".\myenv\Scripts\pip.exe"
           & $venvPip install --upgrade pyinstaller
+          & $venvPip install --only-binary=:all: cryptography==46.0.3
           # Remove wxPython from requirements.txt to prevent overwriting the custom build
           (Get-Content requirements.txt) | Where-Object { $_ -notmatch "wxPython" } | Set-Content requirements_no_wx.txt
-          & $venvPip install -r requirements_no_wx.txt
+          & $venvPip install -r requirements_no_wx.txt -r requirements-dev.txt
 
       - name: List modules and their versions
         shell: pwsh

@@ -61,7 +61,7 @@ jobs:
           source myenv/bin/activate
           python -m pip install --upgrade pip wheel setuptools
           python -m pip install --only-binary=:all: wxPython==4.2.2
-          python -m pip install -r requirements.txt
+          python -m pip install -r requirements.txt -r requirements-dev.txt
           python -c 'import platform, wx; print(platform.machine(), wx.version())'
 
       - name: Build and test the local React application
@@ -69,12 +69,14 @@ jobs:
         run: |
           set -euo pipefail
           source myenv/bin/activate
+          mkdir -p "$GITHUB_WORKSPACE/.tmp"
+          export TMPDIR="$GITHUB_WORKSPACE/.tmp"
           if [[ "$GITHUB_REF" == refs/tags/v10.* ]]; then
             python scripts/release_version.py --apply "$GITHUB_REF_NAME"
           fi
           python scripts/build_frontend.py
           python PixelFlasher.py --self-test
-          python -m unittest discover -s tests -v
+          python -m pytest
 
       - name: Build the native application bundle without a DMG
         shell: bash

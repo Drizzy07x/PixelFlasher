@@ -1,7 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_submodules
 
+sys.path.insert(0, str(Path(SPECPATH)))
 from build_artifact_policy import RETIRED_UI_MODULES
 
 block_cipher = None

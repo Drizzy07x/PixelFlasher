@@ -1123,8 +1123,7 @@
         "pixelflasher_core/runtime.py:ApplicationRuntime.register_support_destination",
         "support_smoke_contract.py:packaged v1-read/v2-write/redaction/tamper smoke",
         "scripts/verify_support_smoke.py:closed platform and architecture verifier",
-        ".github/workflows/windows.yml:packaged support smoke; delivery contract enforces all six targets",
-        "dist/PixelFlasher.exe:Windows x64 packaged receipt verified on 2026-07-20"
+        ".github/workflows/windows.yml:packaged support smoke; delivery contract enforces all six targets"
       ],
       "gap": "The closed packaged smoke now proves v1 read, v2 AES-256-GCM/RSA-OAEP-SHA256 write/read, seeded redaction, tamper rejection and route-free receipts. Production recipient-key provisioning and remote Windows ARM64/macOS/Linux results remain open.",
       "exitCriteria": [
