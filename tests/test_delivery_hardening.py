@@ -1,3 +1,4 @@
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -76,6 +77,17 @@ class DeliveryHardeningTests(unittest.TestCase):
         runtime_hook = (ROOT / "pyi_runtime_linux_gtk.py").read_text(encoding="utf-8")
         self.assertNotIn('setdefault("NO_AT_BRIDGE"', runtime_hook)
         self.assertNotIn("python3-minimal", source)
+
+    def test_clean_receipt_verifiers_remain_python310_runtime_independent(self):
+        schema_path = ROOT / "smoke_receipt_schema.py"
+        schema_source = schema_path.read_text(encoding="utf-8")
+        ast.parse(schema_source, filename=str(schema_path), feature_version=(3, 10))
+        self.assertNotIn("pixelflasher_core", schema_source)
+        self.assertNotIn("from constants", schema_source)
+        for verifier in ("verify_pty_smoke.py", "verify_legacy_raw_smoke.py"):
+            with self.subTest(verifier=verifier):
+                source = (ROOT / "scripts" / verifier).read_text(encoding="utf-8")
+                self.assertIn("from smoke_receipt_schema import", source)
 
     def test_every_native_artifact_proves_react_bridge_and_clean_shutdown(self):
         expected_targets = {

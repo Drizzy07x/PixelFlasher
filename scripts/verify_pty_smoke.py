@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from pty_smoke_contract import (  # noqa: E402
+from smoke_receipt_schema import (  # noqa: E402
     PtySmokeError,
     load_pty_smoke_receipt,
     validate_pty_smoke_receipt,

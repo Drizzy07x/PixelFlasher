@@ -12,7 +12,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from constants import VERSION
 from pixelflasher_core import (
@@ -24,14 +24,14 @@ from pixelflasher_core import (
     MyToolsService,
     PathGrantStore,
 )
+from smoke_receipt_schema import (
+    LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES,
+    LEGACY_RAW_SMOKE_SCHEMA_VERSION,
+    LegacyRawSmokeError,
+    load_legacy_raw_smoke_receipt,
+    validate_legacy_raw_smoke_receipt,
+)
 from ui_smoke_contract import normalized_architecture, normalized_platform
-
-LEGACY_RAW_SMOKE_SCHEMA_VERSION = 2
-LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES = 64 * 1024
-
-
-class LegacyRawSmokeError(ValueError):
-    """The packaged Legacy Raw probe or its receipt is invalid."""
 
 
 def fixed_probe_executable() -> Path:
@@ -86,109 +86,6 @@ def create_legacy_raw_smoke_receipt(
         "exactRunCompleted": True,
         "cleanShutdown": True,
     }
-
-
-def validate_legacy_raw_smoke_receipt(
-    receipt: dict[str, Any],
-    *,
-    expected_platform: str | None = None,
-    expected_architecture: str | None = None,
-) -> dict[str, Any]:
-    expected_keys = {
-        "schemaVersion",
-        "status",
-        "applicationVersion",
-        "platform",
-        "architecture",
-        "processBits",
-        "shell",
-        "probeExecutable",
-        "outputBytes",
-        "outputSha256",
-        "safeArgvProbe",
-        "safeArgvOutputBytes",
-        "safeArgvOutputSha256",
-        "safeArgvProfileReloaded",
-        "safeArgvNoShell",
-        "safeArgvCompleted",
-        "persistentPermission",
-        "incorrectPermissionRejected",
-        "incorrectRunRejected",
-        "exactRunCompleted",
-        "cleanShutdown",
-    }
-    if set(receipt) != expected_keys:
-        raise LegacyRawSmokeError("Legacy Raw receipt fields do not match the closed schema")
-    if (
-        receipt.get("schemaVersion") != LEGACY_RAW_SMOKE_SCHEMA_VERSION
-        or receipt.get("status") != "passed"
-        or not isinstance(receipt.get("applicationVersion"), str)
-        or not receipt["applicationVersion"]
-        or receipt.get("processBits") not in {32, 64}
-    ):
-        raise LegacyRawSmokeError("Legacy Raw receipt identity is invalid")
-    platform_name = receipt.get("platform")
-    shell = receipt.get("shell")
-    executable = receipt.get("probeExecutable")
-    safe_probe = receipt.get("safeArgvProbe")
-    expected_shell = "cmd" if platform_name == "windows" else "zsh" if platform_name == "macos" else "sh"
-    if platform_name not in {"windows", "macos", "linux"}:
-        raise LegacyRawSmokeError("Legacy Raw receipt platform is invalid")
-    if shell != expected_shell or executable != ("whoami.exe" if platform_name == "windows" else "id"):
-        raise LegacyRawSmokeError("Legacy Raw receipt did not prove the native host shell")
-    if safe_probe != ("whoami-user" if platform_name == "windows" else "id-effective-user"):
-        raise LegacyRawSmokeError("personal tools receipt did not prove the native safe argv probe")
-    size = receipt.get("outputBytes")
-    digest = receipt.get("outputSha256")
-    if (
-        isinstance(size, bool)
-        or not isinstance(size, int)
-        or not 1 <= size <= LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES
-        or not isinstance(digest, str)
-        or len(digest) != 64
-        or any(character not in "0123456789abcdef" for character in digest)
-    ):
-        raise LegacyRawSmokeError("Legacy Raw receipt output evidence is invalid")
-    safe_size = receipt.get("safeArgvOutputBytes")
-    safe_digest = receipt.get("safeArgvOutputSha256")
-    if (
-        isinstance(safe_size, bool)
-        or not isinstance(safe_size, int)
-        or not 1 <= safe_size <= LEGACY_RAW_SMOKE_MAXIMUM_OUTPUT_BYTES
-        or not isinstance(safe_digest, str)
-        or len(safe_digest) != 64
-        or any(character not in "0123456789abcdef" for character in safe_digest)
-    ):
-        raise LegacyRawSmokeError("safe argv receipt output evidence is invalid")
-    for field in (
-        "safeArgvProfileReloaded",
-        "safeArgvNoShell",
-        "safeArgvCompleted",
-        "persistentPermission",
-        "incorrectPermissionRejected",
-        "incorrectRunRejected",
-        "exactRunCompleted",
-        "cleanShutdown",
-    ):
-        if receipt.get(field) is not True:
-            raise LegacyRawSmokeError(f"Legacy Raw receipt did not prove {field}")
-    if expected_platform is not None and platform_name != expected_platform:
-        raise LegacyRawSmokeError(f"expected platform {expected_platform!r}, got {platform_name!r}")
-    if expected_architecture is not None and receipt.get("architecture") != expected_architecture:
-        raise LegacyRawSmokeError(
-            f"expected architecture {expected_architecture!r}, got {receipt.get('architecture')!r}"
-        )
-    return dict(receipt)
-
-
-def load_legacy_raw_smoke_receipt(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise LegacyRawSmokeError("Legacy Raw smoke receipt is missing or invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise LegacyRawSmokeError("Legacy Raw smoke receipt must be a JSON object")
-    return cast(dict[str, Any], value)
 
 
 def write_legacy_raw_smoke_receipt(path: Path, receipt: dict[str, Any]) -> None:

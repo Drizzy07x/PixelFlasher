@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from constants import VERSION
 from pixelflasher_core.adb_terminal import (
@@ -27,14 +27,14 @@ from pixelflasher_core.adb_terminal import (
     WindowsConPtyBackend,
     native_terminal_backend,
 )
+from smoke_receipt_schema import (
+    PTY_SMOKE_MAXIMUM_OUTPUT_BYTES,
+    PTY_SMOKE_SCHEMA_VERSION,
+    PtySmokeError,
+    load_pty_smoke_receipt,
+    validate_pty_smoke_receipt,
+)
 from ui_smoke_contract import normalized_architecture, normalized_platform
-
-PTY_SMOKE_SCHEMA_VERSION = 1
-PTY_SMOKE_MAXIMUM_OUTPUT_BYTES = 64 * 1024
-
-
-class PtySmokeError(ValueError):
-    """The packaged PTY probe or its closed receipt is invalid."""
 
 
 def fixed_probe_argv() -> tuple[str, ...]:
@@ -199,80 +199,6 @@ def create_pty_smoke_receipt(
         "outputObserved": True,
         "cleanShutdown": True,
     }
-
-
-def validate_pty_smoke_receipt(
-    receipt: dict[str, Any],
-    *,
-    expected_platform: str | None = None,
-    expected_architecture: str | None = None,
-) -> dict[str, Any]:
-    expected_keys = {
-        "schemaVersion",
-        "status",
-        "applicationVersion",
-        "platform",
-        "architecture",
-        "processBits",
-        "backend",
-        "probeExecutable",
-        "outputBytes",
-        "outputSha256",
-        "exitCode",
-        "outputObserved",
-        "cleanShutdown",
-    }
-    if set(receipt) != expected_keys:
-        raise PtySmokeError("PTY receipt fields do not match the closed schema")
-    if receipt.get("schemaVersion") != PTY_SMOKE_SCHEMA_VERSION or receipt.get("status") != "passed":
-        raise PtySmokeError("PTY receipt status or schema is invalid")
-    if not isinstance(receipt.get("applicationVersion"), str) or not receipt["applicationVersion"]:
-        raise PtySmokeError("PTY receipt application version is invalid")
-    if receipt.get("processBits") not in {32, 64}:
-        raise PtySmokeError("PTY receipt process width is invalid")
-    platform_name = receipt.get("platform")
-    backend = receipt.get("backend")
-    executable = receipt.get("probeExecutable")
-    if platform_name == "windows":
-        if backend != "conpty" or executable != "whoami.exe":
-            raise PtySmokeError("Windows PTY receipt did not prove ConPTY")
-    elif platform_name in {"macos", "linux"}:
-        if backend != "posix-pty" or executable != "id":
-            raise PtySmokeError("POSIX PTY receipt did not prove the native PTY")
-    else:
-        raise PtySmokeError("PTY receipt platform is invalid")
-    size = receipt.get("outputBytes")
-    digest = receipt.get("outputSha256")
-    if (
-        isinstance(size, bool)
-        or not isinstance(size, int)
-        or not 1 <= size <= PTY_SMOKE_MAXIMUM_OUTPUT_BYTES
-        or not isinstance(digest, str)
-        or len(digest) != 64
-        or any(character not in "0123456789abcdef" for character in digest)
-    ):
-        raise PtySmokeError("PTY receipt output evidence is invalid")
-    if receipt.get("exitCode") != 0 or receipt.get("outputObserved") is not True:
-        raise PtySmokeError("PTY process completion was not proven")
-    if receipt.get("cleanShutdown") is not True:
-        raise PtySmokeError("PTY clean shutdown was not proven")
-    if expected_platform is not None and platform_name != expected_platform:
-        raise PtySmokeError(f"expected platform {expected_platform!r}, got {platform_name!r}")
-    if expected_architecture is not None and receipt.get("architecture") != expected_architecture:
-        raise PtySmokeError(
-            f"expected architecture {expected_architecture!r}, got {receipt.get('architecture')!r}"
-        )
-    return dict(receipt)
-
-
-def load_pty_smoke_receipt(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PtySmokeError("PTY smoke receipt is missing or invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise PtySmokeError("PTY smoke receipt must be a JSON object")
-    return cast(dict[str, Any], value)
 
 
 def write_pty_smoke_receipt(path: Path, receipt: dict[str, Any]) -> None:
