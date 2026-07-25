@@ -64,8 +64,10 @@ class DeliveryHardeningTests(unittest.TestCase):
             "releases/assets/324406882",
             "a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0",
             "sha256sum --check --strict",
-            "GDK_BACKEND=wayland",
+            "GDK_BACKEND=x11",
             "backend=headless-backend.so",
+            "--xwayland",
+            "xserver listening on display",
             "smoke_clean_image",
             "ubuntu:22.04",
         ):

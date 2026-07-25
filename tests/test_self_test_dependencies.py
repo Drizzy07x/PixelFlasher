@@ -19,6 +19,7 @@ from self_test import (
 WINDOWS_SPEC_SOURCE = Path("build-on-win.spec")
 DESKTOP_SPEC_SOURCES = (
     WINDOWS_SPEC_SOURCE,
+    Path("build-on-win-arm64.spec"),
     Path("build-on-linux.spec"),
     Path("build-on-mac.spec"),
     Path("build-on-mac-intel-only.spec"),

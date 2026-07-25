@@ -87,7 +87,7 @@ jobs:
           sudo apt-get install -y libnotify-dev
           sudo apt-get install -y libsm-dev
           # Install tools needed for AppImage creation
-          sudo apt-get install -y patchelf curl zsync xvfb xauth weston
+          sudo apt-get install -y patchelf curl zsync xvfb xauth weston xwayland
 
       - name: Create virtual environment and install dependencies
         run: |
@@ -287,7 +287,7 @@ jobs:
             --expect-platform linux \
             --expect-architecture x86_64
 
-      - name: Launch AppImage with the native Wayland backend
+      - name: Launch AppImage in a Wayland session through XWayland
         shell: bash
         run: |
           set -euo pipefail
@@ -300,6 +300,7 @@ jobs:
           chmod 700 "$runtime_dir"
           XDG_RUNTIME_DIR="$runtime_dir" weston \
             --backend=headless-backend.so \
+            --xwayland \
             --socket=wayland-pixelflasher \
             --idle-time=0 >"$RUNNER_TEMP/weston.log" 2>&1 &
           weston_pid=$!
@@ -308,15 +309,24 @@ jobs:
           }
           trap cleanup EXIT
           for _ in $(seq 1 30); do
-            test -S "$runtime_dir/wayland-pixelflasher" && break
+            if test -S "$runtime_dir/wayland-pixelflasher" &&
+              grep -Eq 'xserver listening on display :[0-9]+' "$RUNNER_TEMP/weston.log"; then
+              break
+            fi
             sleep 1
           done
           test -S "$runtime_dir/wayland-pixelflasher"
+          xdisplay="$(
+            sed -n 's/.*xserver listening on display \(:[0-9][0-9]*\).*/\1/p' \
+              "$RUNNER_TEMP/weston.log" | tail -n 1
+          )"
+          test -n "$xdisplay"
           if ! timeout 45s env \
             XDG_RUNTIME_DIR="$runtime_dir" \
             XDG_CONFIG_HOME="$config_dir" \
             WAYLAND_DISPLAY=wayland-pixelflasher \
-            GDK_BACKEND=wayland \
+            DISPLAY="$xdisplay" \
+            GDK_BACKEND=x11 \
             APPIMAGE_EXTRACT_AND_RUN=1 \
             dist/PixelFlasher-x86_64.AppImage \
               --ui-smoke-report "$smoke_report" \
