@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       SIGN_MACOS: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
-      KEYCHAIN_PATH: ${{ runner.temp }}/pixelflasher-signing.keychain-db
+      KEYCHAIN_PATH: ${{ github.workspace }}/pixelflasher-signing.keychain-db
 
     steps:
       - name: Checkout code
