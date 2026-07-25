@@ -155,11 +155,11 @@ jobs:
             Write-Error "ARM64 executable not found"
             exit 1
           }
-          $headers = (& dumpbin.exe /headers "dist/PixelFlasher-arm64.exe") -join "`n"
-          if ($headers -notmatch 'AA64|ARM64') {
-            Write-Error "Packaged executable is not a native ARM64 PE image."
-            exit 1
-          }
+          & $env:PYTHON_EXE scripts/verify_binary_architecture.py `
+            --binary "dist/PixelFlasher-arm64.exe" `
+            --platform windows `
+            --architecture arm64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify React and locale assets are inside the executable
         shell: pwsh

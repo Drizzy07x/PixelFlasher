@@ -23,7 +23,8 @@ class DeliveryHardeningTests(unittest.TestCase):
         self.assertIn("mandatory for v10 release tags", x64)
         self.assertIn("mandatory for v10 release tags", arm)
         self.assertIn("windows-11-arm", arm)
-        self.assertIn("dumpbin.exe /headers", arm)
+        self.assertIn("scripts/verify_binary_architecture.py", arm)
+        self.assertIn("--architecture arm64", arm)
         self.assertIn("PixelFlasher-arm64.exe\" --self-test", arm)
 
     def test_windows_build_wrapper_propagates_failures_and_exposes_repo_modules(self):
