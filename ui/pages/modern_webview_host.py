@@ -756,7 +756,7 @@ const runJourney = async () => {{
 }};
 const waitForShell = () => {{
   if (document.querySelector('.app-shell') && document.querySelectorAll('.task-nav button').length === taskRoutes.length) {{
-    void runJourney();
+    requestAnimationFrame(() => requestAnimationFrame(() => void runJourney()));
     return;
   }}
   requestAnimationFrame(waitForShell);

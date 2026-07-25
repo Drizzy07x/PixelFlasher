@@ -175,6 +175,10 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertIn("document.activeElement !== heading", script)
         self.assertIn("__pixelflasherUiSmokeInstalled", script)
         self.assertIn("DOMContentLoaded", script)
+        self.assertIn(
+            "requestAnimationFrame(() => requestAnimationFrame(() => void runJourney()))",
+            script,
+        )
         for route in _UI_SMOKE_ROUTES:
             self.assertIn(f'"{route}"', script)
         self.assertTrue(host._ui_smoke_in_progress)
