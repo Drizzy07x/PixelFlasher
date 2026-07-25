@@ -130,7 +130,7 @@ jobs:
       - name: Verify React and locale assets are inside the executable
         shell: bash
         run: |
-          archive_listing="$(myenv/bin/pyi-archive-viewer -b -l dist/PixelFlasher_Ubuntu_22_04 | tr '\\' '/')"
+          archive_listing="$(myenv/bin/pyi-archive_viewer -b -l dist/PixelFlasher_Ubuntu_22_04)"
           for asset in \
             ui/web/dist/index.html \
             ui/web/dist/assets/adb-terminal.js \

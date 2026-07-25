@@ -713,6 +713,20 @@ def _extract_ui_smoke_script_output(output: str) -> str | None:
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
 
+def _extract_ui_smoke_message_output(raw: str) -> str | None:
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("smokeToken") != _UI_SMOKE_SCRIPT_TOKEN
+        or not isinstance(payload.get("output"), str)
+    ):
+        return None
+    return _extract_ui_smoke_script_output(payload["output"])
+
+
 def _ui_smoke_initialization_script() -> str:
     return """(() => {
 const shell = document.querySelector('.app-shell');
@@ -876,7 +890,6 @@ class ModernWebViewFrame(wx.Frame):
         self._view.Bind(html2.EVT_WEBVIEW_LOADED, self._on_loaded)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_navigating)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_ERROR, self._on_load_error)  # type: ignore[union-attr]
-        self._view.Bind(html2.EVT_WEBVIEW_SCRIPT_RESULT, self._on_script_result)  # type: ignore[union-attr]
         self.Bind(wx.EVT_CLOSE, self._on_close)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -938,6 +951,15 @@ class ModernWebViewFrame(wx.Frame):
 
     def _on_script_message(self, event: object) -> None:
         raw = str(event.GetString())  # type: ignore[attr-defined]
+        smoke_output = _extract_ui_smoke_message_output(raw)
+        if smoke_output is not None:
+            callback, self._ui_smoke_script_callback = (
+                self._ui_smoke_script_callback,
+                None,
+            )
+            if callback is not None:
+                callback(smoke_output)
+            return
         try:
             request = BridgeRequest.from_json(raw)
         except BridgeProtocolError as exc:
@@ -1798,14 +1820,13 @@ class ModernWebViewFrame(wx.Frame):
     def _run_ui_smoke_script(self, script: str, callback: Callable[[str], None]) -> None:
         if self._ui_smoke_script_callback is not None:
             raise RuntimeError("A packaged UI smoke script is already pending")
-        if sys.platform.startswith("linux"):
-            success, output = self._view.RunScript(script)
-            if not success:
-                raise RuntimeError("WebKit could not execute a packaged UI smoke script")
-            callback(str(output))
-            return
         self._ui_smoke_script_callback = callback
-        self._view.RunScriptAsync(script)
+        token = json.dumps(_UI_SMOKE_SCRIPT_TOKEN)
+        wrapped = f"""(() => {{
+const output = ({script});
+window.pixelflasher.postMessage(JSON.stringify({{smokeToken:{token},output}}));
+}})()"""
+        self._view.RunScriptAsync(wrapped)
 
     def _complete_request(
         self,

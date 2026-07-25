@@ -238,28 +238,7 @@ class ModernWebViewHostContractTests(unittest.TestCase):
 
         self.assertEqual([(None, "Packaged UI did not transfer focus on dashboard")], results)
 
-    def test_linux_ui_smoke_uses_webkit_synchronous_result_contract(self):
-        outputs: list[str] = []
-        host = SimpleNamespace(
-            _ui_smoke_script_callback=None,
-            _view=SimpleNamespace(
-                RunScript=lambda script: (True, f"result:{script}"),
-                RunScriptAsync=lambda _script: self.fail("Linux must use WebKit RunScript"),
-            ),
-        )
-        with patch("ui.pages.modern_webview_host.sys.platform", "linux"):
-            ModernWebViewFrame._run_ui_smoke_script(host, "document.title", outputs.append)
-        self.assertEqual(["result:document.title"], outputs)
-        self.assertIsNone(host._ui_smoke_script_callback)
-
-        host._view.RunScript = lambda _script: (False, "")
-        with (
-            patch("ui.pages.modern_webview_host.sys.platform", "linux"),
-            self.assertRaisesRegex(RuntimeError, "WebKit could not execute"),
-        ):
-            ModernWebViewFrame._run_ui_smoke_script(host, "broken()", outputs.append)
-
-    def test_non_linux_ui_smoke_keeps_the_async_result_contract(self):
+    def test_ui_smoke_returns_results_through_the_proven_bridge_channel(self):
         scripts: list[str] = []
 
         def callback(_output: str) -> None:
@@ -269,9 +248,11 @@ class ModernWebViewHostContractTests(unittest.TestCase):
             _ui_smoke_script_callback=None,
             _view=SimpleNamespace(RunScriptAsync=scripts.append),
         )
-        with patch("ui.pages.modern_webview_host.sys.platform", "win32"):
-            ModernWebViewFrame._run_ui_smoke_script(host, "document.title", callback)
-        self.assertEqual(["document.title"], scripts)
+        ModernWebViewFrame._run_ui_smoke_script(host, "document.title", callback)
+        self.assertEqual(1, len(scripts))
+        self.assertIn("const output = (document.title)", scripts[0])
+        self.assertIn("window.pixelflasher.postMessage", scripts[0])
+        self.assertIn("pixelflasher-packaged-ui-smoke-v2", scripts[0])
         self.assertIs(callback, host._ui_smoke_script_callback)
 
     def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):

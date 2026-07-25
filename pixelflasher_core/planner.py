@@ -83,7 +83,6 @@ _FASTBOOTD_PARTITIONS = frozenset(
 )
 _FACTORY_COMPONENT_ORDER = ("bootloader", "radio")
 _ADB_STATES = frozenset({"adb", "recovery", "sideload"})
-_DRY_RUN_MODES = frozenset({"dryrun", "dry-run", "dry_run"})
 _OTA_MODES = frozenset({"ota", "sideload"})
 _IMAGE_MODES = frozenset(
     {"customflash", "images", "factory", "keepdata", "keep", "wipedata", "wipe"}
@@ -930,8 +929,6 @@ class OperationPlanner:
                 "verify=false is unsupported because backend artifact verification is mandatory",
             )
         mode = snapshot.plan.mode.strip().casefold()
-        if mode in _DRY_RUN_MODES:
-            mode = "images"
         if mode in _OTA_MODES:
             self._validate_ota_options(options)
             if device.mode not in {"adb", "recovery", "sideload"}:

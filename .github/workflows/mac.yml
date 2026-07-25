@@ -93,7 +93,7 @@ jobs:
           binary=dist/PixelFlasher.app/Contents/MacOS/PixelFlasher
           arches="$(lipo -archs "${binary}")"
           test "${arches}" = "${{ matrix.arch }}"
-          archive_listing="$(myenv/bin/pyi-archive-viewer -b -l "${binary}" | tr '\\' '/')"
+            archive_listing="$(myenv/bin/pyi-archive_viewer -b -l "${binary}")"
           for asset in \
             ui/web/dist/index.html \
             ui/web/dist/assets/adb-terminal.js \

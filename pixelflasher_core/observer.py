@@ -1966,10 +1966,7 @@ class ProcessDeviceObservationProbe:
             match = pattern.fullmatch(line.strip())
             if match is None:
                 continue
-            try:
-                return int(match.group(1), 0)
-            except ValueError:
-                return None
+            return int(match.group(1), 0)
         return None
 
     def _fetch_supported(
@@ -2005,8 +2002,6 @@ class ProcessDeviceObservationProbe:
             ) as directory:
                 root = Path(directory).resolve(strict=True)
                 destination = root / "partition.img"
-                if destination.resolve().parent != root:
-                    return None
                 outcome = self._run(
                     (
                         toolchain.fastboot,
@@ -2049,8 +2044,6 @@ class ProcessDeviceObservationProbe:
             ) as directory:
                 root = Path(directory).resolve(strict=True)
                 destination = root / "partition.img"
-                if destination.resolve().parent != root:
-                    return None
                 outcome = self._run(
                     (
                         toolchain.fastboot,
