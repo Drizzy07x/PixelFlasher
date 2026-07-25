@@ -157,8 +157,6 @@ class ModernWebViewHostContractTests(unittest.TestCase):
             )
 
     def test_packaged_ui_smoke_runs_one_self_contained_keyboard_journey(self):
-        scripts: list[str] = []
-
         def callback(_result, _error):
             return None
 
@@ -167,17 +165,18 @@ class ModernWebViewHostContractTests(unittest.TestCase):
             _bridge_ready_signalled=True,
             _ui_smoke_in_progress=False,
             _ui_smoke_completion_callback=None,
-            _view=SimpleNamespace(RunScriptAsync=scripts.append),
+            _ui_smoke_pending_completion=None,
         )
         ModernWebViewFrame.run_packaged_ui_smoke(host, callback)
 
-        self.assertEqual(1, len(scripts))
-        self.assertEqual(_ui_smoke_journey_script(), scripts[0])
-        self.assertIn("new KeyboardEvent('keydown'", scripts[0])
-        self.assertIn("requestAnimationFrame", scripts[0])
-        self.assertIn("document.activeElement !== heading", scripts[0])
+        script = _ui_smoke_journey_script()
+        self.assertIn("new KeyboardEvent('keydown'", script)
+        self.assertIn("requestAnimationFrame", script)
+        self.assertIn("document.activeElement !== heading", script)
+        self.assertIn("__pixelflasherUiSmokeInstalled", script)
+        self.assertIn("DOMContentLoaded", script)
         for route in _UI_SMOKE_ROUTES:
-            self.assertIn(f'"{route}"', scripts[0])
+            self.assertIn(f'"{route}"', script)
         self.assertTrue(host._ui_smoke_in_progress)
         self.assertIs(callback, host._ui_smoke_completion_callback)
 
@@ -198,6 +197,7 @@ class ModernWebViewHostContractTests(unittest.TestCase):
             _ui_smoke_completion_callback=lambda result, error: results.append(
                 (result, error)
             ),
+            _ui_smoke_pending_completion=None,
             _ui_smoke_in_progress=True,
         )
         scheduled: list[tuple[Callable[..., None], tuple]] = []
@@ -231,6 +231,7 @@ class ModernWebViewHostContractTests(unittest.TestCase):
 
         host = SimpleNamespace(
             _ui_smoke_completion_callback=callback,
+            _ui_smoke_pending_completion=None,
             _ui_smoke_in_progress=True,
         )
 
@@ -239,6 +240,38 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertEqual([True], skipped)
         self.assertIs(callback, host._ui_smoke_completion_callback)
         self.assertTrue(host._ui_smoke_in_progress)
+
+    def test_ui_smoke_completion_waits_for_bridge_ready_registration(self):
+        result = {
+            "taskRoutes": list(_UI_SMOKE_ROUTES),
+            "keyboardRouteNavigation": True,
+            "focusTransferredToHeading": True,
+            "persistentDocument": True,
+        }
+        received: list[tuple[dict | None, str | None]] = []
+        host = SimpleNamespace(
+            _closing=False,
+            _bridge_ready_signalled=True,
+            _ui_smoke_in_progress=False,
+            _ui_smoke_completion_callback=None,
+            _ui_smoke_pending_completion=(result, None),
+        )
+
+        scheduled: list[tuple[Callable[..., None], tuple]] = []
+        with patch(
+            "ui.pages.modern_webview_host.wx.CallAfter",
+            side_effect=lambda callback, *args: scheduled.append((callback, args)),
+        ):
+            ModernWebViewFrame.run_packaged_ui_smoke(
+                host,
+                lambda journey, error: received.append((journey, error)),
+            )
+
+        self.assertIsNone(host._ui_smoke_pending_completion)
+        self.assertEqual(1, len(scheduled))
+        scheduled_callback, arguments = scheduled[0]
+        scheduled_callback(*arguments)
+        self.assertEqual([(result, None)], received)
 
     def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):
         calls: list[tuple] = []

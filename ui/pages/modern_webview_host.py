@@ -709,10 +709,13 @@ def _decode_ui_smoke_title(title: str) -> dict[str, Any] | None:
 def _ui_smoke_journey_script() -> str:
     routes = json.dumps(list(_UI_SMOKE_ROUTES), ensure_ascii=True, separators=(",", ":"))
     prefix = json.dumps(_UI_SMOKE_TITLE_PREFIX)
-    return f"""void (async () => {{
+    return f"""void (() => {{
+if (window.__pixelflasherUiSmokeInstalled) return;
+window.__pixelflasherUiSmokeInstalled = true;
 const taskRoutes = {routes};
 const finish = payload => {{ document.title = {prefix} + JSON.stringify(payload); }};
-try {{
+const runJourney = async () => {{
+ try {{
   const shell = document.querySelector('.app-shell');
   const navButtons = Array.from(document.querySelectorAll('.task-nav button'));
   if (!shell || navButtons.length !== taskRoutes.length) throw new Error('shell_contract_missing');
@@ -744,11 +747,24 @@ try {{
     focusTransferredToHeading:true,
     persistentDocument:true
   }});
-}} catch (error) {{
+ }} catch (error) {{
   finish({{
     ok:false,
     code:error instanceof Error && error.message ? error.message : 'unknown_error'
   }});
+ }}
+}};
+const waitForShell = () => {{
+  if (document.querySelector('.app-shell') && document.querySelectorAll('.task-nav button').length === taskRoutes.length) {{
+    void runJourney();
+    return;
+  }}
+  requestAnimationFrame(waitForShell);
+}};
+if (document.readyState === 'loading') {{
+  document.addEventListener('DOMContentLoaded', waitForShell, {{once:true}});
+}} else {{
+  waitForShell();
 }}
 }})();"""
 
@@ -850,6 +866,9 @@ class ModernWebViewFrame(wx.Frame):
         self._ui_smoke_completion_callback: (
             Callable[[dict[str, Any] | None, str | None], None] | None
         ) = None
+        self._ui_smoke_pending_completion: (
+            tuple[dict[str, Any] | None, str | None] | None
+        ) = None
         self._pending_messages: list[dict[str, Any]] = []
         self._logcat_progress_batcher = _LogcatProgressBatcher(
             self._emit_batch,
@@ -880,6 +899,11 @@ class ModernWebViewFrame(wx.Frame):
         self._view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_navigating)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_ERROR, self._on_load_error)  # type: ignore[union-attr]
         self.Bind(wx.EVT_CLOSE, self._on_close)
+        if bridge_ready_callback is not None and not self._view.AddUserScript(  # type: ignore[union-attr]
+            _ui_smoke_journey_script(),
+            html2.WEBVIEW_INJECT_AT_DOCUMENT_START,
+        ):
+            raise RuntimeError("Unable to install the packaged UI smoke journey")
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self._view, 1, wx.EXPAND)
@@ -932,8 +956,10 @@ class ModernWebViewFrame(wx.Frame):
             None,
         )
         self._ui_smoke_in_progress = False
-        if callback is not None:
-            wx.CallAfter(callback, result, error)
+        if callback is None:
+            self._ui_smoke_pending_completion = (result, error)
+            return
+        wx.CallAfter(callback, result, error)
 
     def _on_navigating(self, event: object) -> None:
         url = str(event.GetURL())  # type: ignore[attr-defined]
@@ -1725,14 +1751,15 @@ class ModernWebViewFrame(wx.Frame):
         if self._ui_smoke_in_progress:
             callback(None, "A packaged UI journey is already running")
             return
+        pending, self._ui_smoke_pending_completion = (
+            self._ui_smoke_pending_completion,
+            None,
+        )
+        if pending is not None:
+            wx.CallAfter(callback, *pending)
+            return
         self._ui_smoke_in_progress = True
         self._ui_smoke_completion_callback = callback
-        try:
-            self._view.RunScriptAsync(_ui_smoke_journey_script())
-        except Exception as exc:
-            self._ui_smoke_in_progress = False
-            self._ui_smoke_completion_callback = None
-            callback(None, str(exc))
 
     def _complete_request(
         self,
@@ -1797,6 +1824,7 @@ class ModernWebViewFrame(wx.Frame):
             return
         self._closing = True
         self._ui_smoke_completion_callback = None
+        self._ui_smoke_pending_completion = None
         self._ui_smoke_in_progress = False
         # Wake a producer held by bounded logcat backpressure before engine
         # shutdown waits for the worker.  Pending UI-only events are discarded
