@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESOURCE_ROOT = ROOT / "resources" / "ota-runner"
 LOCK_PATH = RESOURCE_ROOT / "toolchain-lock.json"
 OUTPUT_PATH = RESOURCE_ROOT / "runtime" / "pf-ota-runner.dex"
+COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
 class OtaRunnerBuildError(RuntimeError):
@@ -163,13 +165,46 @@ def _write_atomic(path: Path, contents: bytes) -> None:
     os.replace(temporary, path)
 
 
+def _reproducibility_report(contents: bytes, candidate_commit: str) -> bytes:
+    if COMMIT.fullmatch(candidate_commit) is None:
+        raise OtaRunnerBuildError("candidate commit must be a full lowercase 40-character SHA")
+    if not OUTPUT_PATH.is_file():
+        raise OtaRunnerBuildError("the packaged OTA runner is missing")
+    rebuilt_digest = hashlib.sha256(contents).hexdigest()
+    packaged_digest = _sha256(OUTPUT_PATH)
+    if rebuilt_digest != packaged_digest:
+        raise OtaRunnerBuildError("the rebuilt and packaged OTA runner digests differ")
+    return (
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "status": "passed",
+                "candidateCommit": candidate_commit,
+                "rebuiltSha256": rebuilt_digest,
+                "packagedSha256": packaged_digest,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--r8", type=Path)
     parser.add_argument("--cache", type=Path)
+    parser.add_argument("--candidate-commit")
+    parser.add_argument("--evidence-output", type=Path)
     arguments = parser.parse_args(argv)
     try:
+        if (arguments.candidate_commit is None) != (arguments.evidence_output is None):
+            raise OtaRunnerBuildError(
+                "--candidate-commit and --evidence-output must be provided together"
+            )
+        if arguments.evidence_output is not None and not arguments.check:
+            raise OtaRunnerBuildError("--evidence-output requires --check")
         contents = build(r8_path=arguments.r8, cache=arguments.cache)
         digest = hashlib.sha256(contents).hexdigest()
         if arguments.check:
@@ -177,6 +212,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise OtaRunnerBuildError(
                     "committed OTA runner differs from the reproducible build; "
                     "run scripts/build_ota_runner.py"
+                )
+            if arguments.evidence_output is not None:
+                _write_atomic(
+                    arguments.evidence_output,
+                    _reproducibility_report(contents, arguments.candidate_commit),
                 )
         else:
             _write_atomic(OUTPUT_PATH, contents)

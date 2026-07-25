@@ -14,10 +14,33 @@ from pixelflasher_core.ota_diagnostics import (
     OtaDiagnosticPlanningError,
     OtaDiagnosticsService,
 )
-from scripts.build_ota_runner import LOCK_PATH, _verified_r8
+from scripts.build_ota_runner import (
+    LOCK_PATH,
+    OUTPUT_PATH,
+    OtaRunnerBuildError,
+    _reproducibility_report,
+    _verified_r8,
+)
 
 
 class OtaRunnerArtifactTests(unittest.TestCase):
+    def test_reproducibility_report_binds_matching_bytes_to_candidate(self) -> None:
+        report = json.loads(
+            _reproducibility_report(OUTPUT_PATH.read_bytes(), "a" * 40)
+        )
+
+        self.assertEqual("passed", report["status"])
+        self.assertEqual("a" * 40, report["candidateCommit"])
+        self.assertEqual(report["packagedSha256"], report["rebuiltSha256"])
+
+    def test_reproducibility_report_rejects_noncanonical_candidate(self) -> None:
+        with self.assertRaisesRegex(OtaRunnerBuildError, "full lowercase"):
+            _reproducibility_report(OUTPUT_PATH.read_bytes(), "abc")
+
+    def test_reproducibility_report_rejects_different_rebuild(self) -> None:
+        with self.assertRaisesRegex(OtaRunnerBuildError, "digests differ"):
+            _reproducibility_report(b"not the packaged dex", "a" * 40)
+
     def test_committed_dex_is_hash_bound_and_does_not_bundle_framework_stubs(self) -> None:
         dex = OTA_RUNNER_RESOURCE_PATH.read_bytes()
         expected = OTA_RUNNER_DIGEST_PATH.read_text(encoding="ascii").strip()

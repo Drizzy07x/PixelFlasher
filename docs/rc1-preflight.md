@@ -77,6 +77,17 @@ Reports are evidence, not switches. The preflight verifies their exact
 SHA-256 binding and checks their required fields; it does not turn a failing
 job or an incomplete manual run into a pass.
 
+The Ubuntu smoke workflow generates `python-quality.json` directly from its
+coverage JSON and pytest JUnit output. The generator refuses a mismatched
+checkout SHA, less than 80 percent total coverage, any skipped POSIX contract,
+or less than 100 percent branch coverage in SafetyPolicy, planner,
+postcondition observer or command registry.
+
+The same workflow rebuilds the OTA fallback DEX from its locked R8 toolchain
+and emits `ota-runner-reproducibility.json` only when the rebuilt and packaged
+bytes are identical. Both candidate-bound reports are retained together as
+`source-quality-<commit>`.
+
 ## Ordering
 
 1. Provision, verify and commit the required production catalogs, trust roots

@@ -50,7 +50,11 @@ jobs:
           python scripts/export_gettext_json.py --output-dir build/react-i18n --check
 
       - name: Rebuild and verify the architecture-neutral OTA runner
-        run: python scripts/build_ota_runner.py --check
+        run: |
+          python scripts/build_ota_runner.py \
+            --check \
+            --candidate-commit "$GITHUB_SHA" \
+            --evidence-output build/rc1-evidence/ota-runner-reproducibility.json
 
       - name: Compile core, bridge and modern host modules
         run: |
@@ -85,8 +89,26 @@ jobs:
             --ignore=tests/test_modern_webview_host_contract.py \
             --ignore=tests/test_upstream_integrations.py \
             --cov=pixelflasher_core \
+            --cov=ui.command_registry \
             --cov-report=term-missing \
+            --cov-report=json:build/coverage-rc1.json \
+            --junitxml=build/pytest-rc1.xml \
             --cov-fail-under=80
+          python scripts/generate_python_quality_report.py \
+            --coverage build/coverage-rc1.json \
+            --junit build/pytest-rc1.xml \
+            --candidate-commit "$GITHUB_SHA" \
+            --output build/rc1-evidence/python-quality.json
+
+      - name: Retain candidate-bound source quality evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b5404495a51ac035b17c8a35a # v4
+        with:
+          name: source-quality-${{ github.sha }}
+          path: |
+            build/rc1-evidence/python-quality.json
+            build/rc1-evidence/ota-runner-reproducibility.json
+          if-no-files-found: error
+          retention-days: 30
 
   ubuntu_xvfb_dashboard:
     needs: frontend_smoke
