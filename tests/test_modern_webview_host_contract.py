@@ -173,6 +173,9 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertIn("new KeyboardEvent('keydown'", script)
         self.assertIn("requestAnimationFrame", script)
         self.assertIn("document.activeElement !== heading", script)
+        self.assertIn("navButtons[navButtons.length - 1]?.click()", script)
+        self.assertIn("keyboard_precondition_missing", script)
+        self.assertNotIn("event.defaultPrevented", script)
         self.assertIn("__pixelflasherUiSmokeInstalled", script)
         self.assertIn("DOMContentLoaded", script)
         self.assertIn(

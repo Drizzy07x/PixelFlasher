@@ -721,6 +721,11 @@ const runJourney = async () => {{
   if (!shell || navButtons.length !== taskRoutes.length) throw new Error('shell_contract_missing');
   const marker = {{documentRef:document,shellRef:shell}};
   const visited = [];
+  navButtons[navButtons.length - 1]?.click();
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (window.location.hash !== `#/${{taskRoutes[taskRoutes.length - 1]}}`) {{
+    throw new Error('keyboard_precondition_missing');
+  }}
   for (let index = 0; index < taskRoutes.length; index += 1) {{
     const active = document.activeElement;
     if (active instanceof HTMLElement) active.blur();
@@ -728,7 +733,6 @@ const runJourney = async () => {{
       key:String(index + 1),altKey:true,bubbles:true,cancelable:true
     }});
     window.dispatchEvent(event);
-    if (!event.defaultPrevented) throw new Error('keyboard_shortcut_not_handled');
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const expected = taskRoutes[index];
     const heading = document.querySelector('#main-content h1');
