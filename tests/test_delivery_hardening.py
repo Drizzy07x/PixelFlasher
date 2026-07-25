@@ -75,6 +75,7 @@ class DeliveryHardeningTests(unittest.TestCase):
                 self.assertIn(marker, source)
         runtime_hook = (ROOT / "pyi_runtime_linux_gtk.py").read_text(encoding="utf-8")
         self.assertNotIn('setdefault("NO_AT_BRIDGE"', runtime_hook)
+        self.assertNotIn("python3-minimal", source)
 
     def test_every_native_artifact_proves_react_bridge_and_clean_shutdown(self):
         expected_targets = {
