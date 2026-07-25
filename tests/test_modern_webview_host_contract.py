@@ -30,7 +30,7 @@ from ui.pages.modern_webview_host import (
     _UI_SMOKE_ROUTES,
     ModernWebViewFrame,
     ReplayAction,
-    _extract_ui_smoke_script_output,
+    _decode_ui_smoke_title,
     _is_allowed_local_url,
     _jsonable,
     _limit_bridge_payload,
@@ -38,6 +38,7 @@ from ui.pages.modern_webview_host import (
     _RequestReplayLedger,
     _safe_wildcard,
     _SerialCommandWorker,
+    _ui_smoke_journey_script,
 )
 from ui.public_bridge import PublicProjectionError, project_operation_result
 
@@ -135,171 +136,109 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         )
         self.assertEqual([3], ready_revisions)
 
-    def test_ui_smoke_script_results_ignore_unmarked_webview_traffic(self):
-        self.assertIsNone(_extract_ui_smoke_script_output("true"))
-        self.assertIsNone(_extract_ui_smoke_script_output(json.dumps({"ok": True})))
-        marked = json.dumps(
-            json.dumps(
-                {
-                    "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
-                    "ok": True,
-                }
+    def test_ui_smoke_title_ignores_unmarked_traffic_and_validates_the_journey(self):
+        self.assertIsNone(_decode_ui_smoke_title("PixelFlasher"))
+        payload = {
+            "ok": True,
+            "taskRoutes": list(_UI_SMOKE_ROUTES),
+            "keyboardRouteNavigation": True,
+            "focusTransferredToHeading": True,
+            "persistentDocument": True,
+        }
+        title = "pixelflasher-packaged-ui-smoke-v2:" + json.dumps(payload)
+        self.assertEqual(
+            {key: value for key, value in payload.items() if key != "ok"},
+            _decode_ui_smoke_title(title),
+        )
+        with self.assertRaisesRegex(RuntimeError, "route_dashboard_focus_missing"):
+            _decode_ui_smoke_title(
+                "pixelflasher-packaged-ui-smoke-v2:"
+                + json.dumps({"ok": False, "code": "route_dashboard_focus_missing"})
             )
-        )
-        self.assertEqual({"ok": True}, json.loads(_extract_ui_smoke_script_output(marked) or "{}"))
 
-    def test_packaged_ui_smoke_visits_every_route_by_keyboard_and_proves_focus(self):
-        script_results = [json.dumps({"ok": True})]
-        for route in _UI_SMOKE_ROUTES:
-            script_results.extend(
-                (
-                    json.dumps({"ok": True, "defaultPrevented": True}),
-                    json.dumps(
-                        {
-                            "ok": True,
-                            "route": f"#/{route}",
-                            "activeRoute": True,
-                            "headingFocused": True,
-                            "persistentDocument": True,
-                        }
-                    ),
-                )
-            )
-        scripts: list[str] = []
-        scheduled: list[Callable[[], None]] = []
-        results: list[tuple[dict | None, str | None]] = []
-
-        def run_script(script: str, callback: Callable[[str], None]):
-            scripts.append(script)
-            callback(script_results.pop(0))
-
-        def call_later(_delay: int, callback: Callable[[int], None], index: int):
-            scheduled.append(lambda: callback(index))
-            return SimpleNamespace(Stop=lambda: None)
-
-        host = SimpleNamespace(
-            _closing=False,
-            _loaded=True,
-            _bridge_ready_signalled=True,
-            _ui_smoke_in_progress=False,
-            _ui_smoke_timer=None,
-            _ui_smoke_script_callback=None,
-            _run_ui_smoke_script=run_script,
-        )
-        with patch("ui.pages.modern_webview_host.wx.CallLater", side_effect=call_later):
-            ModernWebViewFrame.run_packaged_ui_smoke(host, lambda result, error: results.append((result, error)))
-            while scheduled:
-                scheduled.pop(0)()
-
-        self.assertEqual(19, len(scripts))
-        self.assertEqual([], script_results)
-        self.assertEqual(1, len(results))
-        journey, error = results[0]
-        self.assertIsNone(error)
-        assert journey is not None
-        self.assertEqual(list(_UI_SMOKE_ROUTES), journey["taskRoutes"])
-        self.assertTrue(journey["keyboardRouteNavigation"])
-        self.assertTrue(journey["focusTransferredToHeading"])
-        self.assertTrue(journey["persistentDocument"])
-
-    def test_packaged_ui_smoke_fails_closed_when_route_focus_is_missing(self):
-        outputs = [
-            json.dumps({"ok": True}),
-            json.dumps({"ok": True, "defaultPrevented": True}),
-            json.dumps(
-                {
-                    "ok": True,
-                    "route": "#/dashboard",
-                    "activeRoute": True,
-                    "headingFocused": False,
-                    "persistentDocument": True,
-                }
-            ),
-        ]
-        scheduled: list[Callable[[], None]] = []
-        results: list[tuple[dict | None, str | None]] = []
-        host = SimpleNamespace(
-            _closing=False,
-            _loaded=True,
-            _bridge_ready_signalled=True,
-            _ui_smoke_in_progress=False,
-            _ui_smoke_timer=None,
-            _ui_smoke_script_callback=None,
-            _run_ui_smoke_script=lambda _script, callback: callback(outputs.pop(0)),
-        )
-
-        def call_later(_delay: int, callback: Callable[[int], None], index: int):
-            scheduled.append(lambda: callback(index))
-            return SimpleNamespace(Stop=lambda: None)
-
-        with patch("ui.pages.modern_webview_host.wx.CallLater", side_effect=call_later):
-            ModernWebViewFrame.run_packaged_ui_smoke(host, lambda result, error: results.append((result, error)))
-            scheduled.pop(0)()
-
-        self.assertEqual([(None, "Packaged UI did not transfer focus on dashboard")], results)
-
-    def test_ui_smoke_returns_results_through_the_native_async_channel(self):
+    def test_packaged_ui_smoke_runs_one_self_contained_keyboard_journey(self):
         scripts: list[str] = []
 
-        def callback(_output: str) -> None:
+        def callback(_result, _error):
             return None
 
         host = SimpleNamespace(
-            _ui_smoke_script_callback=None,
+            _closing=False,
+            _bridge_ready_signalled=True,
+            _ui_smoke_in_progress=False,
+            _ui_smoke_completion_callback=None,
             _view=SimpleNamespace(RunScriptAsync=scripts.append),
         )
-        ModernWebViewFrame._run_ui_smoke_script(host, "document.title", callback)
-        self.assertEqual(1, len(scripts))
-        self.assertIn("const output = (document.title)", scripts[0])
-        self.assertIn("return output", scripts[0])
-        self.assertIs(callback, host._ui_smoke_script_callback)
+        ModernWebViewFrame.run_packaged_ui_smoke(host, callback)
 
-    def test_ui_smoke_native_script_result_completes_the_pending_callback_once(self):
-        outputs: list[str] = []
+        self.assertEqual(1, len(scripts))
+        self.assertEqual(_ui_smoke_journey_script(), scripts[0])
+        self.assertIn("new KeyboardEvent('keydown'", scripts[0])
+        self.assertIn("requestAnimationFrame", scripts[0])
+        self.assertIn("document.activeElement !== heading", scripts[0])
+        for route in _UI_SMOKE_ROUTES:
+            self.assertIn(f'"{route}"', scripts[0])
+        self.assertTrue(host._ui_smoke_in_progress)
+        self.assertIs(callback, host._ui_smoke_completion_callback)
+
+    def test_ui_smoke_title_completes_the_pending_callback_once(self):
+        results: list[tuple[dict | None, str | None]] = []
+        payload = {
+            "ok": True,
+            "taskRoutes": list(_UI_SMOKE_ROUTES),
+            "keyboardRouteNavigation": True,
+            "focusTransferredToHeading": True,
+            "persistentDocument": True,
+        }
         event = SimpleNamespace(
-            GetString=lambda: json.dumps(
-                json.dumps(
-                    {
-                        "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
-                        "ok": True,
-                    }
-                )
-            ),
-            IsError=lambda: False,
+            GetString=lambda: "pixelflasher-packaged-ui-smoke-v2:" + json.dumps(payload),
             Skip=lambda: self.fail("marked smoke results must not be skipped"),
         )
-        host = SimpleNamespace(_ui_smoke_script_callback=outputs.append)
-
-        scheduled: list[tuple[Callable[[str], None], str]] = []
+        host = SimpleNamespace(
+            _ui_smoke_completion_callback=lambda result, error: results.append(
+                (result, error)
+            ),
+            _ui_smoke_in_progress=True,
+        )
+        scheduled: list[tuple[Callable[..., None], tuple]] = []
         with patch(
             "ui.pages.modern_webview_host.wx.CallAfter",
-            side_effect=lambda callback, output: scheduled.append((callback, output)),
+            side_effect=lambda callback, *args: scheduled.append((callback, args)),
         ):
-            ModernWebViewFrame._on_script_result(host, event)
-            ModernWebViewFrame._on_script_result(host, event)
+            ModernWebViewFrame._on_title_changed(host, event)
+            ModernWebViewFrame._on_title_changed(host, event)
 
-        self.assertEqual([], outputs)
+        self.assertEqual([], results)
         self.assertEqual(1, len(scheduled))
-        callback, output = scheduled[0]
-        callback(output)
-        self.assertEqual([json.dumps({"ok": True}, separators=(",", ":"))], outputs)
-        self.assertIsNone(host._ui_smoke_script_callback)
+        scheduled_callback, arguments = scheduled[0]
+        scheduled_callback(*arguments)
+        self.assertEqual(
+            [({key: value for key, value in payload.items() if key != "ok"}, None)],
+            results,
+        )
+        self.assertIsNone(host._ui_smoke_completion_callback)
+        self.assertFalse(host._ui_smoke_in_progress)
 
-    def test_non_smoke_script_result_is_ignored(self):
-        outputs: list[str] = []
+    def test_non_smoke_title_is_ignored(self):
         skipped: list[bool] = []
         event = SimpleNamespace(
-            GetString=lambda: "undefined",
-            IsError=lambda: False,
+            GetString=lambda: "PixelFlasher",
             Skip=lambda: skipped.append(True),
         )
-        host = SimpleNamespace(_ui_smoke_script_callback=outputs.append)
 
-        ModernWebViewFrame._on_script_result(host, event)
+        def callback(_result, _error):
+            return None
 
-        self.assertEqual([], outputs)
+        host = SimpleNamespace(
+            _ui_smoke_completion_callback=callback,
+            _ui_smoke_in_progress=True,
+        )
+
+        ModernWebViewFrame._on_title_changed(host, event)
+
         self.assertEqual([True], skipped)
-        self.assertIsNotNone(host._ui_smoke_script_callback)
+        self.assertIs(callback, host._ui_smoke_completion_callback)
+        self.assertTrue(host._ui_smoke_in_progress)
 
     def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):
         calls: list[tuple] = []
