@@ -54,6 +54,9 @@ class DeliveryHardeningTests(unittest.TestCase):
         self.assertIn("PixelFlasher_MacOS_AppleSilicon.dmg", release_source)
         self.assertIn("PixelFlasher_MacOS_Intel.dmg", release_source)
         self.assertIn("target_arch='arm64'", (ROOT / "build-on-mac.spec").read_text(encoding="utf-8"))
+        self.assertIn('ditto dist/PixelFlasher.app "${dmg_root}/PixelFlasher.app"', source)
+        self.assertIn('"${dmg}" \\\n            "${dmg_root}"', source)
+        self.assertNotIn("create-dmg dist/PixelFlasher.app", source)
 
     def test_appimage_tool_is_hash_pinned_and_x11_wayland_clean_smokes_exist(self):
         source = self.source("appimage-x86_64.yml")

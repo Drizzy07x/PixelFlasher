@@ -197,10 +197,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          create-dmg dist/PixelFlasher.app
-          source_dmg="$(find . -maxdepth 1 -name 'PixelFlasher*.dmg' -print -quit)"
-          test -n "${source_dmg}"
-          mv "${source_dmg}" "dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg"
+          dmg="dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg"
+          dmg_root="$RUNNER_TEMP/pixelflasher-dmg-${{ matrix.arch }}"
+          mkdir -p "${dmg_root}"
+          ditto dist/PixelFlasher.app "${dmg_root}/PixelFlasher.app"
+          create-dmg \
+            --volname PixelFlasher \
+            --app-drop-link 480 180 \
+            --skip-jenkins \
+            "${dmg}" \
+            "${dmg_root}"
+          test -f "${dmg}"
 
       - name: Sign, notarize, staple and assess the DMG
         if: ${{ env.SIGN_MACOS == 'true' }}
