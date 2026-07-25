@@ -887,6 +887,7 @@ class ModernWebViewFrame(wx.Frame):
             raise RuntimeError(f"Unable to register WebView message handler {BRIDGE_CHANNEL!r}")
 
         self._view.Bind(html2.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, self._on_script_message)  # type: ignore[union-attr]
+        self._view.Bind(html2.EVT_WEBVIEW_SCRIPT_RESULT, self._on_script_result)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_LOADED, self._on_loaded)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_navigating)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_ERROR, self._on_load_error)  # type: ignore[union-attr]
@@ -1825,6 +1826,7 @@ class ModernWebViewFrame(wx.Frame):
         wrapped = f"""(() => {{
 const output = ({script});
 window.pixelflasher.postMessage(JSON.stringify({{smokeToken:{token},output}}));
+return output;
 }})()"""
         self._view.RunScriptAsync(wrapped)
 

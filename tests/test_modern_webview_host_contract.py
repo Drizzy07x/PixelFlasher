@@ -252,8 +252,50 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertEqual(1, len(scripts))
         self.assertIn("const output = (document.title)", scripts[0])
         self.assertIn("window.pixelflasher.postMessage", scripts[0])
+        self.assertIn("return output", scripts[0])
         self.assertIn("pixelflasher-packaged-ui-smoke-v2", scripts[0])
         self.assertIs(callback, host._ui_smoke_script_callback)
+
+    def test_ui_smoke_native_script_result_completes_the_pending_callback_once(self):
+        outputs: list[str] = []
+        event = SimpleNamespace(
+            GetString=lambda: json.dumps(
+                json.dumps(
+                    {
+                        "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
+                        "ok": True,
+                    }
+                )
+            ),
+            Skip=lambda: self.fail("marked smoke results must not be skipped"),
+        )
+        host = SimpleNamespace(_ui_smoke_script_callback=outputs.append)
+
+        ModernWebViewFrame._on_script_result(host, event)
+        ModernWebViewFrame._on_script_result(host, event)
+
+        self.assertEqual([json.dumps({"ok": True}, separators=(",", ":"))], outputs)
+        self.assertIsNone(host._ui_smoke_script_callback)
+
+    def test_ui_smoke_bridge_result_is_ignored_after_native_completion(self):
+        outputs: list[str] = []
+        payload = json.dumps(
+            {
+                "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
+                "output": json.dumps(
+                    {
+                        "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
+                        "ok": True,
+                    }
+                ),
+            }
+        )
+        event = SimpleNamespace(GetString=lambda: payload)
+        host = SimpleNamespace(_ui_smoke_script_callback=None)
+
+        ModernWebViewFrame._on_script_message(host, event)
+
+        self.assertEqual([], outputs)
 
     def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):
         calls: list[tuple] = []
