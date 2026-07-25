@@ -30,6 +30,12 @@ jobs:
           python-version: '3.13'
           architecture: 'x64'
 
+      - name: Set up the pinned OTA runner Java toolchain
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Show Python version
         run: python --version
 
@@ -42,6 +48,9 @@ jobs:
         run: |
           python scripts/export_gettext_json.py --output-dir build/react-i18n
           python scripts/export_gettext_json.py --output-dir build/react-i18n --check
+
+      - name: Rebuild and verify the architecture-neutral OTA runner
+        run: python scripts/build_ota_runner.py --check
 
       - name: Compile core, bridge and modern host modules
         run: |
@@ -68,10 +77,8 @@ jobs:
       - name: Type-check the strict modern core
         run: python -m pyright --pythonpath "$(command -v python)" pixelflasher_core
 
-      - name: Run the Python suite with pytest
-        # The Python 80% coverage threshold is intentionally not a CI gate yet:
-        # the current measured total core coverage is below it.
-        run: python -m pytest
+      - name: Run the Python suite with the RC1 coverage gate
+        run: python -m pytest --cov=pixelflasher_core --cov-report=term-missing --cov-fail-under=80
 
   ubuntu_xvfb_dashboard:
     needs: frontend_smoke

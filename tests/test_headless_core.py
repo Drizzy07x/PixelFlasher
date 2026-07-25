@@ -679,6 +679,29 @@ class ExecutorAndInteractionTests(unittest.TestCase):
 
         self.assertLess(elapsed, 0.1)
 
+    def test_interaction_broker_rejects_invalid_responses_and_callback_failures(self):
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            InteractionBroker(timeout_seconds=0)
+
+        broker = InteractionBroker(
+            timeout_seconds=0.01,
+            on_request=Mock(side_effect=RuntimeError("publish failed")),
+        )
+        request = InteractionRequest(
+            "callback-failure",
+            InteractionKind.CONFIRM,
+            "Confirm",
+            "Continue?",
+            expected_revision=7,
+        )
+
+        self.assertFalse(broker.respond("missing", "accepted", 7))
+        self.assertFalse(broker.respond("missing", InteractionDecision.ACCEPTED, True))
+        self.assertFalse(broker.respond("missing", InteractionDecision.ACCEPTED, 7))
+        self.assertFalse(broker.cancel("missing"))
+        with self.assertRaises(InteractionTimeoutError):
+            broker.request(request)
+
 
 class ConfigAndRuntimeTests(unittest.TestCase):
     def test_legacy_config_is_preserved_versioned_backed_up_and_atomically_saved(self):

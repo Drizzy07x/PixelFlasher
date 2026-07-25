@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "minimumAndroidApi": 26,
+  "javaRelease": 8,
+  "r8": {
+    "version": "9.1.31",
+    "url": "https://dl.google.com/dl/android/maven2/com/android/tools/r8/9.1.31/r8-9.1.31.jar",
+    "size": 18963189,
+    "sha256": "3b4de3053885da105e39c15212261d22653d6d1b5eb92323dd04ae913cc8286f"
+  }
+}

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from self_test import (
     CheckResult,
+    _check_ota_runner,
     _check_patch_resources,
     _check_platform_tools,
     _check_root_app_distribution,
@@ -31,6 +32,13 @@ RELEASE_METADATA_PATHS = (
 
 
 class SelfTestDependencyTests(unittest.TestCase):
+    def test_ota_runner_is_present_and_hash_bound(self):
+        result = _check_ota_runner()
+
+        self.assertTrue(result.ok, result.message)
+        self.assertTrue(result.required)
+        self.assertIn("verified DEX", result.message)
+
     def test_missing_root_app_distribution_is_visible_but_optional_during_migration(self):
         result = _check_root_app_distribution()
 

@@ -17,7 +17,12 @@ from typing import Protocol, runtime_checkable
 from .contracts import ProcessRequest, ToolchainInfo, is_valid_target_serial
 from .devices import DeviceService, parse_fastboot_getvar
 from .executor import CancellationToken, ProcessTransport, TransportOutcome
-from .ota_diagnostics import OtaDiagnosticParseError, parse_update_engine_status
+from .ota_diagnostics import (
+    OTA_RUNNER_MAIN_CLASS,
+    OTA_RUNNER_REMOTE_PATH,
+    OtaDiagnosticParseError,
+    parse_update_engine_status,
+)
 
 _REMOTE_PATH_PATTERN = re.compile(r"^/(?:[A-Za-z0-9._+-]{1,128}/)*[A-Za-z0-9._+-]{1,128}$")
 _PARTITION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -2103,8 +2108,12 @@ class ProcessDeviceObservationProbe:
                 "-s",
                 serial,
                 "shell",
-                "update_engine_client",
-                "--status",
+                "su",
+                "-c",
+                (
+                    f"CLASSPATH={OTA_RUNNER_REMOTE_PATH} app_process /system/bin "
+                    f"{OTA_RUNNER_MAIN_CLASS} status"
+                ),
             ),
             token,
             timeout,

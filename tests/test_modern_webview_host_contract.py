@@ -27,8 +27,10 @@ from pixelflasher_core import (
 from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest
 from ui.core_command_factory import create_command_factory
 from ui.pages.modern_webview_host import (
+    _UI_SMOKE_ROUTES,
     ModernWebViewFrame,
     ReplayAction,
+    _extract_ui_smoke_script_output,
     _is_allowed_local_url,
     _jsonable,
     _limit_bridge_payload,
@@ -132,6 +134,109 @@ class ModernWebViewHostContractTests(unittest.TestCase):
             request("application-ready-second", command="app.ready"),
         )
         self.assertEqual([3], ready_revisions)
+
+    def test_ui_smoke_script_results_ignore_unmarked_webview_traffic(self):
+        self.assertIsNone(_extract_ui_smoke_script_output("true"))
+        self.assertIsNone(_extract_ui_smoke_script_output(json.dumps({"ok": True})))
+        marked = json.dumps(
+            json.dumps(
+                {
+                    "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
+                    "ok": True,
+                }
+            )
+        )
+        self.assertEqual({"ok": True}, json.loads(_extract_ui_smoke_script_output(marked) or "{}"))
+
+    def test_packaged_ui_smoke_visits_every_route_by_keyboard_and_proves_focus(self):
+        script_results = [json.dumps({"ok": True})]
+        for route in _UI_SMOKE_ROUTES:
+            script_results.extend(
+                (
+                    json.dumps({"ok": True, "defaultPrevented": True}),
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "route": f"#/{route}",
+                            "activeRoute": True,
+                            "headingFocused": True,
+                            "persistentDocument": True,
+                        }
+                    ),
+                )
+            )
+        scripts: list[str] = []
+        scheduled: list[Callable[[], None]] = []
+        results: list[tuple[dict | None, str | None]] = []
+
+        def run_script(script: str, callback: Callable[[str], None]):
+            scripts.append(script)
+            callback(script_results.pop(0))
+
+        def call_later(_delay: int, callback: Callable[[int], None], index: int):
+            scheduled.append(lambda: callback(index))
+            return SimpleNamespace(Stop=lambda: None)
+
+        host = SimpleNamespace(
+            _closing=False,
+            _loaded=True,
+            _bridge_ready_signalled=True,
+            _ui_smoke_in_progress=False,
+            _ui_smoke_timer=None,
+            _ui_smoke_script_callback=None,
+            _run_ui_smoke_script=run_script,
+        )
+        with patch("ui.pages.modern_webview_host.wx.CallLater", side_effect=call_later):
+            ModernWebViewFrame.run_packaged_ui_smoke(host, lambda result, error: results.append((result, error)))
+            while scheduled:
+                scheduled.pop(0)()
+
+        self.assertEqual(19, len(scripts))
+        self.assertEqual([], script_results)
+        self.assertEqual(1, len(results))
+        journey, error = results[0]
+        self.assertIsNone(error)
+        assert journey is not None
+        self.assertEqual(list(_UI_SMOKE_ROUTES), journey["taskRoutes"])
+        self.assertTrue(journey["keyboardRouteNavigation"])
+        self.assertTrue(journey["focusTransferredToHeading"])
+        self.assertTrue(journey["persistentDocument"])
+
+    def test_packaged_ui_smoke_fails_closed_when_route_focus_is_missing(self):
+        outputs = [
+            json.dumps({"ok": True}),
+            json.dumps({"ok": True, "defaultPrevented": True}),
+            json.dumps(
+                {
+                    "ok": True,
+                    "route": "#/dashboard",
+                    "activeRoute": True,
+                    "headingFocused": False,
+                    "persistentDocument": True,
+                }
+            ),
+        ]
+        scheduled: list[Callable[[], None]] = []
+        results: list[tuple[dict | None, str | None]] = []
+        host = SimpleNamespace(
+            _closing=False,
+            _loaded=True,
+            _bridge_ready_signalled=True,
+            _ui_smoke_in_progress=False,
+            _ui_smoke_timer=None,
+            _ui_smoke_script_callback=None,
+            _run_ui_smoke_script=lambda _script, callback: callback(outputs.pop(0)),
+        )
+
+        def call_later(_delay: int, callback: Callable[[int], None], index: int):
+            scheduled.append(lambda: callback(index))
+            return SimpleNamespace(Stop=lambda: None)
+
+        with patch("ui.pages.modern_webview_host.wx.CallLater", side_effect=call_later):
+            ModernWebViewFrame.run_packaged_ui_smoke(host, lambda result, error: results.append((result, error)))
+            scheduled.pop(0)()
+
+        self.assertEqual([(None, "Packaged UI did not transfer focus on dashboard")], results)
 
     def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):
         calls: list[tuple] = []

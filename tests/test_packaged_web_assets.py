@@ -118,6 +118,10 @@ class PackagedWebAssetTests(unittest.TestCase):
                     "'resources/platform-tools', 'resources/platform-tools'",
                     source,
                 )
+                self.assertIn(
+                    "'resources/ota-runner/runtime', 'resources/ota-runner/runtime'",
+                    source,
+                )
 
     def test_modern_packages_exclude_opaque_legacy_ota_clients(self):
         for path in PACKAGE_SPECS:

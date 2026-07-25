@@ -1683,15 +1683,40 @@ class CommandEngine:
                             "root_state_changed",
                             "OTA cancel/reset requires current root evidence at execution time",
                         )
+                    outcome = None
                     try:
-                        outcome = self.executor.transport.run(
-                            boundary_plan.requests[0],
-                            boundary_token,
-                        )
+                        for index, request in enumerate(
+                            boundary_plan.requests[:mutation_index]
+                        ):
+                            outcome = self.executor.transport.run(
+                                request,
+                                boundary_token,
+                            )
+                            if outcome.cancelled:
+                                return ExecutionBoundaryAck.rejected(
+                                    "ota_reset_preflight_cancelled",
+                                    "OTA reset was cancelled before mutation",
+                                )
+                            if (
+                                outcome.timed_out
+                                or outcome.output_limited
+                                or outcome.returncode != 0
+                            ):
+                                if index == mutation_index - 1:
+                                    break
+                                return ExecutionBoundaryAck.rejected(
+                                    "ota_runner_prepare_failed",
+                                    "the verified OTA fallback runner could not be prepared",
+                                )
                     except Exception:
                         return ExecutionBoundaryAck.rejected(
                             "ota_reset_preflight_failed",
                             "OTA reset status could not be verified before mutation",
+                        )
+                    if outcome is None:
+                        return ExecutionBoundaryAck.rejected(
+                            "ota_reset_plan_invalid",
+                            "OTA reset did not produce a status preflight",
                         )
                     decision = self.ota_diagnostics_service.validate_reset_preflight(
                         compilation,

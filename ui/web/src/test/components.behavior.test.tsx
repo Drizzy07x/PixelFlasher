@@ -42,6 +42,7 @@ describe('shared accessible UI primitives', () => {
     expect(screen.getByRole('img', { name: 'Magisk logo' })).not.toHaveClass('icon--monochrome');
     expect(screen.getByText('Blocked')).toHaveClass('badge--danger');
     expect(screen.getByText('Empty')).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Title' })).toHaveAttribute('tabindex', '-1');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(onClick).toHaveBeenCalledOnce();
 

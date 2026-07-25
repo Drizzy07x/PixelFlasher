@@ -15,6 +15,7 @@ from pixelflasher_core.observer import (
     PostconditionSpec,
     ProcessDeviceObservationProbe,
 )
+from pixelflasher_core.ota_diagnostics import OTA_RUNNER_MAIN_CLASS
 
 SERIAL = "ABCDEF123456"
 TOOLCHAIN = ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True)
@@ -142,7 +143,10 @@ class StatefulDeviceTransport:
                     "recovery\n" if self.mode == "recovery" else "normal\n",
                 )
             return TransportOutcome(0, f"{self.properties.get(name, '')}\n")
-        if argv[3:] == ("shell", "update_engine_client", "--status"):
+        if (
+            argv[3:6] == ("shell", "su", "-c")
+            and argv[-1].endswith(f"{OTA_RUNNER_MAIN_CLASS} status")
+        ):
             return (
                 TransportOutcome(0, self.ota_status_output)
                 if self.ota_status_output is not None
@@ -475,7 +479,10 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
         status_calls = [
             call
             for call in idle_transport.calls
-            if call.argv[3:] == ("shell", "update_engine_client", "--status")
+            if (
+                call.argv[3:6] == ("shell", "su", "-c")
+                and call.argv[-1].endswith(f"{OTA_RUNNER_MAIN_CLASS} status")
+            )
         ]
         self.assertEqual(1, len(status_calls))
         self.assertEqual(64 * 1024, status_calls[0].output_limit_bytes)

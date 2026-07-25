@@ -13,8 +13,19 @@ from typing import Any
 
 from constants import VERSION
 
-UI_SMOKE_SCHEMA_VERSION = 1
+UI_SMOKE_SCHEMA_VERSION = 2
 UI_SMOKE_BRIDGE_VERSION = 2
+UI_SMOKE_TASK_ROUTES = (
+    "dashboard",
+    "device",
+    "flash",
+    "firmware",
+    "root",
+    "apps",
+    "backups",
+    "tools",
+    "settings",
+)
 
 
 class UiSmokeReceiptError(ValueError):
@@ -41,9 +52,31 @@ def normalized_architecture() -> str:
     return value or "unknown"
 
 
-def create_ui_smoke_receipt(*, bridge_revision: int) -> dict[str, Any]:
+def create_ui_smoke_receipt(
+    *,
+    bridge_revision: int,
+    journey: Mapping[str, Any],
+) -> dict[str, Any]:
     if isinstance(bridge_revision, bool) or not isinstance(bridge_revision, int):
         raise UiSmokeReceiptError("bridge revision must be an integer")
+    journey_fields = {
+        "taskRoutes",
+        "keyboardRouteNavigation",
+        "focusTransferredToHeading",
+        "persistentDocument",
+    }
+    if set(journey) != journey_fields:
+        raise UiSmokeReceiptError("UI journey fields do not match the closed schema")
+    routes = journey.get("taskRoutes")
+    if not isinstance(routes, (list, tuple)) or tuple(routes) != UI_SMOKE_TASK_ROUTES:
+        raise UiSmokeReceiptError("UI journey did not visit every task route in order")
+    for field in (
+        "keyboardRouteNavigation",
+        "focusTransferredToHeading",
+        "persistentDocument",
+    ):
+        if journey.get(field) is not True:
+            raise UiSmokeReceiptError(f"UI journey did not prove {field}")
     return {
         "schemaVersion": UI_SMOKE_SCHEMA_VERSION,
         "status": "ready",
@@ -55,6 +88,10 @@ def create_ui_smoke_receipt(*, bridge_revision: int) -> dict[str, Any]:
         "processBits": struct.calcsize("P") * 8,
         "frontend": "bundled-react",
         "webviewReady": True,
+        "taskRoutes": list(UI_SMOKE_TASK_ROUTES),
+        "keyboardRouteNavigation": True,
+        "focusTransferredToHeading": True,
+        "persistentDocument": True,
         "cleanShutdown": True,
     }
 
@@ -76,6 +113,10 @@ def validate_ui_smoke_receipt(
         "processBits",
         "frontend",
         "webviewReady",
+        "taskRoutes",
+        "keyboardRouteNavigation",
+        "focusTransferredToHeading",
+        "persistentDocument",
         "cleanShutdown",
     }
     if set(receipt) != expected_keys:
@@ -95,6 +136,15 @@ def validate_ui_smoke_receipt(
         raise UiSmokeReceiptError("bundled React frontend was not proven")
     if receipt.get("webviewReady") is not True:
         raise UiSmokeReceiptError("WebView readiness was not proven")
+    routes = receipt.get("taskRoutes")
+    if not isinstance(routes, list) or tuple(routes) != UI_SMOKE_TASK_ROUTES:
+        raise UiSmokeReceiptError("all task routes were not proven")
+    if receipt.get("keyboardRouteNavigation") is not True:
+        raise UiSmokeReceiptError("keyboard route navigation was not proven")
+    if receipt.get("focusTransferredToHeading") is not True:
+        raise UiSmokeReceiptError("route focus transfer was not proven")
+    if receipt.get("persistentDocument") is not True:
+        raise UiSmokeReceiptError("persistent React document was not proven")
     if receipt.get("cleanShutdown") is not True:
         raise UiSmokeReceiptError("clean shutdown was not proven")
     if receipt.get("processBits") not in {32, 64}:
@@ -120,7 +170,12 @@ def load_ui_smoke_receipt(path: Path) -> dict[str, Any]:
     return payload
 
 
-def write_ui_smoke_receipt(path: Path, *, bridge_revision: int) -> dict[str, Any]:
+def write_ui_smoke_receipt(
+    path: Path,
+    *,
+    bridge_revision: int,
+    journey: Mapping[str, Any],
+) -> dict[str, Any]:
     destination = path.expanduser().absolute()
     parent = destination.parent
     if destination.exists() and destination.is_symlink():
@@ -128,7 +183,10 @@ def write_ui_smoke_receipt(path: Path, *, bridge_revision: int) -> dict[str, Any
     if not parent.is_dir() or parent.is_symlink():
         raise UiSmokeReceiptError("UI smoke receipt parent must be a real directory")
 
-    receipt = create_ui_smoke_receipt(bridge_revision=bridge_revision)
+    receipt = create_ui_smoke_receipt(
+        bridge_revision=bridge_revision,
+        journey=journey,
+    )
     payload = (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.",
@@ -164,6 +222,7 @@ def write_ui_smoke_receipt(path: Path, *, bridge_revision: int) -> dict[str, Any
 __all__ = [
     "UI_SMOKE_BRIDGE_VERSION",
     "UI_SMOKE_SCHEMA_VERSION",
+    "UI_SMOKE_TASK_ROUTES",
     "UiSmokeReceiptError",
     "create_ui_smoke_receipt",
     "load_ui_smoke_receipt",
@@ -172,4 +231,3 @@ __all__ = [
     "validate_ui_smoke_receipt",
     "write_ui_smoke_receipt",
 ]
-

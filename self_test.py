@@ -369,6 +369,20 @@ def _check_patch_resources() -> CheckResult:
         return CheckResult("boot_patch:runner_distribution", False, str(exc))
 
 
+def _check_ota_runner() -> CheckResult:
+    try:
+        from pixelflasher_core.ota_diagnostics import OtaDiagnosticsService
+
+        artifact = OtaDiagnosticsService().verified_runner_artifact()
+        return CheckResult(
+            "ota:fallback_runner",
+            True,
+            f"verified DEX {artifact.sha256[:12]}",
+        )
+    except Exception as exc:
+        return CheckResult("ota:fallback_runner", False, str(exc))
+
+
 def _check_root_app_distribution() -> CheckResult:
     try:
         from pixelflasher_core.root_app_distribution import (
@@ -413,6 +427,7 @@ def run_checks() -> list[CheckResult]:
     ])
     checks.extend(_check_platform_tools())
     checks.append(_check_patch_resources())
+    checks.append(_check_ota_runner())
     checks.append(_check_root_app_distribution())
     checks.extend(_check_ui_foundation())
     checks.extend(_check_modern_entrypoints())

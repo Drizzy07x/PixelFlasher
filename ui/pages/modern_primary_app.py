@@ -65,6 +65,8 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
     frame: wx.Frame | None = None
     smoke_timer: object | None = None
     bridge_revision: int | None = None
+    ui_smoke_journey: dict[str, object] | None = None
+    ui_smoke_error: str | None = None
     smoke_timed_out = False
     try:
         system_data_root = Path(user_data_dir(APPNAME, appauthor=False, roaming=True))
@@ -109,9 +111,18 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
             nonlocal bridge_revision
             bridge_revision = revision
             if frame is not None:
-                # Queue closure after the bridge response and snapshot scripts.
+                wx.CallAfter(frame.run_packaged_ui_smoke, ui_journey_complete)
+
+        def ui_journey_complete(
+            journey: dict[str, object] | None,
+            error: str | None,
+        ) -> None:
+            nonlocal ui_smoke_journey, ui_smoke_error
+            ui_smoke_journey = journey
+            ui_smoke_error = error
+            if frame is not None:
                 # Smoke mode owns this isolated process, so background device
-                # discovery must not veto the proof after React is ready.
+                # discovery must not veto shutdown after the journey finishes.
                 wx.CallAfter(frame.Close, True)
 
         frame = create_modern_webview_frame(
@@ -145,9 +156,14 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
                 reason = "timed out" if smoke_timed_out else "closed before becoming ready"
                 print(f"PixelFlasher UI smoke {reason}.")
                 return 1
+            if ui_smoke_journey is None:
+                reason = ui_smoke_error or "closed before completing the UI journey"
+                print(f"PixelFlasher UI smoke failed: {reason}.")
+                return 1
             write_ui_smoke_receipt(
                 smoke_options.report_path,
                 bridge_revision=bridge_revision,
+                journey=ui_smoke_journey,
             )
         return 0
     except Exception as exc:

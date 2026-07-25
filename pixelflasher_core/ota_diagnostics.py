@@ -9,14 +9,18 @@ observed idle-state postcondition.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from .contracts import (
     AppCommand,
     AppSnapshot,
     DeviceInfo,
+    FileArtifact,
     OperationPlan,
     OperationPostcondition,
     OperationResult,
@@ -95,6 +99,16 @@ _UPDATE_STATES = frozenset(
         "DISABLED",
     }
 )
+OTA_RUNNER_RESOURCE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "resources"
+    / "ota-runner"
+    / "runtime"
+    / "pf-ota-runner.dex"
+)
+OTA_RUNNER_DIGEST_PATH = OTA_RUNNER_RESOURCE_PATH.with_suffix(".sha256")
+OTA_RUNNER_REMOTE_PATH = "/data/local/tmp/pf-ota-runner-v1.dex"
+OTA_RUNNER_MAIN_CLASS = "com.pixelflasher.ota.Runner"
 
 
 class OtaDiagnosticPlanningError(ValueError):
@@ -210,6 +224,15 @@ class OtaResetPreflightDecision:
 class OtaDiagnosticsService:
     """Compile and finalize OTA diagnostics below the WebView."""
 
+    def __init__(
+        self,
+        *,
+        runner_path: str | Path = OTA_RUNNER_RESOURCE_PATH,
+        runner_digest_path: str | Path = OTA_RUNNER_DIGEST_PATH,
+    ) -> None:
+        self._runner_path = Path(runner_path)
+        self._runner_digest_path = Path(runner_digest_path)
+
     def compile(
         self,
         command: AppCommand,
@@ -294,8 +317,8 @@ class OtaDiagnosticsService:
 
         if (
             compilation.action != "reset"
-            or compilation.mutation_request_index != 1
-            or len(compilation.plan.requests) != 3
+            or compilation.mutation_request_index != 3
+            or len(compilation.plan.requests) != 5
         ):
             return OtaResetPreflightDecision(
                 False,
@@ -477,14 +500,43 @@ class OtaDiagnosticsService:
                 "root_required",
                 "OTA cancel/reset requires a currently rooted ADB device",
             )
+        runner = self.verified_runner_artifact()
+        remote = OTA_RUNNER_REMOTE_PATH
+        invoke = f"CLASSPATH={remote} app_process /system/bin {OTA_RUNNER_MAIN_CLASS}"
+        prepare = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "push",
+                runner.path,
+                remote,
+            ),
+            timeout_seconds=30.0,
+            output_limit_bytes=_STATUS_OUTPUT_LIMIT,
+        )
+        verify = ProcessRequest(
+            (
+                adb,
+                "-s",
+                device.serial,
+                "shell",
+                "su",
+                "-c",
+                f"echo {runner.sha256}  {remote} | toybox sha256sum -c -",
+            ),
+            timeout_seconds=20.0,
+            output_limit_bytes=_STATUS_OUTPUT_LIMIT,
+        )
         preflight = ProcessRequest(
             (
                 adb,
                 "-s",
                 device.serial,
                 "shell",
-                "update_engine_client",
-                "--status",
+                "su",
+                "-c",
+                f"{invoke} status",
             ),
             timeout_seconds=20.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
@@ -497,7 +549,7 @@ class OtaDiagnosticsService:
                 "shell",
                 "su",
                 "-c",
-                "update_engine_client --cancel",
+                f"{invoke} cancel",
             ),
             timeout_seconds=30.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
@@ -510,7 +562,7 @@ class OtaDiagnosticsService:
                 "shell",
                 "su",
                 "-c",
-                "update_engine_client --reset_status",
+                f"{invoke} reset",
             ),
             timeout_seconds=30.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
@@ -518,20 +570,44 @@ class OtaDiagnosticsService:
         plan = self._base_plan(
             snapshot,
             device,
-            (preflight, cancel, reset),
+            (prepare, verify, preflight, cancel, reset),
             label=f"Cancel and reset OTA state on {device.serial}",
             risk=OperationRisk.MUTATING,
             postconditions=(
                 OperationPostcondition("ota_idle_state", {"idle": True}),
             ),
+            artifacts=(runner,),
         )
         return OtaDiagnosticCompilation(
             plan,
             "reset",
             _STATUS_LINE_LIMIT,
-            mutation_request_index=1,
+            mutation_request_index=3,
             requires_confirmation=True,
         )
+
+    def verified_runner_artifact(self) -> FileArtifact:
+        """Return the locally verified, reproducibly built OTA runner."""
+
+        try:
+            encoded_digest = self._runner_digest_path.read_bytes()
+            if not encoded_digest or len(encoded_digest) > 128:
+                raise ValueError("digest size")
+            expected = encoded_digest.decode("ascii", "strict").strip().casefold()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected):
+                raise ValueError("digest format")
+            digest = hashlib.sha256(self._runner_path.read_bytes()).hexdigest()
+        except (OSError, UnicodeError, ValueError) as error:
+            raise OtaDiagnosticPlanningError(
+                "ota_runner_unavailable",
+                "the verified OTA fallback runner is unavailable",
+            ) from error
+        if not hmac.compare_digest(digest, expected):
+            raise OtaDiagnosticPlanningError(
+                "ota_runner_hash_mismatch",
+                "the OTA fallback runner failed its SHA-256 binding",
+            )
+        return FileArtifact(str(self._runner_path), digest, "ota-update-engine-runner")
 
     @staticmethod
     def _parse_certificates(stdout: str) -> dict[str, object]:
@@ -752,6 +828,7 @@ class OtaDiagnosticsService:
         label: str,
         risk: OperationRisk = OperationRisk.READ_ONLY,
         postconditions: tuple[OperationPostcondition, ...] = (),
+        artifacts: tuple[FileArtifact, ...] = (),
     ) -> OperationPlan:
         return OperationPlan(
             requests=(requests,) if isinstance(requests, ProcessRequest) else requests,
@@ -767,6 +844,7 @@ class OtaDiagnosticsService:
             data_behavior="preserve",
             plan_revision=snapshot.plan.revision,
             fingerprint=snapshot.plan.fingerprint,
+            artifacts=artifacts,
         )
 
     @staticmethod
@@ -804,6 +882,8 @@ __all__ = [
     "OTA_LOGS_COMMAND",
     "OTA_RESET_COMMAND",
     "OTA_STATUS_COMMAND",
+    "OTA_RUNNER_MAIN_CLASS",
+    "OTA_RUNNER_REMOTE_PATH",
     "OtaDiagnosticCompilation",
     "OtaDiagnosticParseError",
     "OtaDiagnosticPlanningError",

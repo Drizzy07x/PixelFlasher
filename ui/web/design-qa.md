@@ -1,65 +1,82 @@
-# PixelFlasher React UI — Design QA
+# PixelFlasher React UI — RC design and quality audit
 
-Date: 2026-07-18
+Date: 2026-07-24
 
-Scope: the production React shell and the current critical Device, Firmware, Flash, Root, Tools, and Settings journeys. This pass does not claim complete PixelFlasher 10 feature parity; the remaining product gaps are recorded in the parity inventory.
+Scope: the production React/WebView shell and the release evidence required for
+PixelFlasher 10 RC1. The machine-readable parity inventory remains the source
+of truth for capability status.
 
-## Grounding and comparison
+## Current result
 
-- Reference dashboard: `pixelflasher-modernization-audit/01-dashboard.png`.
-- Final implementation capture: `docs/qa/final-dashboard.png`.
-- Combined comparison: `docs/qa/dashboard-comparison.png`.
-- The reference and implementation were compared side by side at the same 1536 × 960 viewport and dashboard state.
-- Device and Tools interaction passes were also run at 1536 × 960 in the dark theme with the English locale.
-- The React shell preserves the established dark navy workspace, compact task rail, blue/violet accents, bordered cards, device summary, readiness banner, quick actions, and bottom status strip. It also uses the repository's existing product imagery and icons.
-- Intentional differences are limited to the requested nine task areas, native wx window chrome, and realistic development-only data that makes the main journeys testable without attached hardware.
+RC1 is blocked. The current inventory contains 52 release gates: 20 are
+`native` and 32 remain `partial`. A partial row is not promoted merely because
+its React and backend implementation exists; every capability-specific
+packaged, hardware or accessibility exit criterion must also be demonstrated.
 
-## Visual checks
+The historical dashboard captures under `docs/qa/` remain useful visual
+references, but they are not candidate-bound RC evidence. Candidate evidence
+must be generated for one clean, tagged commit and retained through
+`scripts/rc1_preflight.py`.
 
-| Check | Evidence | Result |
+## Automated UI evidence
+
+| Check | Current local evidence | RC disposition |
 | --- | --- | --- |
-| Dashboard composition | 1536 × 960 combined comparison | Pass |
-| Production reload | Dashboard restored at `#/dashboard`, dark theme, English, 100% zoom | Pass |
-| Root workspace | Seven patch methods, verified app inventory, module controls, guarded confirmation | Pass |
-| Firmware workspace | Native package selection contract, process action, verified Ready state | Pass |
-| Flash review | Five-step wizard, explicit target, immutable review, destructive confirmation | Pass |
-| Device workspace | Fastboot device operations, boot image actions, slot mutation and bootloader controls; reinforced challenge receives initial focus | Pass |
-| Tools workspace — ADB | Standard and Expert states covering scrcpy, wireless ADB, bounded logcat, file push and support export | Pass |
-| Tools workspace — fastboot | Partition manager list, selection, read/write/erase controls and result presentation | Pass |
-| Responsive shell | 1024 × 768 collapsed task rail and no body overflow | Pass |
-| Zoom and scrolling | 200% at 1536 × 960 initially exposed 29 px of internal overflow; container reflow removed it (`rootOverflow=0`, `mainOverflow=0`) and the sidebar remains vertically scrollable | Pass after fix |
-| Theme variants | Dark, light, and high-contrast states inspected with visible borders and focus | Pass |
+| Python quality | 1,618 tests passed, 5 POSIX-only contracts skipped on Windows; 80.17% combined line/branch coverage; Ruff clean; Pyright 0 errors | Pass locally; the 80% gate is active in Ubuntu CI |
+| React tests | 33 files, 216 tests passed | Pass locally |
+| React coverage | 82.27% statements, 80.62% branches, 86.04% functions, 87.68% lines | Pass locally |
+| TypeScript and Vite | Application and terminal bundles built; static WebView contract passed | Pass locally |
+| Gettext | 922 message IDs exported and checked across six locales | Pass locally |
+| Packaged self-test | Required failures 0; the bundled OTA DEX hash is verified; four expected environment/provisioning warnings remain | Pass on the rebuilt local Windows x64 package |
+| UI smoke schema v2 | One real WebView document visits all nine routes with `Alt+1…9`, verifies active route and heading focus, then shuts down cleanly | Pass on the rebuilt local Windows x64 package |
+| Packaged functional smokes | ConPTY, Legacy Raw, firmware, Support v2 and UI receipts validated | Pass on the rebuilt local Windows x64 package |
 
-## Interaction and accessibility checks
+The local receipts prove the rebuilt executable, not the remote target matrix.
+Windows ARM64, macOS Intel/ARM, Ubuntu 22/24 and AppImage X11/Wayland results
+must come from the exact candidate SHA and be retained as candidate-bound
+evidence.
 
-- Nine task buttons, URL hash routing, Alt+1…9 navigation, skip link, and focus transfer to each page heading work.
-- Theme, locale, high contrast, reduced motion, and 80–200% zoom controls work. Settings persist through the host preferences contract.
-- At 200% zoom, QA detected 29 px of internal horizontal overflow. The container reflow fix was rechecked with `rootOverflow=0` and `mainOverflow=0`; the sidebar owns its vertical overflow, so Settings and Expert Mode remain reachable.
-- Keyboard focus uses a visible 3 px focus ring. Confirmation dialogs initially focus Cancel and use the neutral Continue label outside the flash-specific flow.
-- In the fastboot Device flow, reinforced operations open the challenge UI with initial focus on the reinforced challenge rather than leaving focus behind the dialog.
-- Firmware processing emits only `firmware.process` with an empty payload and does not render Ready until the canonical snapshot promotes a verified processed artifact.
-- Root patching stays disabled until a compatible verified app inventory is loaded. Its exact request contains only serial, flavor, opaque app ID, and destination. Module actions are gated on one selected rooted ADB device.
-- The five-step flash wizard preserves state across canonical snapshots and performs plan update, plan preview, exact confirmation, and execution against the returned revision.
-- Tools was exercised in both one-device ADB/Expert state and fastboot state. The bounded logcat viewer, native multi-file push picker, wireless controls, support destination grant and partition workspace all preserve the selected serial and typed bridge boundary.
-- Axe reports zero automated violations on the primary dashboard and the bounded Tools/Wireless ADB workspace with its jsdom-incompatible color-contrast rule excluded; rendered contrast was inspected in the browser in dark, light, and high-contrast modes.
-- The final in-app browser pass reported no console warnings or errors.
+## Interaction and accessibility
 
-## Host-integrity and regression checks
+- URL-hash routing, nine task buttons, `Alt+1…9`, the skip link and page-heading
+  focus are covered by the persistent-document smoke.
+- Theme, locale, high contrast, reduced motion and 80–200% zoom controls remain
+  in the production settings contract.
+- Keyboard focus and dialog focus behavior are covered by React tests, including
+  reinforced confirmations.
+- Automated axe coverage remains useful but is not equivalent to the required
+  NVDA, VoiceOver and Orca runs.
+- The prior 1536×960 and 1024×768 captures are historical checks. Fresh
+  candidate-bound visual regression evidence is still required.
 
-- Real WebView mode starts from an empty snapshot and never exposes HTTP-preview firmware, app, backup, device, or root inventories.
-- Development data remains behind `window.pixelflasher.__mock`; production bridge requests use the canonical Python allow-list and revision contract.
-- Protocol acknowledgements without a terminal result are never presented as successful operations.
-- Frontend regression: 23/23 Vitest tests passed, including dashboard and Tools axe smokes, exact bridge payloads, Device, Tools, Root, Firmware, and Flash journeys.
-- Production build: TypeScript, 294 gettext message IDs and 277 web contexts across all six locales, Vite output, and the static `file://` WebView contract passed. Ten newly registered Apps messages intentionally use gettext's documented source fallback until reviewed translations are supplied.
-- Backend regression is 466/466, including serial-bound fastboot getvars, fastbootd classification, cancellation and identity-history tests. The post-command observer half of P1 remains open.
-- This scoped design QA has no remaining visual overflow defect; it does not close the remaining postcondition work or any release-level parity gate.
+## Implementation changes since the prior audit
 
-## Open product gaps outside this QA pass
+- Productive postcondition observation now covers reboot, slot, bootloader,
+  package, partition, OTA and related mutation outcomes; the previous note that
+  the observer was wholly open is obsolete.
+- Scrcpy setup, wireless ADB, bounded Logcat, file push, partitions and Support
+  have native React/backend chains. Their remaining gaps are production
+  catalogs, packaged evidence or hardware evidence rather than absent panels.
+- OTA cancel/reset now has an owned architecture-neutral DEX fallback built
+  reproducibly from source with a hash-locked Google R8/D8 toolchain. The
+  runtime verifies it locally, stages it privately, verifies the pushed hash
+  on-device and uses it for status preflight, cancel, reset and idle
+  observation. Rooted real-device Binder/SELinux validation remains open.
 
-- The owned Android patch runner is packaged and architecture/KMI selection is fail-closed; signed production APK manifests, KernelSU Legacy images and real-device smokes remain open.
-- APatch secrets use one-use opaque grants and stdin transport; release validation must still prove the provider script path on hardware without secret disclosure.
-- Tools is not complete: runtime scrcpy packaging/discovery, wireless discovery and disconnected-device handoff, logcat streaming/export/redaction, per-file push progress/retry, partition postconditions, and legacy support-package data remain tracked as partial.
-- Full parity for advanced Apps, Backups, PIF, support, update, and the remaining expert surfaces remains tracked in the parity inventory.
-- Fastboot inventory state is now enriched safely, but the P1 observer that must prove reboot, slot and bootloader postconditions after a zero exit code remains open.
+## Remaining RC evidence
 
-final result: passed
+- Production signing/key custody and final catalogs for Platform Tools, root
+  apps, firmware, Scrcpy and updates.
+- Dedicated production signature verifiers for the still-unprovisioned
+  firmware, Scrcpy and update catalog formats; the RC1 preflight fails closed
+  until those formats and verifiers exist.
+- Candidate-bound packaged smoke results for every supported desktop target.
+- The defined Pixel hardware matrix, including destructive and disconnect
+  scenarios.
+- NVDA, VoiceOver and Orca passes plus fresh visual regression captures.
+- A clean RC tag, release signing/notarization evidence and repository release
+  controls.
+- Closure of all P0/P1 defects and a passing fail-closed RC1 preflight.
+
+Final result: **blocked for RC1; local UI implementation and Windows x64 smoke
+are green, release evidence is incomplete.**

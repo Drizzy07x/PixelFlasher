@@ -23,6 +23,10 @@ from pixelflasher_core import (
     ToolchainInfo,
     TransportOutcome,
 )
+from pixelflasher_core.ota_diagnostics import (
+    OTA_RUNNER_MAIN_CLASS,
+    OTA_RUNNER_REMOTE_PATH,
+)
 from tests.command_engine_factory import make_test_command_engine
 from ui.public_bridge import project_operation_result
 
@@ -230,6 +234,8 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
 
         engine, transport = self.engine_for(
             [
+                TransportOutcome(0),
+                TransportOutcome(0),
                 TransportOutcome(
                     0,
                     "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.25\n",
@@ -252,36 +258,17 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
             project_operation_result(OTA_RESET_COMMAND, result)["value"],
         )
         self.assertEqual(["ota_idle_state"], observations)
+        calls = tuple(request.argv for request in transport.calls)
+        invoke = (
+            f"CLASSPATH={OTA_RUNNER_REMOTE_PATH} app_process /system/bin "
+            f"{OTA_RUNNER_MAIN_CLASS}"
+        )
+        self.assertEqual(("ADB", "-s", "SERIAL-OTA", "push"), calls[0][:4])
+        self.assertEqual(OTA_RUNNER_REMOTE_PATH, calls[0][-1])
+        self.assertIn("toybox sha256sum -c -", calls[1][-1])
         self.assertEqual(
-            (
-                (
-                    "ADB",
-                    "-s",
-                    "SERIAL-OTA",
-                    "shell",
-                    "update_engine_client",
-                    "--status",
-                ),
-                (
-                    "ADB",
-                    "-s",
-                    "SERIAL-OTA",
-                    "shell",
-                    "su",
-                    "-c",
-                    "update_engine_client --cancel",
-                ),
-                (
-                    "ADB",
-                    "-s",
-                    "SERIAL-OTA",
-                    "shell",
-                    "su",
-                    "-c",
-                    "update_engine_client --reset_status",
-                ),
-            ),
-            tuple(request.argv for request in transport.calls),
+            tuple(f"{invoke} {action}" for action in ("status", "cancel", "reset")),
+            tuple(call[-1] for call in calls[2:]),
         )
 
     def test_reset_denial_or_incompatible_preflight_starts_no_mutation(self) -> None:
@@ -297,6 +284,8 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
 
         idle_engine, idle_transport = self.engine_for(
             [
+                TransportOutcome(0),
+                TransportOutcome(0),
                 TransportOutcome(
                     0,
                     "CURRENT_OP=UPDATE_STATUS_IDLE\nCURRENT_PROGRESS=0\n",
@@ -309,13 +298,15 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
 
         self.assertIs(OperationStatus.FAILED, idle.status)
         self.assertEqual("ota_already_idle", idle.code)
-        self.assertEqual(1, len(idle_transport.calls))
+        self.assertEqual(3, len(idle_transport.calls))
 
     def test_reset_cancellation_before_mutation_is_cancelled(self) -> None:
         started = threading.Event()
         release = threading.Event()
         engine, transport = self.engine_for(
             [
+                TransportOutcome(0),
+                TransportOutcome(0),
                 FakeTransportStep(
                     TransportOutcome(
                         0,
@@ -339,7 +330,7 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
         release.set()
 
         self.assertFalse(worker.is_alive())
-        self.assertEqual(1, len(transport.calls))
+        self.assertEqual(3, len(transport.calls))
         self.assertIs(OperationStatus.CANCELLED, results[0].status)
         self.assertEqual("ota_reset_preflight_cancelled", results[0].code)
 
@@ -348,6 +339,8 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
         release = threading.Event()
         engine, transport = self.engine_for(
             [
+                TransportOutcome(0),
+                TransportOutcome(0),
                 TransportOutcome(
                     0,
                     "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.4\n",
@@ -372,7 +365,7 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
         release.set()
 
         self.assertFalse(worker.is_alive())
-        self.assertEqual(2, len(transport.calls))
+        self.assertEqual(4, len(transport.calls))
         self.assertIs(OperationStatus.FAILED, results[0].status)
         self.assertEqual("outcome_unknown", results[0].code)
 
@@ -382,7 +375,12 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
             "CURRENT_OP=UPDATE_STATUS_DOWNLOADING\nCURRENT_PROGRESS=0.4\n",
         )
         timeout_engine, timeout_transport = self.engine_for(
-            [active_status, TransportOutcome(None, timed_out=True)],
+            [
+                TransportOutcome(0),
+                TransportOutcome(0),
+                active_status,
+                TransportOutcome(None, timed_out=True),
+            ],
             interaction_handler=lambda _request: True,
             postcondition_observer=lambda *_args: True,
         )
@@ -391,10 +389,16 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
 
         self.assertIs(OperationStatus.FAILED, timed_out.status)
         self.assertEqual("outcome_unknown", timed_out.code)
-        self.assertEqual(2, len(timeout_transport.calls))
+        self.assertEqual(4, len(timeout_transport.calls))
 
         mismatch_engine, mismatch_transport = self.engine_for(
-            [active_status, TransportOutcome(0), TransportOutcome(0)],
+            [
+                TransportOutcome(0),
+                TransportOutcome(0),
+                active_status,
+                TransportOutcome(0),
+                TransportOutcome(0),
+            ],
             interaction_handler=lambda _request: True,
             postcondition_observer=lambda *_args: False,
         )
@@ -403,7 +407,7 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
 
         self.assertIs(OperationStatus.FAILED, mismatch.status)
         self.assertEqual("postcondition_mismatch", mismatch.code)
-        self.assertEqual(3, len(mismatch_transport.calls))
+        self.assertEqual(5, len(mismatch_transport.calls))
 
     def test_stale_revision_and_safety_policy_revalidation_start_no_process(self) -> None:
         stale_engine, stale_transport = self.engine_for([])

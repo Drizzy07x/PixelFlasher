@@ -103,7 +103,8 @@
         "PixelFlasher.py:_run_modern_primary",
         "ui/pages/modern_primary_app.py:launch_modern_primary",
         "ui/pages/modern_webview_host.py:ModernWebViewFrame",
-        "ui/web/src/App.tsx:PixelFlasherApp"
+        "ui/web/src/App.tsx:PixelFlasherApp",
+        "ui_smoke_contract.py:schema-v2 persistent nine-route keyboard/focus receipt"
       ],
       "gap": "",
       "exitCriteria": [
@@ -117,7 +118,9 @@
         "linux"
       ],
       "tests": [
-        "tests/test_modern_primary_experience.py"
+        "tests/test_modern_primary_experience.py",
+        "tests/test_ui_smoke.py",
+        "tests/test_modern_webview_host_contract.py:packaged UI keyboard/focus journey"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -214,9 +217,10 @@
         "pixelflasher_core/backups.py:BackupService",
         "pixelflasher_core/backup_repository.py:BackupRepository",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result/_list_backups/_delete_backup",
-        "ui/public_bridge.py:_project_backup_inventory/_project_backup_result/_project_backup_delete/_project_magisk_backup_inventory/_project_magisk_backup_mutation"
+        "ui/public_bridge.py:_project_backup_inventory/_project_backup_result/_project_backup_delete/_project_magisk_backup_inventory/_project_magisk_backup_mutation",
+        "ui_smoke_contract.py:schema-v2 persistent nine-route keyboard/focus receipt"
       ],
-      "gap": "Raw and on-device Magisk backup semantics are integrated in one React workspace with route-free results, opaque grants, integrity states and reinforced deletion. Packaged WebView, keyboard/focus and real rooted-device smokes remain open.",
+      "gap": "Raw and on-device Magisk backup semantics are integrated in one React workspace with route-free results, opaque grants, integrity states and reinforced deletion. The real Windows WebView now reaches Backups by keyboard, marks it active, transfers focus and preserves the React document; remote packaged-platform results and real rooted-device smokes remain open.",
       "exitCriteria": [
         "The React Backups workspace provides every supported create, restore, inventory, import and delete flow without a legacy dialog."
       ],
@@ -235,7 +239,9 @@
         "tests/test_backup_public_contract.py",
         "tests/test_service_engine_integration.py",
         "ui/web/src/test/pages.behavior.test.tsx:creates, restores and deletes route-free managed backups",
-        "ui/web/src/test/backups-magisk.test.tsx"
+        "ui/web/src/test/backups-magisk.test.tsx",
+        "tests/test_modern_webview_host_contract.py:packaged UI keyboard/focus journey",
+        "tests/test_ui_smoke.py"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -303,9 +309,10 @@
         "pixelflasher_core/device_tools.py:DeviceToolsService",
         "pixelflasher_core/partitions.py:PartitionService",
         "pixelflasher_core/support.py:SupportPackageService",
-        "ui/web/src/test/tools-catalog.test.tsx"
+        "ui/web/src/test/tools-catalog.test.tsx",
+        "ui_smoke_contract.py:schema-v2 persistent nine-route keyboard/focus receipt"
       ],
-      "gap": "The React catalog contract is complete; release promotion still depends on the remaining partial tool capabilities and packaged WebView E2E across the platform matrix.",
+      "gap": "The React catalog contract is complete, and the real Windows WebView reaches Tools by keyboard with active-route, focus and persistent-document proof. Release promotion still depends on the remaining partial tool capabilities and remote packaged WebView results across the platform matrix.",
       "exitCriteria": [
         "Every supported Tools workspace action has a typed bridge contract, bounded result and explicit capability owner."
       ],
@@ -328,7 +335,9 @@
         "tests/test_partition_service.py",
         "tests/test_support_package_service.py",
         "ui/web/src/test/App.test.tsx:Tools workspace",
-        "ui/web/src/test/tools-catalog.test.tsx"
+        "ui/web/src/test/tools-catalog.test.tsx",
+        "tests/test_modern_webview_host_contract.py:packaged UI keyboard/focus journey",
+        "tests/test_ui_smoke.py"
       ],
       "blockReason": null,
       "releaseGate": true,
@@ -1905,6 +1914,10 @@
       "modernStatus": "partial",
       "currentEvidence": [
         "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService",
+        "resources/ota-runner/src/com/pixelflasher/ota/Runner.java",
+        "resources/ota-runner/toolchain-lock.json",
+        "resources/ota-runner/runtime/pf-ota-runner.dex",
+        "scripts/build_ota_runner.py",
         "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._ota_idle",
         "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
         "pixelflasher_core/executor.py:SubprocessTransport._run_bounded_process",
@@ -1914,7 +1927,7 @@
         "ui/public_bridge.py:_project_ota_reset",
         "ui/web/src/pages/device/OtaDiagnosticsPanel.tsx:OtaDiagnosticsPanel"
       ],
-      "gap": "Otacerts inspection, bounded redacted logs and closed update_engine status are native. Root-only cancel/reset now uses a confirmed revision-bound plan, immediate status preflight, fixed shell-free host argv and independent idle-state observation, with cancellation before mutation distinguished from outcome_unknown afterward. A reproducibly sourced, hash-bound fallback runner and packaged real-device smokes remain open for devices that do not expose a compatible system update_engine_client.",
+      "gap": "Otacerts inspection, bounded redacted logs and closed update_engine status are native. Root-only cancel/reset uses a confirmed revision-bound plan and an owned architecture-neutral fallback runner built from Java source against the Android UpdateEngine API. The checked-in DEX is byte-reproducible with a hash-locked Google R8/D8 toolchain, is SHA-256 verified before planning, staged race-free, pushed to a fixed content role, verified again on-device and used for immediate status preflight, cancel, reset and independent idle observation. Cancellation before mutation remains distinct from outcome_unknown afterward; opaque legacy update_engine_client binaries remain excluded. Packaged remote and rooted real-device smokes across the supported Android range remain open.",
       "exitCriteria": [
         "Cancel Google OTA, inspect otacerts and monitor update_engine is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform.",
         "Every mutation is compiled below the UI, bound to the selected serial and current revision, revalidated immediately before execution and verified afterward."
@@ -1932,6 +1945,7 @@
       "tests": [
         "tests/test_ota_diagnostics_service.py",
         "tests/test_ota_diagnostics_engine_integration.py",
+        "tests/test_build_ota_runner.py",
         "tests/test_production_postcondition_observer.py:test_ota_idle_requires_independent_bounded_update_engine_status",
         "tests/test_operation_runner_v2.py:test_extended_mutation_postconditions_compile_to_typed_probe_evidence",
         "tests/test_headless_core.py:test_subprocess_transport_terminates_at_the_aggregate_output_limit",
@@ -2625,9 +2639,10 @@
       "currentEvidence": [
         "ui/web/src/App.tsx:task navigation, application shell commands and exitBlocked handling",
         "ui/pages/modern_webview_host.py:_handle_application_request/_on_close",
-        "ui/pages/modern_primary_app.py:_application_directories_for_config"
+        "ui/pages/modern_primary_app.py:_application_directories_for_config",
+        "ui_smoke_contract.py:schema-v2 persistent nine-route keyboard/focus and clean-shutdown receipt"
       ],
-      "gap": "Backend-owned Configuration, Logs and Cache folders, safe application exit, persistent top/right/bottom/left toolbar layout and a 200-line public console with clear plus atomic one-use-grant export are native, revisioned and route-free. Native close is vetoed while work is active without a classic dialog. Only packaged lifecycle and visual layout smokes remain open.",
+      "gap": "Backend-owned Configuration, Logs and Cache folders, safe application exit, persistent top/right/bottom/left toolbar layout and a 200-line public console with clear plus atomic one-use-grant export are native, revisioned and route-free. Native close is vetoed while work is active without a classic dialog. The real Windows WebView proves keyboard navigation, focus transfer, persistent document and clean shutdown; remote packaged lifecycle and visual layout smokes remain open.",
       "exitCriteria": [
         "Toolbar layout, language selection, folders, console controls and exit are available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
       ],
@@ -2647,7 +2662,9 @@
         "tests/test_modern_webview_host_contract.py:backend-owned folder, lifecycle and atomic console export contracts",
         "ui/web/src/test/App.test.tsx:bounded console clear and native-grant export",
         "ui/web/src/test/App.test.tsx:persisted toolbar position and visibility",
-        "tests/test_preferences.py:legacy toolbar migration and closed layout validation"
+        "tests/test_preferences.py:legacy toolbar migration and closed layout validation",
+        "tests/test_modern_webview_host_contract.py:packaged UI keyboard/focus journey",
+        "tests/test_ui_smoke.py"
       ],
       "blockReason": null,
       "releaseGate": true,

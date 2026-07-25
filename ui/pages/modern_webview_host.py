@@ -651,6 +651,107 @@ class FrontendAssetsNotFound(RuntimeError):
     pass
 
 
+_UI_SMOKE_ROUTES = (
+    "dashboard",
+    "device",
+    "flash",
+    "firmware",
+    "root",
+    "apps",
+    "backups",
+    "tools",
+    "settings",
+)
+_UI_SMOKE_SETTLE_MILLISECONDS = 75
+_UI_SMOKE_SCRIPT_TOKEN = "pixelflasher-packaged-ui-smoke-v2"
+
+
+def _decode_ui_smoke_script_result(output: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(output)
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise RuntimeError("WebView returned an invalid packaged UI smoke result") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"WebView returned a {type(payload).__name__} packaged UI smoke result"
+        )
+    unexpected_fields = set(payload) - {
+        "ok",
+        "code",
+        "defaultPrevented",
+        "route",
+        "activeRoute",
+        "headingFocused",
+        "persistentDocument",
+    }
+    if unexpected_fields:
+        raise RuntimeError(
+            "WebView returned unexpected packaged UI smoke fields: "
+            + ", ".join(sorted(str(field) for field in unexpected_fields))
+        )
+    if payload.get("ok") is not True:
+        code = payload.get("code")
+        raise RuntimeError(
+            f"Packaged UI smoke failed: {code}"
+            if isinstance(code, str) and code
+            else "Packaged UI smoke failed"
+        )
+    return payload
+
+
+def _extract_ui_smoke_script_output(output: str) -> str | None:
+    try:
+        payload = json.loads(output)
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict) or payload.pop("smokeToken", None) != _UI_SMOKE_SCRIPT_TOKEN:
+        return None
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
+def _ui_smoke_initialization_script() -> str:
+    return """(() => {
+const shell = document.querySelector('.app-shell');
+const routes = document.querySelectorAll('.task-nav button');
+if (!shell || routes.length !== 9) {
+return JSON.stringify({smokeToken:'pixelflasher-packaged-ui-smoke-v2',ok:false,code:'shell_contract_missing'});
+}
+window.__pixelflasherUiSmoke = {documentRef:document,shellRef:shell};
+return JSON.stringify({smokeToken:'pixelflasher-packaged-ui-smoke-v2',ok:true});
+})()"""
+
+
+def _ui_smoke_navigation_script(index: int) -> str:
+    key = index + 1
+    return f"""(() => {{
+const event = new KeyboardEvent('keydown', {{key:'{key}',altKey:true,bubbles:true,cancelable:true}});
+window.dispatchEvent(event);
+return JSON.stringify({{smokeToken:'pixelflasher-packaged-ui-smoke-v2',ok:true,defaultPrevented:event.defaultPrevented}});
+}})()"""
+
+
+def _ui_smoke_verification_script(route: str, index: int) -> str:
+    encoded_route = json.dumps(route)
+    return f"""(() => {{
+const expectedRoute = {encoded_route};
+const routes = Array.from(document.querySelectorAll('.task-nav button'));
+const heading = document.querySelector('#main-content h1');
+const marker = window.__pixelflasherUiSmoke;
+return JSON.stringify({{
+  smokeToken:'pixelflasher-packaged-ui-smoke-v2',
+  ok:true,
+  route:window.location.hash,
+  activeRoute:routes[{index}]?.getAttribute('aria-current') === 'page',
+  headingFocused:heading !== null && document.activeElement === heading,
+  persistentDocument:Boolean(marker && marker.documentRef === document && marker.shellRef === document.querySelector('.app-shell')),
+}});
+}})()"""
+
+
 def is_webview_available() -> bool:
     return _preferred_backend() is not None
 
@@ -744,6 +845,9 @@ class ModernWebViewFrame(wx.Frame):
         self._closing = False
         self._bridge_ready_callback = bridge_ready_callback
         self._bridge_ready_signalled = False
+        self._ui_smoke_in_progress = False
+        self._ui_smoke_timer: object | None = None
+        self._ui_smoke_script_callback: Callable[[str], None] | None = None
         self._pending_messages: list[dict[str, Any]] = []
         self._logcat_progress_batcher = _LogcatProgressBatcher(
             self._emit_batch,
@@ -772,6 +876,7 @@ class ModernWebViewFrame(wx.Frame):
         self._view.Bind(html2.EVT_WEBVIEW_LOADED, self._on_loaded)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_NAVIGATING, self._on_navigating)  # type: ignore[union-attr]
         self._view.Bind(html2.EVT_WEBVIEW_ERROR, self._on_load_error)  # type: ignore[union-attr]
+        self._view.Bind(html2.EVT_WEBVIEW_SCRIPT_RESULT, self._on_script_result)  # type: ignore[union-attr]
         self.Bind(wx.EVT_CLOSE, self._on_close)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -807,6 +912,16 @@ class ModernWebViewFrame(wx.Frame):
         if detail:
             message = f"{message} {detail}"
         wx.LogError(message)
+
+    def _on_script_result(self, event: object) -> None:
+        output = _extract_ui_smoke_script_output(str(event.GetString()))  # type: ignore[attr-defined]
+        if output is None:
+            event.Skip()  # type: ignore[attr-defined]
+            return
+        callback, self._ui_smoke_script_callback = self._ui_smoke_script_callback, None
+        if callback is None:
+            return
+        callback(output)
 
     def _on_navigating(self, event: object) -> None:
         url = str(event.GetURL())  # type: ignore[attr-defined]
@@ -1583,6 +1698,109 @@ class ModernWebViewFrame(wx.Frame):
         self._bridge_ready_signalled = True
         callback(revision)
 
+    def run_packaged_ui_smoke(
+        self,
+        callback: Callable[[dict[str, Any] | None, str | None], None],
+    ) -> None:
+        """Exercise the real React document through its public keyboard surface."""
+
+        if self._closing:
+            callback(None, "The native host began closing before the packaged UI journey")
+            return
+        if not self._bridge_ready_signalled:
+            callback(None, "Bridge v2 was not ready for the packaged UI journey")
+            return
+        if self._ui_smoke_in_progress:
+            callback(None, "A packaged UI journey is already running")
+            return
+        self._ui_smoke_in_progress = True
+        visited: list[str] = []
+
+        def finish(result: dict[str, Any] | None, error: str | None) -> None:
+            if not self._ui_smoke_in_progress:
+                return
+            self._ui_smoke_in_progress = False
+            self._ui_smoke_timer = None
+            callback(result, error)
+
+        def fail(exc: Exception) -> None:
+            finish(None, str(exc))
+
+        def verify_route(index: int) -> None:
+            def verified(output: str) -> None:
+                try:
+                    route = _UI_SMOKE_ROUTES[index]
+                    result = _decode_ui_smoke_script_result(output)
+                    if result.get("route") != f"#/{route}":
+                        raise RuntimeError(f"Packaged UI did not navigate to {route}")
+                    if result.get("activeRoute") is not True:
+                        raise RuntimeError(f"Packaged UI did not mark {route} active")
+                    if result.get("headingFocused") is not True:
+                        raise RuntimeError(f"Packaged UI did not transfer focus on {route}")
+                    if result.get("persistentDocument") is not True:
+                        raise RuntimeError("Packaged UI replaced its React document")
+                    visited.append(route)
+                    visit_route(index + 1)
+                except Exception as exc:
+                    fail(exc)
+
+            try:
+                route = _UI_SMOKE_ROUTES[index]
+                self._run_ui_smoke_script(
+                    _ui_smoke_verification_script(route, index),
+                    verified,
+                )
+            except Exception as exc:
+                fail(exc)
+
+        def visit_route(index: int) -> None:
+            if index >= len(_UI_SMOKE_ROUTES):
+                finish(
+                    {
+                        "taskRoutes": list(visited),
+                        "keyboardRouteNavigation": True,
+                        "focusTransferredToHeading": True,
+                        "persistentDocument": True,
+                    },
+                    None,
+                )
+                return
+            try:
+                def navigated(output: str) -> None:
+                    try:
+                        result = _decode_ui_smoke_script_result(output)
+                        if result.get("defaultPrevented") is not True:
+                            raise RuntimeError("Packaged UI keyboard shortcut was not handled")
+                        self._ui_smoke_timer = wx.CallLater(
+                            _UI_SMOKE_SETTLE_MILLISECONDS,
+                            verify_route,
+                            index,
+                        )
+                    except Exception as exc:
+                        fail(exc)
+
+                self._run_ui_smoke_script(_ui_smoke_navigation_script(index), navigated)
+            except Exception as exc:
+                fail(exc)
+
+        try:
+            def initialized(output: str) -> None:
+                try:
+                    _decode_ui_smoke_script_result(output)
+                    visit_route(0)
+                except Exception as exc:
+                    fail(exc)
+
+            self._run_ui_smoke_script(_ui_smoke_initialization_script(), initialized)
+        except Exception as exc:
+            fail(exc)
+
+    def _run_ui_smoke_script(self, script: str, callback: Callable[[str], None]) -> None:
+        if self._ui_smoke_script_callback is not None:
+            raise RuntimeError("A packaged UI smoke script is already pending")
+        self._ui_smoke_script_callback = callback
+        self._view.RunScriptAsync(script)
+
     def _complete_request(
         self,
         request: BridgeRequest,
@@ -1645,6 +1863,10 @@ class ModernWebViewFrame(wx.Frame):
             )
             return
         self._closing = True
+        self._ui_smoke_script_callback = None
+        if self._ui_smoke_timer is not None:
+            self._ui_smoke_timer.Stop()  # type: ignore[attr-defined]
+            self._ui_smoke_timer = None
         # Wake a producer held by bounded logcat backpressure before engine
         # shutdown waits for the worker.  Pending UI-only events are discarded
         # at this explicit session boundary.

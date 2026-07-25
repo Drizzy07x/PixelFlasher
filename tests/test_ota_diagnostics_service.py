@@ -14,6 +14,8 @@ from pixelflasher_core.ota_diagnostics import (
     OTA_CERTIFICATES_COMMAND,
     OTA_LOGS_COMMAND,
     OTA_RESET_COMMAND,
+    OTA_RUNNER_MAIN_CLASS,
+    OTA_RUNNER_REMOTE_PATH,
     OTA_STATUS_COMMAND,
     OtaDiagnosticPlanningError,
     OtaDiagnosticsService,
@@ -168,39 +170,38 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
 
         compilation = self.compile(OTA_RESET_COMMAND)
 
+        requests = compilation.plan.requests
+        runner = compilation.plan.artifacts[0]
+        invoke = (
+            f"CLASSPATH={OTA_RUNNER_REMOTE_PATH} app_process /system/bin "
+            f"{OTA_RUNNER_MAIN_CLASS}"
+        )
+        self.assertEqual(
+            ("ADB", "-s", "SERIAL-OTA", "push", runner.path, OTA_RUNNER_REMOTE_PATH),
+            requests[0].argv,
+        )
         self.assertEqual(
             (
+                "ADB",
+                "-s",
+                "SERIAL-OTA",
+                "shell",
+                "su",
+                "-c",
                 (
-                    "ADB",
-                    "-s",
-                    "SERIAL-OTA",
-                    "shell",
-                    "update_engine_client",
-                    "--status",
-                ),
-                (
-                    "ADB",
-                    "-s",
-                    "SERIAL-OTA",
-                    "shell",
-                    "su",
-                    "-c",
-                    "update_engine_client --cancel",
-                ),
-                (
-                    "ADB",
-                    "-s",
-                    "SERIAL-OTA",
-                    "shell",
-                    "su",
-                    "-c",
-                    "update_engine_client --reset_status",
+                    f"echo {runner.sha256}  {OTA_RUNNER_REMOTE_PATH} | "
+                    "toybox sha256sum -c -"
                 ),
             ),
-            tuple(request.argv for request in compilation.plan.requests),
+            requests[1].argv,
         )
+        self.assertEqual(
+            tuple(f"{invoke} {action}" for action in ("status", "cancel", "reset")),
+            tuple(request.argv[-1] for request in requests[2:]),
+        )
+        self.assertEqual("ota-update-engine-runner", runner.role)
         self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)
-        self.assertEqual(1, compilation.mutation_request_index)
+        self.assertEqual(3, compilation.mutation_request_index)
         self.assertTrue(compilation.mutating)
         self.assertTrue(compilation.requires_confirmation)
         self.assertEqual(

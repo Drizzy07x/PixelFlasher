@@ -25,18 +25,19 @@ contract or only the React surface exists.
 
 | Status | Meaning |
 |---|---|
-| `native` | Implemented without opening or delegating to legacy UI handlers. |
+| `native` | Implemented without legacy delegates and backed by every capability-specific exit criterion recorded in the inventory. |
 | `read_only` | State is visible, but the complete native mutation flow is absent. |
 | `delegated` | Modern UI reaches the behavior through a legacy handler/frame. |
-| `partial` | Only a documented subset exists. |
+| `partial` | A documented implementation or its required capability-specific evidence is incomplete. |
 | `blocked` | A parity capability is unavailable because a named prerequisite or product decision prevents a safe native contract. |
 | `missing` | No equivalent modern flow exists. |
 | `policy_absent` | Intentionally excluded by safety or product policy; it is not a parity deficit. |
 
 `delegated` is not completion. A capability reaches parity only when its exit
-criteria pass with the legacy frame unavailable. `native` records implementation
-parity; it does not by itself waive the packaged-platform, accessibility or RC
-release gates.
+criteria pass with the legacy frame unavailable. Packaged-platform, hardware or
+accessibility evidence named by a capability is therefore part of reaching
+`native`, not a separate excuse for promoting the row early. Candidate-wide RC
+checks still apply after all capability rows are native.
 
 ## Schema v2 contract
 
@@ -58,10 +59,10 @@ parity belongs to `flash.execute`. Downloads has one owner,
 
 | Capability | Current modern state | Risk | Release gap |
 |---|---:|---:|---|
-| Default React/WebView host and dashboard | native | none | Continue packaged cross-platform smoke coverage; no hidden legacy frame is used by this path. |
+| Default React/WebView host and dashboard | native | none | The schema-v2 smoke drives all nine routes through `Alt+1…9`, proves active-route state, heading focus, one persistent React document and clean shutdown in the real Windows WebView; remote packaged-platform results remain. No hidden legacy frame is used by this path. |
 | Device, Flash and Safety navigation shells | native | none | Navigation is native; operational Flash parity is tracked independently by `flash.execute`. |
 | About/help surface | native | none | The accessible React surface shows the host-announced version, derived stable/RC/development build channel, license, authenticated update status/channel/latest release, and native allow-listed links without exposing URLs to the WebView. |
-| Backup, settings and tools workspaces | partial | none | Tools now has native flows for scrcpy, wireless ADB, bounded logcat, file push, partitions and support export; advanced utilities and the documented postconditions remain open. |
+| Backup, settings and tools workspaces | partial | none | The real WebView keyboard/focus journey reaches all three workspaces without replacing the document. Tools has native flows for scrcpy, wireless ADB, bounded logcat, file push, partitions and support export; remote packaged results, hardware and the remaining partial tool gates stay open. |
 | Scan/select/manage devices | native | device read/host write | Typed adb/fastboot discovery reads serial-bound `current-slot`, `unlocked` and `is-userspace`, distinguishes fastbootd and preserves stable identity without reusing stale operational state. A versioned manager persists aliases and enabled state, pauses/resumes hotplug, switches between enabled/all scope, repairs selection and migrates the bounded 9.x roster with an automatic backup. |
 | Platform Tools setup | partial | host write | Signed official downloads and opaque-grant directories use pinned manifests, versioned atomic installation, binary/version probes and transactional activation. The audited stable 37.0.0 source lock covers five host targets with exact upstream/local hashes and real binary architectures; an offline signer, strict runtime loader and v10 fail-closed release gate are delivered. Production Ed25519 key custody, final signed catalog generation and packaged remote smokes remain. |
 | Select/process factory, OTA and custom ROM packages | partial | host read/write | React exposes separate factory/OTA and custom-ROM native-grant controls; `expectedKind` is validated by bridge and backend so the wrong package class fails before persistence. A streaming AOSP whole-file verifier rejects malformed or tampered OTA signatures, official artifacts remain bound to the signed Ed25519 catalog, trusted OTA signers can pass directly and every other local package requires one hash-bound reinforced confirmation. React shows the closed trust receipt. Direct images and custom/OTA `payload.bin` use the bounded parser and packaged verified extractor. Stock boot images are promoted into BootRepository with firmware/device provenance; failed revisioned promotion rolls back firmware/boot rows, content-addressed objects, planner registrations and extracted output. Manual retry is explicit, never automatic, retains only an opaque artifact/firmware identity and invalidates a processing retry when selection changes. A deterministic, route-free CLI smoke now proves the packaged grant → trust → selection → processing → `init_boot` promotion cycle and is wired into all seven targets. Production signer roots, real fixtures and remote matrix results remain open. |
@@ -187,9 +188,10 @@ ownership with independent installer-source observation. Packaged smokes stay
 open. The Tools page now owns the bounded logcat viewer, expert ADB terminal,
 scrcpy, wireless ADB, file-push, partition and support-package flows, but each row stays
 partial until its documented packaging, postcondition, progress or legacy-data
-gap is closed. Backups now renders the canonical persisted raw-image inventory,
-provenance and typed create/restore/delete results without exposing host paths;
-the distinct on-device Magisk backup-manager semantics remain open.
+gap is closed. Backups renders the canonical persisted raw-image inventory and
+the on-device Magisk inventory, import, cleanup and reinforced deletion flows
+with typed route-free results. Their remote packaged and rooted-device evidence
+remains open.
 
 `ModernPreferences` and `ApplicationRuntime` implement a strict revisioned
 `settings.get`/`settings.update` contract for the complete supported settings
@@ -199,8 +201,10 @@ path/shell controls have explicit safe replacements, and security invariants
 are enforced rather than user-disableable. `ConfigStore` supplies atomic
 writes and backup. The real React host loads and serializes those values through
 the bridge; only the isolated development mock uses local storage. Settings
-remains `partial` solely for expanded property coverage and packaged
-cross-platform visual/accessibility validation.
+is technically native; packaged cross-platform visual/accessibility validation
+remains a release gate. The schema-v2 real-WebView journey proves keyboard
+navigation, heading focus, document persistence and clean shutdown locally on
+Windows.
 
 Destructive confirmation is end to end: `SafetyPolicy` produces an
 `InteractionRequest`, `InteractionBroker` publishes it through the host, the
@@ -214,10 +218,10 @@ becomes implicit success.
 |---|---|
 | Device connection | Bounded mDNS discovery is native without a selected device, and versioned scan/hotplug management is complete. Pair/connect without a selected ADB target and disconnected-device handoff remain. Portable reboot destinations are verified; vendor download mode is policy-absent because it has no portable backend postcondition. |
 | Applications | Packaged cross-platform smokes remain; listing, install with verified Play Store ownership, verified export, denylist, SU and the other package actions are connected to React. |
-| Device tools | Confirm the packaged ADB PTY process receipts across the remote Windows/macOS/Linux matrix, provision production Scrcpy manifests/smokes and supply a reproducibly sourced OTA fallback runner. The expert terminal, packaged smoke, Scrcpy installer and managed lifecycle are implemented. Safe HTTP(S) URL opening, per-slot bootloader inspection, otacerts, bounded Logcat, filtered logs and closed update_engine status are native. Root-only OTA cancel/reset now has confirmation, an immediate non-mutating preflight, fixed host shell-free argv, independent idle observation and correct pre/post-mutation cancellation semantics. A hash-bound fallback is still required for devices without a compatible system client; opaque legacy binaries remain excluded. |
+| Device tools | Confirm the packaged ADB PTY process receipts across the remote Windows/macOS/Linux matrix and provision production Scrcpy manifests/smokes. The expert terminal, packaged smoke, Scrcpy installer and managed lifecycle are implemented. Safe HTTP(S) URL opening, per-slot bootloader inspection, otacerts, bounded Logcat, filtered logs and closed update_engine status are native. Root-only OTA cancel/reset now uses an owned architecture-neutral DEX runner over Android's `UpdateEngine` API: source and compile-only stubs are checked in, Google R8/D8 is version/hash locked, reproducible output is SHA-256 bound locally, staged race-free, reverified after the device push and used for preflight, mutation and independent idle observation. Correct pre/post-mutation cancellation semantics remain, and opaque legacy binaries stay excluded. Packaged remote and rooted real-device validation across the supported Android range remains. |
 | Boot and flash | Boot-record mutation, complete device/slot postcondition coverage, custom `payload.bin`, remaining runtime recovery/fastbootd validation, real patch APK/runner resources and KMI/architecture-based kernel selection. Stock-flash relock evidence and a firmware-bound AVB downgrade flow now exist; their packaged/hardware validation remains. |
 | Support | Production recipient-key provisioning, packaged v1-read/v2-write interoperability and complete console/log redaction validation. |
-| Backups | Raw-backup inventory/results are persistent and route-free; complete the distinct Magisk list/import/delete behavior. |
+| Backups | Raw and Magisk backup semantics are technically complete and route-free; remote packaged and real rooted-device validation remain. |
 | Root and integrity | `/data/adb` now rejects the complete hostile tar matrix and distinguishes verified pre-mutation staging failures from `outcome_unknown` cancellation/disconnection after the mutation-bearing request starts; packaged rooted-device smokes remain. PIF/TargetedFix, PI analysis, Shizuku and SOS still require their hardware/release validation. |
 | Developer/personal tools | Production signed keybox revocation evidence and packaged validation of AVB downgrade, binary XML and local keybox remain. My Tools safe argv and the isolated Legacy Raw permission/confirmation flow are technically complete; their schema-v2 smoke proves grant/hash/reload/direct argv plus the restricted native-shell boundary in the Windows x64 package and is wired into the remaining release targets. |
 | Application shell | Production signed update-manifest provisioning remains external. Tag-derived stable/RC packaging metadata and About's strict stable/RC/development presentation are implemented and tested. The 31 advanced 9.x preferences have an explicit migration/replacement/enforcement policy. About/help and allow-listed native links are implemented. Backend-owned Configuration, Logs and Cache folders, safe revisioned exit, persistent top/right/bottom/left toolbar layout and a bounded redacted console with clear plus atomic one-use-grant export are implemented without exposing paths or opening classic dialogs. |

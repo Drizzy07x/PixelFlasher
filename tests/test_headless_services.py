@@ -1,11 +1,12 @@
 import hashlib
 import json
+import os
 import threading
 import unittest
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pixelflasher_core import (
     AppCommand,
@@ -269,6 +270,72 @@ class ToolchainServiceTests(unittest.TestCase):
         check = ToolchainService(transport).discover("Z:/definitely/missing/platform-tools")
         self.assertEqual("toolchain_path_invalid", check.code)
         self.assertEqual([], transport.calls)
+
+    def test_validation_failures_are_reported_without_using_an_unverified_pair(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            make_toolchain_files(root)
+            cancelled = CancellationToken()
+            cancelled.cancel()
+            cases = (
+                (FakeProcessTransport([]), cancelled, "cancelled"),
+                (
+                    Mock(run=Mock(side_effect=OSError("execution blocked"))),
+                    CancellationToken(),
+                    "tool_execution_failed",
+                ),
+                (
+                    FakeProcessTransport([TransportOutcome(None, cancelled=True)]),
+                    CancellationToken(),
+                    "cancelled",
+                ),
+                (
+                    FakeProcessTransport([TransportOutcome(7, stderr="failed")]),
+                    CancellationToken(),
+                    "tool_version_failed",
+                ),
+                (
+                    FakeProcessTransport(
+                        [TransportOutcome(0, ADB_VERSION), TransportOutcome(None, timed_out=True)]
+                    ),
+                    CancellationToken(),
+                    "tool_timeout",
+                ),
+                (
+                    FakeProcessTransport(
+                        [
+                            TransportOutcome(0, ADB_VERSION.replace("36.0.0", "32.0.0")),
+                            TransportOutcome(0, FASTBOOT_VERSION.replace("36.0.0", "32.0.0")),
+                        ]
+                    ),
+                    CancellationToken(),
+                    "tool_version_unsupported",
+                ),
+            )
+            for transport, cancellation, expected_code in cases:
+                with self.subTest(expected_code=expected_code):
+                    check = ToolchainService(transport).discover(
+                        root,
+                        cancellation=cancellation,
+                    )
+                    self.assertFalse(check.ok)
+                    self.assertEqual(expected_code, check.code)
+
+    def test_incomplete_or_non_executable_pair_is_rejected_before_version_checks(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            adb, fastboot = make_toolchain_files(root)
+            fastboot.unlink()
+            missing = ToolchainService(FakeProcessTransport([])).discover(root)
+            self.assertEqual("tool_missing", missing.code)
+
+            fastboot.write_bytes(adb.read_bytes())
+            with patch("pixelflasher_core.toolchain.os") as platform_os:
+                platform_os.name = "posix"
+                platform_os.X_OK = os.X_OK
+                platform_os.access.return_value = False
+                non_executable = ToolchainService(FakeProcessTransport([])).discover(root)
+            self.assertEqual("tool_not_executable", non_executable.code)
 
 
 class DeviceServiceTests(unittest.TestCase):

@@ -3,10 +3,13 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from pixelflasher_core.contracts import ModernPreferences
 from pixelflasher_core.legacy_preference_policy import (
     LEGACY_PREFERENCE_POLICIES,
     LegacyPreferenceDisposition,
+    LegacyPreferencePolicy,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,3 +48,40 @@ def test_migrated_settings_name_real_public_fields_and_no_feature_is_silently_re
         LegacyPreferenceDisposition.REPLACED,
         LegacyPreferenceDisposition.ENFORCED,
     }
+
+
+@pytest.mark.parametrize("empty_field", ("legacy_key", "owner", "rationale"))
+def test_policy_rejects_empty_audit_text(empty_field: str) -> None:
+    values = {
+        "legacy_key": "legacy_key",
+        "owner": "settings.application",
+        "rationale": "Explicit migration.",
+    }
+    values[empty_field] = ""
+    with pytest.raises(ValueError, match="must not be empty"):
+        LegacyPreferencePolicy(
+            values["legacy_key"],
+            LegacyPreferenceDisposition.MIGRATED,
+            values["owner"],
+            "expertMode",
+            values["rationale"],
+        )
+
+
+def test_policy_rejects_inconsistent_disposition_and_modern_field() -> None:
+    with pytest.raises(ValueError, match="require a modern field"):
+        LegacyPreferencePolicy(
+            "advanced_options",
+            LegacyPreferenceDisposition.MIGRATED,
+            "settings.application",
+            None,
+            "Explicit migration.",
+        )
+    with pytest.raises(ValueError, match="cannot claim a modern field"):
+        LegacyPreferencePolicy(
+            "linux_shell",
+            LegacyPreferenceDisposition.REPLACED,
+            "device.adb_shell",
+            "shell",
+            "Typed PTY replacement.",
+        )
