@@ -80,7 +80,9 @@ class RuntimePlatformToolsSetupTests(TestCase):
             self.assertEqual(0, runtime.snapshot().revision)
             runtime.shutdown()
 
-    def test_directory_activation_is_durable_and_public_result_is_pathless(self) -> None:
+    def test_directory_activation_is_durable_and_public_result_is_pathless(
+        self,
+    ) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             config = root / "PixelFlasher.json"
@@ -153,7 +155,9 @@ class RuntimePlatformToolsSetupTests(TestCase):
             self.assertIsNone(runtime.command_engine.toolchain_service.configured_path)
             runtime.shutdown()
 
-    def test_signed_official_install_is_versioned_then_atomically_selected(self) -> None:
+    def test_signed_official_install_is_versioned_then_atomically_selected(
+        self,
+    ) -> None:
         private_key = Ed25519PrivateKey.from_private_bytes(bytes(range(1, 33)))
         public_key = private_key.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
@@ -175,9 +179,7 @@ class RuntimePlatformToolsSetupTests(TestCase):
             runtime = ApplicationRuntime.open(
                 config,
                 transport=probe_transport(),
-                platform_tools_catalog=MappingPlatformToolsManifestCatalog(
-                    {("windows", "x86_64"): document}
-                ),
+                platform_tools_catalog=MappingPlatformToolsManifestCatalog({("windows", "x86_64"): document}),
                 platform_tools_downloader=ArtifactDownloader(
                     verifier,
                     session=session,
@@ -189,22 +191,18 @@ class RuntimePlatformToolsSetupTests(TestCase):
                 platform_tools_architecture="x86_64",
             )
 
-            result = runtime.execute(
-                AppCommand(
-                    "platformTools.setup",
-                    expected_revision=0,
-                    payload={"source": "official"},
+            with patch("pixelflasher_core.toolchain.os.access", return_value=True):
+                result = runtime.execute(
+                    AppCommand(
+                        "platformTools.setup",
+                        expected_revision=0,
+                        payload={"source": "official"},
+                    )
                 )
-            )
 
             digest = hashlib.sha256(content).hexdigest()
             expected_root = (
-                root
-                / ".PixelFlasher.json.cache"
-                / "platform-tools"
-                / "versions"
-                / digest
-                / "platform-tools"
+                root / ".PixelFlasher.json.cache" / "platform-tools" / "versions" / digest / "platform-tools"
             )
             self.assertEqual(OperationStatus.SUCCESS, result.status)
             self.assertEqual("platform_tools_installed", result.code)

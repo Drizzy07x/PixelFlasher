@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -83,14 +84,13 @@ class PlatformToolsSetupServiceTests(TestCase):
                 architecture="x86_64",
             )
 
-            result = service.setup(
-                source="directory",
-                directory=selected,
-                cancellation=CancellationToken(),
-                progress=lambda phase, _message, percent: progress.append(
-                    (phase.value, percent)
-                ),
-            )
+            with patch("pixelflasher_core.toolchain.os.access", return_value=True):
+                result = service.setup(
+                    source="directory",
+                    directory=selected,
+                    cancellation=CancellationToken(),
+                    progress=lambda phase, _message, percent: progress.append((phase.value, percent)),
+                )
 
             self.assertTrue(result.ok)
             self.assertEqual("toolchain_ready", result.code)
@@ -99,7 +99,9 @@ class PlatformToolsSetupServiceTests(TestCase):
             self.assertEqual(("started", 0), progress[0])
             self.assertEqual(("completed", 100), progress[-1])
 
-    def test_unprovisioned_official_catalog_fails_without_network_or_files(self) -> None:
+    def test_unprovisioned_official_catalog_fails_without_network_or_files(
+        self,
+    ) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             service = PlatformToolsSetupService(
@@ -119,15 +121,15 @@ class PlatformToolsSetupServiceTests(TestCase):
             self.assertFalse((root / "cache").exists())
             self.assertFalse((root / "install").exists())
 
-    def test_official_source_installs_into_hash_version_and_reprobes_before_activation(self) -> None:
+    def test_official_source_installs_into_hash_version_and_reprobes_before_activation(
+        self,
+    ) -> None:
         content = platform_tools_archive()
         document = signed_manifest(self.private_key, content)
         response = FakeResponse(content)
         session = FakeSession(response)
         downloader = ArtifactDownloader(self.verifier, session=session)
-        catalog = MappingPlatformToolsManifestCatalog(
-            {("windows", "x86_64"): document}
-        )
+        catalog = MappingPlatformToolsManifestCatalog({("windows", "x86_64"): document})
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -142,11 +144,12 @@ class PlatformToolsSetupServiceTests(TestCase):
                 architecture="AMD64",
             )
 
-            result = service.setup(
-                source="official",
-                directory=None,
-                cancellation=CancellationToken(),
-            )
+            with patch("pixelflasher_core.toolchain.os.access", return_value=True):
+                result = service.setup(
+                    source="official",
+                    directory=None,
+                    cancellation=CancellationToken(),
+                )
 
             digest = hashlib.sha256(content).hexdigest()
             installed = root / "install" / "versions" / digest / "platform-tools"

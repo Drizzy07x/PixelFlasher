@@ -74,7 +74,10 @@ class Rc1PreflightTests(unittest.TestCase):
                 path.write_bytes(b"reproducible-ota-runner")
             elif name == "otaRunnerChecksum":
                 dex = root / REQUIRED_ASSETS["otaRunnerDex"]
-                path.write_text(hashlib.sha256(dex.read_bytes()).hexdigest() + "\n", encoding="ascii")
+                path.write_text(
+                    hashlib.sha256(dex.read_bytes()).hexdigest() + "\n",
+                    encoding="ascii",
+                )
             elif name == "kernelSuLegacyDecision":
                 _write_json(
                     path,
@@ -173,9 +176,7 @@ class Rc1PreflightTests(unittest.TestCase):
                 "upstreamSha": "a" * 40,
             },
         }
-        ota_digest = hashlib.sha256(
-            (root / REQUIRED_ASSETS["otaRunnerDex"]).read_bytes()
-        ).hexdigest()
+        ota_digest = hashlib.sha256((root / REQUIRED_ASSETS["otaRunnerDex"]).read_bytes()).hexdigest()
         reports["otaRunnerReproducibility"] = {
             "schemaVersion": 1,
             "status": "passed",
@@ -221,7 +222,9 @@ class Rc1PreflightTests(unittest.TestCase):
         )
         return commit
 
-    def test_accepts_complete_candidate_with_52_native_gates_and_one_policy_absent(self) -> None:
+    def test_accepts_complete_candidate_with_52_native_gates_and_one_policy_absent(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(prefix="pf-rc1-ready-") as directory:
             root = Path(directory)
             commit = self.make_repository(root)
@@ -238,12 +241,11 @@ class Rc1PreflightTests(unittest.TestCase):
                 firmware_verifier=lambda _path: "verified signed firmware catalog",
                 scrcpy_verifier=lambda _path: "verified signed Scrcpy catalog",
                 update_verifier=lambda _path: "verified signed update manifest",
+                keybox_verifier=lambda _path: "verified signed keybox revocations",
             )
             self.assertTrue(report.ok, report.render())
             self.assertIn("52/52 release gates are native", report.render())
-            platform_verifier.assert_called_once_with(
-                root / "resources" / "platform-tools" / "runtime"
-            )
+            platform_verifier.assert_called_once_with(root / "resources" / "platform-tools" / "runtime")
             root_app_verifier.assert_called_once_with(root / "resources" / "root-apps" / "runtime")
 
     def test_parity_fails_for_non_native_gate_or_extra_policy_absent(self) -> None:
@@ -252,10 +254,18 @@ class Rc1PreflightTests(unittest.TestCase):
             capabilities = [_capability(index) for index in range(52)]
             capabilities[7]["modernStatus"] = "partial"
             capabilities.append(
-                {"id": "policy.one", "modernStatus": "policy_absent", "releaseGate": False}
+                {
+                    "id": "policy.one",
+                    "modernStatus": "policy_absent",
+                    "releaseGate": False,
+                }
             )
             capabilities.append(
-                {"id": "policy.two", "modernStatus": "policy_absent", "releaseGate": False}
+                {
+                    "id": "policy.two",
+                    "modernStatus": "policy_absent",
+                    "releaseGate": False,
+                }
             )
             _write_json(root / "docs" / "modern-ui-parity.json", {"capabilities": capabilities})
             with self.assertRaisesRegex(RuntimeError, "not native"):
@@ -265,7 +275,9 @@ class Rc1PreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exactly one non-gate"):
                 check_parity_inventory(root)
 
-    def test_reports_dirty_tree_invalid_tag_and_missing_evidence_without_short_circuiting(self) -> None:
+    def test_reports_dirty_tree_invalid_tag_and_missing_evidence_without_short_circuiting(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(prefix="pf-rc1-blocked-") as directory:
             root = Path(directory)
             _run(root, "git", "init", "-q")
@@ -289,6 +301,7 @@ class Rc1PreflightTests(unittest.TestCase):
             target = root / REQUIRED_ASSETS["firmwareCatalog"]
             target.write_text('{"tampered":true}', encoding="utf-8")
             with patch("scripts.rc1_preflight._git") as git:
+
                 def fake_git(_root: Path, *arguments: str) -> str:
                     if arguments[0] == "status":
                         return ""
@@ -306,10 +319,9 @@ class Rc1PreflightTests(unittest.TestCase):
                     firmware_verifier=lambda _path: "verified",
                     scrcpy_verifier=lambda _path: "verified",
                     update_verifier=lambda _path: "verified",
+                    keybox_verifier=lambda _path: "verified",
                 )
-            blocker = next(
-                check for check in report.blockers if check.code == "asset.firmwareCatalog"
-            )
+            blocker = next(check for check in report.blockers if check.code == "asset.firmwareCatalog")
             self.assertIn("digest mismatch", blocker.detail)
 
     def test_ota_runner_rejects_a_binary_hash_mismatch(self) -> None:
@@ -320,14 +332,10 @@ class Rc1PreflightTests(unittest.TestCase):
             dex = root / REQUIRED_ASSETS["otaRunnerDex"]
             dex.write_bytes(b"tampered")
             manifest = json.loads(evidence.read_text(encoding="utf-8"))
-            manifest["assets"]["otaRunnerDex"]["sha256"] = hashlib.sha256(
-                dex.read_bytes()
-            ).hexdigest()
+            manifest["assets"]["otaRunnerDex"]["sha256"] = hashlib.sha256(dex.read_bytes()).hexdigest()
             _write_json(evidence, manifest)
             with patch("scripts.rc1_preflight._git") as git:
-                git.side_effect = lambda _root, *arguments: (
-                    "" if arguments[0] == "status" else commit
-                )
+                git.side_effect = lambda _root, *arguments: "" if arguments[0] == "status" else commit
                 report = run_preflight(
                     root,
                     tag="v10.0.0-rc.1",
@@ -337,10 +345,9 @@ class Rc1PreflightTests(unittest.TestCase):
                     firmware_verifier=lambda _path: "verified",
                     scrcpy_verifier=lambda _path: "verified",
                     update_verifier=lambda _path: "verified",
+                    keybox_verifier=lambda _path: "verified",
                 )
-            blocker = next(
-                check for check in report.blockers if check.code == "asset.otaRunnerDex"
-            )
+            blocker = next(check for check in report.blockers if check.code == "asset.otaRunnerDex")
             self.assertIn("does not match its pinned SHA-256", blocker.detail)
 
 

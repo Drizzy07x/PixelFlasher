@@ -227,6 +227,12 @@ from .firmware_catalog import (
     MappingFirmwareManifestCatalog,
     UnavailableFirmwareManifestCatalog,
 )
+from .firmware_distribution import (
+    FirmwareDistributionError,
+    PackagedFirmwareDistribution,
+    load_firmware_distribution,
+    load_optional_firmware_distribution,
+)
 from .firmware_signatures import (
     FirmwarePackageSignatureVerifier,
     FirmwareTrustEvidence,
@@ -245,6 +251,12 @@ from .grants import (
     SecretGrantStore,
 )
 from .interaction import InteractionBroker, InteractionTimeoutError
+from .keybox_distribution import (
+    KeyboxDistributionError,
+    PackagedKeyboxRevocations,
+    load_keybox_revocations,
+    load_optional_keybox_revocations,
+)
 from .keybox_validation import (
     KeyboxAnalysisCode,
     KeyboxAnalysisResult,
@@ -468,6 +480,12 @@ from .scrcpy_artifacts import (
     ScrcpyStatus,
     probe_scrcpy,
 )
+from .scrcpy_distribution import (
+    PackagedScrcpyDistribution,
+    ScrcpyDistributionError,
+    load_optional_scrcpy_distribution,
+    load_scrcpy_distribution,
+)
 from .scrcpy_setup import (
     MappingScrcpyManifestCatalog,
     ScrcpyCatalogError,
@@ -487,6 +505,12 @@ from .support import (
     SupportPackageResult,
     SupportPackageService,
     SupportPackageStatus,
+)
+from .support_distribution import (
+    PackagedSupportRecipient,
+    SupportDistributionError,
+    load_optional_support_recipient,
+    load_support_recipient,
 )
 from .support_v2 import (
     SUPPORT_V2_FORMAT,
@@ -515,6 +539,13 @@ from .toolchain import (
     ToolchainService,
     format_platform_tools_version,
     parse_platform_tools_version,
+)
+from .update_distribution import (
+    PackagedUpdateDistribution,
+    PackagedUpdateManifestSource,
+    UpdateDistributionError,
+    load_optional_update_distribution,
+    load_update_distribution,
 )
 from .updates import (
     UpdateCheckError,
@@ -794,6 +825,10 @@ __all__ = [
     "PlatformToolsStatus",
     "PackagedPlatformToolsDistribution",
     "PlatformToolsDistributionError",
+    "PackagedFirmwareDistribution",
+    "FirmwareDistributionError",
+    "PackagedKeyboxRevocations",
+    "KeyboxDistributionError",
     "PosixTerminalBackend",
     "MappingPlatformToolsManifestCatalog",
     "PlatformToolsCatalogError",
@@ -808,6 +843,8 @@ __all__ = [
     "ScrcpyLimits",
     "ScrcpyProbeResult",
     "ScrcpyStatus",
+    "PackagedScrcpyDistribution",
+    "ScrcpyDistributionError",
     "MappingScrcpyManifestCatalog",
     "ScrcpyCatalogError",
     "ScrcpyManifestCatalog",
@@ -881,6 +918,8 @@ __all__ = [
     "SupportPackageResult",
     "SupportPackageService",
     "SupportPackageStatus",
+    "PackagedSupportRecipient",
+    "SupportDistributionError",
     "SUPPORT_V2_FORMAT",
     "SUPPORT_V2_MAGIC",
     "SUPPORT_V2_REDACTION_POLICY",
@@ -906,6 +945,9 @@ __all__ = [
     "UpdateSequenceStore",
     "UpdateService",
     "UpdateStatus",
+    "PackagedUpdateDistribution",
+    "PackagedUpdateManifestSource",
+    "UpdateDistributionError",
     "ToolchainInfo",
     "TerminalBackend",
     "TerminalClosedEvent",
@@ -958,8 +1000,18 @@ __all__ = [
     "probe_platform_tools",
     "load_optional_platform_tools_distribution",
     "load_optional_root_app_distribution",
+    "load_optional_firmware_distribution",
+    "load_optional_keybox_revocations",
+    "load_optional_scrcpy_distribution",
+    "load_optional_support_recipient",
+    "load_optional_update_distribution",
     "load_platform_tools_distribution",
     "load_root_app_distribution",
+    "load_firmware_distribution",
+    "load_keybox_revocations",
+    "load_scrcpy_distribution",
+    "load_support_recipient",
+    "load_update_distribution",
     "probe_scrcpy",
     "reconcile_device_selection",
     "reconcile_device_management",

@@ -11,6 +11,17 @@ winpty_binaries = collect_dynamic_libs('winpty')
 winpty_datas = collect_data_files('winpty', includes=['*.exe'])
 
 block_cipher = None
+optional_runtime_datas = [
+    (relative, relative)
+    for relative in (
+        "resources/firmware",
+        "resources/keybox",
+        "resources/scrcpy",
+        "resources/support",
+        "resources/updates",
+    )
+    if Path(relative).exists()
+]
 
 a = Analysis(['PixelFlasher.py'],
             pathex=['.'],
@@ -38,7 +49,7 @@ a = Analysis(['PixelFlasher.py'],
                 ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
                 ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
-            ] + winpty_datas,
+            ] + optional_runtime_datas + winpty_datas,
             hiddenimports=[
                 '_cffi_backend',
                 'winpty',

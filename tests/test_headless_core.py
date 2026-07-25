@@ -105,11 +105,7 @@ class ContractTests(unittest.TestCase):
                 "snapshot",
                 "subscribe",
             },
-            {
-                name
-                for name, value in vars(PixelFlasherEngine).items()
-                if not name.startswith("_") and callable(value)
-            },
+            {name for name, value in vars(PixelFlasherEngine).items() if not name.startswith("_") and callable(value)},
         )
         self.assertEqual(
             [
@@ -188,9 +184,7 @@ class ContractTests(unittest.TestCase):
             command_handler=failing_handler,
         )
 
-        result = facade.execute(
-            AppCommand("test.failure", operation_id="redacted-failure")
-        )
+        result = facade.execute(AppCommand("test.failure", operation_id="redacted-failure"))
 
         self.assertEqual(OperationStatus.FAILED, result.status)
         self.assertEqual("engine_error", result.code)
@@ -199,7 +193,10 @@ class ContractTests(unittest.TestCase):
 
     def test_operation_plan_has_an_immutable_exact_command_sequence(self):
         operation_plan = OperationPlan(
-            requests=(process("fastboot", "devices"), process("fastboot", "getvar", "product")),
+            requests=(
+                process("fastboot", "devices"),
+                process("fastboot", "getvar", "product"),
+            ),
             target_serial="A",
             expected_device_state="fastboot",
             firmware_hash="F",
@@ -348,9 +345,7 @@ class StoreAndEngineTests(unittest.TestCase):
     def test_running_operation_can_be_cancelled_explicitly(self):
         started = threading.Event()
         release = threading.Event()
-        transport = FakeProcessTransport(
-            [FakeTransportStep(TransportOutcome(0), started, release)]
-        )
+        transport = FakeProcessTransport([FakeTransportStep(TransportOutcome(0), started, release)])
         engine = CommandEngine(
             store=AppStateStore(AppSnapshot(selected_serial="SERIAL-A")),
             executor=CommandExecutor(transport),
@@ -392,9 +387,7 @@ class StoreAndEngineTests(unittest.TestCase):
         self.assertEqual("adb-out\nfastboot-out\n", success.stdout)
         self.assertEqual([first, second], success_transport.calls)
 
-        failure_transport = FakeProcessTransport(
-            [TransportOutcome(17, "partial", "bad"), TransportOutcome(0)]
-        )
+        failure_transport = FakeProcessTransport([TransportOutcome(17, "partial", "bad"), TransportOutcome(0)])
         failure_engine = CommandEngine(executor=CommandExecutor(failure_transport))
         failure = failure_engine.execute(
             AppCommand(
@@ -547,9 +540,7 @@ class SafetyPolicyTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 risky = replace(self.base_plan, requests=(process(*argv),))
                 self.assertTrue(
-                    self.policy.requires_reinforced_confirmation(
-                        replace(read_command, operation_plan=risky)
-                    )
+                    self.policy.requires_reinforced_confirmation(replace(read_command, operation_plan=risky))
                 )
 
 
@@ -588,16 +579,13 @@ class ExecutorAndInteractionTests(unittest.TestCase):
         self.assertTrue(outcome.output_limited)
         self.assertFalse(outcome.timed_out)
         self.assertLessEqual(
-            len(outcome.stdout.encode("utf-8"))
-            + len(outcome.stderr.encode("utf-8")),
+            len(outcome.stdout.encode("utf-8")) + len(outcome.stderr.encode("utf-8")),
             4_096,
         )
 
     def test_executor_fails_closed_on_an_oversized_injected_transport(self):
         request = ProcessRequest(("adb", "devices"), output_limit_bytes=1_024)
-        executor = CommandExecutor(
-            FakeProcessTransport([TransportOutcome(0, "x" * 1_025)])
-        )
+        executor = CommandExecutor(FakeProcessTransport([TransportOutcome(0, "x" * 1_025)]))
 
         result = executor.execute(
             AppCommand("test.bounded", operation_id="bounded-output"),
@@ -630,7 +618,10 @@ class ExecutorAndInteractionTests(unittest.TestCase):
         worker.join(1)
         self.assertEqual([InteractionDecision.ACCEPTED], decisions)
 
-        blocked = threading.Thread(target=lambda: decisions.append(broker.request(replace(request, operation_id="op2"))), daemon=True)
+        blocked = threading.Thread(
+            target=lambda: decisions.append(broker.request(replace(request, operation_id="op2"))),
+            daemon=True,
+        )
         blocked.start()
         deadline = time.monotonic() + 1
         while not broker.pending_requests() and time.monotonic() < deadline:
@@ -661,7 +652,7 @@ class ExecutorAndInteractionTests(unittest.TestCase):
     def test_interaction_callback_time_is_charged_to_the_wait_budget(self):
         broker = InteractionBroker(
             timeout_seconds=10,
-            on_request=lambda _request: time.sleep(0.03),
+            on_request=Mock(),
         )
         request = InteractionRequest(
             "slow-publish-op",
@@ -672,12 +663,20 @@ class ExecutorAndInteractionTests(unittest.TestCase):
             _timeout_seconds=0.01,
         )
 
-        started = time.monotonic()
-        with self.assertRaises(InteractionTimeoutError):
-            broker.request(request)
-        elapsed = time.monotonic() - started
+        with (
+            patch(
+                "pixelflasher_core.interaction.time.monotonic",
+                side_effect=(100.0, 100.03),
+            ),
+            patch(
+                "pixelflasher_core.interaction.threading.Event.wait",
+                return_value=False,
+            ) as wait,
+        ):
+            with self.assertRaises(InteractionTimeoutError):
+                broker.request(request)
 
-        self.assertLess(elapsed, 0.1)
+        wait.assert_called_once_with(0.0)
 
     def test_interaction_broker_rejects_invalid_responses_and_callback_failures(self):
         with self.assertRaisesRegex(ValueError, "must be positive"):
@@ -707,7 +706,12 @@ class ConfigAndRuntimeTests(unittest.TestCase):
     def test_legacy_config_is_preserved_versioned_backed_up_and_atomically_saved(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
-            legacy = {"device": "A", "firmware_path": "factory.zip", "mode": "dryRun", "theme": "dark"}
+            legacy = {
+                "device": "A",
+                "firmware_path": "factory.zip",
+                "mode": "dryRun",
+                "theme": "dark",
+            }
             path.write_text(json.dumps(legacy), encoding="utf-8")
             store = ConfigStore(path)
 
@@ -723,9 +727,7 @@ class ConfigAndRuntimeTests(unittest.TestCase):
             self.assertEqual("dark", backup["theme"])
             self.assertEqual(
                 legacy,
-                json.loads(
-                    store.migration_backup_path.read_text(encoding="utf-8")
-                ),
+                json.loads(store.migration_backup_path.read_text(encoding="utf-8")),
             )
             self.assertEqual([], list(path.parent.glob(".config.json.*.tmp")))
 
@@ -748,7 +750,13 @@ class ConfigAndRuntimeTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text(
-                json.dumps({"device": "SERIAL-A", "firmware_path": "factory.zip", "mode": "dryRun"}),
+                json.dumps(
+                    {
+                        "device": "SERIAL-A",
+                        "firmware_path": "factory.zip",
+                        "mode": "dryRun",
+                    }
+                ),
                 encoding="utf-8",
             )
             transport = FakeProcessTransport([TransportOutcome(0, "ok")])
@@ -860,9 +868,7 @@ class ConfigAndRuntimeTests(unittest.TestCase):
                 json.dumps(
                     {
                         "mode": "keepData",
-                        "_pixelflasher_core_state": {
-                            "plan": {"mode": "factory", "options": {"verify": True}}
-                        },
+                        "_pixelflasher_core_state": {"plan": {"mode": "factory", "options": {"verify": True}}},
                     }
                 ),
                 encoding="utf-8",

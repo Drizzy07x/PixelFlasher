@@ -7,6 +7,17 @@ sys.path.insert(0, str(Path(SPECPATH)))
 from build_artifact_policy import RETIRED_UI_MODULES
 
 block_cipher = None
+optional_runtime_datas = [
+    (relative, relative)
+    for relative in (
+        "resources/firmware",
+        "resources/keybox",
+        "resources/scrcpy",
+        "resources/support",
+        "resources/updates",
+    )
+    if Path(relative).exists()
+]
 
 a = Analysis(['PixelFlasher.py'],
             pathex=['.'],
@@ -38,7 +49,7 @@ a = Analysis(['PixelFlasher.py'],
                 ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
                 ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
-            ],
+            ] + optional_runtime_datas,
             hiddenimports=['_cffi_backend', 'wx.html2'],
             hookspath=[],
             runtime_hooks=[],

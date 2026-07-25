@@ -45,11 +45,19 @@ The accepted asset and report names are deliberately closed in
 `REQUIRED_ASSETS` and `REQUIRED_EVIDENCE`. Extra, missing, renamed or
 path-substituted entries fail.
 
-The current firmware, Scrcpy and update production catalogs are not yet
-provisioned and do not yet have dedicated signature verifiers. Their default
-preflight handlers deliberately fail closed even if a file is placed at the
-expected path. Those catalog formats and their production verifiers must be
-implemented together; a checksum-only placeholder is not accepted.
+The firmware, Scrcpy, update and keybox formats have dedicated production
+verifiers. They authenticate Ed25519 signatures against independent public
+keys compiled into `pixelflasher_core/artifact_trust.py`; a resource file
+cannot introduce or replace its own trust root. Firmware catalogs must cover
+stable, beta and canary channels plus factory and OTA artifacts. Scrcpy must
+cover the five desktop release targets. Update manifests enforce their
+signature, validity window, release URL and sequence contract. Keybox
+revocation snapshots enforce their signature, validity window and normalized
+serial inventory.
+
+The production catalogs and public keys are intentionally not provisioned in
+the migration branch. Missing files or empty compiled keyrings remain hard RC
+blockers; a checksum-only placeholder is not accepted.
 
 ## Required report envelope
 

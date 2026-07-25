@@ -22,8 +22,12 @@ if str(ROOT) not in sys.path:
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 
+from scripts.verify_firmware_catalog import verify as verify_firmware  # noqa: E402
+from scripts.verify_keybox_revocations import verify as verify_keybox  # noqa: E402
 from scripts.verify_platform_tools_catalog import verify as verify_platform_tools  # noqa: E402
 from scripts.verify_root_app_catalog import verify as verify_root_apps  # noqa: E402
+from scripts.verify_scrcpy_catalog import verify as verify_scrcpy  # noqa: E402
+from scripts.verify_update_manifest import verify as verify_update  # noqa: E402
 
 RC_TAG = re.compile(r"^v10\.0\.0-rc\.(?:[1-9][0-9]*)$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -73,23 +77,17 @@ PACKAGED_TARGETS = frozenset(
 )
 HARDWARE_PROFILES = frozenset({"pixel-ab-legacy", "pixel-tensor-init-boot", "pixel-android-17"})
 HARDWARE_SCENARIOS = frozenset(
-    {"factory", "ota", "custom", "recovery-sideload", "locked", "unlocked", "disconnect"}
+    {
+        "factory",
+        "ota",
+        "custom",
+        "recovery-sideload",
+        "locked",
+        "unlocked",
+        "disconnect",
+    }
 )
 ACCESSIBILITY_TOOLS = frozenset({"NVDA", "VoiceOver", "Orca"})
-
-
-def _unavailable_verifier(name: str) -> Callable[[Path], str]:
-    def verify(_path: Path) -> str:
-        raise RuntimeError(
-            f"{name} has no dedicated production signature verifier; it cannot be accepted for RC1"
-        )
-
-    return verify
-
-
-UNAVAILABLE_FIRMWARE_VERIFIER = _unavailable_verifier("firmware catalog")
-UNAVAILABLE_SCRCPY_VERIFIER = _unavailable_verifier("Scrcpy catalog")
-UNAVAILABLE_UPDATE_VERIFIER = _unavailable_verifier("update manifest")
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,10 +126,7 @@ class PreflightReport:
         return {
             "ready": self.ok,
             "blockerCount": len(self.blockers),
-            "checks": [
-                {"code": check.code, "ok": check.ok, "detail": check.detail}
-                for check in self.checks
-            ],
+            "checks": [{"code": check.code, "ok": check.ok, "detail": check.detail} for check in self.checks],
         }
 
 
@@ -180,30 +175,20 @@ def check_parity_inventory(root: Path) -> str:
     if len(gated) != 52:
         raise RuntimeError(f"expected exactly 52 release gates, found {len(gated)}")
     incomplete = [
-        f"{entry['id']}={entry.get('modernStatus')!r}"
-        for entry in gated
-        if entry.get("modernStatus") != "native"
+        f"{entry['id']}={entry.get('modernStatus')!r}" for entry in gated if entry.get("modernStatus") != "native"
     ]
     if incomplete:
-        raise RuntimeError(
-            f"{len(incomplete)} of 52 release gates are not native: " + ", ".join(incomplete)
-        )
+        raise RuntimeError(f"{len(incomplete)} of 52 release gates are not native: " + ", ".join(incomplete))
     if len(non_gated) != 1:
         raise RuntimeError(f"expected exactly one non-gate, found {len(non_gated)}")
     policy = non_gated[0]
     if policy.get("modernStatus") != "policy_absent":
         raise RuntimeError(
-            f"the sole non-gate {policy['id']} must be policy_absent, "
-            f"found {policy.get('modernStatus')!r}"
+            f"the sole non-gate {policy['id']} must be policy_absent, found {policy.get('modernStatus')!r}"
         )
-    policy_absent = [
-        entry["id"] for entry in capabilities if entry.get("modernStatus") == "policy_absent"
-    ]
+    policy_absent = [entry["id"] for entry in capabilities if entry.get("modernStatus") == "policy_absent"]
     if policy_absent != [policy["id"]]:
-        raise RuntimeError(
-            "policy_absent may be used only by the sole non-gate; found "
-            + ", ".join(policy_absent)
-        )
+        raise RuntimeError("policy_absent may be used only by the sole non-gate; found " + ", ".join(policy_absent))
     return f"52/52 release gates are native; sole non-gate {policy['id']} is policy_absent"
 
 
@@ -226,14 +211,10 @@ def resolve_candidate_tag(root: Path, supplied_tag: str | None) -> str:
     tag = supplied_tag or os.environ.get("GITHUB_REF_NAME")
     if not tag:
         candidates = [
-            value
-            for value in _git(root, "tag", "--points-at", "HEAD").splitlines()
-            if RC_TAG.fullmatch(value)
+            value for value in _git(root, "tag", "--points-at", "HEAD").splitlines() if RC_TAG.fullmatch(value)
         ]
         if len(candidates) != 1:
-            raise RuntimeError(
-                "provide --tag or check out exactly one v10.0.0-rc.N tag at HEAD"
-            )
+            raise RuntimeError("provide --tag or check out exactly one v10.0.0-rc.N tag at HEAD")
         tag = candidates[0]
     if RC_TAG.fullmatch(tag) is None:
         raise RuntimeError(f"candidate tag must match v10.0.0-rc.N, found {tag!r}")
@@ -290,7 +271,11 @@ def check_git_candidate(
         return f"{tag} resolves to candidate commit {head}"
 
     checks.append(_check("git.candidate", candidate_ref))
-    return resolved.get("tag", supplied_tag or ""), resolved.get("commit", ""), tuple(checks)
+    return (
+        resolved.get("tag", supplied_tag or ""),
+        resolved.get("commit", ""),
+        tuple(checks),
+    )
 
 
 def load_candidate_manifest(path: Path) -> dict[str, Any]:
@@ -399,13 +384,9 @@ def _validate_kernel_su_legacy_decision(path: Path) -> None:
     document = _load_object(path, "kernelSuLegacyDecision")
     if document.get("schemaVersion") != 1 or document.get("provider") != "legacy":
         raise RuntimeError("kernelSuLegacyDecision has an invalid schema or provider")
-    has_inputs = isinstance(document.get("usablePatchInputs"), list) and bool(
-        document["usablePatchInputs"]
-    )
+    has_inputs = isinstance(document.get("usablePatchInputs"), list) and bool(document["usablePatchInputs"])
     if not has_inputs and document.get("decision") != "fail_closed":
-        raise RuntimeError(
-            "KernelSU Legacy must provide reproducible patch inputs or remain formally fail_closed"
-        )
+        raise RuntimeError("KernelSU Legacy must provide reproducible patch inputs or remain formally fail_closed")
 
 
 def check_asset(
@@ -419,6 +400,7 @@ def check_asset(
     firmware_verifier: Callable[[Path], str],
     scrcpy_verifier: Callable[[Path], str],
     update_verifier: Callable[[Path], str],
+    keybox_verifier: Callable[[Path], str],
 ) -> str:
     path = check_asset_binding(root, document, name, expected_path)
     if name == "platformToolsCatalog":
@@ -431,6 +413,8 @@ def check_asset(
         verification = scrcpy_verifier(path.parent)
     elif name == "updateManifest":
         verification = update_verifier(path)
+    elif name == "keyboxRevocationEvidence":
+        verification = keybox_verifier(path)
     elif name == "supportRecipientPublicKey":
         _validate_support_key(path)
         verification = "valid production RSA recipient public key"
@@ -475,7 +459,12 @@ def check_evidence_report(
         if report.get("posixContractSkips") != 0:
             raise RuntimeError("pythonQuality must record zero skipped POSIX contracts")
         branch_targets = report.get("branchCoveragePercent")
-        required_modules = {"safetyPolicy", "planner", "postconditionObserver", "commandRegistry"}
+        required_modules = {
+            "safetyPolicy",
+            "planner",
+            "postconditionObserver",
+            "commandRegistry",
+        }
         if not isinstance(branch_targets, dict) or any(
             branch_targets.get(module) != 100 for module in required_modules
         ):
@@ -518,9 +507,7 @@ def check_evidence_report(
             or rebuilt != packaged
             or rebuilt != _sha256(_asset_path(root, REQUIRED_ASSETS["otaRunnerDex"]))
         ):
-            raise RuntimeError(
-                "otaRunnerReproducibility must prove a byte-identical rebuild of the packaged DEX"
-            )
+            raise RuntimeError("otaRunnerReproducibility must prove a byte-identical rebuild of the packaged DEX")
     elif name == "releaseSigning":
         required = {
             "authenticode",
@@ -552,9 +539,10 @@ def run_preflight(
     evidence_manifest: Path | None = None,
     platform_verifier: Callable[[Path], str] = verify_platform_tools,
     root_app_verifier: Callable[[Path], str] = verify_root_apps,
-    firmware_verifier: Callable[[Path], str] = UNAVAILABLE_FIRMWARE_VERIFIER,
-    scrcpy_verifier: Callable[[Path], str] = UNAVAILABLE_SCRCPY_VERIFIER,
-    update_verifier: Callable[[Path], str] = UNAVAILABLE_UPDATE_VERIFIER,
+    firmware_verifier: Callable[[Path], str] = verify_firmware,
+    scrcpy_verifier: Callable[[Path], str] = verify_scrcpy,
+    update_verifier: Callable[[Path], str] = verify_update,
+    keybox_verifier: Callable[[Path], str] = verify_keybox,
 ) -> PreflightReport:
     root = root.resolve()
     manifest_path = evidence_manifest or root / "build" / "rc1-candidate.json"
@@ -636,6 +624,7 @@ def run_preflight(
                     firmware_verifier=firmware_verifier,
                     scrcpy_verifier=scrcpy_verifier,
                     update_verifier=update_verifier,
+                    keybox_verifier=keybox_verifier,
                 ),
             )
         )

@@ -16,6 +16,12 @@ from platformdirs import user_data_dir
 
 from constants import APPNAME, CONFIG_FILE_NAME
 from pixelflasher_core import LEGACY_V9_DATABASE_NAME, ApplicationRuntime
+from pixelflasher_core.firmware_distribution import (
+    load_optional_firmware_distribution,
+)
+from pixelflasher_core.keybox_distribution import (
+    load_optional_keybox_revocations,
+)
 from pixelflasher_core.patch_resources import (
     load_optional_packaged_patch_resource_registry,
 )
@@ -24,6 +30,15 @@ from pixelflasher_core.platform_tools_distribution import (
 )
 from pixelflasher_core.root_app_distribution import (
     load_optional_root_app_distribution,
+)
+from pixelflasher_core.scrcpy_distribution import (
+    load_optional_scrcpy_distribution,
+)
+from pixelflasher_core.support_distribution import (
+    load_optional_support_recipient,
+)
+from pixelflasher_core.update_distribution import (
+    load_optional_update_distribution,
 )
 from platform_utils import repo_root
 from ui.core_command_factory import create_command_factory
@@ -73,37 +88,39 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
         platform_tools_distribution = load_optional_platform_tools_distribution(
             repo_root() / "resources" / "platform-tools" / "runtime"
         )
-        root_app_distribution = load_optional_root_app_distribution(
-            repo_root() / "resources" / "root-apps" / "runtime"
+        root_app_distribution = load_optional_root_app_distribution(repo_root() / "resources" / "root-apps" / "runtime")
+        firmware_distribution = load_optional_firmware_distribution(repo_root() / "resources" / "firmware" / "runtime")
+        scrcpy_distribution = load_optional_scrcpy_distribution(repo_root() / "resources" / "scrcpy" / "runtime")
+        update_distribution = load_optional_update_distribution(
+            repo_root() / "resources" / "updates" / "runtime" / "manifest.json"
         )
-        patch_resource_registry = load_optional_packaged_patch_resource_registry(
-            repo_root()
+        support_recipient = load_optional_support_recipient(
+            repo_root() / "resources" / "support" / "recipient-public-key.pem"
         )
+        keybox_revocations = load_optional_keybox_revocations(repo_root() / "resources" / "keybox" / "revocations.json")
+        patch_resource_registry = load_optional_packaged_patch_resource_registry(repo_root())
         runtime = ApplicationRuntime.open(
             config_path,
             enable_device_monitor=True,
             legacy_database_path=system_data_root / LEGACY_V9_DATABASE_NAME,
             platform_tools_catalog=(
-                platform_tools_distribution.catalog
-                if platform_tools_distribution is not None
-                else None
+                platform_tools_distribution.catalog if platform_tools_distribution is not None else None
             ),
             platform_tools_downloader=(
-                platform_tools_distribution.downloader
-                if platform_tools_distribution is not None
-                else None
+                platform_tools_distribution.downloader if platform_tools_distribution is not None else None
             ),
             patch_resource_registry=patch_resource_registry,
-            root_app_catalog=(
-                root_app_distribution.catalog
-                if root_app_distribution is not None
-                else None
-            ),
-            root_app_downloader=(
-                root_app_distribution.downloader
-                if root_app_distribution is not None
-                else None
-            ),
+            root_app_catalog=(root_app_distribution.catalog if root_app_distribution is not None else None),
+            root_app_downloader=(root_app_distribution.downloader if root_app_distribution is not None else None),
+            firmware_catalog=(firmware_distribution.catalog if firmware_distribution is not None else None),
+            firmware_downloader=(firmware_distribution.downloader if firmware_distribution is not None else None),
+            scrcpy_catalog=(scrcpy_distribution.catalog if scrcpy_distribution is not None else None),
+            scrcpy_downloader=(scrcpy_distribution.downloader if scrcpy_distribution is not None else None),
+            update_manifest_source=(update_distribution.source if update_distribution is not None else None),
+            update_manifest_verifier=(update_distribution.verifier if update_distribution is not None else None),
+            support_recipient_public_key=(support_recipient.public_key_pem if support_recipient is not None else None),
+            support_key_id=(support_recipient.key_id if support_recipient is not None else None),
+            keybox_revocation_provider=(keybox_revocations.provider if keybox_revocations is not None else None),
         )
         app = wx.App(False)
 
@@ -140,6 +157,7 @@ def launch_modern_primary(argv: Sequence[str] | None = None) -> int:
         frame.Show(True)
         frame.Raise()
         if smoke_options is not None:
+
             def smoke_timeout() -> None:
                 nonlocal smoke_timed_out
                 smoke_timed_out = True

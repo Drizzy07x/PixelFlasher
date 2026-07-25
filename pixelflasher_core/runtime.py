@@ -78,7 +78,7 @@ from .firmware_catalog import (
 )
 from .firmware_signatures import FirmwarePackageSignatureVerifier
 from .interaction import InteractionBroker
-from .keybox_validation import KeyboxValidationService
+from .keybox_validation import KeyboxRevocationProvider, KeyboxValidationService
 from .module_updates import RootModuleUpdateService
 from .my_tools import MyToolsRepository, MyToolsService
 from .observer import PostconditionObserver, ProcessDeviceObservationProbe
@@ -185,6 +185,7 @@ class ApplicationRuntime:
         root_app_catalog: RootAppManifestCatalog | None = None,
         root_app_downloader: ArtifactDownloader | None = None,
         patch_resource_registry: PatchResourceRegistry | None = None,
+        keybox_revocation_provider: KeyboxRevocationProvider | None = None,
         android_device_catalog_path: str | Path | None = None,
         update_manifest_source: UpdateManifestSource | None = None,
         update_manifest_verifier: UpdateManifestVerifier | None = None,
@@ -200,20 +201,14 @@ class ApplicationRuntime:
             self._pif_favorites_path(config_store.path),
             legacy_path=config_store.path.parent / "favorite_pifs.json",
         )
-        self.artifact_repository = ArtifactRepository(
-            self._content_artifact_repository_path(config_store.path)
-        )
-        self.artifact_cleanup_report = (
-            self.artifact_repository.collect_orphaned_objects()
-        )
+        self.artifact_repository = ArtifactRepository(self._content_artifact_repository_path(config_store.path))
+        self.artifact_cleanup_report = self.artifact_repository.collect_orphaned_objects()
         # Compatibility alias for callers introduced before the shared
         # FirmwareRepository/BootRepository composition became canonical.
         self.content_artifact_repository = self.artifact_repository
         self.firmware_repository = FirmwareRepository(self.artifact_repository)
         self.boot_repository = BootRepository(self.artifact_repository)
-        self.backup_repository = BackupRepository(
-            self._backup_repository_path(config_store.path)
-        )
+        self.backup_repository = BackupRepository(self._backup_repository_path(config_store.path))
         self.backup_cleanup_report = self.backup_repository.collect_orphaned_objects()
         self.my_tools_repository = MyToolsRepository(
             self._my_tools_repository_path(config_store.path),
@@ -261,16 +256,12 @@ class ApplicationRuntime:
             native_terminal_backend(),
             safety_policy=safety_policy,
         )
-        self._adb_terminal_state_subscription = self.store.subscribe(
-            self.adb_terminal_service.observe_snapshot
-        )
+        self._adb_terminal_state_subscription = self.store.subscribe(self.adb_terminal_service.observe_snapshot)
         self.executor = CommandExecutor(transport, self._on_progress)
         self.device_service = DeviceService(self.executor.transport)
         configured_toolchain = self._configured_toolchain_path(config_document)
         boot_inventory_service = BootInventoryService(self.boot_repository)
-        operation_planner = OperationPlanner(
-            artifact_repository=self.processed_artifact_repository
-        )
+        operation_planner = OperationPlanner(artifact_repository=self.processed_artifact_repository)
         firmware_artifact_service = FirmwareArtifactService(
             operation_planner.artifact_repository,
             self.firmware_artifact_cache_root,
@@ -315,18 +306,11 @@ class ApplicationRuntime:
                 ),
             )
         apk_inspector = ApkInspector()
-        if (
-            patch_resource_registry is not None
-            and not isinstance(patch_resource_registry, PatchResourceRegistry)
-        ):
+        if patch_resource_registry is not None and not isinstance(patch_resource_registry, PatchResourceRegistry):
             raise TypeError("patch_resource_registry must be a PatchResourceRegistry")
         self.patch_resource_registry = patch_resource_registry
         rooting_service = RootingService(apk_inspector=apk_inspector)
-        patch_tool_bundles = (
-            patch_resource_registry.tool_bundles
-            if patch_resource_registry is not None
-            else ()
-        )
+        patch_tool_bundles = patch_resource_registry.tool_bundles if patch_resource_registry is not None else ()
         self.root_module_update_service = RootModuleUpdateService(
             self._root_module_update_cache_path(config_store.path),
             rooting_service.inspect_module_zip,
@@ -412,7 +396,7 @@ class ApplicationRuntime:
             root_module_update_service=self.root_module_update_service,
             avb_downgrade_service=avb_downgrade_service,
             binary_xml_service=BinaryXmlService(),
-            keybox_validation_service=KeyboxValidationService(),
+            keybox_validation_service=KeyboxValidationService(keybox_revocation_provider),
             my_tools_service=MyToolsService(
                 self.my_tools_repository,
                 self.executor,
@@ -479,8 +463,11 @@ class ApplicationRuntime:
         root_app_catalog: RootAppManifestCatalog | None = None,
         root_app_downloader: ArtifactDownloader | None = None,
         patch_resource_registry: PatchResourceRegistry | None = None,
+        keybox_revocation_provider: KeyboxRevocationProvider | None = None,
         android_device_catalog_path: str | Path | None = None,
         legacy_devices_path: str | Path | None = None,
+        update_manifest_source: UpdateManifestSource | None = None,
+        update_manifest_verifier: UpdateManifestVerifier | None = None,
     ) -> ApplicationRuntime:
         config_store = ConfigStore(config_path)
         document = config_store.load()
@@ -527,7 +514,10 @@ class ApplicationRuntime:
             root_app_catalog=root_app_catalog,
             root_app_downloader=root_app_downloader,
             patch_resource_registry=patch_resource_registry,
+            keybox_revocation_provider=keybox_revocation_provider,
             android_device_catalog_path=android_device_catalog_path,
+            update_manifest_source=update_manifest_source,
+            update_manifest_verifier=update_manifest_verifier,
         )
 
     def snapshot(self) -> AppSnapshot:
@@ -574,37 +564,40 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"expected revision {command.expected_revision}, "
-                    f"current revision is {snapshot.revision}"
-                ),
+                message=(f"expected revision {command.expected_revision}, current revision is {snapshot.revision}"),
             )
         payload = command.payload
         try:
             if command.kind == "root.pif.transform":
                 allowed = {
-                    "content", "inputFormat", "outputFormat", "normalize",
-                    "keepUnknown", "sortKeys", "firstApi",
+                    "content",
+                    "inputFormat",
+                    "outputFormat",
+                    "normalize",
+                    "keepUnknown",
+                    "sortKeys",
+                    "firstApi",
                 }
                 if set(payload) - allowed or not {
-                    "content", "inputFormat", "outputFormat", "normalize",
-                    "keepUnknown", "sortKeys",
+                    "content",
+                    "inputFormat",
+                    "outputFormat",
+                    "normalize",
+                    "keepUnknown",
+                    "sortKeys",
                 }.issubset(payload):
                     raise PifProfileError("PIF transformation payload is invalid")
                 if (
                     not isinstance(payload["content"], str)
                     or payload["inputFormat"] not in {"json", "prop"}
-                    or payload["outputFormat"]
-                    not in {"json", "prop", "framework_patcher"}
+                    or payload["outputFormat"] not in {"json", "prop", "framework_patcher"}
                     or not isinstance(payload["normalize"], bool)
                     or not isinstance(payload["keepUnknown"], bool)
                     or not isinstance(payload["sortKeys"], bool)
                 ):
                     raise PifProfileError("PIF transformation payload types are invalid")
                 first_api = payload.get("firstApi")
-                if first_api is not None and (
-                    not isinstance(first_api, int) or isinstance(first_api, bool)
-                ):
+                if first_api is not None and (not isinstance(first_api, int) or isinstance(first_api, bool)):
                     raise PifProfileError("first API level must be an integer")
                 result = self.pif_profile_transformer.transform(
                     payload["content"],
@@ -641,9 +634,7 @@ class ApplicationRuntime:
                     },
                 )
             if command.kind == "root.pif.favorites.get":
-                if set(payload) != {"favoriteId"} or not isinstance(
-                    payload["favoriteId"], str
-                ):
+                if set(payload) != {"favoriteId"} or not isinstance(payload["favoriteId"], str):
                     raise PifProfileError("PIF favorite get payload is invalid")
                 item = self.pif_favorites_repository.get(payload["favoriteId"])
                 return OperationResult.success(
@@ -686,13 +677,9 @@ class ApplicationRuntime:
                 )
                 action = "saved"
             elif command.kind == "root.pif.favorites.delete":
-                if set(command.payload) != {"favoriteId"} or not isinstance(
-                    command.payload["favoriteId"], str
-                ):
+                if set(command.payload) != {"favoriteId"} or not isinstance(command.payload["favoriteId"], str):
                     raise PifProfileError("PIF favorite delete payload is invalid")
-                item = self.pif_favorites_repository.delete(
-                    command.payload["favoriteId"]
-                )
+                item = self.pif_favorites_repository.delete(command.payload["favoriteId"])
                 action = "deleted"
             else:
                 raise PifProfileError("PIF favorite action is invalid")
@@ -711,13 +698,9 @@ class ApplicationRuntime:
                 side_effect=persist,
             )
         except StaleRevisionError as error:
-            return OperationResult.failed(
-                command.operation_id, code="stale_revision", message=str(error)
-            )
+            return OperationResult.failed(command.operation_id, code="stale_revision", message=str(error))
         except PifProfileError as error:
-            return OperationResult.failed(
-                command.operation_id, code="pif_profile_invalid", message=str(error)
-            )
+            return OperationResult.failed(command.operation_id, code="pif_profile_invalid", message=str(error))
         return OperationResult.success(
             command.operation_id,
             code=f"pif_favorite_{result_value['action']}",
@@ -747,6 +730,7 @@ class ApplicationRuntime:
                 code="revision_required",
                 message="expected_revision is required",
             )
+
         def prepare(snapshot: AppSnapshot) -> Mapping[str, object]:
             merged: dict[str, object] = dict(snapshot.preferences.to_dict())
             merged.update(command.payload)
@@ -771,10 +755,7 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {error.expected}, "
-                    f"current {error.actual}"
-                ),
+                message=(f"state revision changed: expected {error.expected}, current {error.actual}"),
             )
         except PreferencesError as error:
             return OperationResult.failed(
@@ -833,9 +814,7 @@ class ApplicationRuntime:
                 code="invalid_payload",
                 message="serials must be an array of trimmed strings",
             )
-        serials = tuple(
-            dict.fromkeys(cast(tuple[str, ...] | list[str], serial_values))
-        )
+        serials = tuple(dict.fromkeys(cast(tuple[str, ...] | list[str], serial_values)))
         snapshot = self.store.snapshot()
         inventory = {device.serial for device in snapshot.devices}
         missing = tuple(serial for serial in serials if serial not in inventory)
@@ -856,9 +835,7 @@ class ApplicationRuntime:
         def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
             with self._preferences_lock:
                 values = dict(self.config_document.values)
-                core = _string_object_mapping(
-                    values.get("_pixelflasher_core_state", {})
-                )
+                core = _string_object_mapping(values.get("_pixelflasher_core_state", {}))
                 core["selected_serials"] = list(updated.selected_serials)
                 document = self.config_document.with_values(
                     device=updated.selected_serial,
@@ -877,10 +854,7 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {error.expected}, "
-                    f"current {error.actual}"
-                ),
+                message=(f"state revision changed: expected {error.expected}, current {error.actual}"),
             )
         except (ConfigError, OSError):
             return OperationResult.failed(
@@ -909,10 +883,7 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {command.expected_revision}, "
-                    f"current {current.revision}"
-                ),
+                message=(f"state revision changed: expected {command.expected_revision}, current {current.revision}"),
             )
         try:
             state, devices = self._prepare_device_manager_update(command, current)
@@ -957,9 +928,7 @@ class ApplicationRuntime:
         def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
             with self._preferences_lock:
                 values = dict(self.config_document.values)
-                core = _string_object_mapping(
-                    values.get("_pixelflasher_core_state", {})
-                )
+                core = _string_object_mapping(values.get("_pixelflasher_core_state", {}))
                 core["selected_serials"] = list(updated.selected_serials)
                 document = self.config_document.with_values(
                     device=updated.selected_serial,
@@ -984,10 +953,7 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {error.expected}, "
-                    f"current {error.actual}"
-                ),
+                message=(f"state revision changed: expected {error.expected}, current {error.actual}"),
             )
         except (ConfigError, OSError):
             if pausing and self._device_monitor_requested:
@@ -1053,12 +1019,8 @@ class ApplicationRuntime:
                 state = paused_device_management(state)
                 devices = ()
             elif scope == "enabled":
-                admitted = {
-                    entry.serial for entry in state.devices if entry.enabled
-                }
-                devices = tuple(
-                    device for device in devices if device.serial in admitted
-                )
+                admitted = {entry.serial for entry in state.devices if entry.enabled}
+                devices = tuple(device for device in devices if device.serial in admitted)
             return state, devices
 
         unknown = set(payload) - {"serial", "label", "enabled"}
@@ -1111,15 +1073,14 @@ class ApplicationRuntime:
         )
         entry = next(item for item in state.devices if item.serial == serial)
         updated_devices = tuple(
-            replace(device, name=entry.label or device.model or device.codename or device.serial)
+            replace(
+                device,
+                name=entry.label or device.model or device.codename or device.serial,
+            )
             if device.serial == serial
             else device
             for device in devices
-            if not (
-                device.serial == serial
-                and state.scan_scope == "enabled"
-                and not entry.enabled
-            )
+            if not (device.serial == serial and state.scan_scope == "enabled" and not entry.enabled)
         )
         return state, updated_devices
 
@@ -1155,9 +1116,7 @@ class ApplicationRuntime:
         def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
             with self._preferences_lock:
                 values = dict(self.config_document.values)
-                core = _string_object_mapping(
-                    values.get("_pixelflasher_core_state", {})
-                )
+                core = _string_object_mapping(values.get("_pixelflasher_core_state", {}))
                 core["toolchain"] = updated.toolchain.to_dict()
                 document = self.config_document.with_values(
                     platform_tools_path=str(Path(updated.toolchain.adb).parent),
@@ -1176,10 +1135,7 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {error.expected}, "
-                    f"current {error.actual}"
-                ),
+                message=(f"state revision changed: expected {error.expected}, current {error.actual}"),
             )
         except (ConfigError, OSError):
             return OperationResult.failed(
@@ -1212,16 +1168,11 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {command.expected_revision}, "
-                    f"current {snapshot.revision}"
-                ),
+                message=(f"state revision changed: expected {command.expected_revision}, current {snapshot.revision}"),
             )
         try:
             resolved = executable.resolve(strict=True)
-            managed_root = self._scrcpy_install_path(self.config_store.path).resolve(
-                strict=False
-            )
+            managed_root = self._scrcpy_install_path(self.config_store.path).resolve(strict=False)
             resolved.relative_to(managed_root)
             if not resolved.is_file() or resolved.name.casefold() not in {
                 "scrcpy",
@@ -1282,9 +1233,7 @@ class ApplicationRuntime:
         def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
             with self._preferences_lock:
                 values = dict(self.config_document.values)
-                core = _string_object_mapping(
-                    values.get("_pixelflasher_core_state", {})
-                )
+                core = _string_object_mapping(values.get("_pixelflasher_core_state", {}))
                 core["selected_serials"] = list(updated.selected_serials)
                 core["toolchain"] = updated.toolchain.to_dict()
                 updates: dict[str, object] = {
@@ -1313,10 +1262,7 @@ class ApplicationRuntime:
             return OperationResult.failed(
                 command.operation_id,
                 code="stale_revision",
-                message=(
-                    f"state revision changed: expected {error.expected}, "
-                    f"current {error.actual}"
-                ),
+                message=(f"state revision changed: expected {error.expected}, current {error.actual}"),
             )
         except (ConfigError, OSError):
             return OperationResult.failed(
@@ -1427,11 +1373,7 @@ class ApplicationRuntime:
                 values.update(
                     {
                         "device": snapshot.selected_serial,
-                        "firmware_path": (
-                            str(firmware_record.path)
-                            if firmware_record is not None
-                            else None
-                        ),
+                        "firmware_path": (str(firmware_record.path) if firmware_record is not None else None),
                         "mode": "dryRun" if snapshot.plan.dry_run else snapshot.plan.mode,
                         "_pixelflasher_core_state": {
                             "selected_serials": list(snapshot.selected_serials),
@@ -1529,9 +1471,7 @@ class ApplicationRuntime:
         def persist(_current: AppSnapshot, updated: AppSnapshot) -> None:
             with self._preferences_lock:
                 values = dict(self.config_document.values)
-                core = _string_object_mapping(
-                    values.get("_pixelflasher_core_state", {})
-                )
+                core = _string_object_mapping(values.get("_pixelflasher_core_state", {}))
                 core["selected_serials"] = list(updated.selected_serials)
                 document = self.config_document.with_values(
                     device=updated.selected_serial,
@@ -1621,7 +1561,12 @@ class ApplicationRuntime:
         fastboot = raw_fastboot if isinstance(raw_fastboot, str) else ""
         if configured_path is not None and not (adb and fastboot):
             directory = Path(configured_path).expanduser()
-            adb = str(next((item for item in (directory / "adb.exe", directory / "adb") if item.is_file()), ""))
+            adb = str(
+                next(
+                    (item for item in (directory / "adb.exe", directory / "adb") if item.is_file()),
+                    "",
+                )
+            )
             fastboot = str(
                 next(
                     (item for item in (directory / "fastboot.exe", directory / "fastboot") if item.is_file()),
@@ -1641,9 +1586,7 @@ class ApplicationRuntime:
         )
         return AppSnapshot(
             preferences=preferences_from_document(document),
-            device_management=paused_device_management(
-                device_management_from_document(document)
-            ),
+            device_management=paused_device_management(device_management_from_document(document)),
             selected_serials=serials,
             selected_serial=serial,
             plan=FlashPlan(
@@ -1663,15 +1606,9 @@ class ApplicationRuntime:
     ) -> AppSnapshot:
         """Rehydrate selections from verified SQLite identities, never JSON paths."""
 
-        core = _string_object_mapping(
-            document.values.get("_pixelflasher_core_state", {})
-        )
-        firmware = self._firmware_from_repository(
-            _string_object_mapping(core.get("firmware", {}))
-        )
-        boot = self._boot_from_repository(
-            _string_object_mapping(core.get("boot", {}))
-        )
+        core = _string_object_mapping(document.values.get("_pixelflasher_core_state", {}))
+        firmware = self._firmware_from_repository(_string_object_mapping(core.get("firmware", {})))
+        boot = self._boot_from_repository(_string_object_mapping(core.get("boot", {})))
         return replace(snapshot, firmware=firmware, boot=boot)
 
     def _firmware_from_repository(
@@ -1704,8 +1641,7 @@ class ApplicationRuntime:
                 firmware_hash=record.sha256,
             )
             processed = bool(processed_records) and all(
-                self.artifact_repository.verify(item.artifact_id)
-                for item in processed_records
+                self.artifact_repository.verify(item.artifact_id) for item in processed_records
             )
         except (OSError, RepositoryError):
             processed = False
@@ -1724,12 +1660,7 @@ class ApplicationRuntime:
     ) -> BootInfo:
         artifact_id = reference.get("artifact_id", reference.get("id", ""))
         digest = reference.get("hash", reference.get("sha256", ""))
-        if (
-            not isinstance(artifact_id, str)
-            or not artifact_id
-            or not isinstance(digest, str)
-            or not digest
-        ):
+        if not isinstance(artifact_id, str) or not artifact_id or not isinstance(digest, str) or not digest:
             return BootInfo()
         try:
             record = self.boot_repository.resolve_selection(
@@ -1745,10 +1676,7 @@ class ApplicationRuntime:
             path=str(record.path),
             hash=record.sha256,
             flavor=record.partition,
-            patched=(
-                record.provenance.value == "patched"
-                or record.metadata.get("isPatched") is True
-            ),
+            patched=(record.provenance.value == "patched" or record.metadata.get("isPatched") is True),
         )
 
     @staticmethod
@@ -1861,13 +1789,7 @@ class ApplicationRuntime:
         snapshot = self.store.snapshot()
         selected = set(snapshot.selected_serials)
         return tuple(
-            sorted(
-                {
-                    device.codename
-                    for device in snapshot.devices
-                    if device.serial in selected and device.codename
-                }
-            )
+            sorted({device.codename for device in snapshot.devices if device.serial in selected and device.codename})
         )
 
     def _canonical_firmware_record(
@@ -1883,8 +1805,7 @@ class ApplicationRuntime:
             if (
                 existing is not None
                 and existing.metadata.get("firmwareType") == firmware.type
-                and str(existing.metadata.get("firmwareBuild", "")).casefold()
-                == firmware.build.casefold()
+                and str(existing.metadata.get("firmwareBuild", "")).casefold() == firmware.build.casefold()
             ):
                 return existing
             # A legacy/config-only selection has no modern package trust
@@ -1924,7 +1845,11 @@ class ApplicationRuntime:
     @staticmethod
     def _configured_toolchain_path(document: ConfigDocument) -> str | None:
         values = document.values
-        for key in ("platform_tools_path", "platformToolsPath", "platform_tools_folder"):
+        for key in (
+            "platform_tools_path",
+            "platformToolsPath",
+            "platform_tools_folder",
+        ):
             value = values.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()

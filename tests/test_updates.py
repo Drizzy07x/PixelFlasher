@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from pixelflasher_core import (
     AppCommand,
+    ApplicationRuntime,
     AppSnapshot,
     AppStateStore,
     OperationResult,
@@ -201,6 +202,25 @@ class UpdateServiceTests(unittest.TestCase):
                         value={"releaseUrl": "https://example.com/private"},
                     ),
                 )
+
+    def test_runtime_open_forwards_the_packaged_update_distribution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "PixelFlasher.json"
+            config.write_text("{}", encoding="utf-8")
+            source = Source(signed_manifest())
+            runtime = ApplicationRuntime.open(
+                config,
+                update_manifest_source=source,
+                update_manifest_verifier=self.verifier(),
+            )
+
+            result = runtime.execute(
+                AppCommand("updates.check", expected_revision=0)
+            )
+
+            self.assertTrue(result.ok)
+            self.assertEqual(1, source.calls)
+            runtime.shutdown()
 
 
 if __name__ == "__main__":

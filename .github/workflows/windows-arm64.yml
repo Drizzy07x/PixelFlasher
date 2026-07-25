@@ -128,6 +128,24 @@ jobs:
           }
           & ".\myenv\Scripts\python.exe" @rootAppCatalogArguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $firmwareCatalogArguments = @("scripts/verify_firmware_catalog.py", "--root", "resources/firmware/runtime")
+          $scrcpyCatalogArguments = @("scripts/verify_scrcpy_catalog.py", "--root", "resources/scrcpy/runtime")
+          $updateManifestArguments = @("scripts/verify_update_manifest.py", "--path", "resources/updates/runtime/manifest.json")
+          $keyboxRevocationArguments = @("scripts/verify_keybox_revocations.py", "--path", "resources/keybox/revocations.json")
+          if ($env:GITHUB_REF -notlike 'refs/tags/v10.*') {
+            $firmwareCatalogArguments += "--allow-missing"
+            $scrcpyCatalogArguments += "--allow-missing"
+            $updateManifestArguments += "--allow-missing"
+            $keyboxRevocationArguments += "--allow-missing"
+          }
+          & ".\myenv\Scripts\python.exe" @firmwareCatalogArguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ".\myenv\Scripts\python.exe" @scrcpyCatalogArguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ".\myenv\Scripts\python.exe" @updateManifestArguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ".\myenv\Scripts\python.exe" @keyboxRevocationArguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $venvPyInstaller --log-level=DEBUG --clean --noconfirm build-on-win-arm64.spec
 
       - name: Verify Output Exists

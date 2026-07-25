@@ -13,7 +13,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import NameOID
 
-from pixelflasher_core import AppCommand, AppSnapshot, AppStateStore, PathGrantStore
+from pixelflasher_core import (
+    AppCommand,
+    ApplicationRuntime,
+    AppSnapshot,
+    AppStateStore,
+    PathGrantStore,
+)
 from pixelflasher_core.keybox_validation import (
     KeyboxAnalysisStatus,
     KeyboxRevocationError,
@@ -297,6 +303,37 @@ def test_expired_signed_revocation_snapshot_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(KeyboxRevocationError):
         provider.load(now=NOW)
+
+
+def test_runtime_open_forwards_the_packaged_revocation_provider(tmp_path: Path) -> None:
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    path = tmp_path / "revocations.json"
+    path.write_bytes(
+        _signed_manifest(
+            private_key,
+            entries=["a001"],
+            expires_at=datetime.now(UTC) + timedelta(days=1),
+        )
+    )
+    provider = SignedKeyboxRevocationProvider(
+        path,
+        {"key-1": private_key.public_key()},
+    )
+    config = tmp_path / "PixelFlasher.json"
+    config.write_text("{}", encoding="utf-8")
+    runtime = ApplicationRuntime.open(
+        config,
+        keybox_revocation_provider=provider,
+    )
+
+    evidence, issue = (
+        runtime.command_engine.keybox_validation_service.revocation_evidence()
+    )
+
+    assert issue == ""
+    assert evidence is not None
+    assert evidence.revoked_serials == frozenset({"a001"})
+    runtime.shutdown()
 
 
 def test_command_engine_analyzes_bound_files_without_exposing_host_paths() -> None:

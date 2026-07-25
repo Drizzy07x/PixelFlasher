@@ -9,6 +9,17 @@ sys.path.insert(0, str(Path(SPECPATH)))
 from build_artifact_policy import RETIRED_UI_MODULES
 
 block_cipher = None
+optional_runtime_datas = [
+    (relative, relative)
+    for relative in (
+        "resources/firmware",
+        "resources/keybox",
+        "resources/scrcpy",
+        "resources/support",
+        "resources/updates",
+    )
+    if Path(relative).exists()
+]
 
 hidden_imports = ['_cffi_backend']
 hidden_imports += collect_submodules('pkg_resources')
@@ -45,7 +56,7 @@ a = Analysis(['PixelFlasher.py'],
                 ('pixelflasher_core/payload_extractor.py', 'pixelflasher_core'),
                 ('pixelflasher_core/payload_extractor.integrity.json', 'pixelflasher_core'),
                 ('locale', 'locale')
-             ],
+             ] + optional_runtime_datas,
              hiddenimports=hidden_imports,
              hookspath=[],
              runtime_hooks=['pyi_runtime_linux_gtk.py'],

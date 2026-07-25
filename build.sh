@@ -80,6 +80,23 @@ $PYTHON ./scripts/verify_platform_tools_catalog.py "${catalog_args[@]}"
 if [[ $? -ne 0 ]]; then
     exit 1
 fi
+root_app_catalog_args=(--root resources/root-apps/runtime)
+firmware_catalog_args=(--root resources/firmware/runtime)
+scrcpy_catalog_args=(--root resources/scrcpy/runtime)
+update_manifest_args=(--path resources/updates/runtime/manifest.json)
+keybox_revocation_args=(--path resources/keybox/revocations.json)
+if [[ ${PIXELFLASHER_REQUIRE_SIGNED_PLATFORM_TOOLS:-0} != "1" ]]; then
+    root_app_catalog_args+=(--allow-missing)
+    firmware_catalog_args+=(--allow-missing)
+    scrcpy_catalog_args+=(--allow-missing)
+    update_manifest_args+=(--allow-missing)
+    keybox_revocation_args+=(--allow-missing)
+fi
+$PYTHON ./scripts/verify_root_app_catalog.py "${root_app_catalog_args[@]}" || exit 1
+$PYTHON ./scripts/verify_firmware_catalog.py "${firmware_catalog_args[@]}" || exit 1
+$PYTHON ./scripts/verify_scrcpy_catalog.py "${scrcpy_catalog_args[@]}" || exit 1
+$PYTHON ./scripts/verify_update_manifest.py "${update_manifest_args[@]}" || exit 1
+$PYTHON ./scripts/verify_keybox_revocations.py "${keybox_revocation_args[@]}" || exit 1
 
 pyinstaller --log-level=DEBUG \
             --noconfirm \
