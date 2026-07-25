@@ -270,9 +270,18 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         )
         host = SimpleNamespace(_ui_smoke_script_callback=outputs.append)
 
-        ModernWebViewFrame._on_script_result(host, event)
-        ModernWebViewFrame._on_script_result(host, event)
+        scheduled: list[tuple[Callable[[str], None], str]] = []
+        with patch(
+            "ui.pages.modern_webview_host.wx.CallAfter",
+            side_effect=lambda callback, output: scheduled.append((callback, output)),
+        ):
+            ModernWebViewFrame._on_script_result(host, event)
+            ModernWebViewFrame._on_script_result(host, event)
 
+        self.assertEqual([], outputs)
+        self.assertEqual(1, len(scheduled))
+        callback, output = scheduled[0]
+        callback(output)
         self.assertEqual([json.dumps({"ok": True}, separators=(",", ":"))], outputs)
         self.assertIsNone(host._ui_smoke_script_callback)
 

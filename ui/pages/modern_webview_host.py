@@ -930,7 +930,10 @@ class ModernWebViewFrame(wx.Frame):
         callback, self._ui_smoke_script_callback = self._ui_smoke_script_callback, None
         if callback is None:
             return
-        callback(output)
+        # WebKit can deadlock when the next RunScriptAsync call is started
+        # reentrantly from its script-result event. Resume after this native
+        # event has returned to the wx loop.
+        wx.CallAfter(callback, output)
 
     def _on_navigating(self, event: object) -> None:
         url = str(event.GetURL())  # type: ignore[attr-defined]
