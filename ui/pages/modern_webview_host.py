@@ -1798,6 +1798,12 @@ class ModernWebViewFrame(wx.Frame):
     def _run_ui_smoke_script(self, script: str, callback: Callable[[str], None]) -> None:
         if self._ui_smoke_script_callback is not None:
             raise RuntimeError("A packaged UI smoke script is already pending")
+        if sys.platform.startswith("linux"):
+            success, output = self._view.RunScript(script)
+            if not success:
+                raise RuntimeError("WebKit could not execute a packaged UI smoke script")
+            callback(str(output))
+            return
         self._ui_smoke_script_callback = callback
         self._view.RunScriptAsync(script)
 

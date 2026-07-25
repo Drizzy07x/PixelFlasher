@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from scripts.generate_bridge_contracts import (
@@ -20,10 +21,16 @@ from ui.command_registry import (
     CommandMutability,
     CommandOwner,
     CommandRisk,
+    CommandSpec,
     ConfirmationPolicy,
     ExpectedRevision,
+    PayloadField,
     PayloadKind,
+    PayloadSchema,
+    PayloadSchemaError,
     TargetScope,
+    _build_registry,
+    _payload,
 )
 
 
@@ -40,6 +47,104 @@ def _request(command, payload=None, revision=1):
 
 
 class CommandRegistryTests(unittest.TestCase):
+    def test_registry_schema_constructors_reject_ambiguous_definitions(self):
+        for arguments in (
+            (PayloadKind.ARRAY, False, 1, None),
+            (PayloadKind.STRING, False, 0, 1),
+            (PayloadKind.ARRAY, False, -1, 1),
+            (PayloadKind.ARRAY, False, 0, 10_001),
+        ):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                PayloadField(*arguments)
+
+        invalid_fields = (
+            {"": PayloadField(PayloadKind.STRING)},
+            {1: PayloadField(PayloadKind.STRING)},
+            {"value": "not-a-payload-field"},
+        )
+        for fields in invalid_fields:
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                PayloadSchema(fields)  # type: ignore[arg-type]
+
+        with self.assertRaises(ValueError):
+            _payload(
+                ("duplicate", PayloadKind.STRING),
+                ("duplicate", PayloadKind.BOOLEAN),
+            )
+
+    def test_command_spec_rejects_every_invalid_ownership_combination(self):
+        base = COMMAND_REGISTRY["snapshot.get"]
+        base_arguments = {
+            "command": base.command,
+            "typescript_name": base.typescript_name,
+            "payload": base.payload,
+            "owner": base.owner,
+            "implemented": base.implemented,
+            "exposed": base.exposed,
+            "mutability": base.mutability,
+            "expected_revision": base.expected_revision,
+            "risk": base.risk,
+            "valid_device_states": base.valid_device_states,
+            "target_scope": base.target_scope,
+            "planner": base.planner,
+            "timeout_ms": base.timeout_ms,
+            "confirmation": base.confirmation,
+            "postconditions": base.postconditions,
+        }
+        cases = (
+            {"command": ""},
+            {"typescript_name": ""},
+            {"implemented": False, "exposed": True},
+            {"planner": None},
+            {"timeout_ms": 0},
+            {"valid_device_states": frozenset()},
+            {
+                "mutability": CommandMutability.READ_ONLY,
+                "confirmation": ConfirmationPolicy.STANDARD,
+            },
+        )
+        for changes in cases:
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                CommandSpec(**(base_arguments | changes))
+
+    def test_closed_payload_kinds_accept_only_their_exact_runtime_shapes(self):
+        valid_and_invalid = (
+            (PayloadKind.STRING, "value", 1),
+            (PayloadKind.BOOLEAN, True, 1),
+            (PayloadKind.INTEGER, 1, True),
+            (PayloadKind.NUMBER, 1.5, float("inf")),
+            (PayloadKind.OBJECT, {"key": "value"}, []),
+            (PayloadKind.ARRAY, [object()], {}),
+            (PayloadKind.FILTER_ARRAY, [], ()),
+            (PayloadKind.STRING_ARRAY, ["one", "two"], ["one", 2]),
+            (PayloadKind.INTEGER_ARRAY, [1, 2], [1, True]),
+            (
+                PayloadKind.LOGCAT_FILTER_ARRAY,
+                [{"tag": "ActivityManager", "priority": "W"}],
+                [{"tag": "ActivityManager"}],
+            ),
+        )
+        for kind, valid, invalid in valid_and_invalid:
+            schema = PayloadSchema({"value": PayloadField(kind, required=True)})
+            with self.subTest(kind=kind, case="valid"):
+                schema.validate({"value": valid})
+            with self.subTest(kind=kind, case="invalid"), self.assertRaises(PayloadSchemaError):
+                schema.validate({"value": invalid})
+
+        schema = PayloadSchema({"value": PayloadField(PayloadKind.STRING)})
+        with self.assertRaises(PayloadSchemaError):
+            schema.validate({1: "value"})  # type: ignore[dict-item]
+
+    def test_registry_builder_rejects_duplicate_public_and_typescript_names(self):
+        base = COMMAND_REGISTRY["snapshot.get"]
+        other = COMMAND_REGISTRY["app.ready"]
+        with self.assertRaises(RuntimeError):
+            _build_registry((base, replace(other, command=base.command)))
+        with self.assertRaises(RuntimeError):
+            _build_registry(
+                (base, replace(other, typescript_name=base.typescript_name))
+            )
+
     def test_application_shell_commands_are_closed_and_host_owned(self):
         console_export = COMMAND_REGISTRY["app.console.export"]
         open_folder = COMMAND_REGISTRY["app.openFolder"]

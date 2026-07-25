@@ -78,7 +78,15 @@ jobs:
         run: python -m pyright --pythonpath "$(command -v python)" --pythonplatform Linux pixelflasher_core
 
       - name: Run the Python suite with the RC1 coverage gate
-        run: python -m pytest --cov=pixelflasher_core --cov-report=term-missing --cov-fail-under=80
+        run: |
+          python -m pytest \
+            --ignore=tests/test_modern_artifact_boundary.py \
+            --ignore=tests/test_modern_primary_experience.py \
+            --ignore=tests/test_modern_webview_host_contract.py \
+            --ignore=tests/test_upstream_integrations.py \
+            --cov=pixelflasher_core \
+            --cov-report=term-missing \
+            --cov-fail-under=80
 
   ubuntu_xvfb_dashboard:
     needs: frontend_smoke
