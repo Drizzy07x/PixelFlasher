@@ -713,20 +713,6 @@ def _extract_ui_smoke_script_output(output: str) -> str | None:
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
 
-def _extract_ui_smoke_message_output(raw: str) -> str | None:
-    try:
-        payload = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if (
-        not isinstance(payload, dict)
-        or payload.get("smokeToken") != _UI_SMOKE_SCRIPT_TOKEN
-        or not isinstance(payload.get("output"), str)
-    ):
-        return None
-    return _extract_ui_smoke_script_output(payload["output"])
-
-
 def _ui_smoke_initialization_script() -> str:
     return """(() => {
 const shell = document.querySelector('.app-shell');
@@ -742,6 +728,8 @@ return JSON.stringify({smokeToken:'pixelflasher-packaged-ui-smoke-v2',ok:true});
 def _ui_smoke_navigation_script(index: int) -> str:
     key = index + 1
     return f"""(() => {{
+const active = document.activeElement;
+if (active instanceof HTMLElement) active.blur();
 const event = new KeyboardEvent('keydown', {{key:'{key}',altKey:true,bubbles:true,cancelable:true}});
 window.dispatchEvent(event);
 return JSON.stringify({{smokeToken:'pixelflasher-packaged-ui-smoke-v2',ok:true,defaultPrevented:event.defaultPrevented}});
@@ -928,8 +916,15 @@ class ModernWebViewFrame(wx.Frame):
         wx.LogError(message)
 
     def _on_script_result(self, event: object) -> None:
-        output = _extract_ui_smoke_script_output(str(event.GetString()))  # type: ignore[attr-defined]
+        raw = str(event.GetString())  # type: ignore[attr-defined]
+        output = _extract_ui_smoke_script_output(raw)
         if output is None:
+            if event.IsError() and self._ui_smoke_script_callback is not None:  # type: ignore[attr-defined]
+                detail = raw.strip()
+                wx.LogError(
+                    "Packaged UI smoke script execution failed"
+                    + (f": {detail[:512]}" if detail else ".")
+                )
             event.Skip()  # type: ignore[attr-defined]
             return
         callback, self._ui_smoke_script_callback = self._ui_smoke_script_callback, None
@@ -952,15 +947,6 @@ class ModernWebViewFrame(wx.Frame):
 
     def _on_script_message(self, event: object) -> None:
         raw = str(event.GetString())  # type: ignore[attr-defined]
-        smoke_output = _extract_ui_smoke_message_output(raw)
-        if smoke_output is not None:
-            callback, self._ui_smoke_script_callback = (
-                self._ui_smoke_script_callback,
-                None,
-            )
-            if callback is not None:
-                callback(smoke_output)
-            return
         try:
             request = BridgeRequest.from_json(raw)
         except BridgeProtocolError as exc:
@@ -1822,10 +1808,8 @@ class ModernWebViewFrame(wx.Frame):
         if self._ui_smoke_script_callback is not None:
             raise RuntimeError("A packaged UI smoke script is already pending")
         self._ui_smoke_script_callback = callback
-        token = json.dumps(_UI_SMOKE_SCRIPT_TOKEN)
         wrapped = f"""(() => {{
 const output = ({script});
-window.pixelflasher.postMessage(JSON.stringify({{smokeToken:{token},output}}));
 return output;
 }})()"""
         self._view.RunScriptAsync(wrapped)

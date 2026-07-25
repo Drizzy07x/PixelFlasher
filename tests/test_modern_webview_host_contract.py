@@ -238,7 +238,7 @@ class ModernWebViewHostContractTests(unittest.TestCase):
 
         self.assertEqual([(None, "Packaged UI did not transfer focus on dashboard")], results)
 
-    def test_ui_smoke_returns_results_through_the_proven_bridge_channel(self):
+    def test_ui_smoke_returns_results_through_the_native_async_channel(self):
         scripts: list[str] = []
 
         def callback(_output: str) -> None:
@@ -251,9 +251,7 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         ModernWebViewFrame._run_ui_smoke_script(host, "document.title", callback)
         self.assertEqual(1, len(scripts))
         self.assertIn("const output = (document.title)", scripts[0])
-        self.assertIn("window.pixelflasher.postMessage", scripts[0])
         self.assertIn("return output", scripts[0])
-        self.assertIn("pixelflasher-packaged-ui-smoke-v2", scripts[0])
         self.assertIs(callback, host._ui_smoke_script_callback)
 
     def test_ui_smoke_native_script_result_completes_the_pending_callback_once(self):
@@ -267,6 +265,7 @@ class ModernWebViewHostContractTests(unittest.TestCase):
                     }
                 )
             ),
+            IsError=lambda: False,
             Skip=lambda: self.fail("marked smoke results must not be skipped"),
         )
         host = SimpleNamespace(_ui_smoke_script_callback=outputs.append)
@@ -277,25 +276,21 @@ class ModernWebViewHostContractTests(unittest.TestCase):
         self.assertEqual([json.dumps({"ok": True}, separators=(",", ":"))], outputs)
         self.assertIsNone(host._ui_smoke_script_callback)
 
-    def test_ui_smoke_bridge_result_is_ignored_after_native_completion(self):
+    def test_non_smoke_script_result_is_ignored(self):
         outputs: list[str] = []
-        payload = json.dumps(
-            {
-                "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
-                "output": json.dumps(
-                    {
-                        "smokeToken": "pixelflasher-packaged-ui-smoke-v2",
-                        "ok": True,
-                    }
-                ),
-            }
+        skipped: list[bool] = []
+        event = SimpleNamespace(
+            GetString=lambda: "undefined",
+            IsError=lambda: False,
+            Skip=lambda: skipped.append(True),
         )
-        event = SimpleNamespace(GetString=lambda: payload)
-        host = SimpleNamespace(_ui_smoke_script_callback=None)
+        host = SimpleNamespace(_ui_smoke_script_callback=outputs.append)
 
-        ModernWebViewFrame._on_script_message(host, event)
+        ModernWebViewFrame._on_script_result(host, event)
 
         self.assertEqual([], outputs)
+        self.assertEqual([True], skipped)
+        self.assertIsNotNone(host._ui_smoke_script_callback)
 
     def test_adb_terminal_requests_are_exactly_projected_to_the_native_service(self):
         calls: list[tuple] = []
