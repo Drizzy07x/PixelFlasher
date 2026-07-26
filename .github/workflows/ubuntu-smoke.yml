@@ -9,6 +9,12 @@ on:
       - main
   workflow_dispatch:
 
+# Superseded pushes on the same ref stop immediately instead of finishing a run
+# nobody will read.
+concurrency:
+  group: pixelflasher-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ubuntu_smoke:
     needs: frontend_smoke
@@ -238,3 +244,6 @@ jobs:
           name: react-webview-dist
           path: ui/web/dist
           if-no-files-found: error
+          # Same-run handoff to the Python smoke jobs only; it is never consumed
+          # after the run finishes.
+          retention-days: 1

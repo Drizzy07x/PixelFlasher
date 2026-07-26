@@ -205,3 +205,4 @@ jobs:
           path: |
             dist/PixelFlasher_Ubuntu_22_04
             dist/PixelFlasher_Ubuntu_22_04.sha256
+          retention-days: 7

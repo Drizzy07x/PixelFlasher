@@ -287,4 +287,5 @@ jobs:
           path: |
             dist/PixelFlasher-arm64.exe
             dist/PixelFlasher-arm64.exe.sha256
+          retention-days: 7
 

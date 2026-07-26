@@ -350,6 +350,7 @@ jobs:
           path: |
             dist/PixelFlasher-x86_64.AppImage
             dist/PixelFlasher-x86_64.AppImage.sha256
+          retention-days: 7
 
   smoke_clean_image:
     needs: build_appimage

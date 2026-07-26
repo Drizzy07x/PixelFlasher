@@ -21,6 +21,22 @@ release, and artifacts from another run are never reused.
   `upstream/main` SHA and the decision for every commit since the preceding
   milestone.
 
+## Running the platform matrix
+
+An ordinary branch push runs only `Ubuntu Smoke Checks`, which builds no
+installer. The seven-target matrix in `main.yml` runs on a `v10.*` tag, on a
+pull request into `main`, or on demand:
+
+```text
+gh workflow run "Build and release all platforms" --ref <branch>
+```
+
+A full matrix run uploads roughly 1.4 GB of artifacts, so it is never attached
+to every commit. Platform artifacts expire after seven days; published release
+payloads live in the GitHub release, not in Actions storage. Collect the
+packaged evidence required above from a dispatched run on the exact candidate
+commit.
+
 ## Candidate sequence
 
 1. Tag `v10.0.0-rc.1` and retain its evidence for at least 14 days.

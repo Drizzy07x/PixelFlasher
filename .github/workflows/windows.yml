@@ -279,3 +279,6 @@ jobs:
           path: |
             dist/PixelFlasher.exe
             dist/PixelFlasher.exe.sha256
+          # Release tags publish these payloads to the GitHub release, so the
+          # artifact is only a same-run handoff plus a short debugging window.
+          retention-days: 7

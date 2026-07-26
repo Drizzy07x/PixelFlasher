@@ -250,3 +250,4 @@ jobs:
           path: |
             dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg
             dist/PixelFlasher_MacOS_${{ matrix.label }}.dmg.sha256
+          retention-days: 7

@@ -3,10 +3,14 @@
 
 name: Build and release all platforms
 
+# The full seven-target matrix uploads roughly 1.4 GB of artifacts per run, so
+# it is never triggered by an ordinary branch push. Release tags run it because
+# the release job needs same-run artifacts; pull requests into main run it as
+# the merge gate; workflow_dispatch runs it on demand when a branch needs the
+# packaged multi-platform evidence. Per-commit signal comes from Ubuntu Smoke
+# Checks, which builds no installers.
 on:
   push:
-    branches:
-      - "**"
     tags:
       - "v10.*"
   pull_request:
