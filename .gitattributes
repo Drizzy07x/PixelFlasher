@@ -2,6 +2,9 @@
 .githooks/* text eol=lf
 # Receipts are hash-bound: any line-ending translation would invalidate them.
 evidence/** -text
+# Signed catalogs and manifests ship verbatim on every platform.
+resources/*/runtime/** -text
+resources/*/source-lock.json -text
 resources/boot-patch/runner/* text eol=lf
 resources/ota/runner/* text eol=lf
 *.dex binary
