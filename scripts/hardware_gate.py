@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +40,9 @@ class Probe:
     command: str
     payload: dict[str, object] | None = None
     device_scoped: bool = True
+    # Mutating probes are opt in and never destructive: this harness covers the
+    # capabilities that write nothing to a partition.
+    mutating: bool = False
 
 
 PROBES: tuple[Probe, ...] = (
@@ -50,6 +54,12 @@ PROBES: tuple[Probe, ...] = (
     Probe("device.ota_diagnostics", "device.ota.logs"),
     Probe("apps.package_manager", "apps.list"),
     Probe("device.wireless", "tools.wifi.status"),
+    Probe(
+        "device.logs",
+        "tools.logcat",
+        {"buffers": ["main"], "mode": "snapshot", "maxLines": 200, "redaction": "strict"},
+        mutating=True,
+    ),
 )
 
 # Probes whose failure is a property of the device rather than of the product.
@@ -59,18 +69,38 @@ EXPECTED_BLOCKED: dict[str, str] = {
 }
 
 
-def _assert_non_mutating(probe: Probe) -> None:
-    """Refuse to run anything this harness is not allowed to run."""
+def _assert_permitted(probe: Probe) -> None:
+    """Refuse to run anything this harness is not allowed to run.
+
+    Destructive commands, and any command needing a reinforced phrase, belong to
+    the staged mutation sessions and are rejected here regardless of the probe.
+    """
 
     spec = COMMAND_REGISTRY.get(probe.command)
     if spec is None:
         raise HardwareGateError(f"unknown command: {probe.command}")
     mutability = getattr(spec.mutability, "value", str(spec.mutability))
     confirmation = getattr(spec.confirmation, "value", str(spec.confirmation))
-    if mutability != "read_only" or confirmation != "none":
+    if mutability == "destructive":
+        raise HardwareGateError(f"{probe.command} is destructive and is out of scope here")
+    if confirmation not in {"none", "standard"}:
         raise HardwareGateError(
-            f"{probe.command} is {mutability}/{confirmation}; this harness runs read-only probes only"
+            f"{probe.command} needs a {confirmation} confirmation and is out of scope here"
         )
+    if mutability != "read_only" and not probe.mutating:
+        raise HardwareGateError(
+            f"{probe.command} is {mutability} but the probe did not declare it"
+        )
+
+
+def _approve_standard_confirmations(request: object) -> object:
+    """Answer only the plain confirmations the permitted probes raise."""
+
+    from pixelflasher_core.contracts import InteractionDecision
+
+    if getattr(request, "destructive", False) or getattr(request, "reinforced", False):
+        return InteractionDecision.CANCELLED
+    return InteractionDecision.ACCEPTED
 
 
 def _route_free(payload: object) -> bool:
@@ -84,7 +114,7 @@ def _route_free(payload: object) -> bool:
 def run_probes(runtime: ApplicationRuntime, serial: str) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     for probe in PROBES:
-        _assert_non_mutating(probe)
+        _assert_permitted(probe)
         revision = runtime.store.snapshot().revision
         command = AppCommand(
             probe.command,
@@ -117,14 +147,96 @@ def run_probes(runtime: ApplicationRuntime, serial: str) -> list[dict[str, objec
     return results
 
 
-def run_session(*, platform_tools: Path, serial: str | None) -> dict[str, object]:
+def _wait_for_mode(
+    runtime: ApplicationRuntime,
+    serial: str,
+    modes: frozenset[str],
+    *,
+    attempts: int = 45,
+) -> str:
+    """Rescan until the device reappears in one of the expected modes."""
+
+    for _ in range(attempts):
+        runtime.engine.execute(
+            AppCommand("device.scan", expected_revision=runtime.store.snapshot().revision)
+        )
+        for device in runtime.store.snapshot().devices:
+            if device.serial == serial and device.online and device.mode in modes:
+                return device.mode
+        time.sleep(2.0)
+    raise HardwareGateError(f"the device did not reach {sorted(modes)} in time")
+
+
+def run_fastboot_probe(runtime: ApplicationRuntime, serial: str) -> dict[str, object]:
+    """Reboot to the bootloader, read its variables, and return to Android.
+
+    Mode transitions write nothing to a partition, so the bootloader variable
+    dump is reachable without leaving this harness's non-mutating scope.
+    """
+
+    reboot = runtime.engine.execute(
+        AppCommand(
+            "device.reboot",
+            expected_revision=runtime.store.snapshot().revision,
+            target_serial=serial,
+            payload={"mode": "bootloader"},
+        )
+    )
+    if not reboot.ok:
+        raise HardwareGateError(f"reboot to bootloader failed: {reboot.code}")
+    _wait_for_mode(runtime, serial, frozenset({"fastboot", "fastbootd"}))
+
+    result = runtime.engine.execute(
+        AppCommand(
+            "device.fastbootVariables",
+            expected_revision=runtime.store.snapshot().revision,
+            target_serial=serial,
+        )
+    )
+    public = project_operation_result("device.fastbootVariables", result)
+
+    back = runtime.engine.execute(
+        AppCommand(
+            "device.reboot",
+            expected_revision=runtime.store.snapshot().revision,
+            target_serial=serial,
+            payload={"mode": "system"},
+        )
+    )
+    if not back.ok:
+        raise HardwareGateError(f"reboot back to Android failed: {back.code}")
+    _wait_for_mode(runtime, serial, frozenset({"adb"}))
+
+    return {
+        "gate": "device.inspect",
+        "command": "device.fastbootVariables",
+        "action": "",
+        "status": getattr(result.status, "value", str(result.status)),
+        "code": result.code,
+        "ok": bool(result.ok),
+        "expectedBlocked": False,
+        "publicProjection": True,
+        "routeFree": _route_free(public),
+    }
+
+
+def run_session(
+    *,
+    platform_tools: Path,
+    serial: str | None,
+    include_fastboot: bool = False,
+) -> dict[str, object]:
     holder = Path(tempfile.mkdtemp(prefix="pixelflasher-hardware-gate-"))
     config = holder / "PixelFlasher.json"
     config.write_text(
         json.dumps({"platform_tools_path": str(platform_tools)}),
         encoding="utf-8",
     )
-    runtime = ApplicationRuntime.open(config, enable_device_monitor=False)
+    runtime = ApplicationRuntime.open(
+        config,
+        enable_device_monitor=False,
+        interaction_handler=_approve_standard_confirmations,
+    )
     try:
         # Every command is revision bound, including discovery.
         scan = runtime.engine.execute(
@@ -152,6 +264,8 @@ def run_session(*, platform_tools: Path, serial: str | None) -> dict[str, object
                 raise HardwareGateError(f"device selection failed: {selected.code}")
 
         probes = run_probes(runtime, target.serial)
+        if include_fastboot:
+            probes.append(run_fastboot_probe(runtime, target.serial))
         failed = [item for item in probes if not item["ok"] and not item["expectedBlocked"]]
         leaked = [item for item in probes if not item["routeFree"]]
         return {
@@ -175,13 +289,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--platform-tools", type=Path, required=True)
     parser.add_argument("--serial")
     parser.add_argument("--record", action="store_true", help="store the session as evidence")
+    parser.add_argument(
+        "--include-fastboot",
+        action="store_true",
+        help="reboot to the bootloader to read its variables, then return to Android",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        session = run_session(platform_tools=args.platform_tools, serial=args.serial)
+        session = run_session(
+            platform_tools=args.platform_tools,
+            serial=args.serial,
+            include_fastboot=args.include_fastboot,
+        )
     except Exception as error:  # noqa: BLE001 - report any hardware failure closed
         print(f"error: {type(error).__name__}: {error}")
         return 1

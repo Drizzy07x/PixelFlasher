@@ -12,9 +12,9 @@
       "id": "hardware/non-mutating-session",
       "kind": "hardware-session",
       "path": "evidence/hardware/non-mutating-session.json",
-      "recordedAt": "2026-07-29T03:28:09Z",
-      "recordedCommit": "c65b1c6266d6f80fa99c4520e92c73dd09bb0f21",
-      "sha256": "19c2049502b0fba2b5d31fbc557d63e399564680b5e39817550cdf74d4731471"
+      "recordedAt": "2026-07-29T03:40:18Z",
+      "recordedCommit": "fcb88771ec60b4aa0a33f5d184096ca6cfbe8263",
+      "sha256": "a780accab6f49d6c545333c0af23a3475914def775bedc47bd97beccc81d9686"
     },
     {
       "attributes": {
