@@ -16,6 +16,31 @@ from types import MappingProxyType
 from .contracts import FirmwareInfo
 from .executor import CancellationToken
 
+FLASHABLE_PARTITIONS = frozenset(
+    {
+        "boot",
+        "init_boot",
+        "vendor_boot",
+        "vendor_kernel_boot",
+        "recovery",
+        "dtbo",
+        "vbmeta",
+        "vbmeta_system",
+        "vbmeta_vendor",
+        "system",
+        "system_ext",
+        "product",
+        "vendor",
+        "odm",
+        "odm_dlkm",
+        "system_dlkm",
+        "vendor_dlkm",
+        "super",
+        "bootloader",
+        "radio",
+    }
+)
+
 
 class FirmwareKind(StrEnum):
     FACTORY = "factory"
@@ -306,6 +331,17 @@ class FirmwareInspector:
             device = metadata.get("pre-device", "")
             build = metadata.get("post-build-incremental", "") or metadata.get("post-build", "")
             kind = FirmwareKind.CUSTOM
+            if not self._has_flashable_payload(infos):
+                return FirmwareInspection(
+                    str(path),
+                    kind,
+                    digest,
+                    build,
+                    device,
+                    metadata,
+                    code="no_flashable_artifacts",
+                    message="custom firmware has no payload.bin and no allow-listed partition images",
+                )
         return FirmwareInspection(
             str(path),
             kind,
@@ -314,6 +350,26 @@ class FirmwareInspector:
             device,
             metadata,
         )
+
+    @staticmethod
+    def _has_flashable_payload(infos: list[zipfile.ZipInfo]) -> bool:
+        """Whether an unrecognized archive carries anything the flasher can use.
+
+        Only factory and OTA packages identify themselves. Treating every other
+        archive as a custom ROM accepted arbitrary ZIPs at selection and failed
+        much later during processing, so selection applies the same rule the
+        artifact service applies: one payload.bin, or an allow-listed image.
+        """
+
+        for info in infos:
+            if info.is_dir():
+                continue
+            basename = PurePosixPath(info.filename.replace("\\", "/")).name.casefold()
+            if basename == "payload.bin":
+                return True
+            if basename.endswith(".img") and basename[:-4] in FLASHABLE_PARTITIONS:
+                return True
+        return False
 
     def _read_metadata(
         self,

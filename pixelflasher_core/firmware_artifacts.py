@@ -29,7 +29,7 @@ from typing import BinaryIO
 
 from .contracts import FileArtifact, FirmwareInfo
 from .executor import CancellationToken
-from .firmware import FirmwareInspection, FirmwareKind
+from .firmware import FLASHABLE_PARTITIONS, FirmwareInspection, FirmwareKind
 from .payload import (
     PayloadErrorCode,
     PayloadExtractionError,
@@ -43,31 +43,6 @@ from .payload import (
     PayloadValidationError,
 )
 from .planner import ProcessedArtifactCheckpoint, ProcessedArtifactRepository
-
-FLASHABLE_PARTITIONS = frozenset(
-    {
-        "boot",
-        "init_boot",
-        "vendor_boot",
-        "vendor_kernel_boot",
-        "recovery",
-        "dtbo",
-        "vbmeta",
-        "vbmeta_system",
-        "vbmeta_vendor",
-        "system",
-        "system_ext",
-        "product",
-        "vendor",
-        "odm",
-        "odm_dlkm",
-        "system_dlkm",
-        "vendor_dlkm",
-        "super",
-        "bootloader",
-        "radio",
-    }
-)
 
 
 class FirmwareProcessingStatus(StrEnum):

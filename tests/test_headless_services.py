@@ -591,7 +591,42 @@ class FirmwareInspectorTests(unittest.TestCase):
             self.assertEqual(FirmwareKind.OTA, ota_result.kind)
             self.assertEqual("123456", ota_result.build)
             self.assertEqual(FirmwareKind.CUSTOM, custom_result.kind)
+            self.assertTrue(custom_result.ok)
             self.assertEqual("corrupt_firmware", corrupt_result.code)
+
+    def test_an_archive_without_flashable_content_is_not_a_custom_rom(self):
+        """Selection must not accept an arbitrary ZIP as a custom ROM.
+
+        Only factory and OTA packages identify themselves, so everything else
+        used to fall through to CUSTOM and report ok. The failure then surfaced
+        much later, during processing, as NO_FLASHABLE_ARTIFACTS.
+        """
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            inspector = FirmwareInspector(hash_chunk_size=3)
+
+            unrelated = root / "unrelated.zip"
+            write_zip(unrelated, {"readme.txt": "this is not a rom", "notes/blob.img": b"blob"})
+            rejected = inspector.inspect(unrelated)
+
+            self.assertEqual(FirmwareKind.CUSTOM, rejected.kind)
+            self.assertFalse(rejected.ok)
+            self.assertEqual("no_flashable_artifacts", rejected.code)
+
+            for label, entries in (
+                ("payload", {"payload.bin": b"payload"}),
+                ("direct image", {"boot.img": b"boot"}),
+                ("nested image", {"images/init_boot.img": b"init boot"}),
+            ):
+                with self.subTest(shape=label):
+                    accepted_path = root / f"{label.replace(' ', '-')}.zip"
+                    write_zip(accepted_path, entries)
+                    accepted = inspector.inspect(accepted_path)
+
+                    self.assertEqual(FirmwareKind.CUSTOM, accepted.kind)
+                    self.assertTrue(accepted.ok)
+                    self.assertEqual("ok", accepted.code)
 
     def test_path_traversal_is_rejected_without_extracting_anything(self):
         with TemporaryDirectory() as directory:
