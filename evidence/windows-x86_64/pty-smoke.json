@@ -1,0 +1,1 @@
+{"applicationVersion":"9.2.2","architecture":"x86_64","backend":"conpty","cleanShutdown":true,"exitCode":0,"outputBytes":39,"outputObserved":true,"outputSha256":"18a1a009cb4cc67be38060919200ee80668caa9a0bb810a88e9e558006bdfde6","platform":"windows","probeExecutable":"whoami.exe","processBits":64,"schemaVersion":1,"status":"passed"}

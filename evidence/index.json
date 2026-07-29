@@ -1,0 +1,65 @@
+{
+  "records": [
+    {
+      "attributes": {
+        "architecture": "x86_64",
+        "platform": "windows"
+      },
+      "id": "windows-x86_64/firmware-smoke",
+      "kind": "packaged-smoke",
+      "path": "evidence/windows-x86_64/firmware-smoke.json",
+      "recordedAt": "2026-07-29T02:52:29Z",
+      "recordedCommit": "07ad13bdb047b42eee1e5f9e76223b2ddb9bf176",
+      "sha256": "f057f0ae1a5f1ffea15990f52e5405d5edc0b25620d045738765fe9af74bafd5"
+    },
+    {
+      "attributes": {
+        "architecture": "x86_64",
+        "platform": "windows"
+      },
+      "id": "windows-x86_64/legacy-raw-smoke",
+      "kind": "packaged-smoke",
+      "path": "evidence/windows-x86_64/legacy-raw-smoke.json",
+      "recordedAt": "2026-07-29T02:52:29Z",
+      "recordedCommit": "07ad13bdb047b42eee1e5f9e76223b2ddb9bf176",
+      "sha256": "0eb7457ec351df3b0063e42f3718d294aa1b047620ce9d7af959b79aec4e648f"
+    },
+    {
+      "attributes": {
+        "architecture": "x86_64",
+        "platform": "windows"
+      },
+      "id": "windows-x86_64/pty-smoke",
+      "kind": "packaged-smoke",
+      "path": "evidence/windows-x86_64/pty-smoke.json",
+      "recordedAt": "2026-07-29T02:52:29Z",
+      "recordedCommit": "07ad13bdb047b42eee1e5f9e76223b2ddb9bf176",
+      "sha256": "38ee78be1de13af8f3e89b91b96017f3ae2fca6885dd0a342b9f06f5ace287f9"
+    },
+    {
+      "attributes": {
+        "architecture": "x86_64",
+        "platform": "windows"
+      },
+      "id": "windows-x86_64/support-smoke",
+      "kind": "packaged-smoke",
+      "path": "evidence/windows-x86_64/support-smoke.json",
+      "recordedAt": "2026-07-29T02:52:29Z",
+      "recordedCommit": "07ad13bdb047b42eee1e5f9e76223b2ddb9bf176",
+      "sha256": "77c9d6fbe4f97974ccc7e69e0d5dda9faed18809b7fc3e6e4c1ca3115d2d0995"
+    },
+    {
+      "attributes": {
+        "architecture": "x86_64",
+        "platform": "windows"
+      },
+      "id": "windows-x86_64/ui-smoke",
+      "kind": "packaged-smoke",
+      "path": "evidence/windows-x86_64/ui-smoke.json",
+      "recordedAt": "2026-07-29T02:52:29Z",
+      "recordedCommit": "07ad13bdb047b42eee1e5f9e76223b2ddb9bf176",
+      "sha256": "e4a0601def8f5d4a7ef1656ee43ca872949494542ffda96044a55826d3d2b23e"
+    }
+  ],
+  "schemaVersion": 1
+}

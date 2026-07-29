@@ -17,6 +17,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 # Every one is free of wx and of the 9.x application graph.
 MODERN_ROOT_MODULES = frozenset(
     {
+        "PixelFlasher",
         "avbtool",
         "constants",
         "diagnostics",
