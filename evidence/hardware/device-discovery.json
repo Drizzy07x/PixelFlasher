@@ -1,0 +1,1 @@
+{"observations": {"codename": "komodo", "deviceCount": 1, "mode": "adb", "scan": {"code": "device_scan_succeeded", "ok": true, "status": "success"}}, "schemaVersion": 1, "status": "passed", "toolchainReady": true}
