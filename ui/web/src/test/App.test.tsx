@@ -425,6 +425,7 @@ describe('PixelFlasher web workspace', () => {
     await screen.findByRole('alertdialog');
     await acceptInteraction();
     await waitFor(() => expect(within(modulesCard).queryByText('play_integrity_fix')).not.toBeInTheDocument());
+    await waitFor(() => expect(modulesRefresh).toBeEnabled());
 
     await user.click(within(modulesCard).getByRole('button', { name: 'Install module ZIP' }));
     await screen.findByRole('alertdialog');
