@@ -9,6 +9,14 @@
       "sha256": "fee1dc8b393e19a778b674f6647899a70be357ee45a1a7b16a49c282f68a7956"
     },
     {
+      "id": "hardware/non-mutating-session",
+      "kind": "hardware-session",
+      "path": "evidence/hardware/non-mutating-session.json",
+      "recordedAt": "2026-07-29T03:28:09Z",
+      "recordedCommit": "c65b1c6266d6f80fa99c4520e92c73dd09bb0f21",
+      "sha256": "19c2049502b0fba2b5d31fbc557d63e399564680b5e39817550cdf74d4731471"
+    },
+    {
       "attributes": {
         "architecture": "x86_64",
         "platform": "windows"

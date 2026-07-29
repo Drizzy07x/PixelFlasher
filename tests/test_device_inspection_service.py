@@ -172,6 +172,35 @@ class DeviceInspectionServiceTests(unittest.TestCase):
                 parse_bounded_getprop(output)
             self.assertEqual(code, raised.exception.code)
 
+    def test_getprop_parser_accepts_the_multi_line_values_real_devices_report(self):
+        """persist.sys.boot.reason.history holds one boot reason per line.
+
+        Any device that has rebooted more than once reports it, so rejecting a
+        value that spans lines fails the whole inspection on ordinary hardware.
+        """
+
+        output = (
+            "[ro.product.device]: [komodo]\n"
+            "[persist.sys.boot.reason.history]: [shutdown,battery,1785290639\n"
+            "shutdown,battery,1785290518\n"
+            "shutdown,battery,1785290418]\n"
+            "[ro.product.model]: [Pixel 9 Pro XL]\n"
+        )
+
+        parsed = parse_bounded_getprop(output)
+
+        self.assertEqual("komodo", parsed["ro.product.device"])
+        self.assertEqual("Pixel 9 Pro XL", parsed["ro.product.model"])
+        self.assertEqual(3, len(parsed["persist.sys.boot.reason.history"].splitlines()))
+
+        for output, code in (
+            ("[ro.product.device]: [never closed\nstill open\n", "getprop_format_invalid"),
+            ("[ro.product.device]: [bad\tvalue]\n", "getprop_value_invalid"),
+        ):
+            with self.subTest(code=code), self.assertRaises(DeviceInspectionParseError) as raised:
+                parse_bounded_getprop(output)
+            self.assertEqual(code, raised.exception.code)
+
     def test_properties_report_redacts_identifiers_and_discards_raw_output(self):
         compilation = self.compile("properties")
         result = self.service.finalize_inspection(

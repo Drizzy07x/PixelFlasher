@@ -206,7 +206,9 @@ _MDNS_AGGREGATE_OUTPUT_LIMIT = _MDNS_CHECK_OUTPUT_LIMIT + _MDNS_SERVICES_OUTPUT_
 _MDNS_MAX_ROWS = 256
 _MDNS_MAX_LINE_BYTES = 512
 _WIFI_PAIR_OUTPUT_LIMIT = 64 * 1_024
-_GETPROP_LINE_PATTERN = re.compile(r"^\[([A-Za-z0-9_.-]{1,128})\]: \[(.*)\]$")
+_GETPROP_LINE_PATTERN = re.compile(r"^\[([A-Za-z0-9_.-]{1,128})\]: \[(.*)\]$", re.DOTALL)
+_GETPROP_OPEN_PATTERN = re.compile(r"^\[[A-Za-z0-9_.-]{1,128}\]: \[")
+_GETPROP_CONTINUATION_LIMIT = 64
 _INSPECTION_ACTIONS = frozenset({"properties", "screenXml", "bootloaderVersions", "pifPrint"})
 _FASTBOOT_DEVICE_MODES = frozenset({"fastboot", "fastbootd"})
 _FASTBOOT_VARIABLE_OUTPUT_LIMIT = 256 * 1024
@@ -1241,7 +1243,13 @@ def _bounded_output_bytes(value: str, *, maximum: int, kind: str) -> None:
 
 
 def parse_bounded_getprop(output: str) -> dict[str, str]:
-    """Parse one full ``getprop`` response without accepting ambiguous lines."""
+    """Parse one full ``getprop`` response without accepting ambiguous lines.
+
+    A property value may span several lines. ``persist.sys.boot.reason.history``
+    holds one boot reason per line on any device that has rebooted more than
+    once, so treating every line as a complete record rejects the whole report
+    on ordinary hardware. Continuation lines are joined until the record closes.
+    """
 
     _bounded_output_bytes(output, maximum=_GETPROP_OUTPUT_LIMIT, kind="getprop")
     lines = output.replace("\r\n", "\n").replace("\r", "\n").splitlines()
@@ -1252,10 +1260,21 @@ def parse_bounded_getprop(output: str) -> dict[str, str]:
         )
 
     properties: dict[str, str] = {}
+    pending: list[str] = []
     for raw_line in lines:
-        if not raw_line:
+        if not raw_line and not pending:
             continue
-        match = _GETPROP_LINE_PATTERN.fullmatch(raw_line)
+        pending.append(raw_line)
+        record = "\n".join(pending)
+        if _GETPROP_OPEN_PATTERN.match(record) is not None and not record.endswith("]"):
+            if len(pending) > _GETPROP_CONTINUATION_LIMIT:
+                raise DeviceInspectionParseError(
+                    "getprop_format_invalid",
+                    "getprop returned an unterminated property value",
+                )
+            continue
+        pending = []
+        match = _GETPROP_LINE_PATTERN.fullmatch(record)
         if match is None:
             raise DeviceInspectionParseError(
                 "getprop_format_invalid",
@@ -1267,12 +1286,19 @@ def parse_bounded_getprop(output: str) -> dict[str, str]:
                 "getprop_property_duplicate",
                 "getprop returned a duplicate property name",
             )
-        if len(value.encode("utf-8")) > _GETPROP_VALUE_LIMIT or any(ord(character) < 32 for character in value):
+        if len(value.encode("utf-8")) > _GETPROP_VALUE_LIMIT or any(
+            ord(character) < 32 and character != "\n" for character in value
+        ):
             raise DeviceInspectionParseError(
                 "getprop_value_invalid",
                 "getprop returned an invalid property value",
             )
         properties[key] = value
+    if pending:
+        raise DeviceInspectionParseError(
+            "getprop_format_invalid",
+            "getprop returned an unterminated property value",
+        )
 
     if not properties:
         raise DeviceInspectionParseError(
