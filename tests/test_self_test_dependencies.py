@@ -40,8 +40,21 @@ class SelfTestDependencyTests(unittest.TestCase):
         self.assertTrue(result.required)
         self.assertIn("verified DEX", result.message)
 
-    def test_missing_root_app_distribution_is_visible_but_optional_during_migration(self):
+    def test_provisioned_root_app_distribution_is_required_and_authenticated(self):
         result = _check_root_app_distribution()
+
+        self.assertTrue(result.required)
+        self.assertTrue(result.ok, result.message)
+        self.assertIn("13 authenticated provider/architecture targets", result.message)
+
+    def test_absent_root_app_distribution_stays_visible_but_optional(self):
+        """A migration build without the signed catalog must still start."""
+
+        with patch(
+            "pixelflasher_core.root_app_distribution.load_optional_root_app_distribution",
+            return_value=None,
+        ):
+            result = _check_root_app_distribution()
 
         self.assertFalse(result.required)
         self.assertFalse(result.ok)

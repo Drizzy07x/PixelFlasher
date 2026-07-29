@@ -132,8 +132,15 @@ class PlatformToolsDistributionTests(unittest.TestCase):
             root = Path(directory)
             _private_key, public_key, catalog = _write_distribution(root)
 
-            with self.assertRaisesRegex(PlatformToolsDistributionError, "trust policy"):
+            # A catalog signed by a key the binary does not carry is refused
+            # whether or not a production key happens to be compiled in, so the
+            # rejection is asserted by code rather than by which reason applies.
+            with self.assertRaises(PlatformToolsDistributionError) as refused:
                 load_platform_tools_distribution(root)
+            self.assertIn(
+                refused.exception.code,
+                {"platform_tools_catalog_policy_invalid", "platform_tools_manifest_verification_failed"},
+            )
 
             catalog["publicKeys"] = {
                 "platform-tools-2026": base64.b64encode(public_key).decode("ascii")

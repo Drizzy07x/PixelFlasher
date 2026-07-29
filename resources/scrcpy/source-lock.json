@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "project": "Genymobile/scrcpy",
+  "releaseChannel": "stable",
+  "version": "4.1",
+  "tag": "v4.1",
+  "license": "Apache-2.0",
+  "provenance": "Official Genymobile/scrcpy GitHub release, checksums taken from the release SHA256SUMS.txt",
+  "notes": [
+    "scrcpy publishes no Windows ARM64 build. The Windows ARM64 target pins the official win64 archive, which runs under the Windows x86-64 compatibility layer.",
+    "This mirrors the Platform Tools source lock, where Windows ARM64 hosts also run the official x86 binaries."
+  ],
+  "archives": [
+    {
+      "platform": "windows",
+      "hostArchitectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "binaryArchitecture": "x86_64",
+      "asset": "scrcpy-win64-v4.1.zip",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-win64-v4.1.zip",
+      "size": 11305298,
+      "sha256": "5b12172b3264b2889f4583ee64752ce832e29bc8b1089dca81093459697165db"
+    },
+    {
+      "platform": "darwin",
+      "hostArchitectures": [
+        "x86_64"
+      ],
+      "binaryArchitecture": "x86_64",
+      "asset": "scrcpy-macos-x86_64-v4.1.tar.gz",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-macos-x86_64-v4.1.tar.gz",
+      "size": 13904869,
+      "sha256": "ee2a7223bc8dbdc4f482db1134bcf441178dafb833492b71ca4c22090c58ce72"
+    },
+    {
+      "platform": "darwin",
+      "hostArchitectures": [
+        "arm64"
+      ],
+      "binaryArchitecture": "arm64",
+      "asset": "scrcpy-macos-aarch64-v4.1.tar.gz",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-macos-aarch64-v4.1.tar.gz",
+      "size": 12981888,
+      "sha256": "20fd47c9014dd5e0fa77091f3cb7adbda8445a360c4584aeaa0150b5b3988ff3"
+    },
+    {
+      "platform": "linux",
+      "hostArchitectures": [
+        "x86_64"
+      ],
+      "binaryArchitecture": "x86_64",
+      "asset": "scrcpy-linux-x86_64-v4.1.tar.gz",
+      "url": "https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-linux-x86_64-v4.1.tar.gz",
+      "size": 17762813,
+      "sha256": "ad56ae8bfeedf41e824945c11dbf55fcb092b3e615b9b486f48a50e30d389635"
+    }
+  ]
+}

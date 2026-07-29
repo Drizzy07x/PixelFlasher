@@ -132,8 +132,14 @@ class RootAppDistributionTests(unittest.TestCase):
             root = Path(directory)
             public_key, catalog = _write_distribution(root)
 
-            with self.assertRaisesRegex(RootAppDistributionError, "trust policy"):
+            # Refused whether or not a production key is compiled in: without
+            # one the trust policy is empty, with one the signature is unknown.
+            with self.assertRaises(RootAppDistributionError) as refused:
                 load_root_app_distribution(root)
+            self.assertIn(
+                refused.exception.code,
+                {"root_app_catalog_policy_invalid", "root_app_manifest_verification_failed"},
+            )
 
             catalog["publicKeys"] = {"root-apps-2026": base64.b64encode(public_key).decode("ascii")}
             (root / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
