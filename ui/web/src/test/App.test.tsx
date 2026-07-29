@@ -1014,8 +1014,12 @@ describe('PixelFlasher web workspace', () => {
     await user.click(navigation.getByRole('button', { name: 'Tools' }));
     expect(await screen.findByRole('heading', { name: 'Device tools' })).toBeVisible();
     const toolCards = screen.getAllByRole('button').filter((button) => button.classList.contains('tool-card'));
+    // Support package and My Tools are host-side and stay usable with no device
+    // attached; everything else needs one.
+    const hostOnly = /Support package|My Tools/i;
     expect(screen.getByRole('button', { name: /Support package/i })).toBeEnabled();
-    for (const tool of toolCards.filter((button) => !button.textContent?.includes('Support package'))) {
+    expect(screen.getByRole('button', { name: /My Tools/i })).toBeEnabled();
+    for (const tool of toolCards.filter((button) => !hostOnly.test(button.textContent ?? ''))) {
       expect(tool).toBeDisabled();
     }
     window.pixelflasher = previousBridge;

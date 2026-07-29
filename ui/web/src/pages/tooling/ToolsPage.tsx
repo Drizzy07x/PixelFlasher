@@ -1218,8 +1218,10 @@ export function ToolsPage({
       { id: 'avb', icon: 'shield', title: t('tools.avbDowngrade'), detail: t('tools.avbDowngradeDetail'), command: commands.toolsAvb, requirement: 'firmware', run: () => openPanel('avb') },
       { id: 'xml', icon: 'processFile', title: t('tools.xmlDecode'), detail: t('tools.xmlDecodeDetail'), command: commands.toolsXml, requirement: 'none', run: () => openPanel('xml') },
       { id: 'keybox', icon: 'shield', title: t('tools.keyboxValidate'), detail: t('tools.keyboxValidateDetail'), command: commands.toolsKeybox, requirement: 'none', run: () => openPanel('keybox') },
-      { id: 'mytools', icon: 'wrench', title: t('tools.myTools'), detail: t('tools.myToolsDetail'), command: commands.toolsMyTools, requirement: 'none', run: openMyTools },
     ] satisfies ToolCard[] : []),
+    // 9.x offered the My Tools menu unconditionally. Only the imported Legacy
+    // Raw profiles are gated, and that gate lives inside the workspace.
+    { id: 'mytools', icon: 'wrench', title: t('tools.myTools'), detail: t('tools.myToolsDetail'), command: commands.toolsMyTools, requirement: 'none', run: openMyTools },
   ];
   const availabilityContext: ToolAvailabilityContext = {
     busy: Boolean(busy || snapshot.activeOperation),
@@ -1649,7 +1651,7 @@ export function ToolsPage({
                       </div>
                     </li>)}
                   </ul> : <EmptyState icon="wrench" title={t('common.none')} detail={t('tools.myToolsEmpty')} />}
-                  {legacyMyTools.length ? <div className="legacy-tools">
+                  {expertMode && legacyMyTools.length ? <div className="legacy-tools">
                     <strong>{t('tools.myToolsLegacy')}</strong>
                     <p>{t('tools.myToolsLegacyDetail')}</p>
                     <ul>{legacyMyTools.map((tool) => <li key={tool.id}>
