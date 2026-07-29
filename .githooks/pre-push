@@ -1,0 +1,28 @@
+#!/bin/sh
+# Replace the per-commit signal that hosted CI used to provide.
+#
+# `ubuntu-smoke.yml` is the only workflow that still runs on a branch push, and
+# it skips the legacy-boundary modules because its runtime omits wxPython. The
+# workflows that do run them are reachable only from a tag or a pull request, so
+# a regression can otherwise reach the branch unobserved.
+#
+# Set PIXELFLASHER_SKIP_GATE=1 to push without running the gate.
+
+set -e
+
+if [ "${PIXELFLASHER_SKIP_GATE:-}" = "1" ]; then
+    echo "pre-push: local gate skipped by PIXELFLASHER_SKIP_GATE=1" >&2
+    exit 0
+fi
+
+root=$(git rev-parse --show-toplevel)
+
+if [ -x "$root/.venv/Scripts/python.exe" ]; then
+    python="$root/.venv/Scripts/python.exe"
+elif [ -x "$root/.venv/bin/python" ]; then
+    python="$root/.venv/bin/python"
+else
+    python=python3
+fi
+
+exec "$python" "$root/scripts/local_gate.py"
