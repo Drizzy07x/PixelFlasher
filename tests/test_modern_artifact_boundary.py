@@ -25,6 +25,11 @@ from pixelflasher_core import (
     SnapshotChanged,
     ToolchainInfo,
 )
+from tests.legacy_boundary import (
+    MODERN_ROOT_MODULES,
+    forbidden_imports,
+    legacy_root_modules,
+)
 from ui.bridge_contract import BRIDGE_VERSION, BridgeRequest, response_envelope
 from ui.command_registry import ALLOWED_COMMANDS
 from ui.pages.modern_webview_host import (
@@ -136,6 +141,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
 
     def test_modern_python_surface_has_no_named_legacy_delegates(self):
         violations: list[str] = []
+        forbidden = legacy_root_modules(ROOT)
         paths = [ROOT / "PixelFlasher.py", *sorted((ROOT / "ui").rglob("*.py"))]
         for path in paths:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -143,17 +149,27 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     if node.value.startswith("_on_"):
                         violations.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.value}")
-                if isinstance(node, ast.Import):
-                    imports = {alias.name.split(".", 1)[0] for alias in node.names}
-                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-                    imports = {node.module.split(".", 1)[0]}
-                else:
-                    continue
-                for forbidden in imports & {"Main", "runtime", "pf_modules"}:
-                    violations.append(
-                        f"{path.relative_to(ROOT)}:{node.lineno}:import {forbidden}"
-                    )
+            for lineno, name in forbidden_imports(path, forbidden):
+                violations.append(f"{path.relative_to(ROOT)}:{lineno}:import {name}")
         self.assertEqual([], violations)
+
+    def test_the_legacy_boundary_covers_every_ninth_generation_module(self):
+        """The guard must track the tree, not a hand-maintained shortlist.
+
+        Naming three modules left twenty-seven imports of the 9.x application
+        undetected, so the forbidden set is derived and only a reviewed
+        allow list of wx-free modules is exempt.
+        """
+
+        forbidden = legacy_root_modules(ROOT)
+        root_modules = {path.stem for path in ROOT.glob("*.py")}
+
+        self.assertEqual(root_modules - MODERN_ROOT_MODULES, forbidden)
+        self.assertLessEqual(MODERN_ROOT_MODULES, root_modules)
+        for legacy in ("Main", "phone", "runtime", "pf_modules", "magisk_modules"):
+            self.assertIn(legacy, forbidden)
+        for modern in MODERN_ROOT_MODULES:
+            self.assertNotIn(modern, forbidden)
 
     def test_historical_action_contract_remains_evidence_not_executable_code(self):
         golden = json.loads(

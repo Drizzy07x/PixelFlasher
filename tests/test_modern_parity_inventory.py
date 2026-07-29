@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,74 @@ USER_INPUT_EVENTS = {
 
 def _load(path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _python_symbols(path):
+    """Every plain and dotted name a citation may legitimately refer to."""
+
+    names = set()
+
+    def walk(node, prefix):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(child.name)
+                qualified = f"{prefix}{child.name}"
+                names.add(qualified)
+                walk(child, f"{qualified}.")
+                continue
+            if isinstance(child, ast.Assign):
+                targets = [target for target in child.targets if isinstance(target, ast.Name)]
+            elif isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
+                targets = [child.target]
+            else:
+                walk(child, prefix)
+                continue
+            for target in targets:
+                names.add(target.id)
+                names.add(f"{prefix}{target.id}")
+
+    walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)), "")
+    return names
+
+
+def _unresolved_citation_symbols(reference):
+    """Report cited symbols that are absent from the file the citation names.
+
+    A citation is `path[:symbol[/symbol...]]`. Prose descriptions contain spaces
+    and are not resolvable, so they are left alone. Command identifiers are
+    string literals rather than definitions and are resolved as such.
+    """
+
+    file_part, _, cited = reference.partition(":")
+    cited = cited.strip()
+    source = Path(file_part.strip())
+    if not cited or " " in cited or not source.is_file():
+        return []
+
+    tokens = [token for token in cited.split("/") if token]
+    if source.suffix == ".py":
+        symbols = _python_symbols(source)
+    elif source.suffix in {".ts", ".tsx"}:
+        symbols = None
+    else:
+        return []
+
+    body = source.read_text(encoding="utf-8", errors="replace")
+    unresolved = []
+    for token in tokens:
+        if token in REGISTERED_COMMANDS:
+            if f'"{token}"' in body or f"'{token}'" in body:
+                continue
+            unresolved.append(token)
+            continue
+        tail = token.rsplit(".", 1)[-1]
+        if symbols is not None:
+            if token in symbols or tail in symbols:
+                continue
+        elif re.search(rf"\b{re.escape(tail)}\b", body):
+            continue
+        unresolved.append(token)
+    return unresolved
 
 
 def _main_primary_control_handlers():
@@ -200,6 +269,11 @@ class ModernParityInventoryTests(unittest.TestCase):
                 for reference in row["currentEvidence"] + row["tests"]:
                     source = Path(reference.split(":", 1)[0])
                     self.assertTrue(source.is_file(), f"missing evidence source: {source}")
+                    self.assertEqual(
+                        [],
+                        _unresolved_citation_symbols(reference),
+                        f"evidence cites a symbol that does not exist: {reference}",
+                    )
 
                 if row["modernStatus"] in IMPLEMENTED_STATUSES:
                     self.assertTrue(row["currentEvidence"])
@@ -353,7 +427,7 @@ class ModernParityInventoryTests(unittest.TestCase):
         self.assertEqual("", logs["gap"])
         self.assertEqual("destructive", logs["risk"])
         self.assertIn(
-            "pixelflasher_core/operation_runner.py:OperationRunner._verify_logcat_buffers_cleared",
+            "pixelflasher_core/operation_runner.py:OperationRunner._verify_logcat_clear_evidence",
             logs["currentEvidence"],
         )
         self.assertIn(
@@ -390,6 +464,32 @@ class ModernParityInventoryTests(unittest.TestCase):
         self.assertEqual(len(inventoried), len(set(inventoried)))
         self.assertEqual(set(REGISTERED_COMMANDS), set(inventoried))
         self.assertLessEqual(set(ALLOWED_COMMANDS), set(inventoried))
+
+    def test_a_capability_declares_every_command_its_evidence_cites(self):
+        """Ownership must be per capability, not merely present somewhere.
+
+        The union check above passes even when a command is filed under an
+        unrelated capability, which breaks the gate-to-command trail the
+        release evidence depends on.
+        """
+
+        for row in self.capabilities:
+            declared = set(row["modernCommandIds"])
+            for reference in row["currentEvidence"]:
+                path, _, cited = reference.partition(":")
+                if path != "ui/command_registry.py" or " " in cited.strip():
+                    continue
+                cited_commands = {
+                    token
+                    for token in cited.split("/")
+                    if token in REGISTERED_COMMANDS
+                }
+                with self.subTest(capability=row["id"], reference=reference):
+                    self.assertLessEqual(
+                        cited_commands,
+                        declared,
+                        f"{row['id']} cites commands it does not own",
+                    )
 
     def test_legacy_preview_actions_remain_a_versioned_migration_baseline(self):
         golden = _load(GOLDEN_PATH)

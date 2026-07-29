@@ -263,7 +263,8 @@
         "ui/web/src/pages/Pages.tsx:SettingsPage",
         "ui/web/src/App.tsx:applyPreferences/changePreferences",
         "ui/web/src/bridge.ts:getPreferences/updatePreferences",
-        "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
+        "pixelflasher_core/contracts.py:ModernPreferences",
+        "pixelflasher_core/preferences.py:load_preferences/save_preferences",
         "pixelflasher_core/legacy_preference_policy.py:closed 31-option migration policy",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences"
       ],
@@ -483,19 +484,19 @@
       "owner": "platform_tools",
       "modernStatus": "partial",
       "currentEvidence": [
-      "pixelflasher_core/toolchain.py:ToolchainService",
-      "pixelflasher_core/artifact_downloads.py:ArtifactDownloader",
-      "pixelflasher_core/artifact_trust.py:PLATFORM_TOOLS_ED25519_PUBLIC_KEYS",
-      "pixelflasher_core/platform_tools.py:PlatformToolsInstaller",
-      "pixelflasher_core/platform_tools_distribution.py:load_platform_tools_distribution",
-      "pixelflasher_core/platform_tools_setup.py:PlatformToolsSetupService",
-      "pixelflasher_core/engine.py:_setup_platform_tools",
-      "resources/platform-tools/source-lock.json",
-      "docs/platform-tools-release.md",
-      "scripts/build_platform_tools_catalog.py:build_catalog",
-      "scripts/verify_platform_tools_catalog.py:verify",
-      "ui/web/src/pages/dashboard/DashboardPage.tsx"
-    ],
+        "pixelflasher_core/toolchain.py:ToolchainService",
+        "pixelflasher_core/artifact_downloads.py:ArtifactDownloader",
+        "pixelflasher_core/artifact_trust.py:PLATFORM_TOOLS_ED25519_PUBLIC_KEYS",
+        "pixelflasher_core/platform_tools.py:PlatformToolsInstaller",
+        "pixelflasher_core/platform_tools_distribution.py:load_platform_tools_distribution",
+        "pixelflasher_core/platform_tools_setup.py:PlatformToolsSetupService",
+        "pixelflasher_core/engine.py:_setup_platform_tools",
+        "resources/platform-tools/source-lock.json",
+        "docs/platform-tools-release.md",
+        "scripts/build_platform_tools_catalog.py:build_catalog",
+        "scripts/verify_platform_tools_catalog.py:verify",
+        "ui/web/src/pages/dashboard/DashboardPage.tsx"
+      ],
       "gap": "Signed official and opaque-grant directory setup are native, versioned and atomic. The official stable 37.0.0 source lock, five-target architecture validation, offline signer, strict runtime loader and v10 fail-closed release gate are delivered. Production Ed25519 key custody, final signed catalog generation and packaged cross-platform installation smokes remain open.",
       "exitCriteria": [
         "Locate, validate or install Android Platform Tools is available without wx dialogs, hidden frames or legacy delegates, with typed success, cancellation and failure behavior on every applicable platform."
@@ -508,16 +509,16 @@
         "linux"
       ],
       "tests": [
-      "tests/test_headless_services.py:ToolchainServiceTests/EngineServiceIntegrationTests",
-      "tests/test_build_platform_tools_catalog.py",
-      "tests/test_platform_tools_core.py",
-      "tests/test_platform_tools_core.py:test_official_windows_x86_binaries_are_compatible_with_x64_and_arm64_hosts",
-      "tests/test_platform_tools_distribution.py",
-      "tests/test_platform_tools_manifest_install.py",
-      "tests/test_platform_tools_setup_service.py",
-      "tests/test_platform_tools_source_lock.py",
-      "tests/test_runtime_platform_tools_setup.py"
-    ],
+        "tests/test_headless_services.py:ToolchainServiceTests/EngineServiceIntegrationTests",
+        "tests/test_build_platform_tools_catalog.py",
+        "tests/test_platform_tools_core.py",
+        "tests/test_platform_tools_core.py:test_official_windows_x86_binaries_are_compatible_with_x64_and_arm64_hosts",
+        "tests/test_platform_tools_distribution.py",
+        "tests/test_platform_tools_manifest_install.py",
+        "tests/test_platform_tools_setup_service.py",
+        "tests/test_platform_tools_source_lock.py",
+        "tests/test_runtime_platform_tools_setup.py"
+      ],
       "blockReason": null,
       "releaseGate": true,
       "legacyEvidence": [
@@ -635,7 +636,7 @@
         "pixelflasher_core/persistent_artifacts.py:PersistentProcessedArtifactRepository.rollback",
         "pixelflasher_core/boot_inventory.py:BootInventoryService.import_processed",
         "pixelflasher_core/repositories.py:BootRepository.import_selection",
-        "pixelflasher_core/runtime.py:_restore_processed_artifacts/_serialized_processed_artifacts",
+        "pixelflasher_core/persistent_artifacts.py:PersistentProcessedArtifactRepository",
         "firmware_smoke_contract.py:run_packaged_firmware_smoke",
         "ui/web/src/pages/firmware/FirmwarePage.tsx:FirmwarePage"
       ],
@@ -888,8 +889,8 @@
         "tests/test_operation_planner.py:test_explicit_dry_run_launches_zero_subprocesses",
         "tests/test_operation_planner.py:test_factory_custom_and_ota_dry_runs_are_stable_and_process_free",
         "tests/test_operation_planner.py:test_multi_device_dry_run_uses_a_non_executable_preview_batch",
-        "tests/test_core_command_factory.py:test_multi_device_flash_commands_preserve_batch_scope",
-        "tests/test_modern_artifact_boundary.py:test_flash_preview_batch_projection_is_closed_and_route_free",
+        "tests/test_core_command_factory.py:test_multi_device_flash_preview_and_execute_preserve_batch_scope",
+        "tests/test_modern_artifact_boundary.py:test_dry_run_batch_projection_is_closed_and_route_free",
         "ui/web/src/test/flash-wizard.behavior.test.tsx"
       ],
       "blockReason": null,
@@ -1069,7 +1070,7 @@
       "owner": "boot_images",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:DeviceOperations",
+        "ui/web/src/pages/device/DevicePage.tsx:DevicePage",
         "pixelflasher_core/planner.py:OperationPlanner._boot_flash",
         "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
         "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._partition_hashes",
@@ -1116,8 +1117,8 @@
       "owner": "support",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:ToolsPage.createSupportPackage",
-        "ui/pages/modern_webview_host.py:_register_support_destination_result",
+        "ui/web/src/pages/tooling/ToolsPage.tsx:createSupportPackage",
+        "ui/pages/modern_webview_host.py:SupportDestinationRegistrar",
         "pixelflasher_core/support_v2.py:SupportPackageV2Writer/SupportPackageReader",
         "pixelflasher_core/support_v2_service.py:SupportPackageV2Service",
         "pixelflasher_core/runtime.py:ApplicationRuntime.register_support_destination",
@@ -1212,7 +1213,7 @@
         "pixelflasher_core/backup_repository.py:BackupRepository",
         "pixelflasher_core/engine.py:_compile_service_command/_parse_service_result",
         "pixelflasher_core/observer.py:ProductionPostconditionObserver._magisk_backup_states",
-        "pixelflasher_core/operation_runner.py:_postconditions",
+        "pixelflasher_core/operation_runner.py:OperationRunner._verify_postconditions",
         "ui/public_bridge.py:_project_magisk_backup_inventory/_project_magisk_backup_mutation",
         "ui/web/src/pages/backups/BackupsPage.tsx:BackupsPage"
       ],
@@ -1266,7 +1267,8 @@
       "owner": "settings",
       "modernStatus": "native",
       "currentEvidence": [
-        "pixelflasher_core/preferences.py:ModernPreferences/load_preferences/save_preferences",
+        "pixelflasher_core/contracts.py:ModernPreferences",
+        "pixelflasher_core/preferences.py:load_preferences/save_preferences",
         "pixelflasher_core/legacy_preference_policy.py:closed 31-option migration policy",
         "pixelflasher_core/runtime.py:_get_preferences/_update_preferences",
         "pixelflasher_core/config_store.py:ConfigStore",
@@ -1976,7 +1978,7 @@
         "pixelflasher_core/device_tools.py:DeviceToolsService._compile_logcat_clear",
         "pixelflasher_core/device_tools.py:SubprocessLogcatStreamRunner",
         "pixelflasher_core/device_tools.py:DeviceToolsService.finalize_logcat",
-        "pixelflasher_core/operation_runner.py:OperationRunner._verify_logcat_buffers_cleared",
+        "pixelflasher_core/operation_runner.py:OperationRunner._verify_logcat_clear_evidence",
         "pixelflasher_core/engine.py:PixelFlasherEngine._parse_service_result",
         "pixelflasher_core/ota_diagnostics.py:OtaDiagnosticsService._compile_logs",
         "ui/public_bridge.py:_project_logcat",
@@ -2145,7 +2147,7 @@
       "owner": "boot_images",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:DeviceOperations",
+        "ui/web/src/pages/device/DevicePage.tsx:DevicePage",
         "pixelflasher_core/planner.py:OperationPlanner._boot_live",
         "pixelflasher_core/operation_runner.py:OperationRunner._postcondition_spec",
         "pixelflasher_core/observer.py:ProcessDeviceObservationProbe._observe_adb"
@@ -2249,7 +2251,7 @@
       "owner": "bootloader",
       "modernStatus": "partial",
       "currentEvidence": [
-        "ui/web/src/pages/Pages.tsx:DeviceOperations",
+        "ui/web/src/pages/device/DevicePage.tsx:DevicePage",
         "pixelflasher_core/planner.py:OperationPlanner._bootloader",
         "pixelflasher_core/bootloader.py:BootloaderLockPolicy",
         "pixelflasher_core/contracts.py:BootloaderLockEvidence",
@@ -2296,7 +2298,7 @@
       "currentEvidence": [
         "pixelflasher_core/data_adb.py:DataAdbService",
         "pixelflasher_core/operation_runner.py:_verify_data_adb_evidence",
-        "pixelflasher_core/observer.py:ProductionPostconditionObserver",
+        "pixelflasher_core/observer.py:PostconditionObserver",
         "ui/core_command_factory.py:CoreCommandFactory",
         "ui/public_bridge.py:_project_data_adb_backup",
         "ui/web/src/pages/backups/BackupsPage.tsx:BackupsPage"
@@ -2488,7 +2490,7 @@
       "currentEvidence": [
         "pixelflasher_core/avb_downgrade.py:DowngradePatchService/BundledAvbDowngradeTool",
         "pixelflasher_core/engine.py:CommandEngine._prepare_avb_downgrade",
-        "ui/core_command_factory.py:CoreCommandFactory._resolve_native_grants",
+        "ui/core_command_factory.py:CoreCommandFactory.issue_native_grants",
         "ui/web/src/pages/tooling/ToolsPage.tsx:prepareAvbDowngrade",
         "pixelflasher_core/binary_xml.py:BinaryXmlService",
         "pixelflasher_core/engine.py:CommandEngine._decode_binary_xml",
@@ -2598,7 +2600,7 @@
       "currentEvidence": [
         "pixelflasher_core/device_management.py:versioned device-management codec, migration and reconciliation",
         "pixelflasher_core/runtime.py:transactional manager commands and hotplug persistence",
-        "ui/command_registry.py:device.manager.policy/update/remove",
+        "ui/command_registry.py:device.manager.policy/device.manager.update/device.manager.remove",
         "ui/web/src/pages/device/DeviceManagerPanel.tsx:accessible React manager"
       ],
       "gap": "",
@@ -2627,7 +2629,11 @@
         "Main.py:2144-2224"
       ],
       "modernActionIds": [],
-      "modernCommandIds": []
+      "modernCommandIds": [
+        "device.manager.policy",
+        "device.manager.update",
+        "device.manager.remove"
+      ]
     },
     {
       "id": "app.preferences_shell",
@@ -2677,10 +2683,7 @@
       "modernCommandIds": [
         "app.console.export",
         "app.openFolder",
-        "app.exit",
-        "device.manager.policy",
-        "device.manager.update",
-        "device.manager.remove"
+        "app.exit"
       ]
     },
     {
@@ -2690,7 +2693,7 @@
       "owner": "native_host",
       "modernStatus": "native",
       "currentEvidence": [
-        "ui/pages/modern_webview_host.py:_dispatch_native_picker",
+        "ui/pages/modern_webview_host.py:_run_native_picker",
         "ui/web/src/commands.ts:native picker commands"
       ],
       "gap": "",

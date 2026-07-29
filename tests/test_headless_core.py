@@ -1,4 +1,3 @@
-import ast
 import inspect
 import json
 import sys
@@ -46,6 +45,7 @@ from pixelflasher_core import (
 )
 from pixelflasher_core.contracts import OperationPostcondition, OperationRisk
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.legacy_boundary import forbidden_imports, forbidden_roots
 from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 
 
@@ -226,20 +226,13 @@ class ContractTests(unittest.TestCase):
                 ProcessRequest(("adb", "devices"), output_limit_bytes=invalid)
 
     def test_core_never_imports_wx_or_legacy_runtime_modules(self):
-        package = Path(__file__).resolve().parents[1] / "pixelflasher_core"
-        forbidden = {"wx", "Main", "runtime", "pf_modules"}
+        root = Path(__file__).resolve().parents[1]
+        package = root / "pixelflasher_core"
+        forbidden = forbidden_roots(root)
         violations = []
-        for source_path in package.glob("*.py"):
-            tree = ast.parse(source_path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    roots = {alias.name.split(".", 1)[0] for alias in node.names}
-                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                    roots = {node.module.split(".", 1)[0]}
-                else:
-                    continue
-                if roots & forbidden:
-                    violations.append((source_path.name, roots & forbidden))
+        for source_path in sorted(package.rglob("*.py")):
+            for lineno, name in forbidden_imports(source_path, forbidden):
+                violations.append(f"{source_path.relative_to(root)}:{lineno}:{name}")
         self.assertEqual([], violations)
 
 
