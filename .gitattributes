@@ -1,5 +1,7 @@
 *.sh text eol=lf
 .githooks/* text eol=lf
+# Receipts are hash-bound: any line-ending translation would invalidate them.
+evidence/** -text
 resources/boot-patch/runner/* text eol=lf
 resources/ota/runner/* text eol=lf
 *.dex binary
