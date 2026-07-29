@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
 
+from pixelflasher_core.config_store import ConfigDocument
 from pixelflasher_core.contracts import ModernPreferences
 from pixelflasher_core.legacy_preference_policy import (
     LEGACY_PREFERENCE_POLICIES,
     LegacyPreferenceDisposition,
     LegacyPreferencePolicy,
 )
+from pixelflasher_core.preferences import document_with_preferences
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,6 +51,44 @@ def test_migrated_settings_name_real_public_fields_and_no_feature_is_silently_re
         LegacyPreferenceDisposition.REPLACED,
         LegacyPreferenceDisposition.ENFORCED,
     }
+
+
+def test_replaced_and_enforced_settings_are_never_written_back_to_the_9x_config() -> None:
+    """The disposition of the eleven non-migrated keys must be executable.
+
+    Their rationale is prose inside a Python literal, so on its own it proves
+    nothing. What is checkable is the consequence: saving preferences must never
+    reintroduce a key the policy says is replaced or enforced.
+    """
+
+    retired = {
+        key
+        for key, policy in LEGACY_PREFERENCE_POLICIES.items()
+        if policy.disposition is not LegacyPreferenceDisposition.MIGRATED
+    }
+    assert len(retired) == 11
+
+    document = ConfigDocument(values={})
+    written = set(document_with_preferences(document, ModernPreferences()).values)
+
+    assert not (written & retired), "a retired 9.x setting was mirrored back into the config"
+
+    migrated = {
+        key
+        for key, policy in LEGACY_PREFERENCE_POLICIES.items()
+        if policy.disposition is LegacyPreferenceDisposition.MIGRATED
+    }
+    # Toolbar layout has no 9.x advanced-settings key, so the mirror is a
+    # superset of the migrated keys rather than an exact match.
+    assert migrated <= written
+
+
+def test_every_policy_owner_names_a_real_parity_capability() -> None:
+    inventory = json.loads((ROOT / "docs" / "modern-ui-parity.json").read_text(encoding="utf-8"))
+    capabilities = {row["id"] for row in inventory["capabilities"]}
+
+    for key, policy in LEGACY_PREFERENCE_POLICIES.items():
+        assert policy.owner in capabilities, f"{key} names an owner that does not exist: {policy.owner}"
 
 
 @pytest.mark.parametrize("empty_field", ("legacy_key", "owner", "rationale"))
