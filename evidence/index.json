@@ -25,6 +25,14 @@
       "sha256": "a780accab6f49d6c545333c0af23a3475914def775bedc47bd97beccc81d9686"
     },
     {
+      "id": "hardware/root-catalog-session",
+      "kind": "hardware-session",
+      "path": "evidence/hardware/root-catalog-session.json",
+      "recordedAt": "2026-07-29T04:03:36Z",
+      "recordedCommit": "a445432153c2fb34981cce193f498d11220cd16b",
+      "sha256": "13f74cf18ddbfe9dc8f0d28179cfd9eafcdc266e03879353f6dea929d63b7802"
+    },
+    {
       "attributes": {
         "architecture": "x86_64",
         "platform": "windows"
