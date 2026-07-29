@@ -9,6 +9,14 @@
       "sha256": "fee1dc8b393e19a778b674f6647899a70be357ee45a1a7b16a49c282f68a7956"
     },
     {
+      "id": "hardware/firmware-stock-session",
+      "kind": "hardware-session",
+      "path": "evidence/hardware/firmware-stock-session.json",
+      "recordedAt": "2026-07-29T03:58:36Z",
+      "recordedCommit": "4c2582981074c18d7ae5af28c87b85e6b9c6977e",
+      "sha256": "d2845269397f4b787df7212ebfe8950542b85b335cd4f5540b0c3fff96aadd23"
+    },
+    {
       "id": "hardware/non-mutating-session",
       "kind": "hardware-session",
       "path": "evidence/hardware/non-mutating-session.json",
