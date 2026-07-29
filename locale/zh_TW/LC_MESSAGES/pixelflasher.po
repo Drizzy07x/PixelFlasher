@@ -7066,3 +7066,40 @@ msgstr "需要已驗證的已修補開機映像。"
 msgctxt "web.flash.option.keepDataOnly"
 msgid "Available only when keeping user data."
 msgstr "僅在保留使用者資料時可用。"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.inspectFastbootVariables"
+msgid "Bootloader variables"
+msgstr "開機程式變數"
+
+msgctxt "web.device.inspectFastbootVariablesDetail"
+msgid ""
+"Read the bounded bootloader variable dump while the device is in fastboot."
+msgstr "在裝置處於 fastboot 模式時讀取有界的開機程式變數傾印。"
+
+msgctxt "web.device.inspectProduct"
+msgid "Product"
+msgstr "產品"
+
+msgctxt "web.device.inspectBaseband"
+msgid "Baseband"
+msgstr "基頻"
+
+msgctxt "web.device.inspectUnlocked"
+msgid "Unlocked"
+msgstr "已解鎖"
+
+msgctxt "web.device.inspectSecure"
+msgid "Secure"
+msgstr "安全"
+
+msgctxt "web.device.inspectHardwareRevision"
+msgid "Hardware revision"
+msgstr "硬體版本"
+
+msgctxt "web.device.inspectVariables"
+msgid "{count} variables"
+msgstr "{count} 個變數"

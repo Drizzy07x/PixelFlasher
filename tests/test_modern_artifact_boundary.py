@@ -381,6 +381,7 @@ class ModernArtifactBoundaryTests(unittest.TestCase):
                         "backups.magisk.list",
                         "backups.restore",
                         "boot.delete",
+                        "device.fastbootVariables",
                         "device.inspect",
                         "device.openUrl",
                         "device.ota.reset",

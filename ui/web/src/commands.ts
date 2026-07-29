@@ -26,6 +26,7 @@ export const commands = {
   bootSelect: "boot.select",
   deviceBootloaderLock: "device.bootloader.lock",
   deviceBootloaderUnlock: "device.bootloader.unlock",
+  deviceFastbootVariables: "device.fastbootVariables",
   deviceInspect: "device.inspect",
   deviceManagerPolicy: "device.manager.policy",
   deviceManagerRemove: "device.manager.remove",
@@ -197,6 +198,9 @@ export interface BridgePayloadByCommand {
   };
   "device.bootloader.unlock": {
     "confirmationText"?: string;
+    "serial"?: string;
+  };
+  "device.fastbootVariables": {
     "serial"?: string;
   };
   "device.inspect": {
@@ -589,6 +593,7 @@ export const allowedCommands = [
   commands.bootSelect,
   commands.deviceBootloaderLock,
   commands.deviceBootloaderUnlock,
+  commands.deviceFastbootVariables,
   commands.deviceInspect,
   commands.deviceManagerPolicy,
   commands.deviceManagerRemove,
@@ -696,6 +701,7 @@ export const commandTimeoutByName: Readonly<Record<BridgeCommand, number>> = {
   [commands.bootSelect]: 5400000,
   [commands.deviceBootloaderLock]: 600000,
   [commands.deviceBootloaderUnlock]: 600000,
+  [commands.deviceFastbootVariables]: 60000,
   [commands.deviceInspect]: 240000,
   [commands.deviceManagerPolicy]: 60000,
   [commands.deviceManagerRemove]: 60000,
@@ -797,6 +803,7 @@ export const bridgeCommandMetadata = {
   [commands.bootSelect]: {"owner":"boot_images","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"boot_inventory.select","confirmation":"none","postconditions":["boot_repository_verified","boot_snapshot_matches"]},
   [commands.deviceBootloaderLock]: {"owner":"bootloader","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.bootloader_lock","confirmation":"lock_serial","postconditions":["bootloader_locked","relock_evidence_consumed"]},
   [commands.deviceBootloaderUnlock]: {"owner":"bootloader","mutability":"destructive","risk":"destructive","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"operation.bootloader_unlock","confirmation":"unlock_serial","postconditions":["bootloader_unlocked"]},
+  [commands.deviceFastbootVariables]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["fastboot","fastbootd"],"planner":"device.fastboot_variables","confirmation":"none","postconditions":["bounded_typed_report_returned"]},
   [commands.deviceInspect]: {"owner":"device_tools","mutability":"read_only","risk":"device_read","expectedRevision":"required","validDeviceStates":["adb"],"planner":"device.inspect","confirmation":"none","postconditions":["bounded_typed_report_returned"]},
   [commands.deviceManagerPolicy]: {"owner":"device","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.manager.policy","confirmation":"none","postconditions":["scan_policy_persisted","monitor_lifecycle_matches"]},
   [commands.deviceManagerRemove]: {"owner":"device","mutability":"mutating","risk":"host_write","expectedRevision":"required","validDeviceStates":["*"],"planner":"device.manager.remove","confirmation":"none","postconditions":["managed_device_removed"]},
@@ -929,6 +936,7 @@ export const bridgePayloadSchemas: Readonly<Record<
   [commands.bootSelect]: {"bootId":{"kind":"string","required":false},"grant":{"kind":"string","required":false},"partition":{"kind":"string","required":false}},
   [commands.deviceBootloaderLock]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
   [commands.deviceBootloaderUnlock]: {"confirmationText":{"kind":"string","required":false},"serial":{"kind":"string","required":false}},
+  [commands.deviceFastbootVariables]: {"serial":{"kind":"string","required":false}},
   [commands.deviceInspect]: {"action":{"kind":"string","required":true},"serial":{"kind":"string","required":false}},
   [commands.deviceManagerPolicy]: {"scanEnabled":{"kind":"boolean","required":false},"scanScope":{"kind":"string","required":false}},
   [commands.deviceManagerRemove]: {"serial":{"kind":"string","required":true}},

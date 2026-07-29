@@ -7077,3 +7077,40 @@ msgstr "Nécessite une image de démarrage patchée et vérifiée."
 msgctxt "web.flash.option.keepDataOnly"
 msgid "Available only when keeping user data."
 msgstr "Disponible uniquement lors de la conservation des données utilisateur."
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.device.inspectFastbootVariables"
+msgid "Bootloader variables"
+msgstr "Variables du bootloader"
+
+msgctxt "web.device.inspectFastbootVariablesDetail"
+msgid ""
+"Read the bounded bootloader variable dump while the device is in fastboot."
+msgstr "Lit le vidage borné des variables du bootloader lorsque l'appareil est en fastboot."
+
+msgctxt "web.device.inspectProduct"
+msgid "Product"
+msgstr "Produit"
+
+msgctxt "web.device.inspectBaseband"
+msgid "Baseband"
+msgstr "Bande de base"
+
+msgctxt "web.device.inspectUnlocked"
+msgid "Unlocked"
+msgstr "Déverrouillé"
+
+msgctxt "web.device.inspectSecure"
+msgid "Secure"
+msgstr "Sécurisé"
+
+msgctxt "web.device.inspectHardwareRevision"
+msgid "Hardware revision"
+msgstr "Révision matérielle"
+
+msgctxt "web.device.inspectVariables"
+msgid "{count} variables"
+msgstr "{count} variables"

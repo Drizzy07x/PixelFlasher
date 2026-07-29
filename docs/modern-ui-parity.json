@@ -1868,7 +1868,9 @@
         "ui/command_registry.py",
         "ui/public_bridge.py",
         "ui/web/src/pages/device/DeviceInspectionPanel.tsx",
-        "ui/web/src/pages/device/DeviceOpenUrlPanel.tsx"
+        "ui/web/src/pages/device/DeviceOpenUrlPanel.tsx",
+        "pixelflasher_core/device_tools.py:parse_bounded_fastboot_variables",
+        "ui/public_bridge.py:_project_fastboot_variables"
       ],
       "gap": "",
       "exitCriteria": [
@@ -1903,6 +1905,7 @@
       ],
       "modernActionIds": [],
       "modernCommandIds": [
+        "device.fastbootVariables",
         "device.inspect",
         "device.openUrl"
       ]

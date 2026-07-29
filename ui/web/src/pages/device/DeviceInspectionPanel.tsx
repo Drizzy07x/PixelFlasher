@@ -6,7 +6,16 @@ import type { ActiveOperation, Device } from '../../types';
 import { Badge, Button, Card, CardTitle, Icon } from '../../components/ui';
 import { record, type SharedPageProps } from '../shared';
 
-export type DeviceInspectionAction = 'properties' | 'screenXml' | 'bootloaderVersions' | 'pifPrint';
+export type DeviceInspectionAction =
+  | 'properties'
+  | 'screenXml'
+  | 'bootloaderVersions'
+  | 'pifPrint'
+  | 'fastbootVariables';
+
+// Only the bootloader variable dump answers in fastboot; getprop, uiautomator
+// and the slot readback all need adb.
+const FASTBOOT_ACTIONS: ReadonlySet<DeviceInspectionAction> = new Set(['fastbootVariables']);
 
 type PropertySummary = {
   manufacturer: string;
@@ -65,11 +74,31 @@ type PifProfileReport = {
   profile: Record<string, string>;
 };
 
+type FastbootVariablesSummary = {
+  product: string;
+  bootloaderVersion: string;
+  basebandVersion: string;
+  currentSlot: string;
+  unlocked: string;
+  secure: string;
+  hardwareRevision: string;
+};
+
+type FastbootVariablesReport = {
+  action: 'fastbootVariables';
+  targetSerial: string;
+  variableCount: number;
+  variables: Record<string, string>;
+  redactedKeys: string[];
+  summary: FastbootVariablesSummary;
+};
+
 export type DeviceInspectionReport =
   | PropertiesReport
   | ScreenXmlReport
   | BootloaderVersionsReport
-  | PifProfileReport;
+  | PifProfileReport
+  | FastbootVariablesReport;
 
 type InspectionState =
   | { phase: 'idle' }
@@ -86,6 +115,9 @@ const MAX_PROPERTY_VALUE = 16 * 1024;
 const MAX_SCREEN_XML = 2 * 1024 * 1024;
 const MAX_SCREEN_NODES = 20_000;
 const MAX_ABL_PARTITION = 64 * 1024 * 1024;
+const FASTBOOT_VARIABLE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const MAX_FASTBOOT_VARIABLES = 2048;
+const MAX_FASTBOOT_VALUE = 512;
 const BOOTLOADER_CODENAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const BOOTLOADER_VERSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/;
 const BOOTLOADER_FULL_VERSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
@@ -283,6 +315,48 @@ function parsePifProfile(value: Record<string, unknown>, serial: string): PifPro
   };
 }
 
+function parseFastbootVariables(
+  value: Record<string, unknown>,
+  serial: string,
+): FastbootVariablesReport | null {
+  const variables = stringMap(value.variables, FASTBOOT_VARIABLE_KEY, MAX_FASTBOOT_VARIABLES, MAX_FASTBOOT_VALUE);
+  const redactedKeys = exactStringList(value.redactedKeys, MAX_FASTBOOT_VARIABLES);
+  const variableCount = boundedInteger(value.variableCount, MAX_FASTBOOT_VARIABLES);
+  const sourceSummary = record(value.summary);
+  const summaryKeys: Array<keyof FastbootVariablesSummary> = [
+    'product', 'bootloaderVersion', 'basebandVersion', 'currentSlot', 'unlocked', 'secure', 'hardwareRevision',
+  ];
+  const summary = Object.fromEntries(
+    summaryKeys.map((key) => [key, boundedText(sourceSummary[key], MAX_FASTBOOT_VALUE)]),
+  ) as Record<keyof FastbootVariablesSummary, string | null>;
+  if (
+    !hasExactKeys(value, [
+      'action',
+      'targetSerial',
+      'summary',
+      'variables',
+      'variableCount',
+      'redactedKeys',
+    ])
+    || !hasExactKeys(sourceSummary, summaryKeys)
+    || !targetMatches(value, serial)
+    || variables === null
+    || redactedKeys === null
+    || variableCount === null
+    || variableCount !== Object.keys(variables).length
+    || summaryKeys.some((key) => summary[key] === null)
+    || redactedKeys.some((key) => variables[key] !== '[REDACTED]')
+  ) return null;
+  return {
+    action: 'fastbootVariables',
+    targetSerial: serial,
+    variableCount,
+    variables,
+    redactedKeys,
+    summary: summary as FastbootVariablesSummary,
+  };
+}
+
 export function parseDeviceInspectionReport(
   action: DeviceInspectionAction,
   value: unknown,
@@ -293,6 +367,7 @@ export function parseDeviceInspectionReport(
   if (action === 'properties') return parseProperties(source, serial);
   if (action === 'screenXml') return parseScreenXml(source, serial);
   if (action === 'bootloaderVersions') return parseBootloaderVersions(source, serial);
+  if (action === 'fastbootVariables') return parseFastbootVariables(source, serial);
   return parsePifProfile(source, serial);
 }
 
@@ -306,6 +381,16 @@ function copyValue(report: DeviceInspectionReport) {
       count: report.count,
       redactedKeys: report.redactedKeys,
       properties: report.properties,
+    }, null, 2);
+  }
+  if (report.action === 'fastbootVariables') {
+    return JSON.stringify({
+      action: report.action,
+      targetSerial: report.targetSerial,
+      summary: report.summary,
+      variableCount: report.variableCount,
+      redactedKeys: report.redactedKeys,
+      variables: report.variables,
     }, null, 2);
   }
   if (report.action === 'bootloaderVersions') {
@@ -334,6 +419,7 @@ function reportLabel(action: DeviceInspectionAction) {
     screenXml: 'device.inspectScreenXml',
     bootloaderVersions: 'device.inspectBootloaderVersions',
     pifPrint: 'device.inspectPifProfile',
+    fastbootVariables: 'device.inspectFastbootVariables',
   } as const;
   return labels[action];
 }
@@ -381,7 +467,11 @@ export function DeviceInspectionPanel({
   const requestEpoch = useRef(0);
   const feedbackRef = useRef<HTMLElement>(null);
   const serial = device?.serial ?? '';
+  const inFastboot = Boolean(device && ['fastboot', 'fastbootd'].includes(device.mode));
   const ready = Boolean(device && device.mode === 'adb' && toolchainReady);
+  const fastbootReady = Boolean(inFastboot && toolchainReady);
+  const actionReady = (action: DeviceInspectionAction) =>
+    FASTBOOT_ACTIONS.has(action) ? fastbootReady : ready;
   const busy = state.phase === 'running' || state.phase === 'cancelling';
   const cancellableOperation = busy
     && activeOperation
@@ -403,14 +493,16 @@ export function DeviceInspectionPanel({
   }, [state.phase]);
 
   const inspect = async (action: DeviceInspectionAction) => {
-    if (!ready || !device || busy) return;
+    if (!actionReady(action) || !device || busy) return;
     const epoch = requestEpoch.current + 1;
     requestEpoch.current = epoch;
     setCopyState('idle');
     setState({ phase: 'running', action });
     let response;
     try {
-      response = await onCommand(commands.deviceInspect, { serial: device.serial, action });
+      response = FASTBOOT_ACTIONS.has(action)
+        ? await onCommand(commands.deviceFastbootVariables, { serial: device.serial })
+        : await onCommand(commands.deviceInspect, { serial: device.serial, action });
     } catch {
       if (requestEpoch.current === epoch) setState({ phase: 'error', action });
       return;
@@ -462,14 +554,22 @@ export function DeviceInspectionPanel({
     { action: 'screenXml', icon: 'shell', title: t('device.inspectScreenXml'), detail: t('device.inspectScreenXmlDetail') },
     { action: 'bootloaderVersions', icon: 'bootloader', title: t('device.inspectBootloaderVersions'), detail: t('device.inspectBootloaderVersionsDetail') },
     { action: 'pifPrint', icon: 'shield', title: t('device.inspectPifProfile'), detail: t('device.inspectPifProfileDetail') },
+    { action: 'fastbootVariables', icon: 'bootloader', title: t('device.inspectFastbootVariables'), detail: t('device.inspectFastbootVariablesDetail') },
   ];
 
   return (
     <Card className="device-inspection-card" aria-busy={busy}>
-      <CardTitle icon="scan" after={ready && device ? <Badge tone="success">ADB · {device.serial}</Badge> : null}>
+      <CardTitle
+        icon="scan"
+        after={device && (ready || fastbootReady)
+          ? <Badge tone="success">{ready ? 'ADB' : 'Fastboot'} · {device.serial}</Badge>
+          : null}
+      >
         {t('device.inspectTitle')}
       </CardTitle>
       <p className="device-inspection-card__detail">{t('device.inspectDetail')}</p>
+      {/* The adb actions stay unavailable in fastboot, so the guard still
+          explains them even when the bootloader variable dump is offered. */}
       {!ready ? (
         <div className="inline-alert inline-alert--warning device-inspection-guard" role="status">
           <Icon name="warningPng" size={18} />
@@ -486,7 +586,7 @@ export function DeviceInspectionPanel({
                 <Button
                   variant="ghost"
                   onClick={() => void inspect(item.action)}
-                  disabled={!ready || busy}
+                  disabled={!actionReady(item.action) || busy}
                   aria-describedby={descriptionId}
                 >
                   {item.title}
@@ -593,6 +693,29 @@ function ReportBody({ report }: { report: DeviceInspectionReport }) {
           <div><dt>{t('device.inspectDigest')}</dt><dd><code>{report.sha256}</code></dd></div>
         </dl>
         <pre tabIndex={0} aria-label={t('device.inspectScreenXml')}>{report.xml}</pre>
+      </>
+    );
+  }
+  if (report.action === 'fastbootVariables') {
+    const summary = [
+      [t('device.inspectProduct'), report.summary.product],
+      [t('device.bootloader'), report.summary.bootloaderVersion],
+      [t('device.inspectBaseband'), report.summary.basebandVersion],
+      [t('device.inspectActiveSlot'), report.summary.currentSlot],
+      [t('device.inspectUnlocked'), report.summary.unlocked],
+      [t('device.inspectSecure'), report.summary.secure],
+      [t('device.inspectHardwareRevision'), report.summary.hardwareRevision],
+    ];
+    return (
+      <>
+        <dl className="device-inspection-summary">
+          {summary.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}
+        </dl>
+        <div className="device-inspection-meta">
+          <Badge tone="accent">{t('device.inspectVariables', { count: report.variableCount })}</Badge>
+          <Badge tone="neutral">{t('device.inspectRedacted', { count: report.redactedKeys.length })}</Badge>
+        </div>
+        <pre tabIndex={0} aria-label={t('device.inspectFastbootVariables')}>{JSON.stringify(report.variables, null, 2)}</pre>
       </>
     );
   }

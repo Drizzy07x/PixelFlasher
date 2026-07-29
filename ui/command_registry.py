@@ -1513,6 +1513,23 @@ _COMMAND_SPECS = (
         postconditions=("bounded_typed_report_returned",),
     ),
     _command(
+        "device.fastbootVariables",
+        "deviceFastbootVariables",
+        _payload(
+            ("serial", PayloadKind.STRING),
+        ),
+        owner=CommandOwner.DEVICE_TOOLS,
+        **_LIVE,
+        mutability=CommandMutability.READ_ONLY,
+        expected_revision=ExpectedRevision.REQUIRED,
+        risk=CommandRisk.DEVICE_READ,
+        valid_device_states=FASTBOOT_DEVICE_STATES,
+        target_scope=TargetScope.SELECTED_DEVICE,
+        planner="device.fastboot_variables",
+        timeout_ms=60_000,
+        postconditions=("bounded_typed_report_returned",),
+    ),
+    _command(
         "device.openUrl",
         "deviceOpenUrl",
         _payload(

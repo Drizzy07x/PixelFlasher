@@ -79,6 +79,7 @@ DEVICE_TOOL_COMMANDS = frozenset(
         "tools.wifi.status",
         "tools.wifi.discover",
         "device.inspect",
+        "device.fastbootVariables",
         "device.openUrl",
     }
 )
@@ -207,6 +208,14 @@ _MDNS_MAX_LINE_BYTES = 512
 _WIFI_PAIR_OUTPUT_LIMIT = 64 * 1_024
 _GETPROP_LINE_PATTERN = re.compile(r"^\[([A-Za-z0-9_.-]{1,128})\]: \[(.*)\]$")
 _INSPECTION_ACTIONS = frozenset({"properties", "screenXml", "bootloaderVersions", "pifPrint"})
+_FASTBOOT_DEVICE_MODES = frozenset({"fastboot", "fastbootd"})
+_FASTBOOT_VARIABLE_OUTPUT_LIMIT = 256 * 1024
+_FASTBOOT_VARIABLE_LIMIT = 2048
+_FASTBOOT_VARIABLE_VALUE_LIMIT = 512
+_FASTBOOT_VARIABLE_LINE_PATTERN = re.compile(
+    r"^\(bootloader\)\s+(?P<key>[A-Za-z0-9][A-Za-z0-9._:\-]{0,127}):(?P<value>.*)$"
+)
+_FASTBOOT_TRAILER_PATTERN = re.compile(r"^(?:all:.*|Finished\..*|Total time:.*)$")
 _GETPROP_OUTPUT_LIMIT = 1024 * 1024
 _SCREEN_XML_OUTPUT_LIMIT = 2 * 1024 * 1024
 _GETPROP_PROPERTY_LIMIT = 8192
@@ -1286,6 +1295,78 @@ def _first_property(properties: Mapping[str, str], candidates: Sequence[str]) ->
     return ""
 
 
+def parse_bounded_fastboot_variables(output: str) -> dict[str, str]:
+    """Parse one ``fastboot getvar all`` response into bounded key/value pairs.
+
+    fastboot reports variables on the diagnostic stream, one ``(bootloader)``
+    line per variable, and closes with an ``all:`` echo and a timing line.
+    Anything else is refused rather than guessed at.
+    """
+
+    _bounded_output_bytes(output, maximum=_FASTBOOT_VARIABLE_OUTPUT_LIMIT, kind="fastboot getvar")
+    lines = output.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    if len(lines) > _FASTBOOT_VARIABLE_LIMIT:
+        raise DeviceInspectionParseError(
+            "fastboot_variable_limit_exceeded",
+            "fastboot returned too many variable lines",
+        )
+
+    variables: dict[str, str] = {}
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or _FASTBOOT_TRAILER_PATTERN.fullmatch(line):
+            continue
+        match = _FASTBOOT_VARIABLE_LINE_PATTERN.fullmatch(line)
+        if match is None:
+            raise DeviceInspectionParseError(
+                "fastboot_variable_format_invalid",
+                "fastboot returned a malformed variable line",
+            )
+        key, value = match.group("key"), match.group("value").strip()
+        if len(value.encode("utf-8")) > _FASTBOOT_VARIABLE_VALUE_LIMIT:
+            raise DeviceInspectionParseError(
+                "fastboot_variable_value_invalid",
+                "fastboot returned an oversized variable value",
+            )
+        # Partition-scoped variables repeat one name per partition, so the
+        # qualified form is what identifies them.
+        if key in variables and variables[key] != value:
+            raise DeviceInspectionParseError(
+                "fastboot_variable_duplicate",
+                "fastboot returned conflicting values for one variable",
+            )
+        variables[key] = value
+    if not variables:
+        raise DeviceInspectionParseError(
+            "fastboot_variable_output_empty",
+            "fastboot returned no variables",
+        )
+    return variables
+
+
+def _fastboot_variables_value(variables: Mapping[str, str]) -> dict[str, object]:
+    redacted_keys = tuple(key for key in variables if _property_is_sensitive(key))
+    public_variables = {
+        key: "[REDACTED]" if key in redacted_keys else value for key, value in variables.items()
+    }
+    summary = {
+        "product": _first_property(variables, ("product",)),
+        "bootloaderVersion": _first_property(variables, ("version-bootloader",)),
+        "basebandVersion": _first_property(variables, ("version-baseband",)),
+        "currentSlot": _first_property(variables, ("current-slot",)),
+        "unlocked": _first_property(variables, ("unlocked",)),
+        "secure": _first_property(variables, ("secure",)),
+        "hardwareRevision": _first_property(variables, ("hw-revision",)),
+    }
+    return {
+        "action": "fastbootVariables",
+        "summary": summary,
+        "variables": public_variables,
+        "variableCount": len(public_variables),
+        "redactedKeys": sorted(redacted_keys),
+    }
+
+
 def _properties_inspection_value(properties: Mapping[str, str]) -> dict[str, object]:
     redacted_keys = tuple(key for key in properties if _property_is_sensitive(key))
     public_properties = {key: "[REDACTED]" if key in redacted_keys else value for key, value in properties.items()}
@@ -1659,6 +1740,13 @@ class DeviceToolsService:
             return self._compile_wifi_discovery(command, snapshot, self._adb(snapshot))
         if command.kind == "tools.wifi":
             return self._compile_wifi(command, snapshot, self._adb(snapshot))
+        if command.kind == "device.fastbootVariables":
+            return self._compile_fastboot_variables(
+                command,
+                snapshot,
+                self._device(command, snapshot, required_modes=_FASTBOOT_DEVICE_MODES),
+                self._fastboot(snapshot),
+            )
         device = self._device(command, snapshot)
         adb = self._adb(snapshot)
         if command.kind == "tools.scrcpy":
@@ -1839,6 +1927,29 @@ class DeviceToolsService:
                 label=f"Inspect {action} for {device.serial}",
             ),
             f"inspect.{action}",
+        )
+
+    def _compile_fastboot_variables(
+        self,
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        device: DeviceInfo,
+        fastboot: str,
+    ) -> DeviceToolCompilation:
+        self._validate_payload(command, {"serial"})
+        request = ProcessRequest(
+            (fastboot, "-s", device.serial, "getvar", "all"),
+            timeout_seconds=60.0,
+            output_limit_bytes=_FASTBOOT_VARIABLE_OUTPUT_LIMIT,
+        )
+        return DeviceToolCompilation(
+            self._base_plan(
+                snapshot,
+                device,
+                (request,),
+                label=f"Read bootloader variables for {device.serial}",
+            ),
+            "fastbootVariables",
         )
 
     def _compile_scrcpy(
@@ -3169,6 +3280,55 @@ class DeviceToolsService:
             value=value,
         )
 
+    def finalize_fastboot_variables(
+        self,
+        compilation: DeviceToolCompilation,
+        result: OperationResult,
+    ) -> OperationResult:
+        """Parse one bootloader variable dump and discard raw device output.
+
+        fastboot writes variables to the diagnostic stream, so unlike an adb
+        inspection a populated stderr is the normal case rather than a failure.
+        """
+
+        if compilation.action != "fastbootVariables" or compilation.execution != _EXECUTION_PROCESS:
+            return OperationResult.failed(
+                result.operation_id,
+                code="device_inspection_compilation_invalid",
+                message="fastboot finalization received a non-process variable plan",
+            )
+        if result.status is OperationStatus.CANCELLED:
+            return OperationResult.cancelled(
+                result.operation_id,
+                code=result.code,
+                message=result.message,
+            )
+        if not result.ok:
+            return OperationResult.failed(
+                result.operation_id,
+                code=result.code,
+                message=result.message,
+                exit_code=result.exit_code,
+            )
+        try:
+            variables = parse_bounded_fastboot_variables(f"{result.stdout}\n{result.stderr}")
+            value = _fastboot_variables_value(variables)
+        except DeviceInspectionParseError as error:
+            return OperationResult.failed(
+                result.operation_id,
+                code=error.code,
+                message=str(error),
+                exit_code=result.exit_code,
+            )
+        value["targetSerial"] = compilation.plan.target_serial
+        return OperationResult.success(
+            result.operation_id,
+            code="device_inspection_fastbootVariables_succeeded",
+            message="device fastbootVariables inspection succeeded",
+            exit_code=result.exit_code,
+            value=value,
+        )
+
     def finalize_logcat(
         self,
         compilation: DeviceToolCompilation,
@@ -4455,7 +4615,12 @@ class DeviceToolsService:
         return value
 
     @staticmethod
-    def _device(command: AppCommand, snapshot: AppSnapshot) -> DeviceInfo:
+    def _device(
+        command: AppCommand,
+        snapshot: AppSnapshot,
+        *,
+        required_modes: frozenset[str] = frozenset({"adb"}),
+    ) -> DeviceInfo:
         raw_serial = command.payload.get("serial")
         if raw_serial is not None and (not isinstance(raw_serial, str) or not raw_serial.strip()):
             raise DeviceToolPlanningError(
@@ -4485,7 +4650,12 @@ class DeviceToolsService:
                 "device_disconnected",
                 "target device is not online",
             )
-        if device.mode != "adb":
+        if device.mode not in required_modes:
+            if required_modes == _FASTBOOT_DEVICE_MODES:
+                raise DeviceToolPlanningError(
+                    "fastboot_device_required",
+                    "bootloader variables require a device in fastboot mode",
+                )
             raise DeviceToolPlanningError(
                 "adb_device_required",
                 "device tools require a device in adb mode",
@@ -4500,6 +4670,15 @@ class DeviceToolsService:
                 "validated adb is required",
             )
         return snapshot.toolchain.adb
+
+    @staticmethod
+    def _fastboot(snapshot: AppSnapshot) -> str:
+        if not snapshot.toolchain.ready or not snapshot.toolchain.fastboot:
+            raise DeviceToolPlanningError(
+                "toolchain_not_ready",
+                "validated fastboot is required",
+            )
+        return snapshot.toolchain.fastboot
 
     @staticmethod
     def _revision(command: AppCommand, snapshot: AppSnapshot) -> None:

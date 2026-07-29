@@ -1810,6 +1810,17 @@ class CommandEngine:
                 ),
                 cancellation=planning_token,
             )
+        if isinstance(compilation, DeviceToolCompilation) and compilation.action == "fastbootVariables":
+            return self._execute_process(
+                planned,
+                result_finalizer=(
+                    lambda result, _cancellation: self.device_tools_service.finalize_fastboot_variables(
+                        compilation,
+                        result,
+                    )
+                ),
+                cancellation=planning_token,
+            )
         if isinstance(compilation, DeviceToolCompilation) and compilation.action == "openUrl":
             return self._execute_process(
                 planned,

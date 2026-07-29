@@ -34,6 +34,7 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
         "device.openUrl",
         "device.ota.reset",
         "device.inspect",
+        "device.fastbootVariables",
         "partitions.read",
         "partitions.write",
         "partitions.erase",
@@ -2174,6 +2175,37 @@ def _project_device_inspect(value: object) -> JSONValue:
     return result
 
 
+def _project_fastboot_variables(value: object) -> JSONValue:
+    fields = frozenset(
+        {
+            "action",
+            "targetSerial",
+            "summary",
+            "variables",
+            "variableCount",
+            "redactedKeys",
+        }
+    )
+    source = _closed_record(value, fields=fields)
+    if _string(source.get("action")) != "fastbootVariables":
+        raise PublicProjectionError("fastboot variable action is invalid")
+    result: dict[str, JSONValue] = {
+        "action": "fastbootVariables",
+        "targetSerial": _string(source.get("targetSerial")),
+    }
+    result.update(
+        _public_object(
+            {
+                "summary": _string_map(source.get("summary", {})),
+                "variables": _string_map(source.get("variables", {})),
+                "variableCount": _integer(source.get("variableCount")),
+                "redactedKeys": _strings(source.get("redactedKeys", [])),
+            }
+        )
+    )
+    return result
+
+
 def _project_bootloader_versions(value: object) -> JSONValue:
     fields = frozenset(
         {
@@ -4028,6 +4060,7 @@ PUBLIC_RESULT_PROJECTORS: dict[str, ResultProjector] = {
     "boot.select": _project_boot_select,
     "device.bootloader.lock": _project_confirmation,
     "device.bootloader.unlock": _project_confirmation,
+    "device.fastbootVariables": _project_fastboot_variables,
     "device.inspect": _project_device_inspect,
     "device.manager.policy": _project_snapshot,
     "device.manager.remove": _project_snapshot,

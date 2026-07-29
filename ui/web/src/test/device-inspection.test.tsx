@@ -232,6 +232,42 @@ describe('modern device inspection', () => {
     for (const name of ['Properties', 'Screen XML', 'Bootloader versions', 'PIF profile']) {
       expect(screen.getByRole('button', { name })).toBeDisabled();
     }
+    // 9.x served Device Info in fastboot through `getvar all`, so the bootloader
+    // variable dump is the one action that stays available in this mode.
+    expect(screen.getByRole('button', { name: 'Bootloader variables' })).toBeEnabled();
+  });
+
+  it('accepts only the exact bounded fastboot variable DTO', () => {
+    const valid = {
+      action: 'fastbootVariables',
+      targetSerial: 'SERIAL',
+      variableCount: 3,
+      variables: {
+        product: 'komodo',
+        'version-bootloader': 'komodo-17.0-99999999',
+        serialno: '[REDACTED]',
+      },
+      redactedKeys: ['serialno'],
+      summary: {
+        product: 'komodo',
+        bootloaderVersion: 'komodo-17.0-99999999',
+        basebandVersion: 'g5400-000000',
+        currentSlot: 'a',
+        unlocked: 'yes',
+        secure: 'no',
+        hardwareRevision: 'MP1.0',
+      },
+    };
+
+    expect(parseDeviceInspectionReport('fastbootVariables', valid, 'SERIAL')).toEqual(valid);
+    expect(parseDeviceInspectionReport('fastbootVariables', { ...valid, targetSerial: 'OTHER' }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('fastbootVariables', { ...valid, raw: 'device output' }, 'SERIAL')).toBeNull();
+    expect(parseDeviceInspectionReport('fastbootVariables', { ...valid, variableCount: 2 }, 'SERIAL')).toBeNull();
+    // A key listed as redacted must actually be redacted in the payload.
+    expect(parseDeviceInspectionReport('fastbootVariables', {
+      ...valid,
+      variables: { ...valid.variables, serialno: 'PRIVATE-SERIAL' },
+    }, 'SERIAL')).toBeNull();
   });
 
   it('rejects untyped reports before they can reach a copy surface', () => {

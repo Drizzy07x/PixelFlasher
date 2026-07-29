@@ -21,6 +21,7 @@ from pixelflasher_core.device_tools import (
     DeviceInspectionParseError,
     DeviceToolPlanningError,
     DeviceToolsService,
+    parse_bounded_fastboot_variables,
     parse_bounded_getprop,
     parse_bounded_screen_xml,
 )
@@ -364,6 +365,123 @@ class DeviceInspectionServiceTests(unittest.TestCase):
         with self.assertRaises(BridgeProtocolError) as raised:
             BridgeRequest.from_json(encoded)
         self.assertEqual("invalid_payload", raised.exception.code)
+
+
+class FastbootVariableInspectionTests(unittest.TestCase):
+    """9.x served Device Info in fastboot mode through ``getvar all``.
+
+    The four adb inspection actions cannot answer in fastboot, so the bootloader
+    variable dump is its own command with its own device states.
+    """
+
+    def setUp(self) -> None:
+        self.service = DeviceToolsService(bootloader_prefixes={"akita": "akita"})
+        self.snapshot = AppSnapshot(
+            revision=7,
+            devices=(DeviceInfo("SERIAL", codename="akita", mode="fastboot", online=True),),
+            selected_serial="SERIAL",
+            toolchain=ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True),
+        )
+
+    def command(self) -> AppCommand:
+        return AppCommand(
+            "device.fastbootVariables",
+            expected_revision=7,
+            target_serial="SERIAL",
+            payload={},
+        )
+
+    def compile(self):
+        return self.service.compile(self.command(), self.snapshot)
+
+    def test_one_exact_serial_bound_argv_is_compiled_read_only(self):
+        compilation = self.compile()
+
+        self.assertEqual(
+            (("FASTBOOT", "-s", "SERIAL", "getvar", "all"),),
+            tuple(item.argv for item in compilation.plan.requests),
+        )
+        self.assertEqual("fastbootVariables", compilation.action)
+        self.assertEqual("SERIAL", compilation.plan.target_serial)
+        self.assertEqual(7, compilation.plan.snapshot_revision)
+        self.assertIs(OperationRisk.READ_ONLY, compilation.plan.risk)
+        self.assertFalse(compilation.device_write)
+        self.assertFalse(compilation.destructive)
+        self.assertFalse(compilation.requires_confirmation)
+
+    def test_planning_fails_closed_without_a_validated_fastboot(self):
+        self.snapshot = AppSnapshot(
+            revision=7,
+            devices=(DeviceInfo("SERIAL", codename="akita", mode="fastboot", online=True),),
+            selected_serial="SERIAL",
+            toolchain=ToolchainInfo("ADB", "", "36.0.0", False),
+        )
+        with self.assertRaises(DeviceToolPlanningError) as raised:
+            self.compile()
+        self.assertEqual("toolchain_not_ready", raised.exception.code)
+
+    def test_variables_arrive_on_the_diagnostic_stream_and_identifiers_are_redacted(self):
+        compilation = self.compile()
+        result = self.service.finalize_fastboot_variables(
+            compilation,
+            OperationResult.success(
+                "variables",
+                stdout="",
+                stderr=(
+                    "(bootloader) version-bootloader: akita-15.2-12345678\n"
+                    "(bootloader) version-baseband: g5300-000000\n"
+                    "(bootloader) product: akita\n"
+                    "(bootloader) current-slot: a\n"
+                    "(bootloader) unlocked: yes\n"
+                    "(bootloader) secure: no\n"
+                    "(bootloader) serialno: PRIVATE-SERIAL\n"
+                    "all: \n"
+                    "Finished. Total time: 0.031s\n"
+                ),
+            ),
+        )
+
+        self.assertIs(OperationStatus.SUCCESS, result.status)
+        value = cast(dict, result.value)
+        self.assertEqual("fastbootVariables", value["action"])
+        self.assertEqual("akita", value["summary"]["product"])
+        self.assertEqual("akita-15.2-12345678", value["summary"]["bootloaderVersion"])
+        self.assertEqual("a", value["summary"]["currentSlot"])
+        self.assertEqual(7, value["variableCount"])
+        self.assertEqual(["serialno"], value["redactedKeys"])
+        self.assertEqual("[REDACTED]", value["variables"]["serialno"])
+        self.assertNotIn("PRIVATE-SERIAL", json.dumps(result.to_dict()))
+
+    def test_hostile_and_empty_variable_output_fails_closed(self):
+        cases = {
+            "fastboot_variable_format_invalid": "(bootloader) not-a-variable line\n",
+            "fastboot_variable_output_empty": "all: \nFinished. Total time: 0.001s\n",
+            "fastboot_variable_duplicate": (
+                "(bootloader) product: akita\n(bootloader) product: husky\n"
+            ),
+            "fastboot_variable_value_invalid": f"(bootloader) product: {'a' * 600}\n",
+        }
+        for code, stderr in cases.items():
+            with self.subTest(code=code):
+                with self.assertRaises(DeviceInspectionParseError) as raised:
+                    parse_bounded_fastboot_variables(stderr)
+                self.assertEqual(code, raised.exception.code)
+
+    def test_cancellation_and_process_failure_stay_explicit(self):
+        compilation = self.compile()
+
+        cancelled = self.service.finalize_fastboot_variables(
+            compilation,
+            OperationResult.cancelled("variables", code="operation_cancelled", message="stopped"),
+        )
+        failed = self.service.finalize_fastboot_variables(
+            compilation,
+            OperationResult.failed("variables", code="process_failed", message="boom"),
+        )
+
+        self.assertIs(OperationStatus.CANCELLED, cancelled.status)
+        self.assertIs(OperationStatus.FAILED, failed.status)
+        self.assertIsNone(failed.value)
 
 
 if __name__ == "__main__":
