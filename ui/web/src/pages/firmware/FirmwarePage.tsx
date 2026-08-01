@@ -4,6 +4,7 @@ import { demoFirmwares } from '../../demoData';
 import { useI18n } from '../../i18n';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
 import { selectedGrant, type SharedPageProps } from '../shared';
+import { useOperationCancel } from '../useOperationCancel';
 
 type CatalogEntry = {
   artifactId: string;
@@ -149,6 +150,13 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
   const [inspection, setInspection] = useState<FirmwareInspection | null>(null);
   const [inspectionError, setInspectionError] = useState(false);
   const [retry, setRetry] = useState<FirmwareRetry | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const processCancel = useOperationCancel(
+    onCommand,
+    snapshot.activeOperation ?? snapshot.active_operation,
+    processing,
+    [commands.firmwareProcess],
+  );
   const active = snapshot.firmware?.id ?? null;
   const available = window.pixelflasher?.__mock
     ? demoFirmwares.map((entry) => entry.id === active && snapshot.firmware
@@ -255,6 +263,7 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
     if (!snapshot.firmware || snapshot.firmware.processed || busy) return;
     const firmwareId = snapshot.firmware.id;
     setBusy(true);
+    setProcessing(true);
     setInspectionError(false);
     setRetry(null);
     try {
@@ -272,6 +281,7 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
       setInspectionError(true);
       setRetry({ kind: 'process', firmwareId });
     } finally {
+      setProcessing(false);
       setBusy(false);
     }
   };
@@ -297,6 +307,9 @@ export function FirmwarePage({ snapshot, onCommand }: SharedPageProps) {
           <>
             <Button variant="secondary" icon="folderPng" onClick={() => void pickFirmware('custom')} disabled={busy}>{t('firmware.importCustom')}</Button>
             <Button variant="primary" icon="firmware" onClick={() => void pickFirmware('stock')} disabled={busy}>{t('firmware.importStock')}</Button>
+            {processCancel.operation ? (
+              <Button variant="ghost" onClick={() => void processCancel.cancel()} disabled={processCancel.cancelling}>{t('common.cancel')}</Button>
+            ) : null}
           </>
         )}
       />

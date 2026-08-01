@@ -152,15 +152,43 @@ class ReplayAction(StrEnum):
     CAPACITY = "capacity"
 
 
+class ReplayCapacity(StrEnum):
+    """Why a request was refused, so transient back-pressure reads as such."""
+
+    IDENTIFIERS = "identifiers"
+    MEMORY = "memory"
+
+
 _REPLAY_ENTRY_OVERHEAD_BYTES = 512
 _REPLAY_MINIMUM_RESERVATION_BYTES = 2 * 1_024
 _REPLAY_DEFAULT_MAXIMUM_BYTES = 128 * 1_024 * 1_024
-_REPLAY_DEFAULT_RESERVATION_BYTES = 8 * 1_024 * 1_024
+# A projected non-Logcat response is measured in kilobytes. Reserving whole
+# mebibytes per in-flight request is what bounds bridge concurrency, so keep
+# the reservation generous but not so large that the FIFO worker's queue can
+# exhaust the whole budget with a handful of pending commands.
+_REPLAY_DEFAULT_RESERVATION_BYTES = 1_024 * 1_024
 # A valid Logcat result can contain the same 16 MiB of bounded content in both
 # ``lines`` and ``text``. JSON quoting can double ASCII-heavy input, so reserve
 # four output windows plus envelope/array overhead before dispatching it.
 _REPLAY_LOGCAT_RESERVATION_BYTES = 68 * 1_024 * 1_024
 _REPLAY_DEFAULT_MAXIMUM_WAITERS = 4
+# A completed requestId is never released, but its response body is: once
+# retained payloads reach this much of the budget the oldest entries keep the
+# consumed id and drop the body, so a long session cannot turn the ledger into
+# a memory sink and cannot be walled off by its own retained results.
+_REPLAY_DEFAULT_RETAINED_PAYLOAD_BYTES = 16 * 1_024 * 1_024
+# Accounting weight of a body-less completed entry: the requestId, its
+# fingerprint and the container slot.
+_REPLAY_CONSUMED_ENTRY_BYTES = 192
+# Ids are still bounded and still fail closed, but the ceiling has to be far
+# above what one session can issue.  The ADB terminal alone posts one request
+# per input flush, so a thousand ids was under a minute of typing.
+_REPLAY_DEFAULT_MAXIMUM_COMPLETED = 131_072
+# Lifecycle commands keep a small dedicated overdraft above the ledger
+# ceiling. Without it a full ledger leaves a running flash uncancellable and
+# the application unclosable from the UI.
+_REPLAY_PRIORITY_COMMANDS = frozenset({"operation.cancel", "app.exit"})
+_REPLAY_DEFAULT_PRIORITY_OVERDRAFT = 256
 
 _LOGCAT_PROGRESS_QUEUE_MAXIMUM_MESSAGES = 2_048
 _LOGCAT_PROGRESS_QUEUE_MAXIMUM_BYTES = 32 * 1_024 * 1_024
@@ -349,6 +377,7 @@ def _schedule_wx_callback(callback: Callable[[], None]) -> None:
 class ReplayDecision:
     action: ReplayAction
     message: dict[str, Any] | None = field(default=None, repr=False)
+    capacity: ReplayCapacity | None = None
 
 
 @dataclass(slots=True)
@@ -356,12 +385,13 @@ class _InflightReplay:
     fingerprint: str
     reserved_bytes: int
     waiters: int = 0
+    priority: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class _CompletedReplay:
     fingerprint: str
-    payload: bytes = field(repr=False)
+    payload: bytes | None = field(repr=False)
     accounted_bytes: int
 
 
@@ -371,11 +401,13 @@ class _RequestReplayLedger:
     def __init__(
         self,
         *,
-        maximum_completed: int = 1_024,
+        maximum_completed: int = _REPLAY_DEFAULT_MAXIMUM_COMPLETED,
         maximum_bytes: int = _REPLAY_DEFAULT_MAXIMUM_BYTES,
         default_reservation_bytes: int = _REPLAY_DEFAULT_RESERVATION_BYTES,
         logcat_reservation_bytes: int = _REPLAY_LOGCAT_RESERVATION_BYTES,
         maximum_waiters: int = _REPLAY_DEFAULT_MAXIMUM_WAITERS,
+        retained_payload_bytes: int = _REPLAY_DEFAULT_RETAINED_PAYLOAD_BYTES,
+        priority_overdraft: int = _REPLAY_DEFAULT_PRIORITY_OVERDRAFT,
     ) -> None:
         if maximum_completed <= 0:
             raise ValueError("maximum_completed must be positive")
@@ -387,15 +419,24 @@ class _RequestReplayLedger:
             raise ValueError("logcat_reservation_bytes is below the safe minimum")
         if maximum_waiters < 0:
             raise ValueError("maximum_waiters must not be negative")
+        if retained_payload_bytes <= 0:
+            raise ValueError("retained_payload_bytes must be positive")
+        if priority_overdraft < 0:
+            raise ValueError("priority_overdraft must not be negative")
         self._maximum_completed = maximum_completed
         self._maximum_bytes = maximum_bytes
         self._default_reservation_bytes = default_reservation_bytes
         self._logcat_reservation_bytes = logcat_reservation_bytes
         self._maximum_waiters = maximum_waiters
+        self._retained_payload_bytes = min(retained_payload_bytes, maximum_bytes)
+        self._priority_overdraft = priority_overdraft
+        self._priority_reserve_bytes = priority_overdraft * _REPLAY_MINIMUM_RESERVATION_BYTES
         self._inflight: dict[str, _InflightReplay] = {}
         self._completed: OrderedDict[str, _CompletedReplay] = OrderedDict()
+        self._payload_order: OrderedDict[str, None] = OrderedDict()
         self._reserved_bytes = 0
         self._completed_bytes = 0
+        self._payload_bytes = 0
         self._lock = threading.RLock()
 
     @property
@@ -421,6 +462,12 @@ class _RequestReplayLedger:
                 if completed.fingerprint != fingerprint:
                     return ReplayDecision(ReplayAction.CONFLICT)
                 self._completed.move_to_end(request.request_id)
+                if completed.payload is None:
+                    return ReplayDecision(
+                        ReplayAction.REPLAY,
+                        _consumed_replay_message(request.request_id),
+                    )
+                self._payload_order.move_to_end(request.request_id)
                 return ReplayDecision(
                     ReplayAction.REPLAY,
                     _decode_replay_payload(completed.payload),
@@ -442,14 +489,30 @@ class _RequestReplayLedger:
             # Never evict an ID: eviction would make an old request executable
             # again. Once the bounded session ledger is full, fail closed and
             # require a new host session instead of weakening idempotency.
-            if len(self._completed) + len(self._inflight) >= self._maximum_completed:
-                return ReplayDecision(ReplayAction.CAPACITY)
+            # Lifecycle commands draw on a small overdraft above both ceilings
+            # so a full ledger never traps a running operation.
+            priority = request.command in _REPLAY_PRIORITY_COMMANDS
             reservation = self._reservation_bytes(request)
-            if self.accounted_bytes + reservation > self._maximum_bytes:
-                return ReplayDecision(ReplayAction.CAPACITY)
+            identifier_ceiling = self._maximum_completed
+            byte_ceiling = self._maximum_bytes
+            if priority:
+                identifier_ceiling += self._priority_overdraft
+                byte_ceiling += self._priority_reserve_bytes
+                reservation = min(reservation, _REPLAY_MINIMUM_RESERVATION_BYTES)
+            if len(self._completed) + len(self._inflight) >= identifier_ceiling:
+                return ReplayDecision(
+                    ReplayAction.CAPACITY,
+                    capacity=ReplayCapacity.IDENTIFIERS,
+                )
+            if self.accounted_bytes + reservation > byte_ceiling:
+                return ReplayDecision(
+                    ReplayAction.CAPACITY,
+                    capacity=ReplayCapacity.MEMORY,
+                )
             self._inflight[request.request_id] = _InflightReplay(
                 fingerprint,
                 reservation,
+                priority=priority,
             )
             self._reserved_bytes += reservation
             return ReplayDecision(ReplayAction.EXECUTE)
@@ -470,7 +533,8 @@ class _RequestReplayLedger:
             payload = _encode_replay_payload(stable_message)
             accounted_bytes = _accounted_replay_bytes(payload)
             base_bytes = self._completed_bytes + self._reserved_bytes - inflight.reserved_bytes
-            if base_bytes + accounted_bytes > self._maximum_bytes:
+            byte_ceiling = self._maximum_bytes + (self._priority_reserve_bytes if inflight.priority else 0)
+            if base_bytes + accounted_bytes > byte_ceiling:
                 # The request has already crossed its at-most-once boundary.
                 # Retain and replay a compact, explicit tombstone rather than
                 # evicting the ID or allowing a later duplicate to execute it.
@@ -487,7 +551,7 @@ class _RequestReplayLedger:
                 )
                 payload = _encode_replay_payload(stable_message)
                 accounted_bytes = _accounted_replay_bytes(payload)
-                if accounted_bytes > inflight.reserved_bytes or base_bytes + accounted_bytes > self._maximum_bytes:
+                if accounted_bytes > inflight.reserved_bytes or base_bytes + accounted_bytes > byte_ceiling:
                     raise RuntimeError("reserved replay capacity cannot retain its failure tombstone")
 
             self._inflight.pop(request.request_id)
@@ -499,15 +563,57 @@ class _RequestReplayLedger:
             )
             self._completed[request.request_id] = completed
             self._completed.move_to_end(request.request_id)
+            self._payload_order[request.request_id] = None
             self._completed_bytes += accounted_bytes
+            self._payload_bytes += accounted_bytes
+            self._release_stale_payloads()
             return tuple(dict(stable_message) for _ in range(inflight.waiters + 1))
 
     def clear(self) -> None:
         with self._lock:
             self._inflight.clear()
             self._completed.clear()
+            self._payload_order.clear()
             self._reserved_bytes = 0
             self._completed_bytes = 0
+            self._payload_bytes = 0
+
+    def _release_stale_payloads(self) -> None:
+        """Drop the bodies of the least recently replayed completions.
+
+        The requestId itself stays consumed, so an old id can never execute
+        again; a duplicate that arrives after its body was released is
+        answered with an explicit terminal marker instead.
+        """
+
+        if self._payload_bytes > self._retained_payload_bytes and len(self._payload_order) > 1:
+            newest_id = next(reversed(self._payload_order))
+            newest = self._completed.get(newest_id)
+            if newest is not None and newest.accounted_bytes > self._retained_payload_bytes:
+                # A body larger than the whole budget can never be made to fit by
+                # releasing older ones, so exempting it would strip every other
+                # retained body and still leave the ledger over budget. Demote the
+                # oversized entry itself and keep the unrelated bodies replayable.
+                self._release_payload(newest_id)
+
+        while self._payload_bytes > self._retained_payload_bytes and len(self._payload_order) > 1:
+            request_id, _ = self._payload_order.popitem(last=False)
+            self._release_payload(request_id)
+
+    def _release_payload(self, request_id: str) -> None:
+        """Turn one retained completion into a body-less consumed marker."""
+
+        self._payload_order.pop(request_id, None)
+        entry = self._completed.get(request_id)
+        if entry is None or entry.payload is None:
+            return
+        self._completed[request_id] = _CompletedReplay(
+            entry.fingerprint,
+            None,
+            _REPLAY_CONSUMED_ENTRY_BYTES,
+        )
+        self._payload_bytes -= entry.accounted_bytes
+        self._completed_bytes -= entry.accounted_bytes - _REPLAY_CONSUMED_ENTRY_BYTES
 
     def _reservation_bytes(self, request: BridgeRequest) -> int:
         return self._logcat_reservation_bytes if request.command == "tools.logcat" else self._default_reservation_bytes
@@ -537,10 +643,30 @@ def _accounted_replay_bytes(payload: bytes) -> int:
     return len(payload) + _REPLAY_ENTRY_OVERHEAD_BYTES
 
 
+def _consumed_replay_message(request_id: str) -> dict[str, Any]:
+    return response_envelope(
+        request_id,
+        ok=False,
+        error={
+            "code": "response_replay_expired",
+            "message": (
+                "This requestId already ran and its response is no longer retained. "
+                "It stays consumed; send a new request instead of retrying it."
+            ),
+        },
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _CommandWorkItem:
     request: BridgeRequest
     command: AppCommand = field(repr=False)
+
+
+# Host configuration reads and writes touch no device and carry a one minute
+# client timeout. Behind the device FIFO they would sit for the whole duration
+# of a flash and expire while still queued, so they get their own lane.
+_HOST_CONFIG_COMMANDS = frozenset({"settings.get", "settings.update"})
 
 
 class _SerialCommandWorker:
@@ -550,6 +676,8 @@ class _SerialCommandWorker:
         self,
         engine: EngineProtocol,
         deliver: Callable[[BridgeRequest, OperationResult | None], None],
+        *,
+        thread_name: str = "pixelflasher-engine",
     ) -> None:
         self._engine = engine
         self._deliver = deliver
@@ -559,7 +687,7 @@ class _SerialCommandWorker:
         self._lock = threading.RLock()
         self._thread = threading.Thread(
             target=self._run,
-            name="pixelflasher-engine",
+            name=thread_name,
             # Engine shutdown cancels live work first. A wedged third-party
             # process boundary must never keep the native application alive
             # forever after its last window has closed.
@@ -889,6 +1017,11 @@ class ModernWebViewFrame(wx.Frame):
         self._terminal_subscription: Callable[[], None] | None = None
         self._command_factory.bind_support_destination_registrar(support_destination_registrar)
         self._command_worker = _SerialCommandWorker(self._engine, self._command_finished)
+        self._config_worker = _SerialCommandWorker(
+            self._engine,
+            self._command_finished,
+            thread_name="pixelflasher-config",
+        )
 
         backend = _preferred_backend()
         if backend is None:
@@ -1006,19 +1139,26 @@ class ModernWebViewFrame(wx.Frame):
             )
             return
         if replay.action is ReplayAction.CAPACITY:
-            self._emit(
-                response_envelope(
-                    request.request_id,
-                    ok=False,
-                    error={
-                        "code": "request_ledger_full",
-                        "message": (
-                            "The request ledger reached its safe session ID or memory limit; "
-                            "restart PixelFlasher before sending more commands."
-                        ),
-                    },
-                )
+            # Byte capacity is back-pressure that clears when the queued
+            # commands finish; the id ceiling is terminal for the session.
+            error = (
+                {
+                    "code": "request_queue_busy",
+                    "message": (
+                        "PixelFlasher is holding as many bridge responses as it safely can; "
+                        "wait for the running commands to finish and try again."
+                    ),
+                }
+                if replay.capacity is ReplayCapacity.MEMORY
+                else {
+                    "code": "request_ledger_full",
+                    "message": (
+                        "The request ledger reached its safe session ID limit; "
+                        "restart PixelFlasher before sending more commands."
+                    ),
+                }
             )
+            self._emit(response_envelope(request.request_id, ok=False, error=error))
             return
 
         self._dispatch_request(request)
@@ -1108,7 +1248,7 @@ class ModernWebViewFrame(wx.Frame):
         with self._operation_commands_lock:
             self._operation_commands[command.operation_id] = request.command
         try:
-            self._command_worker.submit(request, command)
+            self._worker_for(request.command).submit(request, command)
         except RuntimeError:
             with self._operation_commands_lock:
                 self._operation_commands.pop(command.operation_id, None)
@@ -1121,10 +1261,16 @@ class ModernWebViewFrame(wx.Frame):
                 ),
             )
 
+    def _worker_for(self, command: str) -> _SerialCommandWorker:
+        return self._config_worker if command in _HOST_CONFIG_COMMANDS else self._command_worker
+
     def _handle_operation_cancel(self, request: BridgeRequest) -> None:
         operation_id = request.payload.get("operationId")
         if isinstance(operation_id, str):
-            worker_cancelled = self._command_worker.cancel(operation_id)
+            # Operation ids are unique across both lanes.
+            worker_cancelled = self._command_worker.cancel(operation_id) or self._config_worker.cancel(
+                operation_id
+            )
             # Always notify the engine as well. ApplicationRuntime uses this
             # path to wake a pending InteractionBroker confirmation in addition
             # to cancelling the shared command token.
@@ -1635,7 +1781,11 @@ class ModernWebViewFrame(wx.Frame):
 
     def _has_active_work(self, snapshot: AppSnapshot | None = None) -> bool:
         current = snapshot or self._engine.snapshot()
-        return current.active_operation is not None or self._command_worker.has_pending_commands
+        return (
+            current.active_operation is not None
+            or self._command_worker.has_pending_commands
+            or self._config_worker.has_pending_commands
+        )
 
     def _handle_secret_issue(self, request: BridgeRequest) -> None:
         try:
@@ -1843,6 +1993,8 @@ class ModernWebViewFrame(wx.Frame):
             self._engine.shutdown()
         finally:
             stopped = self._command_worker.shutdown()
+            if not self._config_worker.shutdown():
+                stopped = False
             if not stopped:
                 wx.LogWarning("PixelFlasher's operation worker did not stop within the shutdown timeout.")
             self._command_factory.path_grants.clear()

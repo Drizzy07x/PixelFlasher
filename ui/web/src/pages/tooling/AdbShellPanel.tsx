@@ -145,6 +145,24 @@ export function AdbShellPanel({ serial, revision }: { serial: string; revision: 
     resizeTimerRef.current = null;
   }, []);
 
+  const releaseSession = useCallback((nextStatus: SessionStatus, nextMessage: string) => {
+    const sessionId = sessionRef.current;
+    sessionRef.current = null;
+    inputQueueRef.current = [];
+    const terminal = terminalRef.current;
+    if (terminal) terminal.options.disableStdin = true;
+    setStatus(nextStatus);
+    setMessage(nextMessage);
+    if (!sessionId) return;
+    // Never drop a session locally without telling the host: its PTY would keep
+    // running ownerless and refuse every later open.
+    void bridge.command(
+      commands.toolsAdbShellClose,
+      { sessionId },
+      revisionRef.current,
+    ).catch(() => undefined);
+  }, []);
+
   const closeSession = useCallback(async () => {
     const sessionId = sessionRef.current;
     if (!sessionId) return;
@@ -177,16 +195,13 @@ export function AdbShellPanel({ serial, revision }: { serial: string; revision: 
         revisionRef.current,
       );
     } catch (error) {
-      sessionRef.current = null;
-      inputQueueRef.current = [];
-      setStatus('failed');
-      setMessage(error instanceof BridgeError ? error.message : t('tools.shellWriteFailed'));
+      releaseSession('failed', error instanceof BridgeError ? error.message : t('tools.shellWriteFailed'));
       return;
     }
     if (inputQueueRef.current.length) {
       inputTimerRef.current = window.setTimeout(() => void flushInput(), 8);
     }
-  }, [t]);
+  }, [releaseSession, t]);
 
   const enqueueInput = useCallback((data: string) => {
     if (!sessionRef.current || !data) return;
@@ -260,10 +275,7 @@ export function AdbShellPanel({ serial, revision }: { serial: string; revision: 
           { sessionId, columns: terminal.cols, rows: terminal.rows },
           revisionRef.current,
         ).catch(() => {
-          sessionRef.current = null;
-          terminal.options.disableStdin = true;
-          setStatus('failed');
-          setMessage(t('tools.shellResizeFailed'));
+          releaseSession('failed', t('tools.shellResizeFailed'));
         });
       }, 100);
     });
@@ -287,19 +299,14 @@ export function AdbShellPanel({ serial, revision }: { serial: string; revision: 
         ).catch(() => undefined);
       }
     };
-  }, [clearTimers, enqueueInput, t, terminalRuntime]);
+  }, [clearTimers, enqueueInput, releaseSession, t, terminalRuntime]);
 
   useEffect(() => {
-    if (revision === revisionRef.current) return;
+    // Follow the canonical revision instead of abandoning the session: the host
+    // keeps the shell across benign bumps and emits a closed terminal event on
+    // the changes that really invalidate it.
     revisionRef.current = revision;
-    if (sessionRef.current) {
-      sessionRef.current = null;
-      const terminal = terminalRef.current;
-      if (terminal) terminal.options.disableStdin = true;
-      setStatus('closed');
-      setMessage(t('tools.shellStateChanged'));
-    }
-  }, [revision, t]);
+  }, [revision]);
 
   const startSession = async () => {
     const terminal = terminalRef.current;
@@ -308,12 +315,21 @@ export function AdbShellPanel({ serial, revision }: { serial: string; revision: 
     fit.fit();
     setStatus('opening');
     setMessage(t('tools.shellOpening'));
+    const requestSession = () => bridge.command<TerminalResult>(
+      commands.toolsAdbShell,
+      { serial, columns: terminal.cols, rows: terminal.rows },
+      revision,
+    );
     try {
-      const response = await bridge.command<TerminalResult>(
-        commands.toolsAdbShell,
-        { serial, columns: terminal.cols, rows: terminal.rows },
-        revision,
-      );
+      let response;
+      try {
+        response = await requestSession();
+      } catch (error) {
+        // A session left behind by a reloaded web view is released by the host
+        // when it refuses this attempt, so the retry binds a fresh shell.
+        if (!(error instanceof BridgeError) || error.response?.error.code !== 'terminal_session_active') throw error;
+        response = await requestSession();
+      }
       const result = response.result;
       if (result.accepted !== true || typeof result.sessionId !== 'string' || !result.sessionId) {
         throw new BridgeError(typeof result.message === 'string' ? result.message : t('tools.shellOpenFailed'));

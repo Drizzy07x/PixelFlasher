@@ -15,7 +15,9 @@ class FrontendToolchainContractTests(unittest.TestCase):
             "react": "19.2.7",
             "react-dom": "19.2.7",
             "vite": "8.1.5",
-            "typescript": "6.0.3",
+            # scripts/verify-i18n.mjs reads the catalog through the typescript/unstable
+            # AST and sync APIs, which only exist from TypeScript 7.
+            "typescript": "7.0.2",
             # Vitest 5 has no stable release as of this checkpoint; prereleases
             # are forbidden, so the latest stable major remains authoritative.
             "vitest": "4.1.10",

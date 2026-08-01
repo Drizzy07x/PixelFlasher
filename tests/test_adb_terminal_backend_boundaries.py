@@ -222,12 +222,12 @@ class TestAdbTerminalServiceBoundaries:
         assert result.code == expected
         provider.assert_not_called()
 
-    def test_open_rechecks_revision_and_device_state_after_process_start(self) -> None:
+    def test_open_rechecks_device_state_after_process_start(self) -> None:
         backend = FakeServiceBackend()
         snapshots = iter(
             [
                 service_snapshot(),
-                service_snapshot(revision=2),
+                service_snapshot(revision=2, selected_serial=None),
             ]
         )
         service = AdbTerminalService(lambda: next(snapshots), backend)
@@ -239,7 +239,7 @@ class TestAdbTerminalServiceBoundaries:
             rows=24,
         )
 
-        assert result.code == "revision_conflict"
+        assert result.code == "target_serial_changed"
         assert backend.process.terminated == 1
 
     def test_open_fails_closed_for_missing_device_shutdown_and_exit_during_start(self) -> None:

@@ -25,6 +25,7 @@ import {
   type PushUiState,
   type UpdateCheckState,
 } from './pages/Pages';
+import { useOperationCancel } from './pages/useOperationCancel';
 import type { ActiveOperation, HostSnapshot, InteractionRequest, Locale, ModernPreferences, RouteId, Theme, ToolbarPosition } from './types';
 
 type Notice = { tone: 'success' | 'warning' | 'error'; message: string };
@@ -36,6 +37,28 @@ type ReinforcedChallenge = {
 };
 
 const MAX_APPLICATION_CONSOLE_LINES = 200;
+// The bridge rejects any request whose JSON payload exceeds 64 KiB before the
+// command-specific validator runs, so the export has to fit inside that bound.
+const MAX_CONSOLE_EXPORT_PAYLOAD_BYTES = 64 * 1024;
+// Headroom for the `grant` token and the surrounding JSON object punctuation.
+const CONSOLE_EXPORT_PAYLOAD_OVERHEAD_BYTES = 512;
+
+/** Keep the most recent console lines that still fit in one bridge payload. */
+export function boundedConsoleExportLines(lines: readonly string[]): string[] {
+  const encoder = new TextEncoder();
+  const budget = MAX_CONSOLE_EXPORT_PAYLOAD_BYTES - CONSOLE_EXPORT_PAYLOAD_OVERHEAD_BYTES;
+  const kept: string[] = [];
+  let used = 0;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    // JSON.stringify accounts for the quotes and any escape sequences; the
+    // trailing byte covers the array separator.
+    used += encoder.encode(JSON.stringify(lines[index])).length + 1;
+    if (used > budget && kept.length) break;
+    kept.push(lines[index]);
+    if (used > budget) break;
+  }
+  return kept.reverse();
+}
 
 function consoleLineFromEvent(event: { event: string; payload: Record<string, unknown> }): string | null {
   if (event.event !== 'progress' && event.event !== 'runtime') return null;
@@ -369,7 +392,13 @@ function PixelFlasherApp({
   }, []);
 
   useEffect(() => {
-    const onHashChange = () => setRoute(initialRoute());
+    const onHashChange = () => {
+      // In-page fragment anchors such as the skip link are not routes; keep the
+      // current page instead of falling back to the dashboard and unmounting it.
+      const hash = window.location.hash;
+      if (hash && !hash.startsWith('#/')) return;
+      setRoute(initialRoute());
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -796,6 +825,10 @@ function PixelFlasherApp({
 
   const exportApplicationConsole = useCallback(async () => {
     if (!applicationConsoleLines.length) return;
+    // Bound the payload before the picker so the user is never asked to choose a
+    // destination for an export the bridge would reject as too large.
+    const lines = boundedConsoleExportLines(applicationConsoleLines);
+    if (!lines.length) return;
     const picker = await runCommand(
       commands.nativeSaveFile,
       {
@@ -808,7 +841,7 @@ function PixelFlasherApp({
     );
     const grant = objectValue(objectValue(picker?.result).data).grant;
     if (typeof grant !== 'string' || !grant) return;
-    await runCommand(commands.appConsoleExport, { grant, lines: [...applicationConsoleLines] });
+    await runCommand(commands.appConsoleExport, { grant, lines });
   }, [applicationConsoleLines, runCommand, t]);
 
   const checkForUpdates = useCallback(async () => {
@@ -991,10 +1024,14 @@ function PixelFlasherApp({
     }
   }, [reportError, snapshot.devices, snapshot.revision, t]);
 
+  const [flashPending, setFlashPending] = useState(false);
+  const flashCancel = useOperationCancel(runCommand, snapshot.activeOperation, flashPending, [commands.flashExecute]);
+
   const startFlash = useCallback(async (plan: FlashPlan, confirmation: string, preview: FlashPreview) => {
     setNotice(null);
     const serial = plan.serials[0];
     if (!serial) throw new Error(t('flash.needDevice'));
+    setFlashPending(true);
     try {
       const payload: Record<string, unknown> = plan.serials.length > 1 ? {} : { serial };
       if (preview.requiredConfirmation) payload.confirmationText = confirmation;
@@ -1014,6 +1051,8 @@ function PixelFlasherApp({
     } catch (error) {
       reportError(error);
       throw error;
+    } finally {
+      setFlashPending(false);
     }
   }, [reportError, t]);
 
@@ -1037,6 +1076,8 @@ function PixelFlasherApp({
             onFirmwareChange={changeFirmware}
             onPrepare={prepareFlash}
             onStart={startFlash}
+            onCancel={flashCancel.operation ? flashCancel.cancel : undefined}
+            cancelling={flashCancel.cancelling}
           />
         </>
       );

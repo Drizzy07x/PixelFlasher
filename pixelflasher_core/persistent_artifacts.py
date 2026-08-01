@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from .contracts import AppSnapshot, FileArtifact
 from .planner import ProcessedArtifactCheckpoint, ProcessedArtifactRepository
-from .repositories import FirmwareRepository, RepositoryError
+from .repositories import ArtifactRecord, FirmwareRepository, RepositoryError
 
 ProcessedMetadataProvider = Callable[[], Mapping[str, object]]
 DeviceCodenameProvider = Callable[[], Iterable[str]]
@@ -36,7 +36,7 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
         firmware_hash: str = "",
         plan_fingerprint: str = "",
     ) -> None:
-        self.firmware_repository.register_processed(
+        records = self.firmware_repository.register_processed(
             artifacts,
             firmware_hash=firmware_hash,
             plan_fingerprint=plan_fingerprint,
@@ -50,6 +50,17 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
                 if self._metadata_provider is not None
                 else None
             ),
+        )
+        # register rebinds the key to exactly the artifacts supplied: callers
+        # re-register the whole set for a firmware and rely on a superseded
+        # role disappearing.  register_processed only ever adds rows, so the
+        # rows this call did not produce have to go, or the planner sees two
+        # artifacts for one role and refuses every flash mode.  Deleting after
+        # the import keeps the previous set intact when the import fails.
+        self._discard_superseded(
+            firmware_hash.casefold(),
+            plan_fingerprint,
+            keep=frozenset(record.artifact_id for record in records),
         )
 
     def resolve(self, snapshot: AppSnapshot) -> tuple[FileArtifact, ...]:
@@ -77,13 +88,7 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
         plan_fingerprint: str = "",
     ) -> ProcessedArtifactCheckpoint:
         normalized_hash = firmware_hash.casefold()
-        records = tuple(
-            record
-            for record in self.firmware_repository.list()
-            if record.metadata.get("recordType") == "processed_firmware_artifact"
-            and record.metadata.get("firmwareHash") == normalized_hash
-            and record.metadata.get("planFingerprint") == plan_fingerprint
-        )
+        records = self._records_for_key(normalized_hash, plan_fingerprint)
         return ProcessedArtifactCheckpoint(
             firmware_hash=normalized_hash,
             plan_fingerprint=plan_fingerprint,
@@ -95,12 +100,9 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
         if not isinstance(checkpoint, ProcessedArtifactCheckpoint):
             raise TypeError("processed artifact checkpoint is required")
         previous_ids = frozenset(checkpoint.artifact_ids)
-        current = tuple(
-            record
-            for record in self.firmware_repository.list()
-            if record.metadata.get("recordType") == "processed_firmware_artifact"
-            and record.metadata.get("firmwareHash") == checkpoint.firmware_hash
-            and record.metadata.get("planFingerprint") == checkpoint.plan_fingerprint
+        current = self._records_for_key(
+            checkpoint.firmware_hash,
+            checkpoint.plan_fingerprint,
         )
         for record in current:
             if record.artifact_id in previous_ids:
@@ -113,3 +115,30 @@ class PersistentProcessedArtifactRepository(ProcessedArtifactRepository):
 
     def clear(self) -> None:
         """Drop no durable data; callers never own repository artifact lifetime."""
+
+    def _records_for_key(
+        self,
+        firmware_hash: str,
+        plan_fingerprint: str,
+    ) -> tuple[ArtifactRecord, ...]:
+        return tuple(
+            record
+            for record in self.firmware_repository.list()
+            if record.metadata.get("recordType") == "processed_firmware_artifact"
+            and record.metadata.get("firmwareHash") == firmware_hash
+            and record.metadata.get("planFingerprint") == plan_fingerprint
+        )
+
+    def _discard_superseded(
+        self,
+        firmware_hash: str,
+        plan_fingerprint: str,
+        *,
+        keep: frozenset[str],
+    ) -> None:
+        for record in self._records_for_key(firmware_hash, plan_fingerprint):
+            if record.artifact_id in keep:
+                continue
+            # A False return means the row is already gone, which is exactly
+            # the state this asks for; only a corrupt repository raises.
+            self.firmware_repository.repository.delete(record.artifact_id)

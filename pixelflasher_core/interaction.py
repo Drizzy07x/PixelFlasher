@@ -11,7 +11,18 @@ from .contracts import InteractionDecision, InteractionRequest
 
 
 class InteractionTimeoutError(TimeoutError):
-    """Raised when a confirmation receives no decision inside its wait budget."""
+    """Raised when a confirmation receives no decision inside its wait budget.
+
+    ``bounded_by_request`` reports which budget actually elapsed. A caller that
+    passes the operation deadline as ``InteractionRequest.timeout_seconds``
+    cannot infer this afterwards: the wait can return marginally before the
+    deadline is technically reached, so probing the cancellation token instead
+    yields whichever side of that boundary the scheduler happened to land on.
+    """
+
+    def __init__(self, message: str, *, bounded_by_request: bool = False) -> None:
+        super().__init__(message)
+        self.bounded_by_request = bounded_by_request
 
 
 @dataclass(slots=True)
@@ -52,17 +63,21 @@ class InteractionBroker:
                 pass
 
         wait_seconds = self.timeout_seconds
+        bounded_by_request = False
         if request.timeout_seconds is not None:
             elapsed = time.monotonic() - started
-            wait_seconds = min(
-                wait_seconds,
-                max(0.0, request.timeout_seconds - elapsed),
-            )
+            requested = max(0.0, request.timeout_seconds - elapsed)
+            if requested <= wait_seconds:
+                wait_seconds = requested
+                bounded_by_request = True
         signalled = pending.event.wait(wait_seconds)
         with self._lock:
             self._pending.pop(request.operation_id, None)
         if not signalled and pending.decision is None:
-            raise InteractionTimeoutError("interaction response timed out")
+            raise InteractionTimeoutError(
+                "interaction response timed out",
+                bounded_by_request=bounded_by_request,
+            )
         if pending.decision is None:
             return InteractionDecision.CANCELLED
         return pending.decision

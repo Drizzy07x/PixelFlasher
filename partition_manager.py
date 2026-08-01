@@ -114,7 +114,7 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
             self.itemDataMap = itemDataMap
 
         self.erase_button = wx.Button(self, wx.ID_ANY, u"Erase", wx.DefaultPosition, wx.DefaultSize, 0)
-        self.erase_button.SetToolTip(u"Erase checked partitions")
+        self.erase_button.SetToolTip(u"Erasing partitions is not available here, use the modern Partition Manager")
         self.erase_button.Enable(False)
 
         self.dump_partition = wx.Button(self, wx.ID_ANY, u"Dump / Backup", wx.DefaultPosition, wx.DefaultSize, 0)
@@ -305,7 +305,8 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
     #                  EnableDisableButton
     # -----------------------------------------------
     def EnableDisableButton(self, state):
-        self.erase_button.Enable(state)
+        # Erase stays disabled, see Erase() and Device.erase_partition().
+        self.erase_button.Enable(False)
         self.dump_partition.Enable(state)
 
     # -----------------------------------------------
@@ -328,13 +329,15 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
     def Erase(self, partition):
         if not self.device:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: You must first select a valid device.")
-            return
-        dlg = wx.MessageDialog(None, f"You have selected to ERASE partition: {partition}\nAre you sure want to continue?", f"Erase Partition: {partition}",wx.YES_NO | wx.ICON_EXCLAMATION)
-        result = dlg.ShowModal()
-        if result != wx.ID_YES:
-            print(f"{datetime.now():%Y-%m-%d %H:%M:%S} User canceled erasing  partition: {partition}.")
-            return
-        self.device.erase_partition(partition)
+            return -1
+        # No confirmation prompt here: Device.erase_partition() refuses and explains why,
+        # asking the user to confirm an action that will not happen is what made this
+        # look like it worked.
+        res = self.device.erase_partition(partition)
+        if res != 0:
+            self.abort = True
+            return -1
+        return 0
 
     # -----------------------------------------------
     #                  OnDump
@@ -382,16 +385,32 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
                     print(f"User Cancelled dumping partition: {partition}")
                     return     # the user changed their mind
                 pathname = fileDialog.GetPath()
+        res = -1
+        # pull_file deletes the destination before pulling, so pull to a temporary name
+        # first, otherwise a failed pull also destroys a previously dumped image.
+        temp_pathname = f"{pathname}.tmp"
         try:
             if self.device:
                 self.SetCursor(wx.Cursor(wx.CURSOR_WAIT))
                 print(f"Dump partition to: {pathname}")
-                self.device.pull_file(path, pathname)
-                res = self.device.delete(path)
+                res = self.device.pull_file(path, temp_pathname)
+                if res == 0:
+                    os.replace(temp_pathname, pathname)
+                    res = self.device.delete(path)
+                else:
+                    print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Failed to pull the dump of partition: {partition}")
+                    print(f"The dump is kept on the device at: {path} so that it can be retried.")
+                    puml("#red:Failed to pull the partition dump from the phone;\n}\n")
+                    if os.path.exists(temp_pathname):
+                        os.remove(temp_pathname)
+                    self.abort = True
         except IOError:
             traceback.print_exc()
             wx.LogError(f"Cannot save img file '{pathname}'.")
+            res = -1
+            self.abort = True
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+        return res
 
 
     # -----------------------------------------------
@@ -479,7 +498,7 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
 
         # build the menu
         menu = wx.Menu()
-        menu.Append(self.popupErase, "Erase Partition")
+        menu.Append(self.popupErase, "Erase Partition").Enable(False)
         menu.Append(self.popupDump, "Dump Partition")
         menu.Append(self.popupCheckAllBoxes, "Check All")
         menu.Append(self.popupUnCheckAllBoxes, "UnCheck All")
@@ -529,13 +548,13 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
 
         if not self.device:
             print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: You must first select a valid device.")
-            return
+            return -1
         if action == "erase":
             print(f"Erasing {partition} ...")
-            self.Erase(partition)
+            return self.Erase(partition)
         elif action == "dump":
             print(f"Dumping {partition} ...")
-            self.Dump(partition, fromMulti)
+            return self.Dump(partition, fromMulti)
         return
 
     # -----------------------------------------------
@@ -543,6 +562,7 @@ IT IS YOUR RESPONSIBILITY TO ENSURE THAT YOU KNOW WHAT YOU ARE DOING.
     # -----------------------------------------------
     def ApplyMultiAction(self, action):
         i = 0
+        self.abort = False
         count = self.GetItemsCheckedCount()
         multi = False
         if count > 1:

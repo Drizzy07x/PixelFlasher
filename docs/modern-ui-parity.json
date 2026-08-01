@@ -657,7 +657,7 @@
         "tests/test_firmware_artifact_service.py",
         "tests/test_firmware_engine_integration.py",
         "tests/test_firmware_smoke.py",
-        "tests/test_firmware_engine_integration.py:test_revision_change_rolls_back_persistent_processed_artifacts",
+        "tests/test_firmware_engine_integration.py:test_context_change_rolls_back_persistent_processed_artifacts",
         "tests/test_boot_inventory_service.py:test_processed_stock_import_tracks_firmware_and_rolls_back_only_new_record",
         "ui/web/src/test/firmware-catalog.test.tsx"
       ],

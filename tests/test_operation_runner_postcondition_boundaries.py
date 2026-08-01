@@ -602,8 +602,12 @@ class TestPostconditionCompilation:
 
         compiled = runner._postcondition_spec(flash_plan)
 
-        assert dict(compiled.partition_hashes) == {"boot_b": DIGEST_A}
-        assert compiled.expected_build == "BUILD"
+        # A firmware flash cannot be proven by reading partitions back, so the
+        # planned digests only gate the plan; the flashed build is the device
+        # evidence, compared whenever the probe can reach a booted system.
+        assert dict(compiled.partition_hashes) == {}
+        assert compiled.expected_build is None
+        assert compiled.flashed_build == "BUILD"
         assert runner._planned_partition_hashes(flash_plan) == ({"boot_b": DIGEST_A}, {"boot"})
 
         with pytest.raises(TypeError, match="array"):

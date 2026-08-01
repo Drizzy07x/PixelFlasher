@@ -21,6 +21,15 @@ _ADB_ONLINE_MODES = frozenset({"adb", "recovery", "sideload"})
 _PROPERTY_SAFE_MODES = frozenset({"adb", "recovery"})
 _FASTBOOT_MODES = frozenset({"fastboot", "fastbootd"})
 _FASTBOOT_GETVARS = ("current-slot", "unlocked", "is-userspace")
+_ADB_MAPPED_STATES = frozenset({"device", "recovery", "sideload", "unauthorized", "offline"})
+# Transient handshake states resolve within one poll and are not worth a warning.
+_ADB_TRANSIENT_STATES = frozenset({"host", "authorizing", "connecting"})
+_ADB_STATE_TOKEN_PATTERN = re.compile(r"^[a-z][a-z0-9._-]{0,31}$")
+_MDNS_ADB_SERVICE_SUFFIXES = (
+    "._adb-tls-connect._tcp",
+    "._adb-tls-pairing._tcp",
+    "._adb._tcp",
+)
 _KERNEL_RELEASE_PATTERN = re.compile(
     r"^(?P<major>[1-9][0-9]*)\.(?P<minor>[0-9]+)(?:\.[0-9]+)?[^\r\n]*?-android(?P<android>[0-9]{2})-",
     re.IGNORECASE,
@@ -45,8 +54,8 @@ def _no_excluded_serials() -> frozenset[str]:
     return frozenset()
 
 
-def parse_adb_devices(output: str) -> tuple[DeviceInfo, ...]:
-    devices: dict[str, DeviceInfo] = {}
+def _iter_adb_rows(output: str) -> list[list[str]]:
+    rows: list[list[str]] = []
     for raw_line in output.replace("\r", "").splitlines():
         line = raw_line.strip()
         if (
@@ -59,10 +68,17 @@ def parse_adb_devices(output: str) -> tuple[DeviceInfo, ...]:
         fields = line.split()
         if len(fields) < 2:
             continue
+        rows.append(fields)
+    return rows
+
+
+def parse_adb_devices(output: str) -> tuple[DeviceInfo, ...]:
+    devices: dict[str, DeviceInfo] = {}
+    for fields in _iter_adb_rows(output):
         serial, adb_state = fields[0], fields[1].lower()
         if adb_state == "device":
             mode = "adb"
-        elif adb_state in {"recovery", "sideload", "unauthorized", "offline"}:
+        elif adb_state in _ADB_MAPPED_STATES:
             mode = adb_state
         else:
             continue
@@ -79,6 +95,32 @@ def parse_adb_devices(output: str) -> tuple[DeviceInfo, ...]:
             connection=_connection_for_adb(serial, attributes),
         )
     return tuple(devices[key] for key in sorted(devices, key=str.casefold))
+
+
+def parse_adb_device_warnings(output: str) -> tuple[str, ...]:
+    """Report adb rows naming a device that cannot be mapped to a usable mode.
+
+    ``parse_adb_devices`` drops such rows on purpose, because an unusable
+    target must never reach the planner, but without a diagnostic a phone
+    blocked by missing USB permissions vanishes with no visible reason.
+    """
+
+    warnings: list[str] = []
+    for fields in _iter_adb_rows(output):
+        serial, adb_state = fields[0], fields[1].lower()
+        if adb_state in _ADB_MAPPED_STATES or adb_state in _ADB_TRANSIENT_STATES:
+            continue
+        if len(serial) > 256 or not serial.isprintable():
+            continue
+        if " ".join(fields[1:]).casefold().startswith("no permissions"):
+            warning = f"adb:no_permissions:{serial}"
+        elif _ADB_STATE_TOKEN_PATTERN.match(adb_state):
+            warning = f"adb:unknown_state:{serial}:{adb_state}"
+        else:
+            continue
+        if warning not in warnings:
+            warnings.append(warning)
+    return tuple(warnings)
 
 
 def parse_fastboot_devices(output: str) -> tuple[DeviceInfo, ...]:
@@ -323,6 +365,7 @@ class DeviceService:
         fastboot_property_timeout_seconds: float = 4.0,
         battery_timeout_seconds: float = 3.0,
         kernel_timeout_seconds: float = 4.0,
+        root_timeout_seconds: float = 4.0,
     ) -> None:
         self.transport = transport or SubprocessTransport()
         self.scan_timeout_seconds = scan_timeout_seconds
@@ -330,6 +373,7 @@ class DeviceService:
         self.fastboot_property_timeout_seconds = fastboot_property_timeout_seconds
         self.battery_timeout_seconds = battery_timeout_seconds
         self.kernel_timeout_seconds = kernel_timeout_seconds
+        self.root_timeout_seconds = root_timeout_seconds
 
     def scan(
         self,
@@ -367,6 +411,7 @@ class DeviceService:
             return DeviceScanResult((), tuple(successful), tuple(warnings), True)
         if adb_outcome is not None and adb_outcome.returncode == 0 and not adb_outcome.timed_out:
             adb_devices = parse_adb_devices(adb_outcome.stdout)
+            warnings.extend(parse_adb_device_warnings(adb_outcome.stdout))
             successful.append("adb")
 
         fastboot_outcome = self._run(
@@ -576,6 +621,7 @@ class DeviceService:
                     and not battery_outcome.cancelled
                 ):
                     battery = parse_battery_level(battery_outcome.stdout)
+            root = self._root_available(device, toolchain, token) if device.mode == "adb" else False
             enriched.append(
                 replace(
                     device,
@@ -583,6 +629,7 @@ class DeviceService:
                     model=model,
                     codename=codename,
                     slot=slot,
+                    root=root,
                     name=name,
                     android_version=android_version,
                     build=build,
@@ -595,6 +642,37 @@ class DeviceService:
                 )
             )
         return tuple(enriched)
+
+    def _root_available(
+        self,
+        device: DeviceInfo,
+        toolchain: ToolchainInfo,
+        token: CancellationToken,
+    ) -> bool:
+        """Return whether the shell can obtain uid 0, failing closed."""
+
+        if token.cancelled:
+            return False
+        # A non-zero exit is the normal answer on a stock device, so this probe
+        # never contributes to the user visible scan warnings.
+        probe_warnings: list[str] = []
+        outcome = self._run(
+            ProcessRequest(
+                (toolchain.adb, "-s", device.serial, "shell", "su", "-c", "id -u"),
+                timeout_seconds=self.root_timeout_seconds,
+            ),
+            token,
+            f"root:{device.serial}",
+            probe_warnings,
+        )
+        return (
+            outcome is not None
+            and outcome.returncode == 0
+            and not outcome.timed_out
+            and not outcome.cancelled
+            and not outcome.stderr.strip()
+            and outcome.stdout.strip() == "0"
+        )
 
     def _run(
         self,
@@ -845,7 +923,12 @@ def _parse_attributes(fields: list[str]) -> dict[str, str]:
 def _connection_for_adb(serial: str, attributes: dict[str, str]) -> str:
     if "usb" in attributes:
         return "USB"
-    if ":" in serial and not serial.startswith("emulator-"):
+    if serial.startswith("emulator-"):
+        return "USB"
+    if ":" in serial:
+        return "Wi-Fi"
+    # Wireless debugging serials are mDNS instance names carrying no colon.
+    if serial.casefold().rstrip(".").endswith(_MDNS_ADB_SERVICE_SUFFIXES):
         return "Wi-Fi"
     return "USB"
 

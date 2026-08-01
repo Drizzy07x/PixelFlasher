@@ -73,6 +73,15 @@ _MAX_ZIP_UNCOMPRESSED = 512 * 1024 * 1024
 _MODULE_LIST_PREFIX = "PF_RM"
 _MAX_MODULES = 256
 _MAX_MODULE_LIST_BYTES = 256 * 1024
+# One shared bound per module.prop property: the collector truncates to this
+# many bytes and the parser accepts at most this many characters. A UTF-8
+# character is never shorter than a byte, so the device cap can no longer
+# admit a value the host parser has to reject.
+_MODULE_NAME_LIMIT = 256
+_MODULE_VERSION_LIMIT = 128
+_MODULE_AUTHOR_LIMIT = 256
+_MODULE_DESCRIPTION_LIMIT = 1024
+_MODULE_UPDATE_JSON_LIMIT = 2048
 _PI_ANALYSIS_PREFIX = "PF_PI"
 _MAX_PI_ANALYSIS_BYTES = 256 * 1024
 _MAX_PI_MODULES = 256
@@ -1434,7 +1443,7 @@ class RootingService:
     ) -> tuple[RootAppInfo, ...]:
         inventory: list[RootAppInfo] = []
         seen_paths: set[str] = set()
-        seen_identities: set[tuple[str, str, str]] = set()
+        seen_identities: set[tuple[str, str, str, str]] = set()
         seen_ids: set[str] = set()
         for source in sources:
             self._check_cancelled(cancellation)
@@ -1498,11 +1507,20 @@ class RootingService:
                     "root_app_inventory_ambiguous",
                     f"duplicate canonical root-app path: {path}",
                 )
-            identity = (provider.casefold(), flavor.casefold(), version.casefold())
+            # The catalog publishes one release per architecture, so the
+            # architecture is part of what identifies a local APK; without it a
+            # provider shipping genuinely per-ABI builds could never have more
+            # than one of them registered at a time.
+            identity = (
+                provider.casefold(),
+                flavor.casefold(),
+                version.casefold(),
+                architecture,
+            )
             if identity in seen_identities:
                 raise RootingPlanningError(
                     "root_app_inventory_ambiguous",
-                    "provider, flavor and version must identify one local APK",
+                    "provider, flavor, version and architecture must identify one local APK",
                 )
             self._check_cancelled(cancellation)
             try:
@@ -1550,7 +1568,9 @@ class RootingService:
                     "root_app_signer_mismatch",
                     "root-app signer does not match the backend-pinned identity",
                 )
-            app_id = hashlib.sha256(f"{provider.casefold()}\0{flavor.casefold()}\0{digest}".encode()).hexdigest()
+            app_id = hashlib.sha256(
+                f"{provider.casefold()}\0{flavor.casefold()}\0{architecture}\0{digest}".encode()
+            ).hexdigest()
             if app_id in seen_ids:
                 raise RootingPlanningError(
                     "root_app_inventory_ambiguous",
@@ -1671,10 +1691,12 @@ class RootingService:
             'if [ -f "$dir/remove" ]; then state=pending_remove; '
             'elif [ -f "$dir/disable" ]; then state=disabled; '
             'elif [ -f "$prop" ]; then state=enabled; else state=corrupt; fi; '
-            'name=$(encode_prop name 512); version=$(encode_prop version 256); '
+            f'name=$(encode_prop name {_MODULE_NAME_LIMIT}); '
+            f'version=$(encode_prop version {_MODULE_VERSION_LIMIT}); '
             'version_code=$(sed -n "s/^versionCode=//p" "$prop" 2>/dev/null | head -n 1 | head -c 16); '
-            'author=$(encode_prop author 512); description=$(encode_prop description 2048); '
-            'update_json=$(encode_prop updateJson 4096); '
+            f'author=$(encode_prop author {_MODULE_AUTHOR_LIMIT}); '
+            f'description=$(encode_prop description {_MODULE_DESCRIPTION_LIMIT}); '
+            f'update_json=$(encode_prop updateJson {_MODULE_UPDATE_JSON_LIMIT}); '
             f'printf "{_MODULE_LIST_PREFIX}|%s|%s|%s|%s|%s|%s|%s|%s\\n" '
             '"$id" "$state" "$name" "$version" "$version_code" "$author" "$description" "$update_json"; '
             f'count=$((count + 1)); [ "$count" -lt {_MAX_MODULES} ] || break; done'
@@ -2342,8 +2364,8 @@ def parse_root_module_list(stdout: str) -> tuple[RootModuleInfo, ...]:
             or state not in {"enabled", "disabled", "pending_remove", "corrupt"}
         ):
             raise RootingPlanningError("root_module_list_malformed", "module identity or state is invalid")
-        name = _module_property(fields[3], "name", 256)
-        version = _module_property(fields[4], "version", 128)
+        name = _module_property(fields[3], "name", _MODULE_NAME_LIMIT, clamp=True)
+        version = _module_property(fields[4], "version", _MODULE_VERSION_LIMIT, clamp=True)
         raw_version_code = fields[5]
         if raw_version_code:
             if not raw_version_code.isascii() or not raw_version_code.isdecimal():
@@ -2353,9 +2375,14 @@ def parse_root_module_list(stdout: str) -> tuple[RootModuleInfo, ...]:
                 raise RootingPlanningError("root_module_list_malformed", "module version code is out of bounds")
         else:
             version_code = None
-        author = _module_property(fields[6], "author", 256)
-        description = _module_property(fields[7], "description", 1024)
-        update_url = _module_property(fields[8], "updateJson", 2048)
+        author = _module_property(fields[6], "author", _MODULE_AUTHOR_LIMIT, clamp=True)
+        description = _module_property(
+            fields[7],
+            "description",
+            _MODULE_DESCRIPTION_LIMIT,
+            clamp=True,
+        )
+        update_url = _module_property(fields[8], "updateJson", _MODULE_UPDATE_JSON_LIMIT)
         if update_url:
             parsed = urlsplit(update_url)
             if (
@@ -2382,21 +2409,59 @@ def parse_root_module_list(stdout: str) -> tuple[RootModuleInfo, ...]:
     return tuple(sorted(modules, key=lambda item: item.id.casefold()))
 
 
-def _module_property(encoded: str, label: str, maximum: int) -> str:
+def _module_property(encoded: str, label: str, maximum: int, *, clamp: bool = False) -> str:
     try:
         raw = base64.b64decode(encoded, validate=True)
-        value = raw.decode("utf-8", errors="strict").strip()
+        value = _decode_module_text(raw).strip()
     except (ValueError, UnicodeDecodeError) as error:
         raise RootingPlanningError(
             "root_module_list_malformed",
             f"module {label} metadata is invalid",
         ) from error
-    if len(value) > maximum or any(ord(character) < 32 for character in value):
+    if any(ord(character) < 32 for character in value):
         raise RootingPlanningError(
             "root_module_list_malformed",
             f"module {label} metadata is outside its bounds",
         )
+    if len(value) > maximum:
+        if not clamp:
+            raise RootingPlanningError(
+                "root_module_list_malformed",
+                f"module {label} metadata is outside its bounds",
+            )
+        # Cosmetic free text must never cost the caller the whole inventory:
+        # one over-long description would otherwise hide every other module.
+        value = value[:maximum].strip()
     return value
+
+
+def _decode_module_text(raw: bytes) -> str:
+    """Decode one device-truncated property, dropping a split trailing character.
+
+    ``head -c`` cuts on a byte boundary, so the last UTF-8 sequence can arrive
+    incomplete. Only that trailing partial sequence is discarded; any other
+    invalid byte still fails the record.
+    """
+
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        if error.end != len(raw) or not _is_truncated_utf8_sequence(raw[error.start:]):
+            raise
+        return raw[: error.start].decode("utf-8", errors="strict")
+
+
+def _is_truncated_utf8_sequence(tail: bytes) -> bool:
+    lead = tail[0]
+    if 0xC2 <= lead <= 0xDF:
+        expected = 2
+    elif 0xE0 <= lead <= 0xEF:
+        expected = 3
+    elif 0xF0 <= lead <= 0xF4:
+        expected = 4
+    else:
+        return False
+    return len(tail) < expected and all(0x80 <= byte <= 0xBF for byte in tail[1:])
 
 
 def parse_pif_inventory(stdout: str) -> dict[str, object]:

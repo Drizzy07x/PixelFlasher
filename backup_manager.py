@@ -386,7 +386,7 @@ class BackupManager(wx.Dialog, listmix.ColumnSorterMixin):
                     print("✅ Good: Magisk has made a backup")
                 else:
                     print("It looks like Magisk did not make a backup.\nTrying an alternate approach ...")
-                    self.ZipAndPush(file_to_backup, file_sha1)
+                    res = self.ZipAndPush(file_to_backup, file_sha1)
                     if res != 0:
                         print("Aborting ...\n")
                         self._on_spin('stop')
@@ -423,6 +423,7 @@ class BackupManager(wx.Dialog, listmix.ColumnSorterMixin):
         res = self.device.push_file(f"{backup_file}", f"/data/magisk_backup_{file_sha1}/boot.img.gz", with_su=True)
         if res != 0:
             return -1
+        return 0
 
     # -----------------------------------------------
     #                  OnAutoBackup
@@ -484,7 +485,7 @@ class BackupManager(wx.Dialog, listmix.ColumnSorterMixin):
                     print("✅ Good: Magisk has made a backup")
                 else:
                     print("It looks like Magisk did not make a backup.\nTrying an alternate approach ...")
-                    self.ZipAndPush(file_to_backup, patched_sha1)
+                    res = self.ZipAndPush(file_to_backup, patched_sha1)
                     if res != 0:
                         print("Aborting ...\n")
                         self._on_spin('stop')

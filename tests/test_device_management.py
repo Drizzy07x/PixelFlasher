@@ -399,6 +399,8 @@ class FilteringTransport:
             return TransportOutcome(0, "[ro.product.model]: [Pixel 9 Pro]\n")
         if request.argv == ("ADB", "-s", "ALLOWED", "shell", "uname", "-r"):
             return TransportOutcome(0, "5.15.148-android14-11-gtest\n")
+        if request.argv == ("ADB", "-s", "ALLOWED", "shell", "su", "-c", "id -u"):
+            return TransportOutcome(0, "0\n")
         raise AssertionError(f"excluded device was enriched: {request.argv!r}")
 
 
@@ -425,6 +427,7 @@ class DeviceServiceManagementTests(unittest.TestCase):
                 ("FASTBOOT", "devices", "-l"),
                 ("ADB", "-s", "ALLOWED", "shell", "getprop"),
                 ("ADB", "-s", "ALLOWED", "shell", "uname", "-r"),
+                ("ADB", "-s", "ALLOWED", "shell", "su", "-c", "id -u"),
             ],
             transport.calls,
         )

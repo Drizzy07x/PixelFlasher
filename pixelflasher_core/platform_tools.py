@@ -163,7 +163,7 @@ def architecture_key(architecture: str) -> str:
         ) from error
 
 
-def _binary_architecture_is_compatible(
+def binary_architecture_is_compatible(
     *,
     platform: str,
     requested_arch: str,
@@ -171,14 +171,17 @@ def _binary_architecture_is_compatible(
 ) -> bool:
     if requested_arch in observed_arches:
         return True
-    # Google currently ships the Windows Platform Tools as PE x86. Windows
-    # x64 and Windows 11 on ARM both provide the corresponding compatibility
-    # layer, while no equivalent cross-architecture promise exists on POSIX.
-    return (
-        platform_key(platform) == "windows"
-        and requested_arch in {"x86_64", "arm64"}
-        and observed_arches == frozenset({"x86"})
-    )
+    # Google currently ships the Windows Platform Tools as PE x86 and upstream
+    # publishes no ARM64 Scrcpy build. Windows x64 runs x86 images and Windows
+    # 11 on ARM emulates both x86 and x64, while no equivalent
+    # cross-architecture promise exists on POSIX.
+    if platform_key(platform) != "windows" or not observed_arches:
+        return False
+    if requested_arch == "x86_64":
+        return observed_arches == frozenset({"x86"})
+    if requested_arch == "arm64":
+        return observed_arches <= {"x86", "x86_64"}
+    return False
 
 
 def _cpu_architecture(cpu_type: int) -> str | None:
@@ -298,7 +301,7 @@ def validate_platform_tools_directory(
                     "toolchain_binary_format_invalid",
                     "Platform Tools contains an unrecognized executable format",
                 )
-            if not _binary_architecture_is_compatible(
+            if not binary_architecture_is_compatible(
                 platform=platform,
                 requested_arch=requested_arch,
                 observed_arches=observed_arches,
@@ -662,7 +665,11 @@ class PlatformToolsInstaller:
                 ) from rollback_error
             raise
         if backup.exists():
-            shutil.rmtree(backup)
+            # Activation has already committed at this point.  Windows keeps the
+            # backup copy of a running adb.exe locked, and failing to clean it
+            # must not turn a verified installation into a false failure while
+            # leaving the new target active.
+            shutil.rmtree(backup, ignore_errors=True)
             self._fsync_directory(root)
         return installed
 

@@ -139,13 +139,21 @@ def _run_modern_primary(argv):
         from ui.pages.modern_primary_app import launch_modern_primary
         result = launch_modern_primary(argv)
     except Exception as exc:
-        _log_startup_failure(exc)
+        path = _log_startup_failure(exc)
         print(f"Modern UI startup unavailable: {exc}")
+        _show_startup_failure_dialog(f"Modern UI startup unavailable: {exc}", path, argv)
         raise SystemExit(1) from exc
     raise SystemExit(result)
 
 
-def _log_startup_failure(exc: Exception) -> None:
+def _is_ui_smoke_run(argv):
+    return any(
+        str(arg) == "--ui-smoke-report" or str(arg).startswith("--ui-smoke-report=")
+        for arg in argv or ()
+    )
+
+
+def _log_startup_failure(exc: Exception):
     try:
         path = os.path.join(tempfile.gettempdir(), "PixelFlasher-startup-error.log")
         with open(path, "a", encoding="utf-8", errors="replace") as log:
@@ -153,6 +161,30 @@ def _log_startup_failure(exc: Exception) -> None:
             log.write(f"{exc}\n")
             log.write(traceback.format_exc())
             log.write("\n")
+        return path
+    except Exception:
+        return None
+
+
+def _show_startup_failure_dialog(message, log_path, argv=()):
+    """The packaged Windows console is hidden, so print() alone reaches nobody.
+
+    Only the OS dialog is usable here: the failure above is an import error, so
+    wx may be missing or broken and no wx.App can exist yet.
+    """
+    if sys.platform != "win32":
+        return
+    if _is_ui_smoke_run(argv):
+        # A UI smoke run owns a headless CI process started with -Wait. A modal
+        # here would hold that wait open until the job times out, turning the
+        # very failure this dialog reports into a hung build.
+        return
+    try:
+        import ctypes
+
+        if log_path:
+            message = f"{message}\n\nDetails were written to:\n{log_path}"
+        ctypes.windll.user32.MessageBoxW(None, message, "PixelFlasher startup failed", 0x10)
     except Exception:
         pass
 

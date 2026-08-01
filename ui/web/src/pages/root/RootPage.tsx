@@ -4,6 +4,7 @@ import { commands } from '../../commands';
 import { useI18n } from '../../i18n';
 import { Badge, Button, Card, CardTitle, EmptyState, Icon, PageHeader } from '../../components/ui';
 import { record, selectedGrant, type SharedPageProps } from '../shared';
+import { useOperationCancel } from '../useOperationCancel';
 
 interface RootAppEntry {
   id: string;
@@ -564,6 +565,15 @@ export function rootAppSupportsDeviceArchitecture(appArchitecture: string, devic
   return Boolean(expected && observed && expected === observed);
 }
 
+/**
+ * Mirrors BootPatchService: every flavor but Magisk rewrites the kernel, which
+ * lives in the boot partition. On a modern Pixel the ramdisk moved to init_boot,
+ * so only Magisk can patch it.
+ */
+export function patchMethodAcceptsPartition(method: string, partition: string) {
+  return method === 'magisk' || partition === 'boot';
+}
+
 export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPageProps) {
   const { t } = useI18n();
   type RootMethod = { id: string; name: string; version: string; icon: 'magisk' | 'kernelSu' | 'apatch' | 'sukiSu' | 'wildKsu'; detail: string };
@@ -630,6 +640,9 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   const [integrityCheckPending, setIntegrityCheckPending] = useState(false);
   const [integrityCheckConfirmation, setIntegrityCheckConfirmation] = useState('');
   const [busy, setBusy] = useState('');
+  const hostOperation = snapshot.activeOperation ?? snapshot.active_operation;
+  const patchCancel = useOperationCancel(onCommand, hostOperation, busy === 'boot-patch', [commands.bootPatch]);
+  const appDownloadCancel = useOperationCancel(onCommand, hostOperation, busy.startsWith('app-download:'), [commands.rootAppsDownload]);
   const [apatchPromptOpen, setApatchPromptOpen] = useState(false);
   const [apatchSecret, setApatchSecret] = useState('');
   const apatchResolverRef = useRef<((value: string | null) => void) | null>(null);
@@ -655,6 +668,29 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
     && rootAppSupportsDeviceArchitecture(app.architecture, primary?.architecture ?? '')
   ));
   const compatibleApp = compatibleApps.find((app) => methodForProvider(app.provider) === method) ?? compatibleApps[0];
+  // The footer must name the condition that actually disables the patch button.
+  // Reporting "no compatible app" for a device sitting in fastboot sends the user
+  // to refresh a catalog that was never the problem. The partition rule mirrors
+  // BootPatchService: every flavor but Magisk patches the boot partition, so an
+  // init_boot image with KernelSU is refused by the backend once the operation is
+  // already running. Refuse it here instead of letting it fail mid-flight.
+  const selectedBootPartition = snapshot.boot?.flavor ?? '';
+  const partitionRejected = Boolean(method) && !patchMethodAcceptsPartition(method, selectedBootPartition);
+  const patchBlocked = !singleAdb
+    ? t('root.patchDeviceRequired')
+    : !snapshot.boot
+      ? t('root.patchBootRequired')
+      : partitionRejected
+        ? t('root.patchPartitionRequired', { partition: selectedBootPartition || 'non-boot' })
+        : !compatibleApp
+          ? t('root.patchAppsRequired')
+          : '';
+  // Several catalog entries deliberately share one digest across architectures, so
+  // the row the device can actually use is listed first and stays downloadable.
+  const orderedRootAppCatalog = [...rootAppCatalog].sort((left, right) => (
+    Number(rootAppSupportsDeviceArchitecture(right.architecture, primary?.architecture ?? ''))
+    - Number(rootAppSupportsDeviceArchitecture(left.architecture, primary?.architecture ?? ''))
+  ));
 
   useEffect(() => {
     if (!apatchPromptOpen) return;
@@ -1471,6 +1507,7 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
 
   const patchBoot = async () => {
     if (!singleAdb || !primary || !method || !compatibleApp || !snapshot.boot || busy) return;
+    if (partitionRejected) return;
     setBusy('boot-patch');
     try {
       const picked = await onCommand(commands.nativeSaveFile, {
@@ -1596,10 +1633,13 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
           {!methods.length ? <EmptyState icon="root" title={t('common.none')} detail={t('root.subtitle')} /> : null}
         </div>
         <div className="root-footer">
-          <span>{compatibleApp ? `${compatibleApp.provider} ${compatibleApp.version}` : t('root.patchAppsRequired')}</span>
-          <Button variant="primary" icon="patch" onClick={() => void patchBoot()} disabled={Boolean(busy) || !singleAdb || !snapshot.boot || !method || !compatibleApp}>
+          <span>{patchBlocked || `${compatibleApp!.provider} ${compatibleApp!.version}`}</span>
+          <Button variant="primary" icon="patch" onClick={() => void patchBoot()} disabled={Boolean(busy) || !method || Boolean(patchBlocked)}>
             {t('root.patch')}
           </Button>
+          {patchCancel.operation ? (
+            <Button variant="ghost" onClick={() => void patchCancel.cancel()} disabled={patchCancel.cancelling}>{t('common.cancel')}</Button>
+          ) : null}
         </div>
       </Card>
 
@@ -1621,13 +1661,19 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
               </label>
               <Button icon="download" onClick={() => void refreshRootAppCatalog()} disabled={Boolean(busy)}>{t('root.appCatalog')}</Button>
               <Button icon="scan" onClick={() => void refreshRootApps()} disabled={Boolean(busy)}>{t('common.refresh')}</Button>
+              {appDownloadCancel.operation ? (
+                <Button variant="ghost" onClick={() => void appDownloadCancel.cancel()} disabled={appDownloadCancel.cancelling}>{t('common.cancel')}</Button>
+              ) : null}
             </div>
           )}>{t('root.appsTitle')}</CardTitle>
           <p className="root-manager__detail">{t('root.appsDetail')}</p>
           {!singleAdb ? <p className="root-manager__guard"><Icon name="warningPng" size={16} />{t('root.appDeviceRequired')}</p> : null}
           <div className="root-inventory" role={rootApps.length || rootAppCatalog.length ? 'list' : undefined} aria-label={t('root.appsTitle')}>
-            {rootAppCatalog.map((entry) => {
-              const available = rootApps.some((app) => app.sha256 === entry.sha256);
+            {orderedRootAppCatalog.map((entry) => {
+              const available = rootApps.some((app) => (
+                app.sha256 === entry.sha256
+                && app.architecture.toLowerCase() === entry.architecture.toLowerCase()
+              ));
               return (
                 <article className="root-inventory__row" role="listitem" key={entry.artifactId}>
                   <span className="root-inventory__icon"><Icon name="download" size={24} /></span>

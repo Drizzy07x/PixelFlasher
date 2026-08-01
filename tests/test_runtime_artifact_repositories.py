@@ -260,7 +260,7 @@ class RuntimeArtifactRepositoryTests(unittest.TestCase):
             self.assertEqual((), runtime.artifact_repository.list())
             runtime.shutdown()
 
-    def test_failed_migration_closes_repository_after_config_backup(self) -> None:
+    def test_failed_migration_is_recorded_after_config_backup_without_blocking_startup(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             config = root / "PixelFlasher.json"
@@ -295,8 +295,15 @@ class RuntimeArtifactRepositoryTests(unittest.TestCase):
                     side_effect=close,
                 ),
             ):
-                with self.assertRaisesRegex(OSError, "injected migration failure"):
-                    ApplicationRuntime.open(config)
+                runtime = ApplicationRuntime.open(config)
+
+                self.assertEqual("failed", runtime.legacy_migration_report.status)
+                self.assertIn(
+                    "injected migration failure",
+                    runtime.legacy_migration_error or "",
+                )
+                self.assertEqual([], close_calls)
+                runtime.shutdown()
 
             self.assertEqual(1, len(close_calls))
 

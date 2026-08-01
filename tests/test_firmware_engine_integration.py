@@ -602,7 +602,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(previous_boot, cancel_engine.store.snapshot().boot)
             self.assertIsNone(cancel_engine.store.snapshot().active_operation)
 
-    def test_revision_change_during_processing_blocks_atomic_promotion(self):
+    def test_context_change_during_processing_blocks_atomic_promotion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             firmware = root / "factory.zip"
@@ -637,7 +637,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
             worker.start()
             self.assertTrue(service.processed.wait(2))
-            store.update(expected_revision=1, selected_serials=())
+            store.update(expected_revision=1, selected_serials=(), selected_serial=None)
             service.release.set()
             worker.join(2)
 
@@ -653,7 +653,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
                 tuple(path for path in (root / "cache").rglob("*") if path.is_file()),
             )
 
-    def test_revision_change_rolls_back_persistent_processed_artifacts(self):
+    def test_context_change_rolls_back_persistent_processed_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             firmware = root / "factory.zip"
@@ -703,7 +703,7 @@ class FirmwareEngineIntegrationTests(unittest.TestCase):
             )
             worker.start()
             self.assertTrue(service.processed.wait(2))
-            store.update(expected_revision=1, selected_serials=())
+            store.update(expected_revision=1, selected_serials=(), selected_serial=None)
             service.release.set()
             worker.join(2)
 

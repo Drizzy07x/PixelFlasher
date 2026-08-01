@@ -233,7 +233,6 @@ class GoogleImagesBaseMenu(wx.Menu):
         self.parent = parent
         self.load_data()
         self.current_menu_id = self.BASE_MENU_ID_START
-        self.progress_window = None
 
     def generate_unique_id(self):
         unique_id = self.current_menu_id
@@ -292,38 +291,30 @@ class GoogleImagesBaseMenu(wx.Menu):
         gauge, cancel_button = progress_window.add_download(url, filename)
 
         cancel_flag = {'cancelled': False}
-        # Store file handle to ensure proper cleanup
-        file_handle = {'f': None}
 
+        # Only the worker thread ever owns the file, closing it from here would break an
+        # in-flight write. It notices the flag and cleans up the partial download itself.
         def on_cancel(event):
             cancel_flag['cancelled'] = True
             print(f"Download cancelled for: {url}")
             try:
-                # Close file handle if it exists
-                if file_handle['f']:
-                    file_handle['f'].close()
-                    file_handle['f'] = None
-
-                # Small delay to ensure file operations complete
-                time.sleep(0.1)
-
-                if os.path.exists(destination_path):
-                    try:
-                        # Close any remaining handles
-                        os.close(os.open(destination_path, os.O_RDONLY))
-                    except:
-                        pass
-                    try:
-                        print(f"Deleting partial download: {destination_path}")
-                        os.remove(destination_path)
-                    except Exception as e:
-                        print(f"Error deleting partial download: {e}")
-            except Exception as e:
-                print(f"Error in cleanup: {e}")
-            try:
                 wx.CallAfter(progress_window.remove_download, url)
             except Exception as e:
                 print(f"Error removing download from UI: {e}")
+
+        # The worker is a daemon thread: closing the application mid-download freezes it
+        # at interpreter finalization, so the file is never flushed or closed. Nothing may
+        # carry the user's chosen name until the transfer has actually completed, or a
+        # truncated firmware ZIP would be left behind under a name that looks genuine.
+        temp_path = destination_path + '.part'
+
+        def delete_partial_download():
+            if os.path.exists(temp_path):
+                try:
+                    print(f"Deleting partial download: {temp_path}")
+                    os.remove(temp_path)
+                except Exception as e:
+                    print(f"Error deleting partial download: {e}")
 
         cancel_button.Bind(wx.EVT_BUTTON, on_cancel)
 
@@ -336,17 +327,16 @@ class GoogleImagesBaseMenu(wx.Menu):
 
         def download_thread():
             try:
-                response = requests.get(url, stream=True)
+                # without a timeout a stalled connection hangs the download forever, with
+                # a frozen gauge and no error. (connect, read between chunks)
+                response = requests.get(url, stream=True, timeout=(10, 60))
                 total_length = int(response.headers.get('content-length', 0))
                 downloaded = 0
 
-                with open(destination_path, 'wb') as f:
-                    # Store file handle for cleanup
-                    file_handle['f'] = f  # type: ignore
+                with open(temp_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=4096):
                         if cancel_flag['cancelled']:
-                            f.close()
-                            return
+                            break
                         if chunk:
                             downloaded += len(chunk)
                             f.write(chunk)
@@ -355,35 +345,33 @@ class GoogleImagesBaseMenu(wx.Menu):
                                     wx.CallAfter(update_gauge, int(100 * downloaded / total_length))
                                 except Exception:
                                     pass
-                    # Clear file handle reference
-                    file_handle['f'] = None
 
-                if not cancel_flag['cancelled']:
-                    try:
-                        wx.CallAfter(progress_window.remove_download, url)
-                        wx.CallAfter(callback)
-                    except Exception as e:
-                        print(f"Error in download completion: {e}")
+                if cancel_flag['cancelled']:
+                    delete_partial_download()
+                    return
+
+                os.replace(temp_path, destination_path)
+                try:
+                    wx.CallAfter(progress_window.remove_download, url)
+                    wx.CallAfter(callback)
+                except Exception as e:
+                    print(f"Error in download completion: {e}")
+            except requests.exceptions.Timeout:
+                print(f"Download error: timed out while downloading {url}")
+                try:
+                    wx.CallAfter(progress_window.remove_download, url)
+                except Exception:
+                    pass
+                delete_partial_download()
             except Exception as e:
                 print(f"Download error: {e}")
                 try:
                     wx.CallAfter(progress_window.remove_download, url)
                 except Exception:
                     pass
-                # Ensure file handle is closed
-                if file_handle['f']:
-                    file_handle['f'].close()
-                    file_handle['f'] = None
-                # Small delay before deletion
-                time.sleep(0.1)
-                if os.path.exists(destination_path):
-                    try:
-                        os.close(os.open(destination_path, os.O_RDONLY))
-                        os.remove(destination_path)
-                    except Exception as e:
-                        print(f"Error cleaning up failed download: {e}")
+                delete_partial_download()
 
-        threading.Thread(target=download_thread).start()
+        threading.Thread(target=download_thread, daemon=True).start()
 
     def on_download(self, url, event=None, unique_id=any):
         # debug(f"Download triggered for URL: {url}, Menu ID: {unique_id}")
@@ -411,10 +399,18 @@ class GoogleImagesBaseMenu(wx.Menu):
         self.parent._on_spin('stop')
 
     def on_show_progress_window(self, event):
-        if self.progress_window:
-            self.progress_window.Show()
-        else:
-            self.parent.toast(_("No Downloads"), _("ℹ️ No downloads are in progress."))
+        # The window lives on the frame, this menu is rebuilt whenever the Google Images
+        # menu is refreshed so it cannot hold on to it. Don't use get_progress_window(),
+        # it would create an empty one on demand.
+        progress_window = getattr(self.parent, 'download_progress_window', None)
+        if progress_window:
+            try:
+                progress_window.Show()
+                return
+            except RuntimeError:
+                # the user closed it with the X, the C++ object is already gone
+                self.parent.download_progress_window = None
+        self.parent.toast(_("No Downloads"), _("ℹ️ No downloads are in progress."))
 
 # ============================================================================
 #                               Class GoogleImagesMenu
@@ -758,8 +754,7 @@ class PixelFlasher(wx.Frame):
 
         device_id = str(getattr(self.config, "device", "") or "")
         if not device_id:
-            selection = str(self.device_choice.GetStringSelection() or "")
-            device_id = selection.split()[0] if selection else ""
+            device_id = self._device_id_from_label(self.device_choice.GetStringSelection())
 
         if device_id:
             update_phones(device_id)
@@ -786,9 +781,17 @@ class PixelFlasher(wx.Frame):
                 return get_phone(True) is not None
         return False
 
+    def _device_id_from_label(self, label):
+        # device_choice entries are Device.get_device_details() strings, the id is the
+        # third token. Rows such as 'ERROR' or the empty placeholder have no id.
+        parts = ' '.join(str(label or "").split()).split()
+        return parts[2] if len(parts) > 2 else ""
+
     def _select_device_choice_by_id(self, device_id):
+        if not device_id:
+            return
         for index, label in enumerate(self.device_choice.GetItems()):
-            if str(label).split()[0] == device_id:
+            if self._device_id_from_label(label) == device_id:
                 self.device_choice.SetSelection(index)
                 return
 

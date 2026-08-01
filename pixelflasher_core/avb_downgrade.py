@@ -349,17 +349,28 @@ class DowngradePatchService:
                 os.replace(staged_image, committed)
                 committed_created = True
             artifact = FileArtifact(str(committed.resolve()), output_hash, "downgrade:boot")
-            checkpoint = self.repository.checkpoint(
-                firmware_hash=digest,
-                plan_fingerprint=plan_fingerprint,
-            )
+            # The downgrade boot image is a property of the firmware, never of a
+            # single flash plan: registering it under the volatile plan
+            # fingerprint makes it unreachable as soon as any flash option
+            # changes, because the planner then falls back to the firmware
+            # binding that has no downgrade artifact.
+            checkpoint = self.repository.checkpoint(firmware_hash=digest)
             retained = tuple(item for item in registered if item.role != "downgrade:boot")
             try:
                 self.repository.register(
                     (*retained, artifact),
                     firmware_hash=digest,
-                    plan_fingerprint=plan_fingerprint,
                 )
+                bound = self.repository.resolve_binding(firmware_hash=digest)
+                # register is defined as replace-for-key.  A repository that
+                # appended instead would leave two downgrade artifacts on this
+                # firmware, and the planner then rejects every flash mode for
+                # it; undo rather than hand the planner an unusable binding.
+                if sum(1 for item in bound if item.role == "downgrade:boot") > 1:
+                    self.repository.rollback(checkpoint)
+                    raise RuntimeError(
+                        "repository kept a superseded downgrade artifact for this firmware"
+                    )
             except Exception as error:
                 if committed_created:
                     with suppress(OSError):

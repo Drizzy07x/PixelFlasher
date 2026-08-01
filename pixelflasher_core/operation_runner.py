@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import os
 import re
+import shutil
 import stat
 import tempfile
 import threading
@@ -2114,6 +2116,7 @@ class OperationRunner:
         safe_mode: bool | None = None
         ota_idle: bool | None = None
         build: str | None = None
+        flashed_build: str | None = None
         remote_hashes: dict[str, str] = {}
         partition_hashes: dict[str, str] = {}
         expected_packages: dict[str, bool] = {}
@@ -2511,7 +2514,7 @@ class OperationRunner:
                     raise ValueError("conflicting TargetedFix profile hash postconditions")
                 expected_targeted_fix_profile_hashes[identity] = digest
             elif postcondition.kind == "flash_applied":
-                hashes, flashed_partitions = self._planned_partition_hashes(plan)
+                _, flashed_partitions = self._planned_partition_hashes(plan)
                 expected_partitions = expected.get("partitions", plan.partitions)
                 if isinstance(expected_partitions, str) or not isinstance(
                     expected_partitions,
@@ -2526,13 +2529,24 @@ class OperationRunner:
                 missing = normalized_partitions - flashed_partitions
                 if missing:
                     raise ValueError(f"partition hash evidence is unavailable for {sorted(missing)[0]}")
-                for key, digest in hashes.items():
-                    self._bind_partition_hash(partition_hashes, key, digest)
+                # The planned digests above prove that every promised partition is
+                # written by a hash-bound argv, which is checked before the first
+                # process starts.  They are deliberately not bound as device
+                # evidence: reading a partition back needs "fastboot fetch", which
+                # stock bootloaders do not implement, and a whole-partition digest
+                # can never equal the digest of the smaller image written into it.
+                terminal_mode = self._flash_terminal_mode(plan)
+                if terminal_mode is not None:
+                    mode = bind(mode, terminal_mode, "mode")  # type: ignore[assignment]
                 raw_build = expected.get("build")
                 if raw_build:
                     if not isinstance(raw_build, str):
                         raise TypeError("firmware build postcondition must be a string")
-                    build = bind(build, raw_build, "firmware build")  # type: ignore[assignment]
+                    flashed_build = bind(  # type: ignore[assignment]
+                        flashed_build,
+                        raw_build,
+                        "flashed firmware build",
+                    )
             elif postcondition.kind == "firmware_applied":
                 raw_build = expected.get("build")
                 if not isinstance(raw_build, str) or not raw_build:
@@ -2551,6 +2565,7 @@ class OperationRunner:
             expected_safe_mode=safe_mode,
             expected_ota_idle=ota_idle,
             expected_build=build,
+            flashed_build=flashed_build,
             partition_hashes=partition_hashes,
             expected_packages=expected_packages,
             expected_package_states=expected_package_states,
@@ -2586,6 +2601,46 @@ class OperationRunner:
         if current is not None and not hmac.compare_digest(current, normalized):
             raise ValueError(f"conflicting partition hash postconditions for {key}")
         values[key] = normalized
+
+    @staticmethod
+    def _flash_terminal_mode(plan: OperationPlan) -> str | None:
+        """Name the bootloader state a flash plan promises to leave behind.
+
+        The plan's own mode transitions are replayed from the mode the device
+        was in when the plan was compiled, so a flash that ends in the
+        bootloader binds where it ends: the target is reachable the instant the
+        last process exits, and VERIFIED then proves the promised terminal
+        state instead of merely proving that something answered.
+
+        A plan whose last step reboots into Android returns None on purpose.
+        The observation budget is far shorter than a first boot after a wipe,
+        and every status other than VERIFIED is reported as a failed flash, so
+        binding "adb" would turn slow-but-healthy boots into failures - the
+        outcome most likely to push somebody into reflashing a working device.
+        Such a plan therefore keeps only the build check, applied whenever the
+        probe does reach a booted system.
+        """
+
+        state = plan.expected_device_state
+        mode = state if state in {"fastboot", "fastbootd"} else None
+        for request in plan.requests:
+            argv = request.argv
+            if not argv:
+                continue
+            last = argv[-1]
+            if last == "reboot-bootloader":
+                mode = "fastboot"
+            elif len(argv) >= 2 and argv[-2] == "reboot":
+                if last == "bootloader":
+                    mode = "fastboot"
+                elif last == "fastboot":
+                    mode = "fastbootd"
+            elif last == "reboot":
+                return None
+            elif len(argv) >= 2 and argv[-2] == "boot" and "flash" not in argv:
+                # "fastboot boot <image>" ends in the RAM-booted system.
+                return None
+        return mode
 
     @staticmethod
     def _planned_partition_hashes(
@@ -2857,6 +2912,7 @@ class OperationRunner:
                     "artifact_stage_unavailable",
                     "verified artifact staging could not be made private",
                 ) from error
+            cls._reject_undersized_stage(plan, root)
 
             replacements: dict[str, str] = {}
             replacement_roles: dict[str, set[str]] = {}
@@ -2918,6 +2974,41 @@ class OperationRunner:
         except Exception:
             cls._cleanup_artifact_stage(stage)
             raise
+
+    @staticmethod
+    def _reject_undersized_stage(plan: OperationPlan, root: Path) -> None:
+        """Fail a hopeless copy before it writes gigabytes it cannot finish.
+
+        A firmware plan stages every extracted partition image, so a temporary
+        volume smaller than the firmware aborts the flash minutes later with an
+        errno nobody can act on.  The requirement is measured over distinct
+        source paths, matching the deduplication the copy loop performs.  An
+        unmeasurable source or volume disables the check rather than blocking a
+        flash that would otherwise succeed.
+        """
+
+        required = 0
+        measured: set[str] = set()
+        for artifact in plan.artifacts:
+            if artifact.path in measured:
+                continue
+            measured.add(artifact.path)
+            try:
+                size = Path(artifact.path).stat().st_size
+            except OSError:
+                return
+            required += size
+        if required <= 0:
+            return
+        try:
+            available = shutil.disk_usage(root).free
+        except (OSError, ValueError):
+            return
+        if available < required:
+            raise _ArtifactStageError(
+                "artifact_stage_no_space",
+                f"verified artifact staging needs {required} bytes but the staging volume has {available} free",
+            )
 
     @staticmethod
     def _cleanup_artifact_stage(
@@ -3034,9 +3125,19 @@ class OperationRunner:
         except InterruptedError:
             raise
         except OSError as error:
+            # The OS message is withheld on purpose: it carries absolute paths
+            # that must not reach the UI or a support package.  The errno symbol
+            # is a fixed constant name, so it names the cause without leaking
+            # anything, and exhaustion gets its own actionable code.
+            if error.errno in {errno.ENOSPC, errno.EDQUOT, errno.EFBIG}:
+                raise _ArtifactStageError(
+                    "artifact_stage_no_space",
+                    "verified artifact staging exhausted the space on the staging volume",
+                ) from error
+            symbol = errno.errorcode.get(error.errno or 0, type(error).__name__)
             raise _ArtifactStageError(
                 "artifact_stage_failed",
-                f"verified artifact staging failed: {type(error).__name__}",
+                f"verified artifact staging failed: {symbol}",
             ) from error
         finally:
             if source_descriptor is not None:

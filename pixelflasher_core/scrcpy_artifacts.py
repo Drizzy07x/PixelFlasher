@@ -26,13 +26,16 @@ from .artifact_downloads import (
 from .platform_tools import (
     PlatformToolsError,
     architecture_key,
+    binary_architecture_is_compatible,
     binary_architectures,
     platform_key,
 )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:[-+][A-Za-z0-9.-]+)?$")
-_SCRCPY_VERSION = re.compile(r"(?im)^scrcpy\s+(\d+)\.(\d+)(?:\.(\d+))?(?:[-+][A-Za-z0-9.-]+)?\s*$")
+# Scrcpy prints its banner as "scrcpy <version> <https://github.com/...>", so the
+# version must stay anchored to the start of a line without anchoring its tail.
+_SCRCPY_VERSION = re.compile(r"(?im)^scrcpy\s+(\d+)\.(\d+)(?:\.(\d+))?(?:[-+][A-Za-z0-9.-]+)?\b")
 _METADATA_NAME = ".pixelflasher-scrcpy.json"
 
 
@@ -316,7 +319,11 @@ class ScrcpyInstaller:
                     "scrcpy_binary_format_invalid",
                     "Scrcpy executable format could not be verified",
                 )
-            if target_arch not in observed_arches:
+            if not binary_architecture_is_compatible(
+                platform=target_platform,
+                requested_arch=target_arch,
+                observed_arches=observed_arches,
+            ):
                 raise ScrcpyArtifactError(
                     "scrcpy_arch_mismatch",
                     "Scrcpy executable architecture does not match its manifest",

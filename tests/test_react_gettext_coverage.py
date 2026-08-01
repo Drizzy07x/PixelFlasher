@@ -20,7 +20,7 @@ EXPECTED_TRANSLATED_COUNTS = {
     "zh_TW": 810,
 }
 TRANSLATED_LOCALES = ("es", "fr", "it", "zh_CN", "zh_TW")
-EXPECTED_WEB_CONTEXT_COUNT = 902
+EXPECTED_WEB_CONTEXT_COUNT = 905
 EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     # Official firmware catalog/download UI awaits the next coordinated
     # translation pass and uses its canonical English source in the meantime.
@@ -118,6 +118,12 @@ EXPECTED_SOURCE_FALLBACK_CONTEXTS = {
     "web.device.inspectAblSource",
     "web.device.inspectMatchesAndroid",
     "web.device.inspectSlot",
+    # The patch footer learned to name the condition that actually disables the
+    # button. Both msgids ship in all six catalogs and use the English source
+    # fallback until the next coordinated translation pass.
+    "web.root.patchDeviceRequired",
+    "web.root.patchBootRequired",
+    "web.root.patchPartitionRequired",
     "web.device.inspectExtractedVersion",
     "web.device.inspectFullVersion",
     # Boot inventory is source-fallback until the next reviewed translation pass.

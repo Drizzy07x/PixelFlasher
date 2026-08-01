@@ -1589,8 +1589,10 @@ class FlashPlannerGoldenTests(unittest.TestCase):
             expected_requests = [
                 ("FASTBOOT", "-s", "SERIAL-A", "flash", "bootloader", str(paths["bootloader"].resolve())),
                 ("FASTBOOT", "-s", "SERIAL-A", "reboot-bootloader"),
+                ("FASTBOOT", "-s", "SERIAL-A", "wait-for-device"),
                 ("FASTBOOT", "-s", "SERIAL-A", "flash", "radio", str(paths["radio"].resolve())),
                 ("FASTBOOT", "-s", "SERIAL-A", "reboot-bootloader"),
+                ("FASTBOOT", "-s", "SERIAL-A", "wait-for-device"),
                 (
                     "FASTBOOT", "-s", "SERIAL-A", "--slot=b", "--disable-verity",
                     "--disable-verification", "--force", "flash", "boot",

@@ -283,7 +283,7 @@ class CoreCommandFactory:
         if root is not None:
             shutil.rmtree(root, ignore_errors=True)
 
-    def validate_native_request(self, request: BridgeRequest) -> NativeGrantSpec:
+    def _native_grant_spec(self, request: BridgeRequest) -> NativeGrantSpec:
         request.validate()
         purpose = request.payload.get("purpose")
         spec = _SPECS_BY_PICKER.get((request.command, purpose if isinstance(purpose, str) else ""))
@@ -292,6 +292,10 @@ class CoreCommandFactory:
                 "native_purpose_not_allowed",
                 "The native picker purpose is not allow-listed for this picker.",
             )
+        return spec
+
+    def validate_native_request(self, request: BridgeRequest) -> NativeGrantSpec:
+        spec = self._native_grant_spec(request)
         snapshot = self._snapshot_provider()
         if request.expected_revision != snapshot.revision:
             raise CommandFactoryError(
@@ -305,7 +309,11 @@ class CoreCommandFactory:
         request: BridgeRequest,
         selections: Sequence[str | Path],
     ) -> dict[str, Any]:
-        spec = self.validate_native_request(request)
+        # The picker/purpose allow-list is re-resolved, but not the revision:
+        # the caller already validated it against the state the user was
+        # looking at, and a modal dialog takes arbitrary wall-clock time, so
+        # any background device scan would otherwise discard the selection.
+        spec = self._native_grant_spec(request)
         paths = tuple(Path(selection) for selection in selections)
         if not paths or (not spec.multiple and len(paths) != 1):
             raise CommandFactoryError(

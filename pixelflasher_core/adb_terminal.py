@@ -32,6 +32,18 @@ TERMINAL_MAXIMUM_ROWS = 200
 TERMINAL_MAXIMUM_INPUT_BYTES = 64 * 1024
 TERMINAL_MAXIMUM_OUTPUT_CHUNK_BYTES = 64 * 1024
 
+# Operation kinds that run entirely on the host and never claim the device
+# transport.  Every other kind owns the device, so a live shell must give way.
+_LOCAL_OPERATION_KINDS = frozenset(
+    {
+        "firmware.process",
+        "support.create",
+        "tools.avb",
+        "tools.keybox",
+        "tools.xml",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TerminalCommandResult:
@@ -246,6 +258,14 @@ class AdbTerminalService:
             return self._rejected("adb_device_required", "ADB Shell requires an online ADB device.")
         if not snapshot.toolchain.ready or not snapshot.toolchain.adb:
             return self._rejected("toolchain_not_ready", "Android Platform Tools are not ready.")
+        if _operation_owns_device(snapshot):
+            return self._rejected("operation_active", "ADB Shell is unavailable while an operation is running.")
+
+        if self._release_orphan_session():
+            return self._rejected(
+                "terminal_session_active",
+                "The previous ADB Shell was released; open it again.",
+            )
 
         with self._lock:
             if self._shutdown:
@@ -297,6 +317,7 @@ class AdbTerminalService:
                 message="ADB Shell closed because application or device state changed.",
             )
             return self._rejected(close_code, "Application or device state changed while opening ADB Shell.")
+        self._rebind_session(session, current)
         return TerminalCommandResult(
             True,
             "terminal_opened",
@@ -392,6 +413,8 @@ class AdbTerminalService:
                 code=code,
                 message="ADB Shell closed because application or device state changed.",
             )
+            return
+        self._rebind_session(session, snapshot)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -421,7 +444,7 @@ class AdbTerminalService:
             return None, self._rejected("terminal_session_missing", "ADB Shell is no longer active.")
         snapshot = self._snapshot_provider()
         mismatch = self._session_mismatch(session, snapshot)
-        if expected_revision != session.revision or mismatch is not None:
+        if expected_revision != snapshot.revision or mismatch is not None:
             self._close_session(
                 session.session_id,
                 code=mismatch or "revision_conflict",
@@ -431,6 +454,7 @@ class AdbTerminalService:
                 mismatch or "revision_conflict",
                 "ADB Shell is no longer bound to the current application state.",
             )
+        self._rebind_session(session, snapshot)
         return session, None
 
     @staticmethod
@@ -456,10 +480,16 @@ class AdbTerminalService:
             )
         return None
 
-    @staticmethod
-    def _session_mismatch(session: _ActiveTerminal, snapshot: AppSnapshot) -> str | None:
-        if snapshot.revision != session.revision:
-            return "revision_conflict"
+    def _session_mismatch(self, session: _ActiveTerminal, snapshot: AppSnapshot) -> str | None:
+        """Re-validate every condition that authorised the session, not its revision.
+
+        A bare revision bump is not a mismatch: the shell stays valid as long as
+        Expert Mode, the safety policy, the target device and the toolchain that
+        opened it are still the canonical ones and no operation owns the device.
+        """
+
+        if not snapshot.preferences.expert_mode:
+            return "expert_mode_required"
         if snapshot.selected_serial != session.serial or session.serial not in snapshot.selected_serials:
             return "target_serial_changed"
         if snapshot.toolchain.adb != session.adb or not snapshot.toolchain.ready:
@@ -469,7 +499,47 @@ class AdbTerminalService:
             return "device_disconnected"
         if device.mode != "adb":
             return "device_state_changed"
+        if _operation_owns_device(snapshot):
+            return "operation_active"
+        safety = self._safety_policy.evaluate(
+            AppCommand(
+                kind="tools.adbShell",
+                expected_revision=snapshot.revision,
+                target_serial=session.serial,
+                payload={"serial": session.serial},
+            ),
+            snapshot,
+        )
+        if not safety.allowed:
+            return safety.code
         return None
+
+    def _release_orphan_session(self) -> bool:
+        """Free a session whose client is gone before refusing a fresh request.
+
+        A reloaded or crashed web view never sends ``tools.adbShell.close``, so
+        without this the PTY would keep running ownerless and every later open
+        would dead-end.  The request that finds it is still refused, so a client
+        that does own the session is never replaced behind its back; the caller
+        retries and binds a new shell.  Called only once every other precondition
+        for the new session has been validated.
+        """
+
+        with self._lock:
+            session = None if self._shutdown else self._active
+        if session is None:
+            return False
+        self._close_session(
+            session.session_id,
+            code="terminal_superseded",
+            message="ADB Shell released for a new session.",
+        )
+        return True
+
+    def _rebind_session(self, session: _ActiveTerminal, snapshot: AppSnapshot) -> None:
+        with self._lock:
+            if self._active is session:
+                session.revision = snapshot.revision
 
     def _on_output(self, session_id: str, data: bytes) -> None:
         if not isinstance(data, bytes) or not data:
@@ -530,6 +600,11 @@ class AdbTerminalService:
     @staticmethod
     def _rejected(code: str, message: str) -> TerminalCommandResult:
         return TerminalCommandResult(False, code, message)
+
+
+def _operation_owns_device(snapshot: AppSnapshot) -> bool:
+    operation = snapshot.active_operation
+    return operation is not None and operation.kind not in _LOCAL_OPERATION_KINDS
 
 
 def _valid_size(*, columns: object, rows: object) -> bool:

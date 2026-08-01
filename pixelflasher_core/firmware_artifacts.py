@@ -44,6 +44,29 @@ from .payload import (
 )
 from .planner import ProcessedArtifactCheckpoint, ProcessedArtifactRepository
 
+# ``super_empty.img`` re-initializes the dynamic-partition metadata before any
+# logical partition is written.  It is not a fastboot flash target of its own,
+# so it is extracted under a dedicated role that the planner never treats as a
+# ``partition:`` artifact.
+SUPER_EMPTY_IMAGE = "super_empty"
+SUPER_EMPTY_ROLE = "image:super_empty"
+_EXTRACTABLE_IMAGES = FLASHABLE_PARTITIONS | {SUPER_EMPTY_IMAGE}
+
+# A full OTA is applied by sideloading the source archive; the only image the
+# backend consumes from its payload afterwards is the stock boot chain (for boot
+# patching).  Expanding every allow-listed partition writes ~10 GB that no flash
+# mode can ever reach, so the OTA payload keeps the legacy boot-chain allow-list.
+_OTA_PAYLOAD_PARTITIONS = frozenset(
+    {
+        "boot",
+        "init_boot",
+        "vendor_boot",
+        "vendor_kernel_boot",
+        "dtbo",
+        "vbmeta",
+    }
+)
+
 
 class FirmwareProcessingStatus(StrEnum):
     SUCCESS = "SUCCESS"
@@ -300,6 +323,11 @@ class FirmwareArtifactService:
                                 outer,
                                 staging,
                                 token,
+                                allowed_partitions=(
+                                    _OTA_PAYLOAD_PARTITIONS
+                                    if inspection.kind is FirmwareKind.OTA
+                                    else FLASHABLE_PARTITIONS
+                                ),
                             )
                         else:
                             extracted = self._process_custom(
@@ -348,7 +376,7 @@ class FirmwareArtifactService:
                 FileArtifact(
                     str((committed / f"{partition}.img").resolve()),
                     image_hash,
-                    f"partition:{partition}",
+                    self._artifact_role(partition),
                 )
                 for partition, image_hash in extracted
             )
@@ -789,6 +817,8 @@ class FirmwareArtifactService:
         index: _ArchiveIndex,
         staging: Path,
         token: CancellationToken,
+        *,
+        allowed_partitions: frozenset[str] = FLASHABLE_PARTITIONS,
     ) -> tuple[tuple[str, str], ...]:
         payload_members = self._payload_members(index)
         if len(payload_members) != 1:
@@ -806,7 +836,7 @@ class FirmwareArtifactService:
         try:
             manifest = self.payload_parser.parse(
                 payload_path,
-                allowed_partitions=FLASHABLE_PARTITIONS,
+                allowed_partitions=allowed_partitions,
                 cancellation=token,
             )
         except InterruptedError as error:
@@ -1379,7 +1409,7 @@ class FirmwareArtifactService:
             if not basename.endswith(".img"):
                 continue
             partition = basename[:-4]
-            if partition in FLASHABLE_PARTITIONS:
+            if partition in _EXTRACTABLE_IMAGES:
                 candidates.append((partition, info))
         return tuple(candidates)
 
@@ -1563,6 +1593,10 @@ class FirmwareArtifactService:
     @staticmethod
     def _normalized_name(info: zipfile.ZipInfo) -> str:
         return info.filename.replace("\\", "/")
+
+    @staticmethod
+    def _artifact_role(image: str) -> str:
+        return SUPER_EMPTY_ROLE if image == SUPER_EMPTY_IMAGE else f"partition:{image}"
 
     def _factory_image_members(
         self,

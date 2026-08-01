@@ -56,6 +56,8 @@ export function FlashWizard({
   onFirmwareChange,
   onPrepare,
   onStart,
+  onCancel,
+  cancelling = false,
 }: {
   devices: Device[];
   selectedSerials: string[];
@@ -67,6 +69,8 @@ export function FlashWizard({
   onFirmwareChange: (firmware: Firmware) => Promise<void>;
   onPrepare: (plan: FlashPlan) => Promise<FlashPreview>;
   onStart: (plan: FlashPlan, confirmation: string, preview: FlashPreview) => Promise<void>;
+  onCancel?: () => void | Promise<void>;
+  cancelling?: boolean;
 }) {
   const { t } = useI18n();
   const [step, setStep] = useState(0);
@@ -429,9 +433,14 @@ export function FlashWizard({
                 <Meter value={operation.progress ?? 0} label={operation.detail ?? t('flash.running')} />
               </div>
             ) : null}
-            <Button variant="primary" icon="flashPng" onClick={() => void start()} disabled={busy || isRunning || !targetSerial || !preview || !confirmationMatches}>
-              {dryRun ? t('flash.simulate') : t('flash.start')}
-            </Button>
+            <div className="button-row">
+              <Button variant="primary" icon="flashPng" onClick={() => void start()} disabled={busy || isRunning || !targetSerial || !preview || !confirmationMatches}>
+                {dryRun ? t('flash.simulate') : t('flash.start')}
+              </Button>
+              {onCancel ? (
+                <Button variant="ghost" onClick={() => void onCancel()} disabled={cancelling}>{t('common.cancel')}</Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

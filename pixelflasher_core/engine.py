@@ -7,6 +7,7 @@ import json
 import shutil
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
@@ -246,6 +247,20 @@ _ServiceCompilation = (
     | DataAdbCompilation
     | RootingCompilation
     | BootPatchCompilation
+)
+# Canonical state a long running host operation depends on. `revision` and
+# `preferences` are deliberately absent: the host runs settings traffic on its
+# own lane, so a preference write bumps the monotonic revision without changing
+# anything an operation was validated against.
+_OPERATION_CONTEXT_FIELDS = (
+    "device_management",
+    "devices",
+    "selected_serials",
+    "selected_serial",
+    "firmware",
+    "boot",
+    "plan",
+    "toolchain",
 )
 
 
@@ -865,7 +880,7 @@ class CommandEngine:
 
                 current = self.store.snapshot()
                 context_changed = (
-                    current.revision != active.revision
+                    self._operation_context_changed(current, active)
                     or current.active_operation is None
                     or current.active_operation.operation_id != command.operation_id
                     or current.firmware != snapshot.firmware
@@ -892,7 +907,7 @@ class CommandEngine:
                 try:
                     self.store.complete_operation(
                         result,
-                        expected_revision=active.revision if result.ok else None,
+                        expected_revision=current.revision if result.ok else None,
                     )
                 except (StaleRevisionError, TypeError, ValueError) as error:
                     fallback = OperationResult.failed(
@@ -997,7 +1012,7 @@ class CommandEngine:
                 current = self.store.snapshot()
                 if result.ok and (
                     token.cancelled
-                    or current.revision != active.revision
+                    or self._operation_context_changed(current, active)
                     or current.active_operation is None
                     or current.active_operation.operation_id != command.operation_id
                 ):
@@ -1019,7 +1034,7 @@ class CommandEngine:
                 try:
                     self.store.complete_operation(
                         result,
-                        expected_revision=active.revision if result.ok else None,
+                        expected_revision=current.revision if result.ok else None,
                     )
                 except (StaleRevisionError, TypeError, ValueError) as error:
                     fallback = OperationResult.failed(
@@ -1159,7 +1174,7 @@ class CommandEngine:
                 current = self.store.snapshot()
                 if result.ok and (
                     token.cancelled
-                    or current.revision != active.revision
+                    or self._operation_context_changed(current, active)
                     or current.active_operation is None
                     or current.active_operation.operation_id != command.operation_id
                 ):
@@ -1181,7 +1196,7 @@ class CommandEngine:
                 try:
                     self.store.complete_operation(
                         result,
-                        expected_revision=active.revision if result.ok else None,
+                        expected_revision=current.revision if result.ok else None,
                     )
                 except (StaleRevisionError, TypeError, ValueError) as error:
                     fallback = OperationResult.failed(
@@ -3111,7 +3126,8 @@ class CommandEngine:
             )
             try:
                 response = self.interaction_handler(interaction)
-            except InteractionTimeoutError:
+            except InteractionTimeoutError as error:
+                self._settle_interaction_deadline(token, error)
                 if token.reason is CancellationReason.DEADLINE:
                     return self._stopped_result(
                         command,
@@ -3846,7 +3862,7 @@ class CommandEngine:
                         timeout_message="firmware processing timed out before state promotion",
                     )
                 elif result.ok and (
-                    current.revision != active_snapshot.revision
+                    self._operation_context_changed(current, active_snapshot)
                     or current.active_operation is None
                     or current.active_operation.operation_id != command.operation_id
                     or current.firmware != snapshot.firmware
@@ -3870,7 +3886,7 @@ class CommandEngine:
                 try:
                     self.store.complete_operation(
                         result,
-                        expected_revision=(active_snapshot.revision if result.ok else None),
+                        expected_revision=(current.revision if result.ok else None),
                         firmware=promoted_firmware,
                         boot=promoted_boot,
                     )
@@ -4698,12 +4714,36 @@ class CommandEngine:
         return replace(
             result,
             code="device_scan_succeeded",
-            message=f"found {len(devices)} device(s)",
+            message=self._device_scan_message(len(devices), scan.warnings),
             value={
                 "snapshot": self.store.snapshot().to_dict(),
                 "scan": replace(scan, devices=devices).to_dict(),
+                "warnings": list(scan.warnings),
             },
         )
+
+    @staticmethod
+    def _device_scan_message(found: int, warnings: Sequence[str]) -> str:
+        """Keep a succeeded-but-degraded scan explaining itself.
+
+        A phone adb lists without permissions leaves ``ok`` true, so without
+        this the user is told "found 0 device(s)" and given no reason at all.
+        """
+
+        summary = f"found {found} device(s)"
+        if not warnings:
+            return summary
+        diagnostics: list[str] = []
+        budget = 512
+        for warning in warnings:
+            text = warning.strip()
+            if not text or len(text) > budget:
+                break
+            diagnostics.append(text)
+            budget -= len(text) + 2
+        if not diagnostics:
+            return summary
+        return f"{summary}; {'; '.join(diagnostics)}"
 
     def _preview_flash_plan(self, command: AppCommand) -> OperationResult:
         snapshot = self.store.snapshot()
@@ -5300,7 +5340,8 @@ class CommandEngine:
                             _timeout_seconds=token.remaining_seconds,
                         )
                         response = self.interaction_handler(interaction)
-                    except InteractionTimeoutError:
+                    except InteractionTimeoutError as error:
+                        self._settle_interaction_deadline(token, error)
                         if token.reason is CancellationReason.DEADLINE:
                             return finalize(
                                 stopped_before_execution("operation deadline expired while awaiting confirmation")
@@ -5474,6 +5515,38 @@ class CommandEngine:
         finally:
             if acquired:
                 self._operation_lock.release()
+
+    @staticmethod
+    def _operation_context_changed(current: AppSnapshot, baseline: AppSnapshot) -> bool:
+        """Report whether the canonical state an operation was validated against moved.
+
+        Comparing the raw monotonic revision would also fire for an unrelated
+        preference write, discarding an already completed multi-minute result.
+        """
+
+        return any(
+            getattr(current, field) != getattr(baseline, field)
+            for field in _OPERATION_CONTEXT_FIELDS
+        )
+
+    @staticmethod
+    def _settle_interaction_deadline(
+        token: CancellationToken,
+        error: InteractionTimeoutError,
+    ) -> None:
+        """Record the deadline the confirmation was actually waiting on.
+
+        The interaction is bounded by ``token.remaining_seconds``, and that wait
+        can return marginally before the deadline is technically reached, so
+        reading the token afterwards reports whichever side of the boundary the
+        scheduler landed on and the same expiry surfaces as ``timed_out`` or as
+        ``interaction_timed_out`` at random. Settling it here keeps every caller
+        deterministic. ``set_deadline_at`` only ever shortens and never displaces
+        a cause already recorded, so a user cancellation still wins.
+        """
+
+        if getattr(error, "bounded_by_request", False):
+            token.set_deadline_at(time.monotonic())
 
     @staticmethod
     def _stopped_result(

@@ -1,27 +1,35 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import ts from 'typescript';
+import { isAsExpression, isObjectLiteralExpression, isPropertyAssignment, isStringLiteral, isVariableDeclaration } from 'typescript/unstable/ast';
+import { API } from 'typescript/unstable/sync';
 
 const webRoot = process.cwd();
+const configPath = resolve(webRoot, 'tsconfig.app.json');
 const sourcePath = resolve(webRoot, 'src', 'i18n.tsx');
 const catalogRoot = resolve(webRoot, 'public', 'i18n');
 const locales = ['en', 'es', 'fr', 'it', 'zh_CN', 'zh_TW'];
 
-const source = readFileSync(sourcePath, 'utf8');
-const tree = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const messages = new Map();
+const api = new API({ cwd: webRoot });
 
-function visit(node) {
-  const initializer = node.initializer && ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
-  if (ts.isVariableDeclaration(node) && node.name.getText(tree) === 'sourceMessages' && initializer && ts.isObjectLiteralExpression(initializer)) {
-    for (const property of initializer.properties) {
-      if (!ts.isPropertyAssignment(property) || !ts.isStringLiteral(property.name) || !ts.isStringLiteral(property.initializer)) continue;
-      messages.set(property.name.text, property.initializer.text);
+try {
+  const tree = api.updateSnapshot({ openProjects: [configPath] }).getProject(configPath)?.program.getSourceFile(sourcePath);
+  if (!tree) throw new Error(`${sourcePath} is not part of the ${configPath} program.`);
+
+  const visit = (node) => {
+    const initializer = node.initializer && isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
+    if (isVariableDeclaration(node) && node.name.getText(tree) === 'sourceMessages' && initializer && isObjectLiteralExpression(initializer)) {
+      for (const property of initializer.properties) {
+        if (!isPropertyAssignment(property) || !isStringLiteral(property.name) || !isStringLiteral(property.initializer)) continue;
+        messages.set(property.name.text, property.initializer.text);
+      }
     }
-  }
-  ts.forEachChild(node, visit);
+    node.forEachChild(visit);
+  };
+  visit(tree);
+} finally {
+  api.close();
 }
-visit(tree);
 
 if (!messages.size) throw new Error('No React sourceMessages were found for gettext verification.');
 

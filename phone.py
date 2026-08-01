@@ -4724,26 +4724,16 @@ add_hosts_module
     #                               Method erase_partition
     # ----------------------------------------------------------------------------
     def erase_partition(self, partition):
-        try:
-            if self.mode == 'adb' and get_adb():
-                res = self.reboot_bootloader()
-                if res == -1:
-                    print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error while rebooting to bootloader")
-                    self.clear_device_selection()
-                    bootloader_issue_message()
-                self.refresh_phone_mode()
-            if self.mode == 'f.b' and get_fastboot():
-                print(f"Erasing Partition [{partition}] for device: {self.id} ...")
-                puml(f":Erasing Partition [{partition}];\n", True)
-                theCmd = f"\"{get_fastboot()}\" -s {self.id} erase {partition}"
-                debug(theCmd)
-                # return run_shell(theCmd)
-                return
-        except Exception as e:
-            print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Encountered an error in erase_partition.")
-            puml("#red:Encountered an error in erase_partition.;\n")
-            traceback.print_exc()
-            return -1
+        # The `fastboot erase` call has been commented out ever since the partition
+        # manager was added, so this has always been a silent no-op that still rebooted
+        # the device to the bootloader and let the user believe the partition was wiped.
+        # Refuse loudly instead of arming a blind erase behind a single Yes/No prompt;
+        # the modern partition manager performs it behind a reinforced confirmation.
+        print(f"\n❌ {datetime.now():%Y-%m-%d %H:%M:%S} ERROR: Erasing partition [{partition}] is not supported here.")
+        print("Nothing was erased and the device was left untouched.")
+        print("Use the modern Partition Manager, which performs the erase behind an explicit confirmation.")
+        puml(f"#red:Refused to erase partition [{partition}];\n", True)
+        return -1
 
     # ----------------------------------------------------------------------------
     #                               Method lock_bootloader

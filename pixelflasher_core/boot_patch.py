@@ -295,11 +295,19 @@ class BootPatchService:
             if snapshot.preferences.create_boot_tar
             else ""
         )
+        # The staged inputs are content addressed like the APK, runner and
+        # support files: a retry after a failed patch overwrites the same
+        # staging paths instead of leaving one more stock image behind. The
+        # output stays operation scoped so a stale patched image from an
+        # earlier attempt can never be pulled by this one.
+        staging_token = hashlib.sha256(
+            f"{boot_artifact.sha256}\0{flavor}".encode()
+        ).hexdigest()[:16]
         token = hashlib.sha256(
             f"{command.operation_id}\0{boot_artifact.sha256}\0{flavor}".encode()
         ).hexdigest()[:16]
         remote_root = "/data/local/tmp"
-        remote_boot = f"{remote_root}/pf-stock-{token}.img"
+        remote_boot = f"{remote_root}/pf-stock-{staging_token}.img"
         remote_output = f"{remote_root}/pf-patched-{token}.img"
         remote_app = f"{remote_root}/pf-root-app-{app.sha256[:16]}.apk"
         remote_runner = f"{remote_root}/pf-patch-runner-{runner.sha256[:16]}"
@@ -783,7 +791,14 @@ class BootPatchService:
         provider = app.provider.strip().casefold().replace(" ", "-")
         provider_aliases = {
             "wild-ksu": "wild_ksu",
-            "kernelsu-legacy": "kernelsu",
+            # The catalog publishes the rsuntk manager as "legacy"; both
+            # spellings satisfy the legacy flavor only, so a legacy manager can
+            # never be paired with the official KernelSU runner.
+            **(
+                {"legacy": "kernelsu", "kernelsu-legacy": "kernelsu"}
+                if flavor == "legacy"
+                else {}
+            ),
         }
         provider = provider_aliases.get(provider, provider)
         if provider != expected_provider:
@@ -815,7 +830,12 @@ class BootPatchService:
                 "boot_hash_invalid",
                 "canonical boot SHA-256 is invalid",
             )
-        path = self._absolute_existing_file(boot.path, ".img", "boot_artifact_invalid")
+        # The canonical stock image lives in the content-addressed artifact store,
+        # whose object names are the bare SHA-256 with no extension, so a ".img"
+        # suffix requirement here rejects every boot image the inventory owns.
+        # The digest comparison below binds the bytes to the canonical hash, which
+        # is what actually guarantees the right image is patched.
+        path = self._absolute_existing_file(boot.path, None, "boot_artifact_invalid")
         digest = self._sha256(path, cancellation)
         if not hmac.compare_digest(digest, boot.hash.casefold()):
             raise BootPatchPlanningError(

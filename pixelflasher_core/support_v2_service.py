@@ -19,6 +19,7 @@ from typing import Any, Protocol, cast
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from .repositories import LEGACY_V9_DATABASE_NAME
 from .support import (
     SUPPORT_PAYLOAD_FIELDS,
     SupportDestinationRegistry,
@@ -37,6 +38,7 @@ from .support_v2 import (
     SupportV2Limits,
 )
 
+_LEGACY_V4_DATABASE_NAME = "PixelFlasher.db"
 _ALLOWED_LOG_SUFFIXES = frozenset({".json", ".log", ".txt"})
 _ALLOWED_DIAGRAM_SUFFIXES = frozenset({".puml"})
 _MAX_OMISSIONS = 256
@@ -383,7 +385,12 @@ class SupportPackageV2Service:
         else:
             omit("runtime-logs", "logs", "not_selected")
 
-        database = self.config_root / "PixelFlasher.db"
+        # The 9.x runtime names its database after the schema generation it
+        # writes, and the modern runtime migrates PixelFlasher4.db. The bare
+        # PixelFlasher.db name only ever existed before 4.0.
+        database = self.config_root / LEGACY_V9_DATABASE_NAME
+        if not database.exists():
+            database = self.config_root / _LEGACY_V4_DATABASE_NAME
         self._check_cancelled(cancellation)
         if not database.exists():
             omit("legacy-database", "database", "not_found")

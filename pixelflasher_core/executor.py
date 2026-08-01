@@ -435,16 +435,27 @@ class SubprocessTransport:
 
         for reader in readers:
             reader.join(timeout=1)
-        for stream, reader in zip((process.stdout, process.stderr), readers, strict=True):
-            if reader.is_alive():
-                stream.close()
-                reader.join(timeout=1)
 
         try:
+            # Each reader owns its pipe.  Closing a descriptor that another
+            # thread is parked in os.read() on is undefined: POSIX recycles the
+            # number, so the pending read can return bytes from an unrelated
+            # file, and Windows blocks the closing thread until the read
+            # completes, wedging the single engine thread.  A reader that
+            # outlived the process therefore keeps its stream, which the
+            # interpreter releases once that thread finally reaches EOF.
+            for stream, reader in zip((process.stdout, process.stderr), readers, strict=True):
+                if not reader.is_alive():
+                    stream.close()
+            with capture_lock:
+                # An abandoned reader still appends under this lock; decode a
+                # stable copy instead of the live buffers.
+                captured_stdout = bytes(stdout_buffer)
+                captured_stderr = bytes(stderr_buffer)
             return TransportOutcome(
                 process.returncode,
-                stdout_buffer.decode(request.encoding, errors="replace"),
-                stderr_buffer.decode(request.encoding, errors="replace"),
+                captured_stdout.decode(request.encoding, errors="replace"),
+                captured_stderr.decode(request.encoding, errors="replace"),
                 cancelled=cancelled,
                 timed_out=timed_out,
                 output_limited=output_limited.is_set(),

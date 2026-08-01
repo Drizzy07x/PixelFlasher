@@ -373,6 +373,7 @@ class DeviceServiceTests(unittest.TestCase):
                 ),
                 TransportOutcome(0, "5.15.148-android14-11-gabcdef\n"),
                 TransportOutcome(0, "AC powered: false\n  level: 87\n"),
+                TransportOutcome(1, stderr="/system/bin/sh: su: inaccessible or not found\n"),
                 TransportOutcome(0, "[ro.product.device]: [recovery]\n"),
                 TransportOutcome(0, "5.10.218-android13-4-gabcdef\n"),
             ]
@@ -428,6 +429,10 @@ class DeviceServiceTests(unittest.TestCase):
                 ProcessRequest(
                     ("ADB", "-s", "A", "shell", "dumpsys", "battery"),
                     timeout_seconds=3.0,
+                ),
+                ProcessRequest(
+                    ("ADB", "-s", "A", "shell", "su", "-c", "id -u"),
+                    timeout_seconds=4.0,
                 ),
                 ProcessRequest(("ADB", "-s", "R", "shell", "getprop"), timeout_seconds=4.0),
                 ProcessRequest(

@@ -152,7 +152,10 @@ _LOGCAT_IPV4 = re.compile(
     r"(?:25[0-5]|2[0-4]\d|1?\d?\d)(?::\d{1,5})?(?![A-Za-z0-9])"
 )
 _LOGCAT_IPV6 = re.compile(r"\[[0-9A-Fa-f:]{2,}\](?::\d{1,5})?")
-_LOGCAT_PATH_TAIL = r"[^\r\n,;|\"'<>()[\]{}]+"
+# Spaces stay inside a path so that "/home/Alice Smith/x" is redacted whole,
+# but a tail must never swallow the next absolute path: doing so hid a
+# non-device path behind an allow-listed one.
+_LOGCAT_PATH_TAIL = r"(?:(?!\s/)[^\r\n,;|\"'<>()[\]{}])+"
 _LOGCAT_DEVICE_PATH = re.compile(
     rf"(?<![A-Za-z0-9_:/])/(?:data|sdcard|storage|system|vendor|product)/{_LOGCAT_PATH_TAIL}"
 )
@@ -165,7 +168,8 @@ _LOGCAT_PATH_CONSTRUCTOR = re.compile(
 _LOGCAT_POSIX_PATH = re.compile(
     rf"(?<![A-Za-z0-9_:/])/(?!/){_LOGCAT_PATH_TAIL}"
 )
-_LOGCAT_PUBLIC_ANDROID_PATH_PREFIXES = (
+PUBLIC_ANDROID_PATH_PREFIXES = (
+    "/apex/",
     "/data/",
     "/dev/",
     "/metadata/",
@@ -177,8 +181,34 @@ _LOGCAT_PUBLIC_ANDROID_PATH_PREFIXES = (
     "/storage/",
     "/sys/",
     "/system/",
+    "/system_dlkm/",
+    "/system_ext/",
     "/vendor/",
+    "/vendor_dlkm/",
 )
+# The WebView boundary tokenizes paths at whitespace; the logcat tail above
+# does not.  Both layers must agree on what counts as a device path, so the
+# grammar and the allow-list live here and are imported by ui.public_bridge.
+PUBLIC_POSIX_PATH = re.compile(r"(?:^|[\s\"'(\[=,;])(/(?!/)[^\s\"'\])},;]+)")
+# The boundary also treats a drive prefix glued to an identifier character
+# ("cfg_C:\...") and one with nothing after it ("free space on C:\") as host
+# routes, which the logcat grammar above does not.  Exporting the boundary
+# grammars keeps the two sides from disagreeing about what a host route is;
+# the trailing group makes them redact the whole route, not just its prefix.
+PUBLIC_WINDOWS_PATH = re.compile(
+    rf"(?i)(?<![A-Za-z0-9])[A-Z]:[\\/](?:{_LOGCAT_PATH_TAIL})?"
+)
+PUBLIC_UNC_PATH = re.compile(r"(?<![A-Za-z0-9])\\\\[^\\/\s]+[\\/][^\s'\"]+")
+
+
+def is_public_android_path(path: str) -> bool:
+    """Report whether an absolute POSIX path is a publishable device path."""
+
+    return any(
+        path == prefix[:-1] or path.startswith(prefix)
+        for prefix in PUBLIC_ANDROID_PATH_PREFIXES
+    )
+
 
 _PUSH_DESTINATIONS = frozenset({"/data/local/tmp/", "/sdcard/Download/"})
 _REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -3600,14 +3630,23 @@ class DeviceToolsService:
 
         def redact_host_path(match: re.Match[str]) -> str:
             path = match.group(0)
-            if any(
-                path == prefix[:-1] or path.startswith(prefix)
-                for prefix in _LOGCAT_PUBLIC_ANDROID_PATH_PREFIXES
-            ):
+            if is_public_android_path(path):
                 return path
             return "<host-path>"
 
+        def redact_public_host_path(match: re.Match[str]) -> str:
+            path = match.group(1)
+            if is_public_android_path(path):
+                return match.group(0)
+            return f"{match.group(0)[: match.start(1) - match.start(0)]}<host-path>"
+
+        # The space-tolerant pass scrubs host paths whole; the second pass then
+        # applies the exact grammar the WebView boundary uses, so nothing the
+        # boundary would reject can survive here.
         safe = _LOGCAT_POSIX_PATH.sub(redact_host_path, safe)
+        safe = PUBLIC_POSIX_PATH.sub(redact_public_host_path, safe)
+        safe = PUBLIC_WINDOWS_PATH.sub("<host-path>", safe)
+        safe = PUBLIC_UNC_PATH.sub("<host-path>", safe)
         if profile != "none":
             if serial:
                 safe = safe.replace(serial, "<serial>")

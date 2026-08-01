@@ -3,6 +3,7 @@ import { commands } from '../../commands';
 import { useI18n } from '../../i18n';
 import { Badge, Button, Card, EmptyState, Icon, PageHeader } from '../../components/ui';
 import { record, selectedGrant, type SharedPageProps } from '../shared';
+import { useOperationCancel } from '../useOperationCancel';
 
 type BackupRecord = {
   id: string;
@@ -99,6 +100,12 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
   const [dataAdbAction, setDataAdbAction] = useState<'restore' | 'clear' | ''>('');
   const [dataAdbConfirmation, setDataAdbConfirmation] = useState('');
   const [dataAdbNotice, setDataAdbNotice] = useState('');
+  const transferCancel = useOperationCancel(
+    onCommand,
+    snapshot.activeOperation ?? snapshot.active_operation,
+    busy === 'create' || busy === 'restore-external' || busy.startsWith('restore:'),
+    [commands.backupsCreate, commands.backupsRestore],
+  );
 
   const refreshInventory = useCallback(async (expectedRevision?: number) => {
     if (!serial) {
@@ -391,6 +398,9 @@ export function BackupsPage({ snapshot, selectedSerials, onCommand }: SharedPage
           </label>
           <Button icon="restore" onClick={() => void restoreExternalBackup()} disabled={Boolean(busy) || !fastbootReady}>{t('backups.externalRestore')}</Button>
           <Button variant="primary" icon="backupPng" onClick={() => void createBackup()} disabled={Boolean(busy) || !createReady}>{t('backups.create')}</Button>
+          {transferCancel.operation ? (
+            <Button variant="ghost" onClick={() => void transferCancel.cancel()} disabled={transferCancel.cancelling}>{t('common.cancel')}</Button>
+          ) : null}
         </div>
       )} />
       <section aria-labelledby="data-adb-backups-title">

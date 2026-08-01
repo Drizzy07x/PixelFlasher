@@ -16,13 +16,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from platform_utils import app_config_dir, app_data_dir, app_log_dir, current_platform
+from platform_utils import app_data_dir, current_platform
+
+try:
+    from platformdirs import user_data_dir
+except Exception:  # pragma: no cover
+    user_data_dir = None
 
 try:
     from constants import APPNAME, VERSION
 except Exception:  # pragma: no cover
     APPNAME = "PixelFlasher"
     VERSION = "unknown"
+
+MAX_COLLECTED_LOGS = 24
 
 
 SERIAL_RE = re.compile(r"\b([A-Z0-9]{8,}|[a-f0-9]{16,})\b", re.IGNORECASE)
@@ -56,18 +63,57 @@ def _safe_read(path: Path, max_bytes: int = 400_000) -> str:
         return f"Could not read {path}: {exc}"
 
 
+def config_root() -> Path:
+    """Resolve the directory the application actually uses.
+
+    The runtime resolves its configuration with ``roaming=True`` on Windows, so
+    anything derived from the non-roaming default points at a directory
+    PixelFlasher never writes to.
+    """
+    if user_data_dir is not None:
+        return Path(user_data_dir(APPNAME, appauthor=False, roaming=True))
+    return app_data_dir(APPNAME)
+
+
+def _sorted_existing(directory: Path, pattern: str) -> list[Path]:
+    try:
+        candidates = [path for path in directory.glob(pattern) if path.is_file()]
+    except OSError:
+        return []
+    # Newest first: session logs carry a sortable timestamp in their name.
+    return sorted(candidates, reverse=True)
+
+
 def _candidate_logs(root: Path) -> Iterable[Path]:
+    collected = 0
+    app_root = config_root()
+    for directory, pattern in (
+        (app_root / "logs", "*.log"),
+        (app_root / "logs", "*.txt"),
+        (app_root / "puml", "*.puml"),
+    ):
+        for candidate in _sorted_existing(directory, pattern):
+            if collected >= MAX_COLLECTED_LOGS:
+                return
+            collected += 1
+            yield candidate
+    # Retain the 9.x layout so a bundle taken beside an upgraded install still
+    # carries whatever the legacy build left behind.
     names = ["PixelFlasher.log", "puml.txt", "plantuml.txt"]
     locations = [root, Path.cwd(), Path.home()]
     for location in locations:
         for name in names:
             candidate = location / name
             if candidate.is_file():
+                if collected >= MAX_COLLECTED_LOGS:
+                    return
+                collected += 1
                 yield candidate
 
 
 def _system_info() -> dict[str, object]:
     info = current_platform().to_dict()
+    app_root = config_root()
     return {
         "app": APPNAME,
         "version": VERSION,
@@ -79,9 +125,9 @@ def _system_info() -> dict[str, object]:
         "machine": platform.machine(),
         "executable": sys.executable,
         "platform_info": info,
-        "config_dir": str(app_config_dir()),
-        "data_dir": str(app_data_dir()),
-        "log_dir": str(app_log_dir()),
+        "config_dir": str(app_root),
+        "data_dir": str(app_root),
+        "log_dir": str(app_root / "logs"),
     }
 
 

@@ -338,6 +338,12 @@ class PostconditionSpec:
     expected_bootloader: str | None = None
     expected_boot_completed: bool | None = None
     expected_build: str | None = None
+    # Evidence a freshly flashed device can only sometimes produce.  A flash
+    # ends either in the bootloader, which exposes no system properties at all,
+    # or in Android, which refuses ADB until a wiped device is re-authorized.
+    # This build is therefore compared whenever the probe can read it and is
+    # never counted as missing evidence, unlike ``expected_build``.
+    flashed_build: str | None = None
     remote_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     partition_hashes: Mapping[str, str] = field(default_factory=_empty_hashes)
     expected_packages: Mapping[str, bool] = field(default_factory=_empty_booleans)
@@ -368,6 +374,8 @@ class PostconditionSpec:
             raise ValueError("postcondition timeout must be positive")
         if self.expected_slot not in {None, "a", "b"}:
             raise ValueError("expected slot must be a, b, or null")
+        if self.flashed_build is not None and (not isinstance(self.flashed_build, str) or not self.flashed_build):
+            raise ValueError("flashed firmware build evidence is invalid")
         if self.expected_safe_mode is not None and not isinstance(
             self.expected_safe_mode,
             bool,
@@ -820,7 +828,7 @@ class ProcessDeviceObservationProbe:
             )
             if raw_safe_mode in {"0", "1"}:
                 safe_mode = raw_safe_mode == "1"
-        if properties_available and spec.expected_build is not None:
+        if properties_available and (spec.expected_build is not None or spec.flashed_build is not None):
             raw_build = self._adb_property(
                 toolchain,
                 spec.serial,
@@ -2607,6 +2615,16 @@ class PostconditionObserver:
                 missing.append(name)
             elif actual != expected:
                 mismatches[name] = (expected, actual)
+
+        # Google factory packages spell the build in lowercase inside
+        # image-<device>-<build>.zip while the device reports ro.build.id in
+        # uppercase, so the two spellings of one build must compare equal.
+        if (
+            spec.flashed_build is not None
+            and observation.build is not None
+            and observation.build.casefold() != spec.flashed_build.casefold()
+        ):
+            mismatches["flashed_build"] = (spec.flashed_build, observation.build)
 
         for name, expected in spec.remote_hashes.items():
             actual = observation.remote_hashes.get(name)

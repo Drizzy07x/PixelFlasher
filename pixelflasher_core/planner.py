@@ -82,6 +82,13 @@ _FASTBOOTD_PARTITIONS = frozenset(
     }
 )
 _FACTORY_COMPONENT_ORDER = ("bootloader", "radio")
+# The canonical bootloader/radio stage belongs to the firmware package, not to a
+# single flash mode: every factory-firmware mode (including the wipe modes) has
+# to run it, otherwise "wipe data" cannot be planned at all.
+_FACTORY_COMPONENT_MODES = frozenset({"factory", "keepdata", "keep", "wipedata", "wipe"})
+# `super` is shared between slots on Pixel devices: fastboot ignores `--slot=`
+# for it, so a slot fan-out would only write the same multi-gigabyte image twice.
+_UNSLOTTED_FASTBOOT_PARTITIONS = frozenset({"super"})
 _ADB_STATES = frozenset({"adb", "recovery", "sideload"})
 _OTA_MODES = frozenset({"ota", "sideload"})
 _IMAGE_MODES = frozenset(
@@ -1162,10 +1169,12 @@ class OperationPlanner:
             for partition, artifact in images.items()
             if partition not in _FACTORY_COMPONENT_ORDER
         }
-        if factory_components and mode != "factory":
+        if factory_components and (
+            mode not in _FACTORY_COMPONENT_MODES or firmware_type != "factory"
+        ):
             raise PlanningError(
                 "factory_component_mode_required",
-                "bootloader and radio artifacts may only run in canonical factory mode",
+                "bootloader and radio artifacts may only run in a canonical factory firmware mode",
             )
         if factory_components:
             if device.bootloader.casefold() == "locked":
@@ -1254,10 +1263,19 @@ class OperationPlanner:
                     timeout_seconds=600.0,
                 )
             )
-            requests.append(
-                ProcessRequest(
-                    (fastboot, "-s", device.serial, "reboot-bootloader"),
-                    timeout_seconds=120.0,
+            # The bootloader re-enumerates on USB after this reboot. Every other
+            # mode transition in this plan pairs its reboot with a wait, and the
+            # radio flash (and the first OS partition flash) must not race it.
+            requests.extend(
+                (
+                    ProcessRequest(
+                        (fastboot, "-s", device.serial, "reboot-bootloader"),
+                        timeout_seconds=120.0,
+                    ),
+                    ProcessRequest(
+                        (fastboot, "-s", device.serial, "wait-for-device"),
+                        timeout_seconds=180.0,
+                    ),
                 )
             )
             partitions.append(partition)
@@ -1291,7 +1309,9 @@ class OperationPlanner:
                 artifacts.append(artifact)
                 raw_slot = global_slot
                 target_slots: tuple[str, ...]
-                if raw_slot == "both":
+                if partition in _UNSLOTTED_FASTBOOT_PARTITIONS:
+                    target_slots = ("",)
+                elif raw_slot == "both":
                     target_slots = ("a", "b")
                 elif raw_slot is None or raw_slot == "":
                     target_slots = ("",)

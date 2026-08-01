@@ -50,6 +50,9 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _CONTENT_RANGE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# Statuses that mean the resume request itself was refused. Retaining the
+# partial for these would replay the identical rejection on every retry.
+_RANGE_REFUSED_STATUSES = frozenset({400, 416, 501})
 _MAX_MANIFEST_BYTES = 64 * 1024
 
 
@@ -575,6 +578,25 @@ class ArtifactDownloader:
                     append = True
             elif response.status_code == 200:
                 self._discard_partial(partial, metadata)
+            elif resume is not None and response.status_code in _RANGE_REFUSED_STATUSES:
+                response.close()
+                response = None
+                self._discard_partial(partial, metadata)
+                response, final_url, fallback_redirects = self._open_response(
+                    manifest.url,
+                    request_headers={
+                        key: value
+                        for key, value in request_headers.items()
+                        if key not in {"Range", "If-Range"}
+                    },
+                    cancelled=cancelled,
+                )
+                redirects += fallback_redirects
+                if response.status_code != 200:
+                    raise ArtifactTransportError(
+                        "artifact_http_status_invalid",
+                        "artifact server did not provide a complete response",
+                    )
             else:
                 raise ArtifactTransportError(
                     "artifact_http_status_invalid",

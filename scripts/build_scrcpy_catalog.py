@@ -37,7 +37,10 @@ REQUIRED_TARGETS = (
     ("darwin", "arm64"),
     ("linux", "x86_64"),
 )
-ALLOWED_HOSTS = ("github.com",)
+# GitHub answers a release download with a 302 to its asset CDN, so the redirect
+# targets must travel in the catalog too. Keep this aligned with
+# pixelflasher_core.scrcpy_distribution._APPROVED_HOSTS.
+ALLOWED_HOSTS = ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
 KEY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 EXPIRES_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 

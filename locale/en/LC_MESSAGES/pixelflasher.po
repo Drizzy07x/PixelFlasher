@@ -7070,3 +7070,25 @@ msgstr "Hardware revision"
 msgctxt "web.device.inspectVariables"
 msgid "{count} variables"
 msgstr "{count} variables"
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.patchDeviceRequired"
+msgid "Select exactly one device in ADB mode to patch a boot image."
+msgstr ""
+
+msgctxt "web.root.patchBootRequired"
+msgid "Select a verified boot image to patch."
+msgstr ""
+
+##############################################################################
+# React Web UI source messages 2026-07-18
+##############################################################################
+
+msgctxt "web.root.patchPartitionRequired"
+msgid ""
+"Only Magisk can patch a {partition} image. Select a boot image, or choose "
+"Magisk."
+msgstr ""

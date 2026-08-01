@@ -20,6 +20,13 @@ from typing import cast
 
 from pixelflasher_core import AppSnapshot, OperationResult, is_valid_target_serial
 from pixelflasher_core.contracts import MAX_MANAGED_DEVICE_TIMESTAMP
+from pixelflasher_core.device_tools import (
+    PUBLIC_ANDROID_PATH_PREFIXES,
+    PUBLIC_POSIX_PATH,
+    PUBLIC_UNC_PATH,
+    PUBLIC_WINDOWS_PATH,
+    is_public_android_path,
+)
 from ui.command_registry import ALLOWED_COMMANDS
 
 JSONScalar = None | bool | int | float | str
@@ -83,22 +90,20 @@ _STRICT_STRUCTURED_RESULTS = frozenset(
     }
 )
 
-_WINDOWS_PATH = re.compile(r"(?i)(?:^|[^a-z0-9])(?:[a-z]:[\\/])")
-_UNC_PATH = re.compile(r"(?:^|[^a-zA-Z0-9])\\\\[^\\/\s]+[\\/][^\s'\"]+")
-_POSIX_PATH = re.compile(r"(?:^|[\s\"'(\[=,;])(/(?!/)[^\s\"'\])},;]+)")
-_ANDROID_PATH_PREFIXES = (
-    "/data/",
-    "/dev/",
-    "/metadata/",
-    "/mnt/",
-    "/odm/",
-    "/proc/",
-    "/product/",
-    "/sdcard/",
-    "/storage/",
-    "/sys/",
-    "/system/",
-    "/vendor/",
+# The path grammars and the device allow-list are owned by the core sanitizer
+# so that both redaction boundaries can never disagree about where a path ends
+# or which roots are device paths.
+_WINDOWS_PATH = PUBLIC_WINDOWS_PATH
+_UNC_PATH = PUBLIC_UNC_PATH
+_POSIX_PATH = PUBLIC_POSIX_PATH
+_ANDROID_PATH_PREFIXES = PUBLIC_ANDROID_PATH_PREFIXES
+_HOST_PATH_PLACEHOLDER = "<host-path>"
+_LEGACY_PREVIEW_COMMAND = re.compile(r'^"([^"]*)"')
+_WINDOWS_HOST_PATH_TEXT = re.compile(
+    r"(?i)(?<![a-z0-9])(?:[a-z]:[\\/]|\\\\)[^\r\n,;:|\"'<>()[\]{}]*"
+)
+_HOST_PATH_CONSTRUCTOR_TEXT = re.compile(
+    r"(?i)(?:WindowsPath|PosixPath|PurePath)\([^)]*\)?"
 )
 _UNSAFE_LOG_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -120,6 +125,21 @@ class PublicProjectionError(TypeError):
     """A backend value cannot safely enter the browser contract."""
 
 
+class PublicUserText(str):
+    """User-authored text that has already passed explicit field validation.
+
+    The generic host-path predicate must not see these values.  They are the
+    user's own input echoed back into the user's own editor, which posts them
+    straight back to storage, so replacing a route with a placeholder would
+    silently rewrite what the next save persists and what the tool then runs.
+    A projector may only mint one after validating the field itself.  The
+    marker deliberately survives every later ``ensure_public_json`` pass; it is
+    a ``str`` subclass and serializes as an ordinary JSON string.
+    """
+
+    __slots__ = ()
+
+
 def _is_host_path_string(value: str) -> bool:
     if (
         _WINDOWS_PATH.search(value)
@@ -130,23 +150,45 @@ def _is_host_path_string(value: str) -> bool:
     ):
         return True
     for match in _POSIX_PATH.finditer(value):
-        path = match.group(1)
-        if not any(path == prefix[:-1] or path.startswith(prefix) for prefix in _ANDROID_PATH_PREFIXES):
+        if not is_public_android_path(match.group(1)):
             return True
     return False
 
 
+def _redact_host_paths(value: str) -> str:
+    """Replace host routes with a placeholder, keeping the rest of the text."""
+
+    def redact_posix(match: re.Match[str]) -> str:
+        if is_public_android_path(match.group(1)):
+            return match.group(0)
+        prefix = match.group(0)[: match.start(1) - match.start(0)]
+        return f"{prefix}{_HOST_PATH_PLACEHOLDER}"
+
+    redacted = _WINDOWS_HOST_PATH_TEXT.sub(_HOST_PATH_PLACEHOLDER, value)
+    redacted = _HOST_PATH_CONSTRUCTOR_TEXT.sub(_HOST_PATH_PLACEHOLDER, redacted)
+    return _POSIX_PATH.sub(redact_posix, redacted)
+
+
+def _public_path_safe_text(value: str, *, fallback: str) -> str:
+    """Redact host routes, falling back when anything host-shaped survives."""
+
+    if not _is_host_path_string(value):
+        return value
+    redacted = _redact_host_paths(value).strip()
+    if not redacted or redacted == _HOST_PATH_PLACEHOLDER or _is_host_path_string(redacted):
+        return fallback
+    return redacted
+
+
 def safe_public_message(value: object, *, fallback: str) -> str:
-    """Return one bounded message, replacing strings containing host paths."""
+    """Return one bounded message, redacting host paths instead of losing it."""
 
     if not isinstance(value, str):
         return fallback
     message = value.strip()
     if not message or len(message) > 4096:
         return fallback
-    if _is_host_path_string(message):
-        return fallback
-    return message
+    return _public_path_safe_text(message, fallback=fallback)
 
 
 def ensure_public_json(value: object, *, depth: int = 0) -> JSONValue:
@@ -157,6 +199,8 @@ def ensure_public_json(value: object, *, depth: int = 0) -> JSONValue:
     if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, str):
+        if isinstance(value, PublicUserText):
+            return value
         if _is_host_path_string(value):
             raise PublicProjectionError("public payload contains a host path")
         return value
@@ -563,7 +607,9 @@ def _public_result_summary(value: object) -> dict[str, JSONValue] | None:
     if value is None:
         return None
     if isinstance(value, OperationResult):
-        return _public_object(value.to_public_dict())
+        # Re-sanitize the raw message here so the snapshot keeps the same
+        # redacted diagnostics the runtime event carries.
+        return public_operation_summary(value)
     source = _record(value)
     raw_exit_code = source.get("exit_code")
     exit_code = raw_exit_code if isinstance(raw_exit_code, int) and not isinstance(raw_exit_code, bool) else None
@@ -3904,6 +3950,21 @@ def _project_update_check(value: object) -> JSONValue:
     return ensure_public_json(source)
 
 
+def _public_command_preview(value: str) -> str:
+    """Reduce a 9.x preview's leading quoted executable to its basename.
+
+    The rest of the command line must survive verbatim: it is the text the user
+    reads before typing the RUN RAW authorization, and Windows switches such as
+    ``/c`` are not host routes even though they parse as POSIX paths.
+    """
+
+    match = _LEGACY_PREVIEW_COMMAND.match(value)
+    if match is None:
+        return value
+    basename = ntpath.basename(posixpath.basename(match.group(1).replace("\\", "/")))
+    return f'"{basename or "tool"}"{value[match.end():]}'
+
+
 def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONValue]:
     base = {"id", "title", "mode", "displayName", "sha256", "arguments", "enabled"}
     fields = base | (
@@ -3928,11 +3989,16 @@ def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONVa
         or (not legacy and re.fullmatch(r"[0-9a-f]{32}", tool_id) is None)
         or not isinstance(title, str)
         or not 1 <= len(title) <= 96
+        or not title.isprintable()
         or not isinstance(display_name, str)
         or not display_name
         or not isinstance(arguments, list)
         or len(arguments) > 128
-        or any(not isinstance(item, str) or "\x00" in item for item in arguments)
+        or any(
+            not isinstance(item, str) or "\x00" in item or len(item) > 2_048
+            for item in arguments
+        )
+        or sum(len(cast(str, item).encode("utf-8")) for item in arguments) > 16_384
         or not isinstance(source["enabled"], bool)
     ):
         raise PublicProjectionError("personal tool result is invalid")
@@ -3972,9 +4038,29 @@ def _project_my_tool(value: object, *, legacy: bool = False) -> dict[str, JSONVa
         not isinstance(source["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", source["sha256"]) is None
     ):
         raise PublicProjectionError("safe personal tool boundary is invalid")
-    projected = ensure_public_json(source)
+    # Personal tools legitimately carry host routes, and unlike every other
+    # projection these fields are the user's own text on a write-back path: the
+    # editor prefills `title`/`arguments` from this row and posts them straight
+    # back to disk, and `commandPreview` is the body of the RUN RAW consent
+    # prompt.  Redacting them would corrupt the stored definition and hide which
+    # binary is being authorized, so they are emitted verbatim after the
+    # explicit validation above instead of meeting the generic path predicate.
+    # Only the preview's leading executable is reduced, to its basename, which
+    # is what `displayName` already exposes for a safeArgv tool.
+    verbatim: dict[str, JSONValue] = {
+        "title": PublicUserText(cast(str, title)),
+        "arguments": [PublicUserText(item) for item in cast(list[str], arguments)],
+    }
+    if legacy:
+        verbatim["commandPreview"] = PublicUserText(
+            _public_command_preview(cast(str, source["commandPreview"]))
+        )
+    projected = ensure_public_json(
+        {key: item for key, item in source.items() if key not in verbatim}
+    )
     if not isinstance(projected, dict):
         raise PublicProjectionError("personal tool result must be an object")
+    projected.update(verbatim)
     return projected
 
 

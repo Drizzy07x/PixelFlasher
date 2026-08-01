@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -22,7 +23,8 @@ from .contracts import JSONValue, ProgressPhase
 from .executor import CancellationToken
 from .rooting import RootAppInfo, RootAppSource, RootingPlanningError, RootingService
 
-_CHANNELS = frozenset({"stable", "beta", "canary"})
+_DEFAULT_CHANNEL = "stable"
+_CHANNELS = frozenset({_DEFAULT_CHANNEL, "beta", "canary"})
 _PROVIDERS = frozenset(
     {
         "magisk",
@@ -210,7 +212,6 @@ class RootAppCatalogService:
         channel: str,
         cancellation: CancellationToken,
     ) -> RootAppCatalogResult:
-        self._entries = MappingProxyType({})
         try:
             normalized_channel = _normalized_channel(channel)
             if cancellation.cancelled:
@@ -225,6 +226,14 @@ class RootAppCatalogService:
                 raise RootAppCatalogError(
                     "root_app_catalog_too_large",
                     "The root-app catalog exceeds its entry limit.",
+                )
+            if not sources and normalized_channel != _DEFAULT_CHANNEL:
+                # A provisioned build always carries the default channel, so an
+                # empty non-default channel is an unprovisioned selection rather
+                # than a build that ships no root-app manifests at all.
+                raise RootAppCatalogError(
+                    "root_app_catalog_channel_unprovisioned",
+                    "The selected root-app channel is not provisioned in this build.",
                 )
             resolved: dict[str, _ResolvedEntry] = {}
             for source in sources:
@@ -296,6 +305,8 @@ class RootAppCatalogService:
             )
         if cancellation.cancelled:
             return _download_cancelled()
+        previous_sources: tuple[RootAppSource, ...] = ()
+        collapsed = False
         try:
             self._progress(progress, ProgressPhase.STARTED, "Downloading verified root app.", 0)
             cache = self.cache_directory.resolve(strict=False)
@@ -311,6 +322,19 @@ class RootAppCatalogService:
             if cancellation.cancelled:
                 return _download_cancelled()
             previous_sources = self.rooting_service.root_app_sources
+            canonical_destination = _canonical_path(downloaded.path)
+            retained = tuple(
+                candidate
+                for candidate in previous_sources
+                if _canonical_path(candidate.path) != canonical_destination
+            )
+            if len(retained) != len(previous_sources):
+                # The catalog publishes one universal APK under several
+                # architectures, so re-downloading it under a different
+                # architecture must replace the previous registration instead of
+                # colliding with it on the canonical inventory path.
+                self.rooting_service.restore_root_app_sources(retained)
+                collapsed = True
             app = self.rooting_service.register_verified_source(
                 RootAppSource(
                     path=downloaded.path,
@@ -337,9 +361,13 @@ class RootAppCatalogService:
                 previous_sources,
             )
         except ArtifactCancelledError:
+            if collapsed:
+                self.rooting_service.restore_root_app_sources(previous_sources)
             self._progress(progress, ProgressPhase.CANCELLED, "Root-app download cancelled.", None)
             return _download_cancelled()
         except (ArtifactDownloadError, RootingPlanningError, OSError) as error:
+            if collapsed:
+                self.rooting_service.restore_root_app_sources(previous_sources)
             self._progress(progress, ProgressPhase.FAILED, "Root-app download failed.", None)
             typed = isinstance(error, (ArtifactDownloadError, RootingPlanningError))
             return RootAppDownloadResult(
@@ -448,6 +476,13 @@ def _normalized_channel(value: object) -> str:
             "Root-app catalog channel is invalid.",
         )
     return normalized
+
+
+def _canonical_path(value: str) -> str:
+    try:
+        return os.path.normcase(str(Path(value).expanduser().resolve(strict=False)))
+    except OSError:
+        return os.path.normcase(str(value))
 
 
 def _provider_key(value: object) -> str:

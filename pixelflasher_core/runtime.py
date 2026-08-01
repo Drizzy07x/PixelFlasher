@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable, Mapping
@@ -12,7 +13,7 @@ from uuid import uuid4
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from constants import VERSION
+from constants import APPNAME, VERSION
 
 from .adb_terminal import AdbTerminalService, native_terminal_backend
 from .apk_inspection import ApkInspector
@@ -80,7 +81,7 @@ from .firmware_signatures import FirmwarePackageSignatureVerifier
 from .interaction import InteractionBroker
 from .keybox_validation import KeyboxRevocationProvider, KeyboxValidationService
 from .module_updates import RootModuleUpdateService
-from .my_tools import MyToolsRepository, MyToolsService
+from .my_tools import MyToolsError, MyToolsRepository, MyToolsService
 from .observer import PostconditionObserver, ProcessDeviceObservationProbe
 from .operation_runner import (
     OperationRunner,
@@ -142,12 +143,53 @@ from .updates import (
 
 RuntimeListener = Callable[[AppEvent], None]
 
+# Modern plan modes that have an exact 9.x flash-mode radio equivalent. Modes
+# absent here ("images", "factory") have none, so the 9.x value is preserved.
+_LEGACY_FLASH_MODES: Mapping[str, str] = {
+    "ota": "OTA",
+    "sideload": "OTA",
+    "customflash": "customFlash",
+    "wipedata": "wipeData",
+    "wipe": "wipeData",
+    "keepdata": "keepData",
+    "keep": "keepData",
+}
+
 
 def _string_object_mapping(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping):
         return {}
     values = cast(Mapping[object, object], value)
     return {key: item for key, item in values.items() if isinstance(key, str)}
+
+
+def _preserve_unprobed_root(
+    devices: tuple[DeviceInfo, ...],
+    published: tuple[DeviceInfo, ...],
+) -> tuple[DeviceInfo, ...]:
+    """Keep an already probed root state the hotplug poller never re-measures.
+
+    The poller scans without property enrichment, so every republished row
+    carries the ``root`` default.  Publishing that verbatim reverts a probed
+    device to "no root" on the next hotplug and lets an OTA cancel abort with
+    ``root_state_changed`` at its execution boundary.  A mode transition still
+    drops the value, so an adb <-> fastboot switch forces a fresh probe.
+    """
+
+    previous = {device.serial: device for device in published}
+    merged: list[DeviceInfo] = []
+    for device in devices:
+        earlier = previous.get(device.serial)
+        if (
+            earlier is None
+            or device.root
+            or not earlier.root
+            or earlier.mode != device.mode
+        ):
+            merged.append(device)
+            continue
+        merged.append(replace(device, root=True))
+    return tuple(merged)
 
 
 class ApplicationRuntime:
@@ -197,44 +239,37 @@ class ApplicationRuntime:
         self.config_document = config_document
         self.firmware_artifact_cache_root = self._firmware_artifact_cache_path(config_store.path)
         self.pif_profile_transformer = PifProfileTransformer()
-        self.pif_favorites_repository = PifFavoritesRepository(
-            self._pif_favorites_path(config_store.path),
-            legacy_path=config_store.path.parent / "favorite_pifs.json",
-        )
+        self.quarantined_stores: tuple[Path, ...] = ()
+        self.legacy_migration_error: str | None = None
+        self.pif_favorites_repository = self._open_pif_favorites_repository(config_store.path)
         self.artifact_repository = ArtifactRepository(self._content_artifact_repository_path(config_store.path))
-        self.artifact_cleanup_report = self.artifact_repository.collect_orphaned_objects()
-        # Compatibility alias for callers introduced before the shared
-        # FirmwareRepository/BootRepository composition became canonical.
-        self.content_artifact_repository = self.artifact_repository
-        self.firmware_repository = FirmwareRepository(self.artifact_repository)
-        self.boot_repository = BootRepository(self.artifact_repository)
-        self.backup_repository = BackupRepository(self._backup_repository_path(config_store.path))
-        self.backup_cleanup_report = self.backup_repository.collect_orphaned_objects()
-        self.my_tools_repository = MyToolsRepository(
-            self._my_tools_repository_path(config_store.path),
-            legacy_path=config_store.path.parent / "mytools.json",
-        )
-        self.processed_artifact_repository = PersistentProcessedArtifactRepository(
-            self.firmware_repository,
-            metadata_provider=self._processed_firmware_metadata,
-            device_codename_provider=self._processed_device_codenames,
-        )
-        self.legacy_database_path = (
-            Path(legacy_database_path).expanduser().resolve(strict=False)
-            if legacy_database_path is not None
-            else self._legacy_v9_database_path(config_store.path)
-        )
         try:
-            self.legacy_migration_report = self._migrate_legacy_artifacts()
+            self.artifact_cleanup_report = self.artifact_repository.collect_orphaned_objects()
+            # Compatibility alias for callers introduced before the shared
+            # FirmwareRepository/BootRepository composition became canonical.
+            self.content_artifact_repository = self.artifact_repository
+            self.firmware_repository = FirmwareRepository(self.artifact_repository)
+            self.boot_repository = BootRepository(self.artifact_repository)
+            self.backup_repository = BackupRepository(self._backup_repository_path(config_store.path))
+            self.backup_cleanup_report = self.backup_repository.collect_orphaned_objects()
+            self.my_tools_repository = self._open_my_tools_repository(config_store.path)
+            self.processed_artifact_repository = PersistentProcessedArtifactRepository(
+                self.firmware_repository,
+                metadata_provider=self._processed_firmware_metadata,
+                device_codename_provider=self._processed_device_codenames,
+            )
+            self.legacy_database_path = (
+                Path(legacy_database_path).expanduser().resolve(strict=False)
+                if legacy_database_path is not None
+                else self._legacy_v9_database_path(config_store.path)
+            )
+            self.legacy_migration_report = self._legacy_migration_report()
             initial_snapshot = self._reconcile_artifact_selections(
                 config_document,
                 initial_snapshot,
             )
         except Exception:
-            try:
-                self.backup_repository.close()
-            finally:
-                self.artifact_repository.close()
+            self._close_repositories()
             raise
         self.store = AppStateStore(initial_snapshot)
         self._listeners: dict[str, RuntimeListener] = {}
@@ -431,6 +466,37 @@ class ApplicationRuntime:
             if not self.store.snapshot().device_management.scan_enabled:
                 self.device_poller.pause()
             self.device_poller.start()
+        self._report_startup_warnings()
+
+    @property
+    def startup_warnings(self) -> tuple[str, ...]:
+        """Non-fatal startup degradations that the user must still be told about."""
+
+        warnings: list[str] = []
+        if self.legacy_migration_error is not None:
+            warnings.append(f"legacy 9.x migration failed: {self.legacy_migration_error}")
+        warnings.extend(
+            f"unreadable store quarantined as {path.name}" for path in self.quarantined_stores
+        )
+        return tuple(warnings)
+
+    def _report_startup_warnings(self) -> None:
+        """Announce degraded startup on the console the host already reads.
+
+        Silently opening with an empty firmware library or an empty My Tools
+        list reads as data loss, so the degradation is never swallowed even
+        before a session log or a UI banner consumes ``startup_warnings``.
+
+        This runs after the device poller is already started, and the packaged
+        build hides its console early, so a stdout that rejects writes must not
+        turn a degraded startup into a failed one that leaks a live poller.
+        """
+
+        for warning in self.startup_warnings:
+            try:
+                print(f"{APPNAME}: {warning}")
+            except Exception:
+                return
 
     @classmethod
     def open(
@@ -1370,20 +1436,30 @@ class ApplicationRuntime:
             with self._preferences_lock:
                 values = dict(self.config_document.values)
                 # Keep the three legacy Config keys usable by the current wx host.
-                values.update(
-                    {
-                        "device": snapshot.selected_serial,
-                        "firmware_path": (str(firmware_record.path) if firmware_record is not None else None),
-                        "mode": "dryRun" if snapshot.plan.dry_run else snapshot.plan.mode,
-                        "_pixelflasher_core_state": {
-                            "selected_serials": list(snapshot.selected_serials),
-                            "firmware": self._artifact_reference(firmware_record),
-                            "boot": self._artifact_reference(boot_record),
-                            "plan": snapshot.plan.to_dict(),
-                            "toolchain": snapshot.toolchain.to_dict(),
-                        },
-                    }
-                )
+                # Each is written only when this session resolved a real value:
+                # a 9.x selection this build never adopted must survive intact
+                # rather than being replaced by a null or a fail-safe mode.
+                updates: dict[str, object] = {
+                    "_pixelflasher_core_state": {
+                        "selected_serials": list(snapshot.selected_serials),
+                        "firmware": self._artifact_reference(firmware_record),
+                        "boot": self._artifact_reference(boot_record),
+                        "plan": snapshot.plan.to_dict(),
+                        "toolchain": snapshot.toolchain.to_dict(),
+                    },
+                }
+                if snapshot.selected_serial is not None:
+                    updates["device"] = snapshot.selected_serial
+                elif snapshot.revision > 0:
+                    # A modern session proved the selection empty; only a 9.x
+                    # serial this build never superseded is preserved.
+                    updates["device"] = None
+                if firmware_record is not None:
+                    updates["firmware_path"] = str(firmware_record.path)
+                legacy_mode = self._legacy_flash_mode(snapshot.plan)
+                if legacy_mode is not None:
+                    updates["mode"] = legacy_mode
+                values.update(updates)
                 if snapshot.toolchain.adb and snapshot.toolchain.fastboot:
                     adb_parent = Path(snapshot.toolchain.adb).parent
                     if adb_parent == Path(snapshot.toolchain.fastboot).parent:
@@ -1408,10 +1484,17 @@ class ApplicationRuntime:
                 try:
                     self._state_subscription.cancel()
                 finally:
-                    try:
-                        self.backup_repository.close()
-                    finally:
-                        self.artifact_repository.close()
+                    self._close_repositories()
+
+    def _close_repositories(self) -> None:
+        """Release both SQLite handles, including when startup aborts midway."""
+
+        backup_repository = getattr(self, "backup_repository", None)
+        try:
+            if backup_repository is not None:
+                backup_repository.close()
+        finally:
+            self.artifact_repository.close()
 
     def __enter__(self) -> ApplicationRuntime:
         return self
@@ -1447,6 +1530,7 @@ class ApplicationRuntime:
             # The bounded roster remains unchanged. A later policy/removal
             # command forces a fresh observation after capacity is available.
             return
+        devices = _preserve_unprobed_root(devices, current.devices)
         selected, primary = reconcile_device_selection(
             devices,
             current.selected_serials,
@@ -1754,12 +1838,71 @@ class ApplicationRuntime:
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / f".{resolved.name}.cache" / "pif-favorites.json"
 
+    def _open_my_tools_repository(self, config_path: Path) -> MyToolsRepository:
+        """Quarantine an unreadable personal-tools store instead of failing startup."""
+
+        path = self._my_tools_repository_path(config_path)
+        legacy_path = config_path.parent / "mytools.json"
+        try:
+            return MyToolsRepository(path, legacy_path=legacy_path)
+        except MyToolsError:
+            if not self._quarantine_store(path):
+                raise
+            # The quarantined store already consumed the one-time 9.x discovery,
+            # so recovery starts from an empty inventory rather than silently
+            # re-granting execution permission to migrated legacy tools.
+            return MyToolsRepository(path)
+
+    def _open_pif_favorites_repository(self, config_path: Path) -> PifFavoritesRepository:
+        """Quarantine an unreadable PIF favorites store instead of failing startup."""
+
+        path = self._pif_favorites_path(config_path)
+        legacy_path = config_path.parent / "favorite_pifs.json"
+        try:
+            return PifFavoritesRepository(path, legacy_path=legacy_path)
+        except PifProfileError:
+            if not self._quarantine_store(path):
+                raise
+            # Favorites carry no permission grant, so the idempotent 9.x import
+            # may run again against the recovered empty store.
+            return PifFavoritesRepository(path, legacy_path=legacy_path)
+
+    def _quarantine_store(self, path: Path) -> bool:
+        """Move a corrupt sidecar aside, mirroring the ConfigStore .corrupt.bak policy."""
+
+        quarantine = path.with_name(f"{path.name}.corrupt.bak")
+        try:
+            quarantine.unlink(missing_ok=True)
+            path.replace(quarantine)
+        except OSError:
+            return False
+        self.quarantined_stores = (*self.quarantined_stores, quarantine)
+        return True
+
     @staticmethod
     def _legacy_v9_database_path(config_path: str | Path) -> Path:
         """Return the audited 9.x database location beside the system config."""
 
         resolved = Path(config_path).expanduser().resolve(strict=False)
         return resolved.parent / LEGACY_V9_DATABASE_NAME
+
+    def _legacy_migration_report(self) -> LegacyMigrationReport:
+        """Import the 9.x database without letting one bad row block startup.
+
+        ``migrate_legacy_v9`` rolls its own transaction back before propagating,
+        so a failed attempt leaves no partial rows behind and the next launch
+        retries from a consistent state.  Refusing to open the application at
+        all would leave the user with no way to reach settings or diagnostics.
+        """
+
+        try:
+            return self._migrate_legacy_artifacts()
+        except (OSError, RepositoryError, sqlite3.Error, TypeError, ValueError) as error:
+            self.legacy_migration_error = f"{type(error).__name__}: {error}"
+            return LegacyMigrationReport(
+                source_database=str(self.legacy_database_path),
+                status="failed",
+            )
 
     def _migrate_legacy_artifacts(self) -> LegacyMigrationReport:
         source = self.legacy_database_path
@@ -1832,6 +1975,21 @@ class ApplicationRuntime:
             )
         except (OSError, RepositoryError, TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _legacy_flash_mode(plan: FlashPlan) -> str | None:
+        """Map an established modern plan onto the 9.x mode vocabulary.
+
+        Revision 0 means no modern session ever set a plan, so ``mode`` and the
+        fail-safe ``dry_run`` default only describe rehydrated legacy state; the
+        9.x key is left alone rather than rewritten from an assumption.
+        """
+
+        if plan.revision <= 0:
+            return None
+        if plan.dry_run:
+            return "dryRun"
+        return _LEGACY_FLASH_MODES.get(plan.mode.strip().casefold())
 
     @staticmethod
     def _artifact_reference(record: ArtifactRecord | None) -> dict[str, str]:
