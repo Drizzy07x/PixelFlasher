@@ -40,8 +40,8 @@
       "id": "windows-x86_64/firmware-smoke",
       "kind": "packaged-smoke",
       "path": "evidence/windows-x86_64/firmware-smoke.json",
-      "recordedAt": "2026-07-29T03:12:35Z",
-      "recordedCommit": "3533bb733cdbc03b5ee77b68902b2b250ccb787d",
+      "recordedAt": "2026-08-01T06:09:23Z",
+      "recordedCommit": "71b7a9936e6e0f236664c4d6291ef49347bdc43e",
       "sha256": "f057f0ae1a5f1ffea15990f52e5405d5edc0b25620d045738765fe9af74bafd5"
     },
     {
@@ -52,8 +52,8 @@
       "id": "windows-x86_64/legacy-raw-smoke",
       "kind": "packaged-smoke",
       "path": "evidence/windows-x86_64/legacy-raw-smoke.json",
-      "recordedAt": "2026-07-29T03:12:35Z",
-      "recordedCommit": "3533bb733cdbc03b5ee77b68902b2b250ccb787d",
+      "recordedAt": "2026-08-01T06:09:23Z",
+      "recordedCommit": "71b7a9936e6e0f236664c4d6291ef49347bdc43e",
       "sha256": "0eb7457ec351df3b0063e42f3718d294aa1b047620ce9d7af959b79aec4e648f"
     },
     {
@@ -64,8 +64,8 @@
       "id": "windows-x86_64/pty-smoke",
       "kind": "packaged-smoke",
       "path": "evidence/windows-x86_64/pty-smoke.json",
-      "recordedAt": "2026-07-29T03:12:35Z",
-      "recordedCommit": "3533bb733cdbc03b5ee77b68902b2b250ccb787d",
+      "recordedAt": "2026-08-01T06:09:23Z",
+      "recordedCommit": "71b7a9936e6e0f236664c4d6291ef49347bdc43e",
       "sha256": "38ee78be1de13af8f3e89b91b96017f3ae2fca6885dd0a342b9f06f5ace287f9"
     },
     {
@@ -76,9 +76,9 @@
       "id": "windows-x86_64/support-smoke",
       "kind": "packaged-smoke",
       "path": "evidence/windows-x86_64/support-smoke.json",
-      "recordedAt": "2026-07-29T03:12:35Z",
-      "recordedCommit": "3533bb733cdbc03b5ee77b68902b2b250ccb787d",
-      "sha256": "8e92bfda2a56f7f02e683a3489b502a141905f12e0a468b9fd5e2e8cac024d8d"
+      "recordedAt": "2026-08-01T06:09:23Z",
+      "recordedCommit": "71b7a9936e6e0f236664c4d6291ef49347bdc43e",
+      "sha256": "f4b995f3220a7625fb758c438ce9d8d75ef4ad20282793f702c8cce3a9ee91cb"
     },
     {
       "attributes": {
@@ -88,8 +88,8 @@
       "id": "windows-x86_64/ui-smoke",
       "kind": "packaged-smoke",
       "path": "evidence/windows-x86_64/ui-smoke.json",
-      "recordedAt": "2026-07-29T03:12:35Z",
-      "recordedCommit": "3533bb733cdbc03b5ee77b68902b2b250ccb787d",
+      "recordedAt": "2026-08-01T06:09:23Z",
+      "recordedCommit": "71b7a9936e6e0f236664c4d6291ef49347bdc43e",
       "sha256": "e4a0601def8f5d4a7ef1656ee43ca872949494542ffda96044a55826d3d2b23e"
     }
   ],
