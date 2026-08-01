@@ -7,6 +7,8 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from pixelflasher_core.binary_xml import (
     BinaryXmlCode,
@@ -224,6 +226,46 @@ def test_random_bytes_never_escape_as_raw_parser_exceptions() -> None:
             BinaryXmlCode.LIMIT_EXCEEDED,
             BinaryXmlCode.OUTPUT_TOO_LARGE,
         }
+
+
+@given(st.binary(max_size=2048))
+@settings(max_examples=200, deadline=None)
+def test_arbitrary_bytes_always_yield_a_typed_result(data: bytes) -> None:
+    result = BinaryXmlService(BinaryXmlLimits(maximum_input_bytes=2048)).decode(
+        BytesIO(data)
+    )
+
+    assert result.status in {BinaryXmlStatus.SUCCESS, BinaryXmlStatus.FAILED}
+    if result.status is BinaryXmlStatus.FAILED:
+        assert result.code in {
+            BinaryXmlCode.INVALID,
+            BinaryXmlCode.LIMIT_EXCEEDED,
+            BinaryXmlCode.OUTPUT_TOO_LARGE,
+        }
+    else:
+        assert result.code is BinaryXmlCode.DECODED
+
+
+@given(data=st.data())
+@settings(max_examples=200, deadline=None)
+def test_corrupted_documents_never_escape_the_typed_result(
+    data: st.DataObject,
+) -> None:
+    document = bytearray(_binary_xml())
+    index = data.draw(st.integers(min_value=0, max_value=len(document) - 1))
+    document[index] ^= data.draw(st.integers(min_value=1, max_value=255))
+
+    result = BinaryXmlService().decode(BytesIO(bytes(document)))
+
+    assert result.status in {BinaryXmlStatus.SUCCESS, BinaryXmlStatus.FAILED}
+    if result.status is BinaryXmlStatus.FAILED:
+        assert result.code in {
+            BinaryXmlCode.INVALID,
+            BinaryXmlCode.LIMIT_EXCEEDED,
+            BinaryXmlCode.OUTPUT_TOO_LARGE,
+        }
+    else:
+        assert result.code is BinaryXmlCode.DECODED
 
 
 @pytest.mark.parametrize(

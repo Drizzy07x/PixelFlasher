@@ -9,8 +9,12 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 import avbtool
 from pixelflasher_core.avb_downgrade import (
+    AvbImageMetadata,
     BundledAvbDowngradeTool,
     DowngradePatchCode,
     DowngradePatchService,
@@ -47,6 +51,38 @@ def metadata(*, security_patch: str, fingerprint: str) -> dict[str, str]:
         "com.android.build.boot.fingerprint": fingerprint,
         "com.android.build.boot.security_patch": security_patch,
     }
+
+
+_BASE_METADATA_KWARGS = {
+    "security_patch": "2026-07-05",
+    "fingerprint": "google/komodo/komodo:16/BP2A/13376864:user/release-keys",
+}
+
+
+class AvbMetadataFuzzTests(unittest.TestCase):
+    def test_each_missing_field_is_rejected(self) -> None:
+        base = metadata(**_BASE_METADATA_KWARGS)
+        for field in base:
+            raw = dict(base)
+            raw.pop(field)
+            with self.assertRaises(ValueError):
+                AvbImageMetadata.from_mapping(raw)
+
+    @given(
+        field=st.sampled_from(sorted(metadata(**_BASE_METADATA_KWARGS))),
+        value=st.text(max_size=64),
+    )
+    @settings(max_examples=200, deadline=None)
+    def test_mutated_metadata_never_leaks_untyped_errors(
+        self, field: str, value: str
+    ) -> None:
+        raw = metadata(**_BASE_METADATA_KWARGS)
+        raw[field] = value
+        try:
+            parsed = AvbImageMetadata.from_mapping(raw)
+        except ValueError:
+            return
+        self.assertEqual(parsed.partition_name, "boot")
 
 
 class FakeAvbTool:

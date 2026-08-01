@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import tempfile
 from datetime import UTC, datetime, timedelta
@@ -12,6 +13,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import NameOID
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from pixelflasher_core import (
     AppCommand,
@@ -219,6 +222,58 @@ def test_unsafe_or_malformed_xml_returns_a_typed_invalid_report(payload: bytes) 
     assert result.report is not None
     assert result.report.status is KeyboxStatus.INVALID
     assert not result.report.structure_valid
+
+
+@functools.cache
+def _cached_keybox_payload() -> bytes:
+    return _keybox_xml()[0]
+
+
+_CERTIFICATE_BEGIN = "-----BEGIN CERTIFICATE-----"
+_CERTIFICATE_END = "-----END CERTIFICATE-----"
+
+
+@given(st.binary(max_size=4096))
+@settings(max_examples=100, deadline=None)
+def test_arbitrary_bytes_never_validate_and_never_crash(data: bytes) -> None:
+    result = KeyboxValidationService(clock=lambda: NOW).analyze(
+        "keybox.xml",
+        BytesIO(data),
+        evidence=None,
+        revocation_issue="revocation_evidence_unavailable",
+    )
+
+    assert result.status is KeyboxAnalysisStatus.SUCCESS
+    assert result.report is not None
+    assert result.report.status is not KeyboxStatus.VALID
+
+
+@given(
+    st.text(
+        alphabet=(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n"
+        ),
+        min_size=1,
+        max_size=512,
+    )
+)
+@settings(max_examples=50, deadline=None)
+def test_fuzzed_certificate_bodies_are_invalid_not_crashes(body: str) -> None:
+    text = _cached_keybox_payload().decode("utf-8")
+    begin = text.index(_CERTIFICATE_BEGIN) + len(_CERTIFICATE_BEGIN)
+    end = text.index(_CERTIFICATE_END, begin)
+    corrupted = (text[:begin] + "\n" + body + "\n" + text[end:]).encode("utf-8")
+
+    result = KeyboxValidationService(clock=lambda: NOW).analyze(
+        "keybox.xml",
+        BytesIO(corrupted),
+        evidence=None,
+        revocation_issue="revocation_evidence_unavailable",
+    )
+
+    assert result.status is KeyboxAnalysisStatus.SUCCESS
+    assert result.report is not None
+    assert result.report.status is KeyboxStatus.INVALID
 
 
 def test_size_limit_and_cancellation_fail_closed() -> None:
