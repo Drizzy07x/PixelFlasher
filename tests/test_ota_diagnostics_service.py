@@ -259,6 +259,33 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
         self.assertEqual("ota_reset_state_incompatible", disabled.code)
         self.assertEqual("ota_reset_preflight_cancelled", cancelled.code)
 
+    def test_reset_preflight_fails_closed_on_timeout_disconnect_and_overflow(self) -> None:
+        self.snapshot = replace(
+            self.snapshot,
+            devices=(replace(self.snapshot.devices[0], root=True),),
+        )
+        compilation = self.compile(OTA_RESET_COMMAND)
+
+        cases = (
+            (
+                TransportOutcome(None, timed_out=True),
+                "ota_reset_preflight_timed_out",
+            ),
+            (
+                TransportOutcome(1, stderr="error: device offline"),
+                "ota_reset_preflight_failed",
+            ),
+            (
+                TransportOutcome(None, output_limited=True),
+                "ota_status_output_oversized",
+            ),
+        )
+        for outcome, code in cases:
+            with self.subTest(code=code):
+                decision = self.service.validate_reset_preflight(compilation, outcome)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(code, decision.code)
+
     def test_target_revision_mode_and_toolchain_are_fail_closed(self) -> None:
         cases = (
             (

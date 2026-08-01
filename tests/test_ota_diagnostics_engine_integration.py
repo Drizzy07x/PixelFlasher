@@ -300,6 +300,25 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("ota_already_idle", idle.code)
         self.assertEqual(3, len(idle_transport.calls))
 
+    def test_reset_disconnect_during_preflight_starts_no_mutation(self) -> None:
+        engine, transport = self.engine_for(
+            [
+                TransportOutcome(0),
+                TransportOutcome(0),
+                TransportOutcome(1, stderr="error: device offline"),
+            ],
+            interaction_handler=lambda _request: True,
+            postcondition_observer=lambda *_args: True,
+        )
+
+        result = engine.execute(ota_command(OTA_RESET_COMMAND))
+
+        self.assertIs(OperationStatus.FAILED, result.status)
+        self.assertEqual("ota_reset_preflight_failed", result.code)
+        self.assertEqual(3, len(transport.calls))
+        self.assertNotIn("cancel", transport.calls[-1].argv[-1])
+        self.assertNotIn("reset", transport.calls[-1].argv[-1])
+
     def test_reset_cancellation_before_mutation_is_cancelled(self) -> None:
         started = threading.Event()
         release = threading.Event()
