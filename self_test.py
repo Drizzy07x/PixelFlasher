@@ -70,9 +70,14 @@ def _is_frozen() -> bool:
 
 
 def _is_executable(path: Path) -> bool:
-    if sys.platform.startswith("win"):
-        return path.is_file()
-    return path.is_file() and os.access(path, os.X_OK)
+    try:
+        if sys.platform.startswith("win"):
+            return path.is_file()
+        return path.is_file() and os.access(path, os.X_OK)
+    except OSError:
+        # A candidate the process cannot even stat (for example a cache entry
+        # left behind by an elevated install) is not a usable binary.
+        return False
 
 
 def _find_binary(names: Iterable[str]) -> str | None:
