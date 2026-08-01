@@ -567,5 +567,7 @@ describe('apps, backups and settings workflows', () => {
     /></I18nProvider>);
     expect(screen.getByText('Development')).toBeVisible();
     expect(screen.getByText('Verified update information is unavailable.')).toBeVisible();
-  });
+    // ~25 sequential userEvent interactions legitimately exceed the 5s default
+    // under V8 coverage instrumentation.
+  }, 15_000);
 });
