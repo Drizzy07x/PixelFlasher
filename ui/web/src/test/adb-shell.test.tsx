@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import axe from 'axe-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeRequest } from '../types';
+import { I18nProvider } from '../i18n';
 
 const xtermState = vi.hoisted(() => ({
   instances: [] as Array<{
@@ -149,5 +151,30 @@ describe('ADB shell React terminal', () => {
       && request.payload.sessionId === 'terminal-session-1'
     ))).toBe(true));
     expect(await screen.findByText('ADB shell session closed.')).toBeVisible();
+  });
+
+  it('exposes a named screen-reader terminal with bounded accessible status updates', async () => {
+    const { container } = render(
+      <I18nProvider locale="en">
+        <AdbShellPanel serial="SERIAL-A11Y" revision={21} />
+      </I18nProvider>,
+    );
+
+    const terminalRegion = await screen.findByRole('region', {
+      name: 'ADB shell terminal for SERIAL-A11Y',
+    });
+    expect(terminalRegion).toBeVisible();
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+    expect(xtermState.instances[0].options).toMatchObject({
+      disableStdin: true,
+      minimumContrastRatio: 7,
+      screenReaderMode: true,
+      scrollback: 5000,
+    });
+
+    const results = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false } },
+    });
+    expect(results.violations).toEqual([]);
   });
 });
