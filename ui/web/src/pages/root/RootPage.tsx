@@ -566,12 +566,16 @@ export function rootAppSupportsDeviceArchitecture(appArchitecture: string, devic
 }
 
 /**
- * Mirrors BootPatchService: every flavor but Magisk rewrites the kernel, which
- * lives in the boot partition. On a modern Pixel the ramdisk moved to init_boot,
- * so only Magisk can patch it.
+ * Mirrors BootPatchService' partition allow-list. Every provider rewrites a
+ * ramdisk, so the flavor does not decide the target: on a modern Pixel the
+ * ramdisk lives in init_boot and the boot image holds only a kernel, while older
+ * devices keep both in boot. Whether the selected image actually carries a
+ * ramdisk is read from its header, which only the backend can see, so it stays
+ * the authority and this check only rejects a partition no patcher handles.
+ * An empty flavor means the backend will default it to boot.
  */
-export function patchMethodAcceptsPartition(method: string, partition: string) {
-  return method === 'magisk' || partition === 'boot';
+export function patchAcceptsPartition(partition: string) {
+  return partition === '' || partition === 'boot' || partition === 'init_boot';
 }
 
 export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPageProps) {
@@ -671,11 +675,10 @@ export function RootPage({ snapshot, selectedSerials, onCommand }: SharedPagePro
   // The footer must name the condition that actually disables the patch button.
   // Reporting "no compatible app" for a device sitting in fastboot sends the user
   // to refresh a catalog that was never the problem. The partition rule mirrors
-  // BootPatchService: every flavor but Magisk patches the boot partition, so an
-  // init_boot image with KernelSU is refused by the backend once the operation is
+  // BootPatchService' allow-list, which the backend refuses once the operation is
   // already running. Refuse it here instead of letting it fail mid-flight.
   const selectedBootPartition = snapshot.boot?.flavor ?? '';
-  const partitionRejected = Boolean(method) && !patchMethodAcceptsPartition(method, selectedBootPartition);
+  const partitionRejected = Boolean(method) && !patchAcceptsPartition(selectedBootPartition);
   const patchBlocked = !singleAdb
     ? t('root.patchDeviceRequired')
     : !snapshot.boot

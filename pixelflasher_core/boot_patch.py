@@ -71,6 +71,8 @@ _APP_PROVIDER_FOR_FLAVOR = {
     "legacy": "kernelsu",
 }
 _BOOT_PARTITIONS = frozenset({"boot", "init_boot"})
+_BOOT_IMAGE_MAGIC = b"ANDROID!"
+_BOOT_IMAGE_HEADER_BYTES = 48
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _OUTPUT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.img$")
 _PATCH_ARCHITECTURES = frozenset({"*", "arm64", "arm", "x86_64", "x86"})
@@ -87,6 +89,27 @@ _APP_ARCHITECTURE_ALIASES = {
     "x86": "x86",
 }
 _KMI_PATTERN = re.compile(r"^android[0-9]{2}-[1-9][0-9]*\.[0-9]+$")
+
+
+def _ramdisk_bytes(path: Path) -> int | None:
+    """Ramdisk length an Android boot image declares, or None when it declares none.
+
+    ``header_version`` sits at offset 40 in every published version. Versions 3
+    and 4 moved ``ramdisk_size`` next to ``kernel_size``; versions 0 to 2 keep it
+    after the kernel load address. An unreadable or non-boot payload returns None
+    so the caller keeps relying on the checks that do not need a header.
+    """
+
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(_BOOT_IMAGE_HEADER_BYTES)
+    except OSError:
+        return None
+    if len(header) < _BOOT_IMAGE_HEADER_BYTES or not header.startswith(_BOOT_IMAGE_MAGIC):
+        return None
+    version = int.from_bytes(header[40:44], "little")
+    offset = 12 if version >= 3 else 16
+    return int.from_bytes(header[offset : offset + 4], "little")
 
 
 class CancellationProbe(Protocol):
@@ -311,10 +334,18 @@ class BootPatchService:
         remote_output = f"{remote_root}/pf-patched-{token}.img"
         remote_app = f"{remote_root}/pf-root-app-{app.sha256[:16]}.apk"
         remote_runner = f"{remote_root}/pf-patch-runner-{runner.sha256[:16]}"
-        remote_support = tuple(
+        # BusyBox resolves its applet from the basename of argv[0] and only acts
+        # as a multiplexer when that basename is a known applet name. The runner
+        # re-enters through ``"$SUPPORT" ash``, so a content-addressed basename
+        # makes it exit 127 with "applet not found" before patching anything.
+        # The digest therefore names the directory and the binary keeps its own
+        # name, which also keeps the runner's /data/local/tmp/pf-patch-support-*
+        # check satisfied.
+        remote_support_roots = tuple(
             f"{remote_root}/pf-patch-support-{index:02d}-{artifact.sha256[:16]}"
             for index, artifact in enumerate(support)
         )
+        remote_support = tuple(f"{root}/busybox" for root in remote_support_roots)
 
         requests: list[ProcessRequest] = [
             ProcessRequest(
@@ -389,12 +420,12 @@ class BootPatchService:
                         device.serial,
                         "shell",
                         "rm",
-                        "-f",
+                        "-rf",
                         remote_boot,
                         remote_output,
                         remote_app,
                         remote_runner,
-                        *remote_support,
+                        *remote_support_roots,
                     ),
                     timeout_seconds=30.0,
                 ),
@@ -848,10 +879,20 @@ class BootPatchService:
                 "boot_partition_unsupported",
                 f"unsupported patch input partition: {partition}",
             )
-        if flavor != "magisk" and partition != "boot":
+        # Every supported provider rewrites a ramdisk: Magisk patches it directly
+        # and the KernelSU-family patchers install their LKM into it. A partition
+        # name cannot decide whether an image carries one. A device with an
+        # init_boot partition ships a kernel-only boot image and keeps its ramdisk
+        # in init_boot, while older devices keep both in boot, so requiring the
+        # name "boot" sends every LKM patcher at the kernel-only image. Patching
+        # it succeeds and produces an image whose injected ramdisk the bootloader
+        # never loads, which boots cleanly with no root at all. The header is the
+        # only authority, so it decides whenever the image declares one.
+        ramdisk = _ramdisk_bytes(path)
+        if ramdisk == 0:
             raise BootPatchPlanningError(
-                "boot_partition_incompatible",
-                f"{flavor} requires a boot partition image",
+                "boot_image_has_no_ramdisk",
+                f"the selected {partition} image carries no ramdisk to patch",
             )
         return partition, FileArtifact(str(path), digest, f"stock-{partition}")
 

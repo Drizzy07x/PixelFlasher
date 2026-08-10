@@ -4,7 +4,7 @@ import type { BridgeCommand } from '../commands';
 import { demoSnapshot } from '../demoData';
 import { I18nProvider } from '../i18n';
 import { RootPage } from '../pages/Pages';
-import { patchMethodAcceptsPartition } from '../pages/root/RootPage';
+import { patchAcceptsPartition } from '../pages/root/RootPage';
 import type { DeviceMode } from '../types';
 
 const ADB_REQUIRED = 'Select exactly one device in ADB mode to patch a boot image.';
@@ -53,26 +53,25 @@ describe('the patch footer names the condition that actually disables the button
 });
 
 describe('the partition rule matches BootPatchService', () => {
-  // Reported from a Pixel 9 Pro XL: selecting the init_boot image with KernelSU
-  // let the operation start and fail with boot_partition_incompatible.
-  it('refuses every non-Magisk flavor on an init_boot image', () => {
-    for (const method of ['kernelsu', 'kernelsu-next', 'apatch', 'sukisu', 'wild-ksu', 'legacy']) {
-      expect(patchMethodAcceptsPartition(method, 'init_boot')).toBe(false);
+  // Measured on a Pixel 9 Pro XL: its boot image declares a zero-length ramdisk
+  // and init_boot carries the whole 2670961-byte one. Every provider rewrites a
+  // ramdisk, so blocking init_boot by flavor aimed the KernelSU family at an
+  // image with nothing to patch. It patched, flashed and booted with no root.
+  it('accepts init_boot for every flavor, which is the modern Pixel layout', () => {
+    expect(patchAcceptsPartition('init_boot')).toBe(true);
+  });
+
+  it('accepts boot, which is where older devices keep the ramdisk', () => {
+    expect(patchAcceptsPartition('boot')).toBe(true);
+  });
+
+  it('accepts an unset partition, which the backend defaults to boot', () => {
+    expect(patchAcceptsPartition('')).toBe(true);
+  });
+
+  it('refuses a partition no patcher handles', () => {
+    for (const partition of ['vendor_boot', 'recovery', 'system', 'dtbo']) {
+      expect(patchAcceptsPartition(partition)).toBe(false);
     }
-  });
-
-  it('accepts every flavor on a boot image', () => {
-    for (const method of ['magisk', 'kernelsu', 'apatch', 'sukisu']) {
-      expect(patchMethodAcceptsPartition(method, 'boot')).toBe(true);
-    }
-  });
-
-  it('lets Magisk patch init_boot, which is the modern Pixel layout', () => {
-    expect(patchMethodAcceptsPartition('magisk', 'init_boot')).toBe(true);
-  });
-
-  it('treats an unknown partition as incompatible for kernel-replacing flavors', () => {
-    expect(patchMethodAcceptsPartition('kernelsu', '')).toBe(false);
-    expect(patchMethodAcceptsPartition('magisk', '')).toBe(true);
   });
 });

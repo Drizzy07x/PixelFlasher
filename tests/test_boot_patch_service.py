@@ -232,31 +232,22 @@ class BootPatchServiceTests(unittest.TestCase):
                     [artifact.sha256 for artifact in compilation.plan.artifacts],
                 )
 
-    def test_magisk_accepts_init_boot_but_kernel_patchers_require_boot(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            boot = root / "init_boot.img"
-            boot.write_bytes(b"stock init boot")
-            magisk, magisk_app, _, _ = self.make_service(root, "magisk")
-            snapshot = self.make_snapshot(boot, partition="init_boot")
-
-            compilation = magisk.compile(
-                self.command("magisk", magisk_app.id, root / "patched-magisk.img"),
-                snapshot,
-            )
-            self.assertEqual(("init_boot",), compilation.plan.partitions)
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            boot = root / "init_boot.img"
-            boot.write_bytes(b"stock init boot")
-            kernelsu, app, _, _ = self.make_service(root, "kernelsu")
-            with self.assertRaises(BootPatchPlanningError) as raised:
-                kernelsu.compile(
-                    self.command("kernelsu", app.id, root / "patched.img"),
+    def test_every_flavor_accepts_init_boot_because_that_is_where_the_ramdisk_is(self):
+        # A Pixel 9 Pro XL keeps a kernel-only boot image and its ramdisk in
+        # init_boot, so an LKM patcher has to reach init_boot as much as Magisk
+        # does. Deciding by partition name sent them at the kernel-only image,
+        # which patches and boots cleanly while granting no root at all.
+        for flavor in sorted(SUPPORTED_BOOT_PATCH_FLAVORS):
+            with self.subTest(flavor=flavor), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                boot = root / "init_boot.img"
+                boot.write_bytes(b"stock init boot")
+                service, app, _, _ = self.make_service(root, flavor)
+                compilation = service.compile(
+                    self.command(flavor, app.id, root / f"patched-{flavor}.img"),
                     self.make_snapshot(boot, partition="init_boot"),
                 )
-            self.assertEqual("boot_partition_incompatible", raised.exception.code)
+                self.assertEqual(("init_boot",), compilation.plan.partitions)
 
     def test_runner_selection_is_exactly_bound_to_architecture_and_kmi(self):
         with tempfile.TemporaryDirectory() as directory:
