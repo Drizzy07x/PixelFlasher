@@ -160,3 +160,6 @@ ui/web/playwright-report/
 ui/web/test-results/
 ui/web/*.tsbuildinfo
 
+# Local code index, rebuilt on demand and never shared
+.codegraph/
+
