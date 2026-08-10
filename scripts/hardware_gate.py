@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 import time
@@ -28,6 +29,15 @@ from ui.command_registry import COMMAND_REGISTRY  # noqa: E402
 from ui.public_bridge import project_operation_result  # noqa: E402
 
 SCHEMA_VERSION = 1
+
+# Matched against the JSON encoding of a projection, where one host backslash is
+# already doubled: a drive root, a UNC prefix, or a POSIX home root.
+_HOST_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z])[A-Za-z]:(?:\\\\|/)"
+    r"|\\\\\\\\"
+    r"|/home/"
+    r"|/Users/"
+)
 
 
 class HardwareGateError(RuntimeError):
@@ -104,11 +114,17 @@ def _approve_standard_confirmations(request: object) -> object:
 
 
 def _route_free(payload: object) -> bool:
-    """A public projection must never carry a host path."""
+    """A public projection must never carry a host path.
+
+    The probes project real device output, and device text legitimately contains
+    URLs. A bare ``:/`` scan cannot tell ``http://localhost/mmsc`` from a host
+    path, which would make the session verdict depend on whatever sat in the log
+    buffer. A drive letter is therefore only a drive letter when no other letter
+    precedes it, which no URL scheme can satisfy.
+    """
 
     text = json.dumps(payload, default=str)
-    markers = (":\\\\", ":/", "/home/", "/Users/", "\\\\\\\\")
-    return not any(marker in text for marker in markers)
+    return _HOST_PATH_PATTERN.search(text) is None
 
 
 def run_probes(runtime: ApplicationRuntime, serial: str) -> list[dict[str, object]]:
