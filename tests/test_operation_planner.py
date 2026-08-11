@@ -30,6 +30,7 @@ from pixelflasher_core import (
     ToolchainInfo,
     TransportOutcome,
 )
+from pixelflasher_core.contracts import root_shell_argv
 from tests.artifact_stage_assertions import assert_exact_or_staged_argv
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
 from tests.stateful_postcondition_observer import StatefulPostconditionObserver
@@ -283,15 +284,7 @@ class DevicePlannerGoldenTests(unittest.TestCase):
             self.fail("safe mode compilation omitted its plan")
         self.assertEqual(
             [
-                (
-                    "ADB",
-                    "-s",
-                    "SERIAL-A",
-                    "shell",
-                    "su",
-                    "-c",
-                    "setprop persist.sys.safemode 1",
-                ),
+                root_shell_argv("ADB", "SERIAL-A", "setprop persist.sys.safemode 1"),
                 ("ADB", "-s", "SERIAL-A", "reboot"),
             ],
             [request.argv for request in compilation.plan.requests],

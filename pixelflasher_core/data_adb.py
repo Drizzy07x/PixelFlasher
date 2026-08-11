@@ -33,6 +33,7 @@ from .contracts import (
     OperationResult,
     OperationRisk,
     ProcessRequest,
+    root_shell_argv,
 )
 from .executor import CancellationToken, CommandExecutor
 from .grants import (
@@ -246,7 +247,7 @@ class DataAdbService:
         )
         requests = (
             ProcessRequest(
-                (adb, "-s", device.serial, "shell", "su", "-c", script),
+                root_shell_argv(adb, device.serial, script),
                 timeout_seconds=20 * 60.0,
                 output_limit_bytes=64 * 1024,
             ),
@@ -350,7 +351,7 @@ class DataAdbService:
                 output_limit_bytes=64 * 1024,
             ),
             ProcessRequest(
-                (adb, "-s", device.serial, "shell", "su", "-c", script),
+                root_shell_argv(adb, device.serial, script),
                 timeout_seconds=30 * 60.0,
                 output_limit_bytes=64 * 1024,
             ),
@@ -433,7 +434,7 @@ class DataAdbService:
             f'printf "{_CLEAR_MARKER}\\n"'
         )
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=10 * 60.0,
             output_limit_bytes=64 * 1024,
         )
@@ -1183,11 +1184,10 @@ class DataAdbService:
                 "data_adb_cleanup_path_invalid",
                 "cleanup path is outside the backend staging namespace",
             )
-        argv = (adb, "-s", serial, "shell")
         if root:
-            argv += ("su", "-c", f"rm -rf -- {' '.join(paths)}")
+            argv = root_shell_argv(adb, serial, f"rm -rf -- {' '.join(paths)}")
         else:
-            argv += ("rm", "-f", "--", *paths)
+            argv = (adb, "-s", serial, "shell", "rm", "-f", "--", *paths)
         return ProcessRequest(
             argv,
             timeout_seconds=60.0,

@@ -21,6 +21,7 @@ from pixelflasher_core.executor import (
     FakeProcessTransport,
     TransportOutcome,
 )
+from tests.device_shell_argv import shell_prefix, shell_script
 
 
 class BackupServiceTests(unittest.TestCase):
@@ -436,9 +437,9 @@ class BackupServiceTests(unittest.TestCase):
         )
 
         request = compilation.plan.request
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
-        self.assertIn("/data/magisk_backup_*", request.argv[6])
-        self.assertIn("PF_MB|%s|%s|%s|%s", request.argv[6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(request.argv))
+        self.assertIn("/data/magisk_backup_*", shell_script(request.argv))
+        self.assertIn("PF_MB|%s|%s|%s|%s", shell_script(request.argv))
         self.assertEqual(128 * 1024, request.output_limit_bytes)
         self.assertEqual("read_only", compilation.plan.risk.value)
         self.assertFalse(compilation.requires_confirmation)
@@ -482,10 +483,10 @@ class BackupServiceTests(unittest.TestCase):
         self.assertEqual(("ADB", "-s", "SERIAL", "push"), push.argv[:4])
         self.assertEqual(str(image.resolve()), push.argv[4])
         self.assertRegex(push.argv[5], r"^/data/local/tmp/pixelflasher-magisk-[0-9a-f]{24}\.img$")
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), migration.argv[:6])
-        self.assertIn(expected_sha1, migration.argv[6])
-        self.assertIn("run_migrations", migration.argv[6])
-        self.assertIn("trap 'rm -f", migration.argv[6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(migration.argv))
+        self.assertIn(expected_sha1, shell_script(migration.argv))
+        self.assertIn("run_migrations", shell_script(migration.argv))
+        self.assertIn("trap 'rm -f", shell_script(migration.argv))
         self.assertEqual(hashlib.sha256(contents).hexdigest(), compilation.plan.artifacts[0].sha256)
         self.assertEqual(
             {"sha1": expected_sha1, "state": "verified"},

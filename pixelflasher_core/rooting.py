@@ -41,6 +41,7 @@ from .contracts import (
     OperationPostcondition,
     OperationRisk,
     ProcessRequest,
+    root_shell_argv,
 )
 
 ROOTING_COMMANDS = frozenset(
@@ -567,7 +568,7 @@ class RootingService:
             f"printf '{_PIF_INVENTORY_PREFIX}|complete|1\\n'"
         )
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=60.0,
             output_limit_bytes=_MAX_PIF_INVENTORY_BYTES,
         )
@@ -618,7 +619,7 @@ class RootingService:
             f"printf '{_PIF_DOCUMENT_PREFIX}|complete|1\\n'"
         )
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=30.0,
             output_limit_bytes=64 * 1024,
         )
@@ -750,7 +751,7 @@ class RootingService:
             requests = (
                 ProcessRequest((adb, "-s", device.serial, "push", str(source), remote), timeout_seconds=120.0),
                 ProcessRequest(
-                    (adb, "-s", device.serial, "shell", "su", "-c", install_script),
+                    root_shell_argv(adb, device.serial, install_script),
                     timeout_seconds=30.0,
                     output_limit_bytes=16 * 1024,
                 ),
@@ -791,7 +792,7 @@ class RootingService:
         if "path" in command.payload or "baseSha256" in command.payload:
             raise RootingPlanningError("pif_import_source_ambiguous", "PIF deletion does not accept a source")
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", f"rm -f -- {path}"),
+            root_shell_argv(adb, device.serial, f"rm -f -- {path}"),
             timeout_seconds=30.0,
             output_limit_bytes=16 * 1024,
         )
@@ -843,7 +844,7 @@ class RootingService:
         databases = "/data/data/com.google.android.gms/databases"
         script = f"rm -rf -- {cache} {databases}/dg.db*"
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=30.0,
             output_limit_bytes=16 * 1024,
         )
@@ -1005,7 +1006,7 @@ class RootingService:
                 timeout_seconds=120.0,
             ),
             ProcessRequest(
-                (adb, "-s", device.serial, "shell", "su", "-c", install_script),
+                root_shell_argv(adb, device.serial, install_script),
                 timeout_seconds=30.0,
                 output_limit_bytes=16 * 1024,
             ),
@@ -1111,7 +1112,7 @@ class RootingService:
             present = False
             label = f"Delete TargetedFix target {package} on {device.serial}"
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=30.0,
             output_limit_bytes=16 * 1024,
         )
@@ -1226,7 +1227,7 @@ class RootingService:
             f"printf '{_PI_ANALYSIS_PREFIX}|complete|1\\n'"
         )
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=120.0,
             output_limit_bytes=_MAX_PI_ANALYSIS_BYTES,
         )
@@ -1323,7 +1324,7 @@ class RootingService:
             "done; exit 0"
         )
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", script),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=120.0,
             output_limit_bytes=64 * 1024,
         )
@@ -1702,15 +1703,7 @@ class RootingService:
             f'count=$((count + 1)); [ "$count" -lt {_MAX_MODULES} ] || break; done'
         )
         request = ProcessRequest(
-            (
-                adb,
-                "-s",
-                device.serial,
-                "shell",
-                "su",
-                "-c",
-                script,
-            ),
+            root_shell_argv(adb, device.serial, script),
             timeout_seconds=30.0,
             output_limit_bytes=_MAX_MODULE_LIST_BYTES,
         )
@@ -1800,7 +1793,7 @@ class RootingService:
         else:
             remote_command = f"touch {module_root}/remove"
         request = ProcessRequest(
-            (adb, "-s", device.serial, "shell", "su", "-c", remote_command),
+            root_shell_argv(adb, device.serial, remote_command),
             timeout_seconds=30.0,
         )
         destructive = action == "remove"
@@ -1986,15 +1979,7 @@ class RootingService:
                 timeout_seconds=600.0,
             ),
             ProcessRequest(
-                (
-                    adb,
-                    "-s",
-                    serial,
-                    "shell",
-                    "su",
-                    "-c",
-                    f"magisk --install-module {remote_path}",
-                ),
+                root_shell_argv(adb, serial, f"magisk --install-module {remote_path}"),
                 timeout_seconds=600.0,
             ),
             ProcessRequest(
@@ -2024,7 +2009,7 @@ class RootingService:
                 timeout_seconds=600.0,
             ),
             ProcessRequest(
-                (adb, "-s", serial, "shell", "su", "-c", guarded_install),
+                root_shell_argv(adb, serial, guarded_install),
                 timeout_seconds=600.0,
             ),
             ProcessRequest(

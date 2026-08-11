@@ -9,7 +9,13 @@ from datetime import datetime
 from pathlib import Path
 
 from pixelflasher_core.config_store import ConfigDocument
-from pixelflasher_core.contracts import DeviceInfo, DeviceManagementState, ManagedDeviceInfo, ToolchainInfo
+from pixelflasher_core.contracts import (
+    DeviceInfo,
+    DeviceManagementState,
+    ManagedDeviceInfo,
+    ToolchainInfo,
+    root_shell_argv,
+)
 from pixelflasher_core.device_management import (
     DEVICE_MANAGEMENT_KEY,
     DeviceManagementError,
@@ -399,7 +405,7 @@ class FilteringTransport:
             return TransportOutcome(0, "[ro.product.model]: [Pixel 9 Pro]\n")
         if request.argv == ("ADB", "-s", "ALLOWED", "shell", "uname", "-r"):
             return TransportOutcome(0, "5.15.148-android14-11-gtest\n")
-        if request.argv == ("ADB", "-s", "ALLOWED", "shell", "su", "-c", "id -u"):
+        if request.argv == root_shell_argv("ADB", "ALLOWED", "id -u"):
             return TransportOutcome(0, "0\n")
         raise AssertionError(f"excluded device was enriched: {request.argv!r}")
 
@@ -427,7 +433,7 @@ class DeviceServiceManagementTests(unittest.TestCase):
                 ("FASTBOOT", "devices", "-l"),
                 ("ADB", "-s", "ALLOWED", "shell", "getprop"),
                 ("ADB", "-s", "ALLOWED", "shell", "uname", "-r"),
-                ("ADB", "-s", "ALLOWED", "shell", "su", "-c", "id -u"),
+                root_shell_argv("ADB", "ALLOWED", "id -u"),
             ],
             transport.calls,
         )

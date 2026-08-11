@@ -10,6 +10,7 @@ import math
 import ntpath
 import posixpath
 import re
+import shlex
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -672,6 +673,26 @@ def _json_value(value: object) -> JSONValue:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     return str(value)
+
+
+def root_shell_argv(adb: str, serial: str, script: str) -> tuple[str, ...]:
+    """Build the argv that runs ``script`` entirely as root on ``serial``.
+
+    ``adb shell`` concatenates its remaining arguments and hands the result to
+    the device shell without re-quoting them, so a script passed as its own argv
+    element is parsed before ``su`` ever sees it. ``su`` then receives only the
+    text up to the first separator and everything after it runs as the
+    unprivileged shell. An enumeration under ``/data/adb`` silently produces no
+    output that way and its caller reports success, so the split is quoted shut
+    here rather than at each call site.
+
+    The script itself stays a single backend-owned string; nothing a caller
+    supplies is interpolated into argv by this function.
+    """
+
+    if not isinstance(script, str) or not script:
+        raise ValueError("root script must be a non-empty string")
+    return (adb, "-s", serial, "shell", f"su -c {shlex.quote(script)}")
 
 
 @dataclass(frozen=True, slots=True)

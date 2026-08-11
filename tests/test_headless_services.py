@@ -38,6 +38,7 @@ from pixelflasher_core import (
     parse_getprop,
     parse_platform_tools_version,
 )
+from pixelflasher_core.contracts import root_shell_argv
 from pixelflasher_core.platform_tools_setup import PlatformToolsSetupService
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
 
@@ -431,7 +432,7 @@ class DeviceServiceTests(unittest.TestCase):
                     timeout_seconds=3.0,
                 ),
                 ProcessRequest(
-                    ("ADB", "-s", "A", "shell", "su", "-c", "id -u"),
+                    root_shell_argv("ADB", "A", "id -u"),
                     timeout_seconds=4.0,
                 ),
                 ProcessRequest(("ADB", "-s", "R", "shell", "getprop"), timeout_seconds=4.0),

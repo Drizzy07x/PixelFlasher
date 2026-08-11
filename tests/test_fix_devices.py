@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from pixelflasher_core.contracts import DeviceInfo, ProcessRequest, ToolchainInfo
+from pixelflasher_core.contracts import (
+    DeviceInfo,
+    ProcessRequest,
+    ToolchainInfo,
+    root_shell_argv,
+)
 from pixelflasher_core.devices import (
     DeviceService,
     merge_device_history,
@@ -61,7 +66,7 @@ class RootDetectionTests(unittest.TestCase):
             0,
             "6.1.99-android14-11-gtest\n",
         )
-        responses[("ADB", "-s", "SERIAL-A", "shell", "su", "-c", "id -u")] = root_outcome
+        responses[root_shell_argv("ADB", "SERIAL-A", "id -u")] = root_outcome
         transport = ScriptedTransport(responses)
         return transport, DeviceService(transport).scan(
             TOOLCHAIN,
@@ -77,7 +82,7 @@ class RootDetectionTests(unittest.TestCase):
         self.assertTrue(result.devices[0].to_dict()["rooted"])
         self.assertIn(
             ProcessRequest(
-                ("ADB", "-s", "SERIAL-A", "shell", "su", "-c", "id -u"),
+                root_shell_argv("ADB", "SERIAL-A", "id -u"),
                 timeout_seconds=4.0,
             ),
             transport.calls,

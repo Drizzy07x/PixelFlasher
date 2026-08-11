@@ -28,6 +28,7 @@ from pixelflasher_core.ota_diagnostics import (
     OTA_RUNNER_REMOTE_PATH,
 )
 from tests.command_engine_factory import make_test_command_engine
+from tests.device_shell_argv import shell_script
 from ui.public_bridge import project_operation_result
 
 
@@ -268,7 +269,7 @@ class OtaDiagnosticsEngineIntegrationTests(unittest.TestCase):
         self.assertIn("toybox sha256sum -c -", calls[1][-1])
         self.assertEqual(
             tuple(f"{invoke} {action}" for action in ("status", "cancel", "reset")),
-            tuple(call[-1] for call in calls[2:]),
+            tuple(shell_script(call) for call in calls[2:]),
         )
 
     def test_reset_denial_or_incompatible_preflight_starts_no_mutation(self) -> None:

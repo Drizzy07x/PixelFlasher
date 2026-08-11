@@ -26,6 +26,7 @@ from .contracts import (
     OperationResult,
     OperationRisk,
     ProcessRequest,
+    root_shell_argv,
 )
 from .executor import TransportOutcome
 
@@ -516,54 +517,22 @@ class OtaDiagnosticsService:
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
         )
         verify = ProcessRequest(
-            (
-                adb,
-                "-s",
-                device.serial,
-                "shell",
-                "su",
-                "-c",
-                f"echo {runner.sha256}  {remote} | toybox sha256sum -c -",
-            ),
+            root_shell_argv(adb, device.serial, f"echo {runner.sha256}  {remote} | toybox sha256sum -c -"),
             timeout_seconds=20.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
         )
         preflight = ProcessRequest(
-            (
-                adb,
-                "-s",
-                device.serial,
-                "shell",
-                "su",
-                "-c",
-                f"{invoke} status",
-            ),
+            root_shell_argv(adb, device.serial, f"{invoke} status"),
             timeout_seconds=20.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
         )
         cancel = ProcessRequest(
-            (
-                adb,
-                "-s",
-                device.serial,
-                "shell",
-                "su",
-                "-c",
-                f"{invoke} cancel",
-            ),
+            root_shell_argv(adb, device.serial, f"{invoke} cancel"),
             timeout_seconds=30.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
         )
         reset = ProcessRequest(
-            (
-                adb,
-                "-s",
-                device.serial,
-                "shell",
-                "su",
-                "-c",
-                f"{invoke} reset",
-            ),
+            root_shell_argv(adb, device.serial, f"{invoke} reset"),
             timeout_seconds=30.0,
             output_limit_bytes=_STATUS_OUTPUT_LIMIT,
         )

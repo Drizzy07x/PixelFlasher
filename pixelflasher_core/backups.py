@@ -26,6 +26,7 @@ from .contracts import (
     OperationPostcondition,
     OperationRisk,
     ProcessRequest,
+    root_shell_argv,
 )
 from .path_compat import is_reserved_path
 
@@ -188,7 +189,7 @@ class BackupService:
             device,
             (
                 ProcessRequest(
-                    (adb, "-s", device.serial, "shell", "su", "-c", script),
+                    root_shell_argv(adb, device.serial, script),
                     timeout_seconds=120.0,
                     output_limit_bytes=128 * 1024,
                 ),
@@ -233,7 +234,7 @@ class BackupService:
                     output_limit_bytes=64 * 1024,
                 ),
                 ProcessRequest(
-                    (adb, "-s", device.serial, "shell", "su", "-c", script),
+                    root_shell_argv(adb, device.serial, script),
                     timeout_seconds=300.0,
                     output_limit_bytes=64 * 1024,
                 ),
@@ -285,7 +286,7 @@ class BackupService:
             device,
             (
                 ProcessRequest(
-                    (adb, "-s", device.serial, "shell", "su", "-c", script),
+                    root_shell_argv(adb, device.serial, script),
                     timeout_seconds=120.0,
                     output_limit_bytes=64 * 1024,
                 ),

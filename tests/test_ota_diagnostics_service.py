@@ -8,6 +8,7 @@ from pixelflasher_core.contracts import (
     OperationResult,
     OperationRisk,
     ToolchainInfo,
+    root_shell_argv,
 )
 from pixelflasher_core.executor import TransportOutcome
 from pixelflasher_core.ota_diagnostics import (
@@ -20,6 +21,7 @@ from pixelflasher_core.ota_diagnostics import (
     OtaDiagnosticPlanningError,
     OtaDiagnosticsService,
 )
+from tests.device_shell_argv import shell_script
 from ui.public_bridge import project_operation_result
 
 
@@ -181,13 +183,9 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
             requests[0].argv,
         )
         self.assertEqual(
-            (
+            root_shell_argv(
                 "ADB",
-                "-s",
                 "SERIAL-OTA",
-                "shell",
-                "su",
-                "-c",
                 (
                     f"echo {runner.sha256}  {OTA_RUNNER_REMOTE_PATH} | "
                     "toybox sha256sum -c -"
@@ -197,7 +195,7 @@ class OtaDiagnosticsServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             tuple(f"{invoke} {action}" for action in ("status", "cancel", "reset")),
-            tuple(request.argv[-1] for request in requests[2:]),
+            tuple(shell_script(request.argv) for request in requests[2:]),
         )
         self.assertEqual("ota-update-engine-runner", runner.role)
         self.assertIs(OperationRisk.MUTATING, compilation.plan.risk)

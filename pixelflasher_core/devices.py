@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from math import isfinite
 
-from .contracts import DeviceInfo, ProcessRequest, ToolchainInfo
+from .contracts import DeviceInfo, ProcessRequest, ToolchainInfo, root_shell_argv
 from .executor import CancellationToken, ProcessTransport, SubprocessTransport, TransportOutcome
 
 _GETPROP_PATTERN = re.compile(r"^\[([^]]+)]\s*:\s*\[(.*)]$")
@@ -658,7 +658,7 @@ class DeviceService:
         probe_warnings: list[str] = []
         outcome = self._run(
             ProcessRequest(
-                (toolchain.adb, "-s", device.serial, "shell", "su", "-c", "id -u"),
+                root_shell_argv(toolchain.adb, device.serial, "id -u"),
                 timeout_seconds=self.root_timeout_seconds,
             ),
             token,

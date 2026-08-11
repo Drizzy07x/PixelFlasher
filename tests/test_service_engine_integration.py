@@ -45,6 +45,7 @@ from pixelflasher_core.module_updates import RootModuleUpdateService
 from tests.apk_test_helpers import FakeVerifiedApkInspector
 from tests.artifact_stage_assertions import assert_exact_or_staged_argv
 from tests.command_engine_factory import make_test_command_engine as CommandEngine
+from tests.device_shell_argv import shell_prefix, shell_script
 from tests.stateful_postcondition_observer import StatefulPostconditionObserver
 from tests.test_module_updates import FakeResponse, FakeSession, metadata, module_zip
 
@@ -2119,11 +2120,8 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("enabled", result.value["modules"][0]["state"])
         self.assertEqual("disabled", result.value["modules"][1]["state"])
         self.assertNotIn("updateUrl", result.value["modules"][0])
-        self.assertEqual(
-            ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
-            transport.calls[0].argv[:6],
-        )
-        self.assertIn("module.prop", transport.calls[0].argv[6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(transport.calls[0].argv))
+        self.assertIn("module.prop", shell_script(transport.calls[0].argv))
 
     def test_root_module_inventory_never_succeeds_with_forged_records(self):
         engine, _transport = self.engine_for(
@@ -2187,10 +2185,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             self.assertEqual("test_module", result.value["updates"][0]["moduleId"])
             self.assertNotIn("https://", repr(result.value))
             self.assertNotIn(str(Path(temporary)), repr(result.value))
-            self.assertEqual(
-                ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
-                transport.calls[0].argv[:6],
-            )
+            self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(transport.calls[0].argv))
             update = result.value["updates"][0]
             confirmation = rooting.required_module_update_confirmation(
                 "test_module",
@@ -2245,10 +2240,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertNotIn("SERIAL", repr(result.value))
         self.assertNotIn("/data/adb", repr(result.value))
         self.assertEqual(3, result.value["signals"]["magiskDenylistCount"])
-        self.assertEqual(
-            ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
-            transport.calls[0].argv[:6],
-        )
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(transport.calls[0].argv))
 
     def test_pi_analysis_never_returns_partial_device_output(self):
         engine, _transport = self.engine_for(
@@ -2283,7 +2275,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
         self.assertNotIn("/data/adb", repr(result.value))
         self.assertNotIn("keybox", repr(result.value).casefold())
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), transport.calls[0].argv[:6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(transport.calls[0].argv))
 
     def test_pif_inventory_never_returns_partial_device_output(self):
         engine, _transport = self.engine_for(
@@ -2321,7 +2313,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual("", result.stdout)
         self.assertEqual("", result.stderr)
         self.assertNotIn("/data/adb", repr(result.value))
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), transport.calls[0].argv[:6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(transport.calls[0].argv))
 
     def test_pif_profile_delete_requires_and_verifies_the_exact_canonical_target(self):
         engine, transport = self.engine_for(
@@ -2349,7 +2341,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertEqual({"action": "deleteProfile", "profileId": profile_id}, result.value)
         self.assertEqual(
             "rm -f -- /data/adb/modules/playintegrityfix/custom.pif.json",
-            transport.calls[0].argv[6],
+            shell_script(transport.calls[0].argv),
         )
 
     def test_pif_profile_import_returns_only_the_independently_verified_hash(self):
@@ -2422,7 +2414,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
             },
             result.value,
         )
-        self.assertIn('[ "$current" = absent ]', transport.calls[1].argv[6])
+        self.assertIn('[ "$current" = absent ]', shell_script(transport.calls[1].argv))
 
     def test_targeted_fix_target_changes_return_only_verified_package_identity(self):
         package = "com.example.app"
@@ -2452,7 +2444,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
                 self.assertTrue(result.ok)
                 self.assertEqual(code, result.code)
                 self.assertEqual({"action": action, "targetPackage": package}, result.value)
-                self.assertIn("/data/adb/modules/targetedfix/config/target.txt", transport.calls[0].argv[6])
+                self.assertIn("/data/adb/modules/targetedfix/config/target.txt", shell_script(transport.calls[0].argv))
 
     def test_targeted_fix_profile_import_returns_only_verified_hash_metadata(self):
         package = "com.example.app"
@@ -2515,7 +2507,7 @@ class ServiceEngineIntegrationTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual("droidguard_cache_cleaned", result.code)
         self.assertEqual({"action": "cleanupDroidGuard", "verified": True}, result.value)
-        self.assertIn("app_dg_cache", transport.calls[0].argv[6])
+        self.assertIn("app_dg_cache", shell_script(transport.calls[0].argv))
 
     def test_integrity_checker_launch_returns_only_allow_listed_verified_identity(self):
         engine, transport = self.engine_for(

@@ -28,6 +28,7 @@ from .contracts import (
     OperationRisk,
     ProcessRequest,
     confirmation_serial_suffix,
+    root_shell_argv,
 )
 from .safety import SafetyPolicy
 
@@ -660,15 +661,7 @@ class OperationPlanner:
             assert adb is not None
             requests = (
                 ProcessRequest(
-                    (
-                        adb,
-                        "-s",
-                        device.serial,
-                        "shell",
-                        "su",
-                        "-c",
-                        "setprop persist.sys.safemode 1",
-                    ),
+                    root_shell_argv(adb, device.serial, "setprop persist.sys.safemode 1"),
                     timeout_seconds=30.0,
                 ),
                 ProcessRequest(

@@ -16,6 +16,7 @@ from pixelflasher_core.observer import (
     ProcessDeviceObservationProbe,
 )
 from pixelflasher_core.ota_diagnostics import OTA_RUNNER_MAIN_CLASS
+from tests.device_shell_argv import root_command
 
 SERIAL = "ABCDEF123456"
 TOOLCHAIN = ToolchainInfo("ADB", "FASTBOOT", "36.0.0", True)
@@ -143,9 +144,9 @@ class StatefulDeviceTransport:
                     "recovery\n" if self.mode == "recovery" else "normal\n",
                 )
             return TransportOutcome(0, f"{self.properties.get(name, '')}\n")
-        if (
-            argv[3:6] == ("shell", "su", "-c")
-            and argv[-1].endswith(f"{OTA_RUNNER_MAIN_CLASS} status")
+        root_script_text = root_command(argv)
+        if root_script_text is not None and root_script_text.endswith(
+            f"{OTA_RUNNER_MAIN_CLASS} status"
         ):
             return (
                 TransportOutcome(0, self.ota_status_output)
@@ -208,8 +209,8 @@ class StatefulDeviceTransport:
         if argv[3:] == ("shell", "ps", "-A"):
             process = "shell 123 1 shizuku_server\n" if self.shizuku_running else ""
             return TransportOutcome(0, f"USER PID PPID NAME\n{process}")
-        if argv[3:6] == ("shell", "su", "-c") and len(argv) == 7:
-            command = argv[6]
+        command = root_command(argv)
+        if command is not None:
             if command == "id -u":
                 return TransportOutcome(0, "0\n") if self.root_available else TransportOutcome(1)
             if command == "magisk --denylist ls":
@@ -479,9 +480,8 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
         status_calls = [
             call
             for call in idle_transport.calls
-            if (
-                call.argv[3:6] == ("shell", "su", "-c")
-                and call.argv[-1].endswith(f"{OTA_RUNNER_MAIN_CLASS} status")
+            if (root_command(call.argv) or "").endswith(
+                f"{OTA_RUNNER_MAIN_CLASS} status"
             )
         ]
         self.assertEqual(1, len(status_calls))
@@ -758,16 +758,8 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
             argv,
         )
         self.assertIn(
-            (
-                "ADB",
-                "-s",
-                SERIAL,
-                "shell",
-                "su",
-                "-c",
-                f"test -d /data/adb/modules/{module_id}",
-            ),
-            argv,
+            f"test -d /data/adb/modules/{module_id}",
+            [root_command(item) for item in argv],
         )
 
     def test_root_module_update_version_is_observed_and_mismatch_is_explicit(self) -> None:
@@ -1140,16 +1132,8 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
 
         self.assertEqual(ObservationStatus.VERIFIED, result.status)
         self.assertIn(
-            (
-                "ADB",
-                "-s",
-                SERIAL,
-                "shell",
-                "su",
-                "-c",
-                "magisk --denylist ls",
-            ),
-            [call.argv for call in transport.calls],
+            "magisk --denylist ls",
+            [root_command(call.argv) for call in transport.calls],
         )
 
         mismatch = observer(
@@ -1180,11 +1164,11 @@ class ProductionPostconditionObserverTests(unittest.TestCase):
 
         self.assertEqual(ObservationStatus.VERIFIED, result.status)
         query = next(
-            call.argv[-1]
+            root_command(call.argv)
             for call in transport.calls
-            if call.argv[3:6] == ("shell", "su", "-c")
-            and call.argv[-1].startswith('magisk --sqlite "SELECT')
+            if (root_command(call.argv) or "").startswith('magisk --sqlite "SELECT')
         )
+        assert query is not None
         self.assertIn("WHERE uid = 10123;", query)
 
         absent = observer(

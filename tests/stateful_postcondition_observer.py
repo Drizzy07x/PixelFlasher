@@ -20,7 +20,9 @@ from pixelflasher_core.contracts import (
     OperationPlan,
     OperationPostcondition,
     ProcessRequest,
+    root_shell_argv,
 )
+from tests.device_shell_argv import readable_command, shell_prefix, shell_script
 
 
 class RecordingTransport(Protocol):
@@ -85,7 +87,7 @@ class StatefulPostconditionObserver:
                 and any(
                     request.argv[:6]
                     == ("ADB", "-s", plan.target_serial, "shell", "sh", "-c")
-                    and "moe.shizuku.privileged.api" in request.argv[6]
+                    and "moe.shizuku.privileged.api" in shell_script(request.argv)
                     for request in calls
                 )
             )
@@ -93,9 +95,8 @@ class StatefulPostconditionObserver:
             return self._result(
                 expected.get("allDisabled") is True
                 and any(
-                    request.argv[:6]
-                    == ("ADB", "-s", plan.target_serial, "shell", "su", "-c")
-                    and 'touch "$dir/disable"' in request.argv[6]
+                    shell_prefix(request.argv) == ("ADB", "-s", plan.target_serial, "shell")
+                    and 'touch "$dir/disable"' in shell_script(request.argv)
                     for request in calls
                 )
             )
@@ -297,7 +298,7 @@ class StatefulPostconditionObserver:
         state = expected.get("state")
         if not isinstance(module_id, str) or not isinstance(state, str):
             return False
-        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        shell_text = "\n".join(readable_command(request.argv) for request in calls)
         module_root = f"/data/adb/modules/{module_id}"
         if state == "installed":
             roles = {f"root-module-zip:{module_id}", f"root-module-update:{module_id}"}
@@ -367,8 +368,8 @@ class StatefulPostconditionObserver:
         if path is None:
             return False
         return any(
-            request.argv[:6] == ("ADB", "-s", plan.target_serial, "shell", "su", "-c")
-            and request.argv[6] == f"rm -f -- {path}"
+            shell_prefix(request.argv) == ("ADB", "-s", plan.target_serial, "shell")
+            and shell_script(request.argv) == f"rm -f -- {path}"
             for request in calls
         )
 
@@ -384,7 +385,7 @@ class StatefulPostconditionObserver:
             return False
         role = f"pif-profile:{profile_id}"
         artifact = next((item for item in plan.artifacts if item.role == role), None)
-        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        shell_text = "\n".join(readable_command(request.argv) for request in calls)
         return (
             artifact is not None
             and artifact.sha256 == digest
@@ -402,7 +403,7 @@ class StatefulPostconditionObserver:
         present = expected.get("present")
         if not isinstance(package, str) or not isinstance(present, bool):
             return False
-        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        shell_text = "\n".join(readable_command(request.argv) for request in calls)
         target_file = "/data/adb/modules/targetedfix/config/target.txt"
         if present:
             return (
@@ -433,7 +434,7 @@ class StatefulPostconditionObserver:
             return False
         role = f"targeted-fix-profile:{package}:{profile_format}"
         artifact = next((item for item in plan.artifacts if item.role == role), None)
-        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        shell_text = "\n".join(readable_command(request.argv) for request in calls)
         return (
             artifact is not None
             and artifact.sha256 == digest
@@ -454,13 +455,9 @@ class StatefulPostconditionObserver:
     ) -> bool:
         if expected != {"empty": True}:
             return False
-        exact = (
+        exact = root_shell_argv(
             "ADB",
-            "-s",
             plan.target_serial,
-            "shell",
-            "su",
-            "-c",
             "rm -rf -- /data/data/com.google.android.gms/app_dg_cache "
             "/data/data/com.google.android.gms/databases/dg.db*",
         )
@@ -594,7 +591,7 @@ class StatefulPostconditionObserver:
         if not isinstance(sha1, str) or state not in {"verified", "absent"}:
             return False
         target = f"/data/magisk_backup_{sha1}"
-        shell_text = "\n".join(" ".join(request.argv) for request in calls)
+        shell_text = "\n".join(readable_command(request.argv) for request in calls)
         if state == "verified":
             return (
                 any("push" in request.argv and request.argv[-1].endswith(".img") for request in calls)

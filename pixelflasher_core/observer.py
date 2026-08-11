@@ -14,7 +14,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
-from .contracts import ProcessRequest, ToolchainInfo, is_valid_target_serial
+from .contracts import ProcessRequest, ToolchainInfo, is_valid_target_serial, root_shell_argv
 from .devices import DeviceService, parse_fastboot_getvar
 from .executor import CancellationToken, ProcessTransport, TransportOutcome
 from .ota_diagnostics import (
@@ -1343,7 +1343,7 @@ class ProcessDeviceObservationProbe:
                 f"/data/adb/modules/{module_id}/module.prop 2>/dev/null | head -n 1 | head -c 16"
             )
             outcome = self._run(
-                (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", command),
+                root_shell_argv(toolchain.adb, spec.serial, command),
                 token,
                 timeout,
                 output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
@@ -1432,7 +1432,7 @@ class ProcessDeviceObservationProbe:
             if token.cancelled or path is None:
                 break
             outcome = self._run(
-                (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", f"sha256sum -- {path}"),
+                root_shell_argv(toolchain.adb, spec.serial, f"sha256sum -- {path}"),
                 token,
                 timeout,
                 output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
@@ -1502,7 +1502,7 @@ class ProcessDeviceObservationProbe:
                 f"sha256sum -- {path}"
             )
             outcome = self._run(
-                (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", script),
+                root_shell_argv(toolchain.adb, spec.serial, script),
                 token,
                 timeout,
                 output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
@@ -1534,7 +1534,7 @@ class ProcessDeviceObservationProbe:
             '[ -f "$dir/disable" ] || exit 1; done; exit 0'
         )
         outcome = self._run(
-            (toolchain.adb, "-s", spec.serial, "shell", "su", "-c", script),
+            root_shell_argv(toolchain.adb, spec.serial, script),
             token,
             timeout,
             output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
@@ -1604,15 +1604,7 @@ class ProcessDeviceObservationProbe:
         if not self._root_available(toolchain, spec.serial, token, timeout):
             return {}
         outcome = self._run(
-            (
-                toolchain.adb,
-                "-s",
-                spec.serial,
-                "shell",
-                "su",
-                "-c",
-                "magisk --denylist ls",
-            ),
+            root_shell_argv(toolchain.adb, spec.serial, "magisk --denylist ls"),
             token,
             timeout,
             output_limit_bytes=_MAX_ADB_INVENTORY_OUTPUT_BYTES,
@@ -1650,15 +1642,7 @@ class ProcessDeviceObservationProbe:
                 f"WHERE uid = {uid};"
             )
             outcome = self._run(
-                (
-                    toolchain.adb,
-                    "-s",
-                    spec.serial,
-                    "shell",
-                    "su",
-                    "-c",
-                    f'magisk --sqlite "{sql}"',
-                ),
+                root_shell_argv(toolchain.adb, spec.serial, f'magisk --sqlite "{sql}"'),
                 token,
                 timeout,
                 output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
@@ -1708,15 +1692,7 @@ class ProcessDeviceObservationProbe:
                 'else echo PF_MB_CORRUPT; fi; fi'
             )
             outcome = self._run(
-                (
-                    toolchain.adb,
-                    "-s",
-                    spec.serial,
-                    "shell",
-                    "su",
-                    "-c",
-                    script,
-                ),
+                root_shell_argv(toolchain.adb, spec.serial, script),
                 token,
                 timeout,
                 output_limit_bytes=_MAX_PROPERTY_OUTPUT_BYTES,
@@ -1805,15 +1781,7 @@ class ProcessDeviceObservationProbe:
         timeout: float,
     ) -> bool:
         outcome = self._run(
-            (
-                toolchain.adb,
-                "-s",
-                serial,
-                "shell",
-                "su",
-                "-c",
-                "id -u",
-            ),
+            root_shell_argv(toolchain.adb, serial, "id -u"),
             token,
             timeout,
         )
@@ -1833,15 +1801,7 @@ class ProcessDeviceObservationProbe:
         timeout: float,
     ) -> bool | None:
         outcome = self._run(
-            (
-                toolchain.adb,
-                "-s",
-                serial,
-                "shell",
-                "su",
-                "-c",
-                remote_command,
-            ),
+            root_shell_argv(toolchain.adb, serial, remote_command),
             token,
             timeout,
         )
@@ -2104,13 +2064,9 @@ class ProcessDeviceObservationProbe:
         timeout: float,
     ) -> bool | None:
         outcome = self._run(
-            (
+            root_shell_argv(
                 toolchain.adb,
-                "-s",
                 serial,
-                "shell",
-                "su",
-                "-c",
                 (
                     f"CLASSPATH={OTA_RUNNER_REMOTE_PATH} app_process /system/bin "
                     f"{OTA_RUNNER_MAIN_CLASS} status"

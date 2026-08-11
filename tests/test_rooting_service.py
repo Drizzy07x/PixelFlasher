@@ -15,6 +15,7 @@ from pixelflasher_core.contracts import (
     DeviceInfo,
     OperationStatus,
     ToolchainInfo,
+    root_shell_argv,
 )
 from pixelflasher_core.executor import (
     CancellationToken,
@@ -36,6 +37,7 @@ from pixelflasher_core.rooting import (
     parse_root_module_list,
 )
 from tests.apk_test_helpers import FakeVerifiedApkInspector
+from tests.device_shell_argv import shell_prefix, shell_script
 
 
 def module_record(
@@ -281,10 +283,10 @@ class RootingServiceTests(unittest.TestCase):
         assert compilation.plan is not None
         request = compilation.plan.requests[0]
         self.assertEqual(("ADB", "-s", "SERIAL", "shell", "sh", "-c"), request.argv[:6])
-        self.assertIn("moe.shizuku.privileged.api", request.argv[6])
-        self.assertIn("/data/app/*/base.apk", request.argv[6])
-        self.assertIn("getprop ro.product.cpu.abi", request.argv[6])
-        self.assertIn("x86_64", request.argv[6])
+        self.assertIn("moe.shizuku.privileged.api", shell_script(request.argv))
+        self.assertIn("/data/app/*/base.apk", shell_script(request.argv))
+        self.assertIn("getprop ro.product.cpu.abi", shell_script(request.argv))
+        self.assertIn("x86_64", shell_script(request.argv))
         self.assertEqual("shizuku_state", compilation.plan.postconditions[0].kind)
         self.assertEqual({"running": True}, compilation.plan.postconditions[0].expected)
 
@@ -334,9 +336,9 @@ class RootingServiceTests(unittest.TestCase):
         self.assertFalse(compilation.destructive)
         assert compilation.plan is not None
         request = compilation.plan.requests[0]
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
-        self.assertIn('touch "$dir/disable"', request.argv[6])
-        self.assertNotIn("rm ", request.argv[6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(request.argv))
+        self.assertIn('touch "$dir/disable"', shell_script(request.argv))
+        self.assertNotIn("rm ", shell_script(request.argv))
         self.assertEqual("magisk_modules_state", compilation.plan.postconditions[0].kind)
         self.assertEqual(
             {"allDisabled": True},
@@ -389,9 +391,9 @@ class RootingServiceTests(unittest.TestCase):
         self.assertFalse(compilation.requires_confirmation)
         assert compilation.plan is not None
         request = compilation.plan.request
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(request.argv))
         self.assertEqual(256 * 1024, request.output_limit_bytes)
-        script = request.argv[6]
+        script = shell_script(request.argv)
         self.assertIn("PF_PI|schema|1", script)
         self.assertIn("/data/adb/tricky_store/keybox.xml", script)
         self.assertIn("hash_allowed", script)
@@ -441,9 +443,9 @@ class RootingServiceTests(unittest.TestCase):
         self.assertFalse(compilation.device_write)
         assert compilation.plan is not None
         request = compilation.plan.request
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(request.argv))
         self.assertEqual(128 * 1024, request.output_limit_bytes)
-        script = request.argv[6]
+        script = shell_script(request.argv)
         self.assertIn("PF_PIF|schema|1", script)
         self.assertIn("/data/adb/modules/targetedfix/config/target.txt", script)
         self.assertNotIn("keybox", script.casefold())
@@ -481,10 +483,10 @@ class RootingServiceTests(unittest.TestCase):
         self.assertEqual("pif.document", compilation.action)
         assert compilation.plan is not None
         request = compilation.plan.request
-        self.assertEqual(("ADB", "-s", "SERIAL", "shell", "su", "-c"), request.argv[:6])
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(request.argv))
         self.assertEqual(64 * 1024, request.output_limit_bytes)
-        self.assertIn("PF_PIF_DOC|schema|1", request.argv[6])
-        self.assertIn("32768", request.argv[6])
+        self.assertIn("PF_PIF_DOC|schema|1", shell_script(request.argv))
+        self.assertIn("32768", shell_script(request.argv))
 
         parsed = parse_pif_document(
             pif_document_output(),
@@ -537,11 +539,12 @@ class RootingServiceTests(unittest.TestCase):
         self.assertTrue(compilation.destructive)
         assert compilation.plan is not None
         self.assertEqual(
-            (
-                "ADB", "-s", "SERIAL", "shell", "su", "-c",
-                "rm -f -- /data/adb/modules/playintegrityfix/custom.pif.json",
-            ),
-            compilation.plan.request.argv,
+            ("ADB", "-s", "SERIAL", "shell"),
+            shell_prefix(compilation.plan.request.argv),
+        )
+        self.assertEqual(
+            "rm -f -- /data/adb/modules/playintegrityfix/custom.pif.json",
+            shell_script(compilation.plan.request.argv),
         )
         self.assertEqual("pif_profile_state", compilation.plan.postconditions[0].kind)
         self.assertEqual({"profileId": profile_id, "present": False}, compilation.plan.postconditions[0].expected)
@@ -590,7 +593,7 @@ class RootingServiceTests(unittest.TestCase):
                 )
                 self.assertEqual(package, compilation.pif_target_package)
                 assert compilation.plan is not None
-                script = compilation.plan.request.argv[6]
+                script = shell_script(compilation.plan.request.argv)
                 self.assertIn("/data/adb/modules/targetedfix/config/target.txt", script)
                 self.assertIn(".pixelflasher-targets-", script)
                 self.assertIn("chmod 0600", script)
@@ -654,9 +657,9 @@ class RootingServiceTests(unittest.TestCase):
         self.assertEqual(digest, compilation.pif_sha256)
         assert compilation.plan is not None
         self.assertEqual(2, len(compilation.plan.requests))
-        self.assertIn("grep -Fxq -- com.example.app", compilation.plan.requests[1].argv[6])
-        self.assertIn("com.example.app.json", compilation.plan.requests[1].argv[6])
-        self.assertIn("rm -f -- /data/adb/modules/targetedfix/config/com.example.app.prop", compilation.plan.requests[1].argv[6])
+        self.assertIn("grep -Fxq -- com.example.app", shell_script(compilation.plan.requests[1].argv))
+        self.assertIn("com.example.app.json", shell_script(compilation.plan.requests[1].argv))
+        self.assertIn("rm -f -- /data/adb/modules/targetedfix/config/com.example.app.prop", shell_script(compilation.plan.requests[1].argv))
         postcondition = compilation.plan.postconditions[0]
         self.assertEqual("targeted_fix_profile_hash", postcondition.kind)
         self.assertEqual(
@@ -696,7 +699,7 @@ class RootingServiceTests(unittest.TestCase):
         self.assertEqual(
             "rm -rf -- /data/data/com.google.android.gms/app_dg_cache "
             "/data/data/com.google.android.gms/databases/dg.db*",
-            compilation.plan.request.argv[6],
+            shell_script(compilation.plan.request.argv),
         )
         self.assertEqual("droidguard_cache_state", compilation.plan.postconditions[0].kind)
         self.assertEqual({"empty": True}, compilation.plan.postconditions[0].expected)
@@ -837,9 +840,9 @@ class RootingServiceTests(unittest.TestCase):
         assert compilation.plan is not None
         self.assertEqual(2, len(compilation.plan.requests))
         self.assertEqual(("ADB", "-s", "SERIAL", "push"), compilation.plan.requests[0].argv[:4])
-        self.assertIn("mkdir -p /data/adb/modules/playintegrityfix", compilation.plan.requests[1].argv[6])
-        self.assertIn("chmod 0600 /data/adb/modules/playintegrityfix/custom.pif.json", compilation.plan.requests[1].argv[6])
-        self.assertIn("rm -f -- /data/local/tmp/pixelflasher-pif-", compilation.plan.requests[1].argv[6])
+        self.assertIn("mkdir -p /data/adb/modules/playintegrityfix", shell_script(compilation.plan.requests[1].argv))
+        self.assertIn("chmod 0600 /data/adb/modules/playintegrityfix/custom.pif.json", shell_script(compilation.plan.requests[1].argv))
+        self.assertIn("rm -f -- /data/local/tmp/pixelflasher-pif-", shell_script(compilation.plan.requests[1].argv))
         self.assertEqual("pif_profile_hash", compilation.plan.postconditions[0].kind)
         self.assertEqual({"profileId": profile_id, "sha256": digest}, compilation.plan.postconditions[0].expected)
 
@@ -869,7 +872,7 @@ class RootingServiceTests(unittest.TestCase):
         self.assertEqual(digest, compilation.pif_sha256)
         assert compilation.plan is not None
         self.assertEqual(2, len(compilation.plan.requests))
-        install = compilation.plan.requests[1].argv[6]
+        install = shell_script(compilation.plan.requests[1].argv)
         self.assertIn(f'[ "$current" = {base_digest} ]', install)
         self.assertIn("exit 75", install)
         self.assertEqual(
@@ -1182,11 +1185,8 @@ class RootingServiceTests(unittest.TestCase):
             self.snapshot,
         )
 
-        self.assertEqual(
-            ("ADB", "-s", "SERIAL", "shell", "su", "-c"),
-            compilation.plan.request.argv[:6],
-        )
-        script = compilation.plan.request.argv[6]
+        self.assertEqual(("ADB", "-s", "SERIAL", "shell"), shell_prefix(compilation.plan.request.argv))
+        script = shell_script(compilation.plan.request.argv)
         self.assertIn("for dir in /data/adb/modules/*", script)
         self.assertIn("module.prop", script)
         self.assertIn("base64", script)
@@ -1211,15 +1211,7 @@ class RootingServiceTests(unittest.TestCase):
                     self.snapshot,
                 )
                 self.assertEqual(
-                    (
-                        "ADB",
-                        "-s",
-                        "SERIAL",
-                        "shell",
-                        "su",
-                        "-c",
-                        remote_command,
-                    ),
+                    root_shell_argv("ADB", "SERIAL", remote_command),
                     compilation.plan.request.argv,
                 )
                 self.assertTrue(compilation.device_write)
@@ -1279,15 +1271,7 @@ class RootingServiceTests(unittest.TestCase):
             self.assertEqual(
                 [
                     ("ADB", "-s", "SERIAL", "push", str(module.resolve()), remote),
-                    (
-                        "ADB",
-                        "-s",
-                        "SERIAL",
-                        "shell",
-                        "su",
-                        "-c",
-                        f"magisk --install-module {remote}",
-                    ),
+                    root_shell_argv("ADB", "SERIAL", f"magisk --install-module {remote}"),
                     ("ADB", "-s", "SERIAL", "shell", "rm", "-f", remote),
                 ],
                 [request.argv for request in compilation.plan.requests],
